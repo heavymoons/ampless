@@ -7,3 +7,8 @@ dist/
 .env
 .env.local
 .DS_Store
+
+# Claude Code personal memory (project settings like CLAUDE.md should be committed)
+.claude/projects/*/memory/
+.claude/settings.local.json
+.mcp.json
