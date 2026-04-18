@@ -14,5 +14,9 @@
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "picocolors": "^1.1.1"
+  },
   "keywords": ["cms", "aws", "amplify", "serverless", "create"]
 }
