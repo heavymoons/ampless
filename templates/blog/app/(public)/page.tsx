@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { listPosts } from 'ampless'
-import cmsConfig from '../cms.config'
+import cmsConfig from '@/cms.config'
 
 export default async function Home() {
   const posts = await listPosts()

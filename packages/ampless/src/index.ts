@@ -1,7 +1,16 @@
 export { defineConfig } from './config.js'
 export { defineSchema } from './schema.js'
-export { listPosts, getPost } from './core.js'
-export type { ListOptions } from './core.js'
+export {
+  listPosts,
+  getPost,
+  getPostById,
+  createPost,
+  updatePost,
+  deletePost,
+  setPostsProvider,
+  hasPostsProvider,
+} from './core.js'
+export type { ListOptions, CreatePostInput, PostsProvider } from './core.js'
 export type {
   Post,
   Page,

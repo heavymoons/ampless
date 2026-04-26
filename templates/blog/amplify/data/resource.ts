@@ -38,7 +38,7 @@ const schema = a.schema({
       src: a.string().required(),
       mimeType: a.string().required(),
       size: a.integer(),
-      delivery: a.enum(['nextjs', 's3-direct']),
+      delivery: a.string(),
     })
     .identifier(['siteId', 'mediaId'])
     .authorization((allow) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
