@@ -49,8 +49,6 @@ importers:
 
   packages/plugin-seo: {}
 
-  templates/blog: {}
-
 packages:
 
   '@babel/runtime@7.29.2':
