@@ -8,6 +8,25 @@ import { runWithAmplifyServerContext } from '@/lib/amplify-server'
 // short-lived presigned URL via Amplify SSR, then redirects.
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params
+
+  // Reject path traversal, slashes inside segments, and empty segments. The
+  // `public/` prefix below would otherwise be escapable with values like
+  // ".." or "..%2F..".
+  if (
+    !path.length ||
+    path.some(
+      (segment) =>
+        !segment ||
+        segment === '.' ||
+        segment === '..' ||
+        segment.includes('/') ||
+        segment.includes('\\') ||
+        segment.includes('\0')
+    )
+  ) {
+    return NextResponse.json({ error: 'Invalid path' }, { status: 400 })
+  }
+
   const objectPath = `public/${path.join('/')}`
 
   try {

@@ -42,7 +42,7 @@ export function TiptapEditor({ initialContent, onChange }: TiptapEditorProps) {
     editorProps: {
       attributes: {
         class:
-          'prose prose-neutral max-w-none min-h-[400px] px-4 py-3 focus:outline-none',
+          'prose prose-neutral dark:prose-invert max-w-none min-h-[400px] px-4 py-3 focus:outline-none',
       },
     },
     onUpdate: ({ editor }) => {

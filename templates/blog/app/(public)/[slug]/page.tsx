@@ -36,7 +36,7 @@ export default async function PostPage({ params }: { params: Promise<{ slug: str
 
         <div
           id="post-body"
-          className="prose prose-neutral max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
+          className="prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
           style={proseStyle}
           dangerouslySetInnerHTML={{ __html: renderBody(post) }}
         />

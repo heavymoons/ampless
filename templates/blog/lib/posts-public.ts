@@ -15,18 +15,12 @@ const client = generateServerClientUsingCookies<Schema>({
   authMode: 'apiKey',
 })
 
-type RawPost = {
-  siteId: string
-  postId: string
-  slug: string
-  title: string
-  excerpt?: string | null
-  format?: string | null
-  body?: unknown
-  status?: string | null
-  publishedAt?: string | null
-  tags?: (string | null)[] | null
-}
+// Derive the wire shape of a PublicPost directly from the generated client
+// so we don't restate the schema or fall back to `as any` casts.
+type ListResponse = Awaited<ReturnType<typeof client.queries.listPublishedPosts>>
+type GetResponse = Awaited<ReturnType<typeof client.queries.getPublishedPost>>
+type PublicPostItem = NonNullable<NonNullable<ListResponse['data']>[number]>
+type PublicPostSingle = NonNullable<GetResponse['data']>
 
 function decodeBody(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -37,7 +31,7 @@ function decodeBody(value: unknown): unknown {
   }
 }
 
-function toCorePost(p: RawPost): Post {
+function toCorePost(p: PublicPostItem | PublicPostSingle): Post {
   return {
     postId: p.postId,
     siteId: p.siteId,
@@ -61,8 +55,8 @@ export async function listPublishedPosts(opts: { siteId?: string; limit?: number
   })
   if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts')
   return (data ?? [])
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .map((p) => toCorePost(p as unknown as RawPost))
+    .filter((p): p is PublicPostItem => p !== null)
+    .map(toCorePost)
 }
 
 export async function getPublishedPost(
@@ -74,5 +68,5 @@ export async function getPublishedPost(
     slug,
   })
   if (errors) throw new Error(errors[0]?.message ?? 'Failed to get post')
-  return data ? toCorePost(data as unknown as RawPost) : null
+  return data ? toCorePost(data) : null
 }

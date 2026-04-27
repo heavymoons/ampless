@@ -15,6 +15,11 @@ const schema = a.schema({
       tags: a.string().array(),
     })
     .identifier(['siteId', 'postId'])
+    // Secondary index on `status` + `publishedAt` so the public read
+    // resolvers can fetch only published posts efficiently.
+    .secondaryIndexes((index) => [
+      index('status').sortKeys(['publishedAt']).name('byStatus'),
+    ])
     // Direct table access is admin/editor only — guests must go through
     // the custom queries below, which strip drafts at the resolver level.
     .authorization((allow) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
