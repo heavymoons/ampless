@@ -1,9 +1,11 @@
 import Link from 'next/link'
-import { listPosts } from 'ampless'
 import cmsConfig from '@/cms.config'
+import { listPublishedPosts } from '@/lib/posts-public'
+
+export const dynamic = 'force-dynamic'
 
 export default async function Home() {
-  const posts = await listPosts()
+  const posts = await listPublishedPosts()
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
@@ -14,21 +16,25 @@ export default async function Home() {
         )}
       </header>
 
-      <ul className="space-y-8">
-        {posts.map((post) => (
-          <li key={post.postId}>
-            <Link href={`/${post.slug}`} className="block group">
-              <h2 className="text-2xl font-semibold group-hover:underline">{post.title}</h2>
-              {post.publishedAt && (
-                <time className="text-sm text-gray-500">
-                  {new Date(post.publishedAt).toLocaleDateString()}
-                </time>
-              )}
-              {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {posts.length === 0 ? (
+        <p className="text-gray-500">No posts published yet.</p>
+      ) : (
+        <ul className="space-y-8">
+          {posts.map((post) => (
+            <li key={post.postId}>
+              <Link href={`/${post.slug}`} className="block group">
+                <h2 className="text-2xl font-semibold group-hover:underline">{post.title}</h2>
+                {post.publishedAt && (
+                  <time className="text-sm text-gray-500">
+                    {new Date(post.publishedAt).toLocaleDateString()}
+                  </time>
+                )}
+                {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   )
 }

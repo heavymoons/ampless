@@ -6,6 +6,22 @@ type DataPost = Schema['Post']['type']
 
 const client = generateClient<Schema>()
 
+// AppSync's AWSJSON scalar requires a JSON-encoded string on the wire.
+// We always send/receive strings and parse on the way back into the app.
+function encodeBody(value: unknown): string {
+  if (typeof value === 'string') return value
+  return JSON.stringify(value ?? null)
+}
+
+function decodeBody(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 function toCorePost(p: DataPost): Post {
   return {
     postId: p.postId,
@@ -14,7 +30,7 @@ function toCorePost(p: DataPost): Post {
     title: p.title,
     excerpt: p.excerpt ?? undefined,
     format: (p.format ?? 'markdown') as Post['format'],
-    body: p.body,
+    body: decodeBody(p.body),
     status: (p.status ?? 'draft') as Post['status'],
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
@@ -55,7 +71,7 @@ const provider: PostsProvider = {
       title: input.title,
       excerpt: input.excerpt,
       format: input.format,
-      body: input.body,
+      body: encodeBody(input.body),
       status: input.status,
       publishedAt: input.publishedAt,
       tags: input.tags,
@@ -73,7 +89,7 @@ const provider: PostsProvider = {
       ...(patch.title !== undefined && { title: patch.title }),
       ...(patch.excerpt !== undefined && { excerpt: patch.excerpt }),
       ...(patch.format !== undefined && { format: patch.format }),
-      ...(patch.body !== undefined && { body: patch.body }),
+      ...(patch.body !== undefined && { body: encodeBody(patch.body) }),
       ...(patch.status !== undefined && { status: patch.status }),
       ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
       ...(patch.tags !== undefined && { tags: patch.tags }),

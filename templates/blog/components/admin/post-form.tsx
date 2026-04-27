@@ -26,10 +26,12 @@ export function PostForm({ post }: PostFormProps) {
   const router = useRouter()
   const isEdit = !!post
 
+  const emptyDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
+
   const [title, setTitle] = useState(post?.title ?? '')
   const [slug, setSlug] = useState(post?.slug ?? '')
   const [excerpt, setExcerpt] = useState(post?.excerpt ?? '')
-  const [body, setBody] = useState<unknown>(post?.body ?? null)
+  const [body, setBody] = useState<unknown>(post?.body ?? emptyDoc)
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)

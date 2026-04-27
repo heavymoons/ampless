@@ -35,6 +35,8 @@ export interface Media {
   delivery: 'nextjs' | 's3-direct'
 }
 
+export type ImageDisplay = 'inline' | 'lightbox'
+
 export interface Config {
   site: {
     name: string
@@ -43,6 +45,10 @@ export interface Config {
   }
   media?: {
     delivery?: 'nextjs' | 's3-direct'
+    /** How embedded images are presented on the public site. */
+    imageDisplay?: ImageDisplay
+    /** Max content width for inline images (CSS value, default '100%'). */
+    imageMaxWidth?: string
   }
   sites?: Record<string, { domains: string[] }>
   plugins?: string[]

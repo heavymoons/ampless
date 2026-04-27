@@ -55,6 +55,15 @@ function renderTiptap(node: TiptapNode): string {
       return '<br />'
     case 'horizontalRule':
       return '<hr />'
+    case 'image': {
+      const src = escape(String(node.attrs?.src ?? ''))
+      const alt = escape(String(node.attrs?.alt ?? ''))
+      const title = node.attrs?.title ? ` title="${escape(String(node.attrs.title))}"` : ''
+      const display = node.attrs?.display
+        ? ` data-display="${escape(String(node.attrs.display))}"`
+        : ''
+      return `<img src="${src}" alt="${alt}"${title}${display} loading="lazy" />`
+    }
     default:
       return children
   }

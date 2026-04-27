@@ -1,8 +1,19 @@
 'use client'
 
 import type { Editor } from '@tiptap/react'
-import { Bold, Italic, Heading1, Heading2, List, ListOrdered, Code, Link as LinkIcon } from 'lucide-react'
+import {
+  Bold,
+  Italic,
+  Heading1,
+  Heading2,
+  List,
+  ListOrdered,
+  Code,
+  Link as LinkIcon,
+  Image as ImageIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { MediaPicker } from '@/components/admin/media-picker'
 import { cn } from '@/lib/cn'
 
 interface ToolbarProps {
@@ -23,13 +34,18 @@ export function Toolbar({ editor }: ToolbarProps) {
   ]
 
   const setLink = () => {
-    const url = window.prompt('URL')
+    const previousUrl = (editor.getAttributes('link').href as string | undefined) ?? ''
+    const url = window.prompt('URL', previousUrl)
     if (url === null) return
     if (url === '') {
-      editor.chain().focus().unsetLink().run()
+      editor.chain().focus().extendMarkRange('link').unsetLink().run()
       return
     }
-    editor.chain().focus().setLink({ href: url }).run()
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+  }
+
+  const insertImage = (url: string) => {
+    editor.chain().focus().setImage({ src: url }).run()
   }
 
   return (
@@ -58,6 +74,14 @@ export function Toolbar({ editor }: ToolbarProps) {
       >
         <LinkIcon className="h-4 w-4" />
       </Button>
+      <MediaPicker
+        onSelect={insertImage}
+        trigger={
+          <Button type="button" variant="ghost" size="icon">
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+        }
+      />
     </div>
   )
 }

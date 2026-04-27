@@ -20,6 +20,7 @@ export type {
   Role,
   ContentFormat,
   PostStatus,
+  ImageDisplay,
 } from './types.js'
 export type { FieldDefinition, FieldType, ContentTypeDefinition } from './schema.js'
 

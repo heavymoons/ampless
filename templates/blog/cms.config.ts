@@ -7,6 +7,10 @@ export default defineConfig({
   },
   media: {
     delivery: 'nextjs',
+    // 'inline'   — images flow inline at imageMaxWidth (default)
+    // 'lightbox' — click an image to enlarge in a fullscreen overlay
+    imageDisplay: 'inline',
+    imageMaxWidth: '100%',
   },
   plugins: {{plugins}},
 })

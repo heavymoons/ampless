@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { uploadData, list, getUrl, remove } from 'aws-amplify/storage'
+import { uploadData, list, remove } from 'aws-amplify/storage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Copy, Check } from 'lucide-react'
+import { publicMediaUrl } from '@/lib/media'
 
 interface MediaItem {
   path: string
@@ -15,17 +16,17 @@ export function MediaUploader() {
   const [items, setItems] = useState<MediaItem[]>([])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copiedPath, setCopiedPath] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
       const result = await list({ path: 'public/media/' })
-      const withUrls: MediaItem[] = await Promise.all(
-        result.items.map(async (item) => {
-          const url = await getUrl({ path: item.path })
-          return { path: item.path, url: url.url.toString() }
-        })
+      setItems(
+        result.items.map((item) => ({
+          path: item.path,
+          url: publicMediaUrl(item.path),
+        }))
       )
-      setItems(withUrls)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -68,6 +69,12 @@ export function MediaUploader() {
     }
   }
 
+  async function handleCopy(item: MediaItem) {
+    await navigator.clipboard.writeText(item.url)
+    setCopiedPath(item.path)
+    setTimeout(() => setCopiedPath((p) => (p === item.path ? null : p)), 1500)
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-md border p-4">
@@ -90,15 +97,28 @@ export function MediaUploader() {
             <img src={item.url} alt={item.path} className="aspect-square w-full object-cover" />
             <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 p-2 text-xs text-white opacity-0 transition group-hover:opacity-100">
               <span className="truncate">{item.path.split('/').pop()}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-white hover:bg-white/20"
-                onClick={() => handleDelete(item.path)}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-white hover:bg-white/20"
+                  onClick={() => handleCopy(item)}
+                  title="Copy URL"
+                >
+                  {copiedPath === item.path ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-white hover:bg-white/20"
+                  onClick={() => handleDelete(item.path)}
+                  title="Delete"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
           </div>
         ))}
