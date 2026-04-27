@@ -9,6 +9,13 @@ dist/
 .DS_Store
 
 # Claude Code personal memory (project settings like CLAUDE.md should be committed)
-.claude/projects/*/memory/
+.claude/projects/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 .mcp.json
+
+# Playwright MCP working directory (snapshots, screenshots, console logs)
+.playwright-mcp/
+
+# Stray screenshots from agent debugging sessions
+/*.png
