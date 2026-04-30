@@ -116,6 +116,18 @@ trustedFn.addToRolePolicy(
     resources: [`${postTable.tableArn}/index/*`],
   })
 )
+// S3 grant is bucket-wide for `public/plugins/*` rather than per-plugin
+// prefix. Rationale:
+//   1. v0.1 trusted plugins are first-party only (see ARCHITECTURE.md §4),
+//      so cross-plugin tampering isn't a threat model we're defending.
+//   2. Per-plugin enumeration (`public/plugins/{name}/*` for each name)
+//      doesn't scale — IAM inline policies cap at 10 KiB, breaking around
+//      50 plugins; incompatible with the v0.2 marketplace direction.
+//   3. The real key namespacing is enforced in code: `writePublicAsset`
+//      always prefixes with the calling plugin's name, so a plugin can't
+//      overwrite a sibling's path without bypassing the runtime context.
+//   4. Strict per-plugin isolation is planned for v0.2 via plugin-per-Lambda
+//      with capability-based dynamic IAM (see roadmap).
 trustedFn.addToRolePolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,

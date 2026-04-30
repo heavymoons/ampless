@@ -25,6 +25,7 @@ export type {
   DateFormat,
 } from './types.js'
 export { formatDate } from './format.js'
+export { escapeXml } from './xml.js'
 export { definePlugin } from './plugin.js'
 export type {
   AmplessPlugin,
@@ -41,7 +42,9 @@ export type {
   ContentEventPayload,
   MediaEventPayload,
   EventPayloadOf,
+  StreamEventName,
 } from './events.js'
+export { detectContentEvents } from './events.js'
 export type { FieldDefinition, FieldType, ContentTypeDefinition } from './schema.js'
 
 export const VERSION = '0.0.1'

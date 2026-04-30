@@ -46,3 +46,44 @@ export interface AmplessEvent<T extends EventType = EventType> {
   /** ISO 8601 timestamp of when the source mutation happened. */
   timestamp: string
 }
+
+/**
+ * Maps a single content mutation to the CMS-level events it represents.
+ * Always emits `content.updated` for any MODIFY so plugins that subscribe
+ * to "any change" reliably fire; status transitions add the matching
+ * published / unpublished event on top.
+ *
+ * Used by the DynamoDB Stream dispatcher Lambda — kept here so the same
+ * decision table is testable in plain Node without AWS deps.
+ */
+export type StreamEventName = 'INSERT' | 'MODIFY' | 'REMOVE'
+
+export function detectContentEvents(input: {
+  eventName: StreamEventName | string | undefined
+  oldStatus?: 'draft' | 'published'
+  newStatus?: 'draft' | 'published'
+}): ContentEventType[] {
+  switch (input.eventName) {
+    case 'INSERT': {
+      const out: ContentEventType[] = ['content.created']
+      if (input.newStatus === 'published') out.push('content.published')
+      return out
+    }
+    case 'MODIFY': {
+      const wasPublished = input.oldStatus === 'published'
+      const isPublished = input.newStatus === 'published'
+      const out: ContentEventType[] = ['content.updated']
+      if (!wasPublished && isPublished) out.push('content.published')
+      else if (wasPublished && !isPublished) out.push('content.unpublished')
+      return out
+    }
+    case 'REMOVE': {
+      const out: ContentEventType[] = []
+      if (input.oldStatus === 'published') out.push('content.unpublished')
+      out.push('content.deleted')
+      return out
+    }
+    default:
+      return []
+  }
+}

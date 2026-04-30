@@ -2,6 +2,10 @@ import type { SQSHandler } from 'aws-lambda'
 import type { AmplessEvent, AmplessPlugin, PluginRuntimeContext } from 'ampless'
 import config from '../../../cms.config'
 
+const untrustedPlugins: AmplessPlugin[] = (config.plugins ?? []).filter(
+  (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'untrusted'
+)
+
 // Untrusted plugins get a runtime context with NO AWS-touching capabilities.
 // They can only read the event payload, run pure JS, and return.
 function makeContext(siteId: string): PluginRuntimeContext {
@@ -16,10 +20,6 @@ function makeContext(siteId: string): PluginRuntimeContext {
     },
   }
 }
-
-const untrustedPlugins: AmplessPlugin[] = (config.plugins ?? []).filter(
-  (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'untrusted'
-)
 
 export const handler: SQSHandler = async (event) => {
   if (untrustedPlugins.length === 0) return

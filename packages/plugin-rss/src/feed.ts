@@ -1,4 +1,4 @@
-import type { Post, Config } from 'ampless'
+import { escapeXml, type Post, type Config } from 'ampless'
 
 export interface RssFeedOptions {
   /** Number of most recent posts to include. Default 20. */
@@ -7,15 +7,9 @@ export interface RssFeedOptions {
   siteUrl?: string
   /** Path to expose the feed at. Default '/feed.xml'. */
   feedPath?: string
+  /** RSS <language> tag (BCP 47). Default 'en'. */
+  language?: string
 }
-
-const escapeXml = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
 
 const toRfc822 = (iso: string): string => new Date(iso).toUTCString()
 
@@ -27,6 +21,7 @@ export function buildRssFeed(
   const baseUrl = (options.siteUrl ?? site.url).replace(/\/$/, '')
   const feedPath = options.feedPath ?? '/feed.xml'
   const limit = options.limit ?? 20
+  const language = options.language ?? 'en'
 
   const items = posts
     .filter((p) => p.status === 'published')
@@ -56,6 +51,7 @@ ${tags ? tags + '\n' : ''}      <description>${escapeXml(description)}</descript
     <title>${escapeXml(site.name)}</title>
     <link>${escapeXml(baseUrl)}</link>
     <description>${escapeXml(site.description ?? site.name)}</description>
+    <language>${escapeXml(language)}</language>
     <atom:link href="${escapeXml(baseUrl + feedPath)}" rel="self" type="application/rss+xml" />
     <lastBuildDate>${lastBuild}</lastBuildDate>
 ${items}

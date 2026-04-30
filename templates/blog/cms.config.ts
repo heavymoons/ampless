@@ -31,6 +31,18 @@ export default defineConfig({
   timezone: 'UTC',
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
+  //
+  // Plugin authors:
+  //  - Plugin factories must return a plain `AmplessPlugin` object. Do NOT
+  //    perform side effects at module top level (network calls, FS writes,
+  //    global state) — both trusted and untrusted Lambdas import this file,
+  //    so module-level work runs in every trust context regardless of which
+  //    Lambda actually invokes the plugin's hooks.
+  //  - Hooks must be idempotent. SQS guarantees at-least-once delivery and
+  //    the dispatcher fans out to both queues; a single source MODIFY can
+  //    trigger your hook more than once.
+  //  - Use `ctx.writePublicAsset(key, ...)` for any S3 write — the runtime
+  //    automatically namespaces under `public/plugins/{your-plugin-name}/`.
   plugins: [
     seoPlugin({
       // defaultOgImage: '/og.png',
@@ -38,6 +50,7 @@ export default defineConfig({
     }),
     rssPlugin({
       limit: 20,
+      // language: 'ja',
     }),
   ],
 })

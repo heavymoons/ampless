@@ -5,11 +5,22 @@ import {
   SendMessageBatchCommand,
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs'
+import { detectContentEvents, type ContentEventType, type StreamEventName } from 'ampless'
+
+// Fail fast at cold-start if required env vars are missing — cheaper than
+// debugging cryptic SQS-not-found errors per invocation.
+function requireEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`event-dispatcher: missing required env var ${name}`)
+  return v
+}
 
 const sqs = new SQSClient({})
-const TRUSTED_QUEUE_URL = process.env.TRUSTED_QUEUE_URL!
-const UNTRUSTED_QUEUE_URL = process.env.UNTRUSTED_QUEUE_URL!
+const TRUSTED_QUEUE_URL = requireEnv('TRUSTED_QUEUE_URL')
+const UNTRUSTED_QUEUE_URL = requireEnv('UNTRUSTED_QUEUE_URL')
 
+// DynamoDB rows can have any of these missing post-unmarshall, so the type
+// here is intentionally looser than ampless' ContentEventPayload.
 interface RawPost {
   siteId?: string
   postId?: string
@@ -20,12 +31,7 @@ interface RawPost {
   tags?: string[]
 }
 
-type EventType =
-  | 'content.created'
-  | 'content.updated'
-  | 'content.published'
-  | 'content.unpublished'
-  | 'content.deleted'
+type EventType = ContentEventType
 
 interface AmplessEvent {
   type: EventType
@@ -44,28 +50,11 @@ function detectEvents(record: DynamoDBRecord): EventType[] {
     ? (unmarshall(record.dynamodb.NewImage as never) as RawPost)
     : null
 
-  switch (record.eventName) {
-    case 'INSERT': {
-      const out: EventType[] = ['content.created']
-      if (newItem?.status === 'published') out.push('content.published')
-      return out
-    }
-    case 'MODIFY': {
-      const wasPublished = oldItem?.status === 'published'
-      const isPublished = newItem?.status === 'published'
-      if (!wasPublished && isPublished) return ['content.published']
-      if (wasPublished && !isPublished) return ['content.unpublished']
-      return ['content.updated']
-    }
-    case 'REMOVE': {
-      const out: EventType[] = []
-      if (oldItem?.status === 'published') out.push('content.unpublished')
-      out.push('content.deleted')
-      return out
-    }
-    default:
-      return []
-  }
+  return detectContentEvents({
+    eventName: record.eventName as StreamEventName | undefined,
+    oldStatus: oldItem?.status,
+    newStatus: newItem?.status,
+  })
 }
 
 function extractPayload(record: DynamoDBRecord): RawPost {

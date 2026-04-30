@@ -1,4 +1,4 @@
-import type { Post, Config } from 'ampless'
+import { escapeXml, type Post, type Config } from 'ampless'
 
 export interface SitemapOptions {
   /** Maximum number of URLs to include. Default 5000. */
@@ -10,14 +10,6 @@ export interface SitemapOptions {
   /** Default priority (0..1) for post URLs. */
   priority?: number
 }
-
-const escapeXml = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
 
 const toIsoDate = (iso: string): string => {
   const d = new Date(iso)

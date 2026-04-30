@@ -5,17 +5,28 @@ import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import type { AmplessEvent, AmplessPlugin, PluginRuntimeContext, Post } from 'ampless'
 import config from '../../../cms.config'
 
+function requireEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`processor-trusted: missing required env var ${name}`)
+  return v
+}
+
 const s3 = new S3Client({})
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
-const BUCKET = process.env.AMPLESS_BUCKET_NAME!
-const POST_TABLE = process.env.AMPLESS_POST_TABLE!
+const BUCKET = requireEnv('AMPLESS_BUCKET_NAME')
+const POST_TABLE = requireEnv('AMPLESS_POST_TABLE')
+const REGION = process.env.AWS_REGION ?? 'us-east-1'
 const POST_BY_STATUS_INDEX = 'byStatus'
 
 const trustedPlugins: AmplessPlugin[] = (config.plugins ?? []).filter(
   (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
 )
 
+// v0.1 single-site assumption: byStatus GSI is keyed only on `status`, so
+// we scan all published posts and filter by siteId post-query. v0.2
+// multi-site work plans to recompose this GSI as `siteId+status` so the
+// filter becomes a key condition (see ARCHITECTURE.md §3 / roadmap).
 async function listPublished(siteId: string): Promise<Post[]> {
   const items: Post[] = []
   let exclusiveStartKey: Record<string, unknown> | undefined
@@ -55,7 +66,8 @@ async function listPublished(siteId: string): Promise<Post[]> {
 function safeParse(s: string): unknown {
   try {
     return JSON.parse(s)
-  } catch {
+  } catch (err) {
+    console.warn('[trusted-processor] post.body is not valid JSON; passing through as string', err)
     return s
   }
 }
@@ -76,7 +88,7 @@ function makeContext(plugin: AmplessPlugin, siteId: string): PluginRuntimeContex
           CacheControl: 'public, max-age=300',
         })
       )
-      return `https://${BUCKET}.s3.amazonaws.com/${objectKey}`
+      return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${objectKey}`
     },
   }
 }
