@@ -1,7 +1,7 @@
 {
-  "name": "@ampless/plugin-seo",
+  "name": "@ampless/plugin-rss",
   "version": "0.0.1",
-  "description": "SEO plugin for ampless",
+  "description": "RSS / Atom feed plugin for ampless",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -11,14 +11,14 @@
     }
   },
   "files": ["dist"],
-  "dependencies": {
-    "ampless": "workspace:*"
-  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "keywords": ["ampless", "plugin", "seo"]
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": ["ampless", "plugin", "rss", "atom", "feed"]
 }

@@ -1,13 +1,26 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate } from 'ampless'
 import { renderBody } from '@/lib/posts'
 import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
+import { postMetadata } from '@/lib/seo'
 import cmsConfig from '@/cms.config'
 import { getPublishedPost } from '@/lib/posts-public'
 
 export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}): Promise<Metadata> {
+  const { slug } = await params
+  const post = await getPublishedPost(slug)
+  if (!post) return {}
+  return postMetadata(post)
+}
 
 export default async function PostPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params

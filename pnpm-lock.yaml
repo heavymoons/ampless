@@ -51,7 +51,17 @@ importers:
         specifier: ^1.1.1
         version: 1.1.1
 
-  packages/plugin-seo: {}
+  packages/plugin-rss:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
+  packages/plugin-seo:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
 
 packages:
 

@@ -1,4 +1,6 @@
 import { defineConfig } from 'ampless'
+import seoPlugin from '@ampless/plugin-seo'
+import rssPlugin from '@ampless/plugin-rss'
 
 export default defineConfig({
   site: {
@@ -27,5 +29,15 @@ export default defineConfig({
   // IANA timezone used for date rendering. Pin this so SSR and CSR
   // always produce the same string. Examples: 'Asia/Tokyo', 'America/New_York'.
   timezone: 'UTC',
-  plugins: {{plugins}},
+  // Active plugins. Order doesn't matter; the runtime aggregates metadata
+  // and runs hooks for events each plugin subscribes to.
+  plugins: [
+    seoPlugin({
+      // defaultOgImage: '/og.png',
+      // twitterSite: '@example',
+    }),
+    rssPlugin({
+      limit: 20,
+    }),
+  ],
 })

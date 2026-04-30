@@ -1,12 +1,9 @@
 import type { Metadata } from 'next'
-import cmsConfig from '@/cms.config'
 import { Providers } from './providers'
+import { siteMetadata } from '@/lib/seo'
 import './globals.css'
 
-export const metadata: Metadata = {
-  title: cmsConfig.site.name,
-  description: cmsConfig.site.description,
-}
+export const metadata: Metadata = siteMetadata()
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

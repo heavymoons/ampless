@@ -82,7 +82,13 @@ export interface Config {
    */
   timezone?: string
   sites?: Record<string, { domains: string[] }>
-  plugins?: string[]
+  /**
+   * Active plugins. Each entry is the result of a plugin factory call
+   * (e.g. `seoPlugin({ ... })`) or a raw AmplessPlugin object. Strings are
+   * accepted for backward compatibility with the legacy v0 config but are
+   * ignored by the runtime.
+   */
+  plugins?: Array<import('./plugin.js').AmplessPlugin | string>
 }
 
 export type Role = 'reader' | 'editor' | 'admin'
