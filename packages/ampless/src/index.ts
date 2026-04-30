@@ -21,7 +21,10 @@ export type {
   ContentFormat,
   PostStatus,
   ImageDisplay,
+  MediaProcessingDefaults,
+  DateFormat,
 } from './types.js'
+export { formatDate } from './format.js'
 export type { FieldDefinition, FieldType, ContentTypeDefinition } from './schema.js'
 
 export const VERSION = '0.0.1'

@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./media": {
+      "import": "./dist/media/index.js",
+      "types": "./dist/media/index.d.ts"
     }
   },
   "files": ["dist"],
@@ -16,6 +20,9 @@
     "dev": "tsup --watch",
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@jsquash/webp": "^1.4.0"
   },
   "keywords": ["cms", "aws", "amplify", "serverless", "blog"]
 }
