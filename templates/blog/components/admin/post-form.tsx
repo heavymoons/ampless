@@ -33,8 +33,20 @@ export function PostForm({ post }: PostFormProps) {
   const [excerpt, setExcerpt] = useState(post?.excerpt ?? '')
   const [body, setBody] = useState<unknown>(post?.body ?? emptyDoc)
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
+  const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function parseTags(raw: string): string[] {
+    return Array.from(
+      new Set(
+        raw
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      )
+    )
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
@@ -42,6 +54,7 @@ export function PostForm({ post }: PostFormProps) {
     setError(null)
 
     try {
+      const tags = parseTags(tagsInput)
       if (isEdit) {
         await updatePost(post!.postId, {
           title,
@@ -50,6 +63,7 @@ export function PostForm({ post }: PostFormProps) {
           body,
           status,
           publishedAt: status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
+          tags,
         })
       } else {
         await createPost({
@@ -61,6 +75,7 @@ export function PostForm({ post }: PostFormProps) {
           body,
           status,
           publishedAt: status === 'published' ? new Date().toISOString() : undefined,
+          tags,
         })
       }
       router.push('/admin/posts')
@@ -124,6 +139,19 @@ export function PostForm({ post }: PostFormProps) {
       <div className="space-y-2">
         <Label>Body</Label>
         <TiptapEditor initialContent={body} onChange={setBody} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="tags">Tags</Label>
+        <Input
+          id="tags"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          placeholder="comma, separated, tags"
+        />
+        <p className="text-xs text-muted-foreground">
+          Used to group posts on tag pages (e.g. /tag/tech).
+        </p>
       </div>
 
       <div className="space-y-2">

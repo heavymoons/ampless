@@ -37,6 +37,83 @@ function toCorePost(p: DataPost): Post {
   }
 }
 
+// --- PostTag (denormalized "posts by tag" index) ---
+// Maintained from the admin client whenever a post's tags or publish state
+// change. Each (siteId, tag, post) combination becomes one row, keyed by:
+//   PK: `${siteId}#${tag}`
+//   SK: `${publishedAt}#${postId}`
+// so the public `listPostsByTag` resolver can do a single Query for a
+// tag's newest posts.
+
+interface PostTagEntry {
+  siteIdTag: string
+  publishedAtPostId: string
+}
+
+function postTagEntries(post: Post): PostTagEntry[] {
+  if (post.status !== 'published' || !post.publishedAt || !post.tags?.length) return []
+  return post.tags.map((tag) => ({
+    siteIdTag: `${post.siteId}#${tag}`,
+    publishedAtPostId: `${post.publishedAt}#${post.postId}`,
+  }))
+}
+
+function entryKey(e: PostTagEntry): string {
+  return `${e.siteIdTag}|${e.publishedAtPostId}`
+}
+
+async function syncPostTags(post: Post, oldPost: Post | null): Promise<void> {
+  const oldEntries = oldPost ? postTagEntries(oldPost) : []
+  const newEntries = postTagEntries(post)
+
+  const oldKeys = new Set(oldEntries.map(entryKey))
+  const newKeys = new Set(newEntries.map(entryKey))
+
+  // Remove entries that no longer apply (tag removed, unpublished, etc.).
+  await Promise.all(
+    oldEntries
+      .filter((e) => !newKeys.has(entryKey(e)))
+      .map((e) => client.models.PostTag.delete(e))
+  )
+
+  // Add brand-new entries (tag added, just published, etc.).
+  await Promise.all(
+    newEntries
+      .filter((e) => !oldKeys.has(entryKey(e)))
+      .map((e) =>
+        client.models.PostTag.create({
+          siteIdTag: e.siteIdTag,
+          publishedAtPostId: e.publishedAtPostId,
+          siteId: post.siteId,
+          tag: e.siteIdTag.slice(post.siteId.length + 1),
+          postId: post.postId,
+          publishedAt: post.publishedAt!,
+          slug: post.slug,
+          title: post.title,
+          excerpt: post.excerpt,
+          tags: post.tags ?? [],
+        })
+      )
+  )
+
+  // Update entries whose key didn't change but display fields might have
+  // (title/slug/excerpt/tags). DynamoDB upserts fields on update.
+  await Promise.all(
+    newEntries
+      .filter((e) => oldKeys.has(entryKey(e)))
+      .map((e) =>
+        client.models.PostTag.update({
+          siteIdTag: e.siteIdTag,
+          publishedAtPostId: e.publishedAtPostId,
+          slug: post.slug,
+          title: post.title,
+          excerpt: post.excerpt,
+          tags: post.tags ?? [],
+        })
+      )
+  )
+}
+
 const provider: PostsProvider = {
   async list(opts: ListOptions = {}) {
     const siteId = opts.siteId ?? 'default'
@@ -77,11 +154,16 @@ const provider: PostsProvider = {
       tags: input.tags,
     })
     if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to create post')
-    return toCorePost(data)
+    const created = toCorePost(data)
+    await syncPostTags(created, null)
+    return created
   },
 
   async update(postId, patch, opts = {}) {
     const siteId = opts.siteId ?? 'default'
+    // Need the previous post snapshot to diff PostTag entries correctly.
+    const oldPost = await this.getById(postId, { siteId })
+
     const { data, errors } = await client.models.Post.update({
       siteId,
       postId,
@@ -95,11 +177,18 @@ const provider: PostsProvider = {
       ...(patch.tags !== undefined && { tags: patch.tags }),
     })
     if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
-    return toCorePost(data)
+    const updated = toCorePost(data)
+    await syncPostTags(updated, oldPost)
+    return updated
   },
 
   async remove(postId, opts = {}) {
     const siteId = opts.siteId ?? 'default'
+    // Drop PostTag entries before the post itself disappears.
+    const oldPost = await this.getById(postId, { siteId })
+    if (oldPost) {
+      await syncPostTags({ ...oldPost, status: 'draft' }, oldPost)
+    }
     const { errors } = await client.models.Post.delete({ siteId, postId })
     if (errors) throw new Error(errors[0]?.message ?? 'Failed to delete post')
   },

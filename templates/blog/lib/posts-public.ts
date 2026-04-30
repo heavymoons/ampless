@@ -19,8 +19,25 @@ const client = generateServerClientUsingCookies<Schema>({
 // so we don't restate the schema or fall back to `as any` casts.
 type ListResponse = Awaited<ReturnType<typeof client.queries.listPublishedPosts>>
 type GetResponse = Awaited<ReturnType<typeof client.queries.getPublishedPost>>
-type PublicPostItem = NonNullable<NonNullable<ListResponse['data']>[number]>
+type ListConnection = NonNullable<ListResponse['data']>
+type PublicPostItem = NonNullable<NonNullable<ListConnection['items']>[number]>
 type PublicPostSingle = NonNullable<GetResponse['data']>
+
+export interface ListPostsOptions {
+  siteId?: string
+  /** ISO 8601 timestamp; SK lower bound (inclusive). */
+  from?: string
+  /** ISO 8601 timestamp; SK upper bound (inclusive). */
+  to?: string
+  limit?: number
+  /** Opaque cursor returned by a previous call. */
+  nextToken?: string
+}
+
+export interface ListPostsResult {
+  items: Post[]
+  nextToken: string | null
+}
 
 function decodeBody(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -46,17 +63,21 @@ function toCorePost(p: PublicPostItem | PublicPostSingle): Post {
   }
 }
 
-export async function listPublishedPosts(opts: { siteId?: string; limit?: number } = {}): Promise<
-  Post[]
-> {
+export async function listPublishedPosts(
+  opts: ListPostsOptions = {}
+): Promise<ListPostsResult> {
   const { data, errors } = await client.queries.listPublishedPosts({
     siteId: opts.siteId ?? 'default',
-    limit: opts.limit ?? 100,
+    from: opts.from,
+    to: opts.to,
+    limit: opts.limit ?? 20,
+    nextToken: opts.nextToken,
   })
   if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts')
-  return (data ?? [])
+  const items = (data?.items ?? [])
     .filter((p): p is PublicPostItem => p !== null)
     .map(toCorePost)
+  return { items, nextToken: data?.nextToken ?? null }
 }
 
 export async function getPublishedPost(
@@ -69,4 +90,27 @@ export async function getPublishedPost(
   })
   if (errors) throw new Error(errors[0]?.message ?? 'Failed to get post')
   return data ? toCorePost(data) : null
+}
+
+export interface ListPostsByTagOptions {
+  siteId?: string
+  limit?: number
+  nextToken?: string
+}
+
+export async function listPostsByTag(
+  tag: string,
+  opts: ListPostsByTagOptions = {}
+): Promise<ListPostsResult> {
+  const { data, errors } = await client.queries.listPostsByTag({
+    siteId: opts.siteId ?? 'default',
+    tag,
+    limit: opts.limit ?? 20,
+    nextToken: opts.nextToken,
+  })
+  if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts by tag')
+  const items = (data?.items ?? [])
+    .filter((p): p is PublicPostItem => p !== null)
+    .map(toCorePost)
+  return { items, nextToken: data?.nextToken ?? null }
 }

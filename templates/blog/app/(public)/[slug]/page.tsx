@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { formatDate } from 'ampless'
 import { renderBody } from '@/lib/posts'
 import { LightboxBinder } from '@/components/lightbox-content'
+import { TagList } from '@/components/tag-list'
 import cmsConfig from '@/cms.config'
 import { getPublishedPost } from '@/lib/posts-public'
 
@@ -28,8 +30,8 @@ export default async function PostPage({ params }: { params: Promise<{ slug: str
         <header className="mb-8 border-b pb-6">
           <h1 className="text-4xl font-bold tracking-tight">{post.title}</h1>
           {post.publishedAt && (
-            <time className="mt-2 block text-sm text-gray-500">
-              {new Date(post.publishedAt).toLocaleDateString()}
+            <time dateTime={post.publishedAt} className="mt-2 block text-sm text-gray-500">
+              {formatDate(post.publishedAt, cmsConfig.dateFormat, cmsConfig.timezone)}
             </time>
           )}
         </header>
@@ -40,6 +42,8 @@ export default async function PostPage({ params }: { params: Promise<{ slug: str
           style={proseStyle}
           dangerouslySetInnerHTML={{ __html: renderBody(post) }}
         />
+
+        <TagList tags={post.tags} className="mt-8 border-t pt-6" />
       </article>
 
       <LightboxBinder scopeSelector="#post-body" defaultLightbox={defaultLightbox} />

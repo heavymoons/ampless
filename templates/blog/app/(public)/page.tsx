@@ -1,11 +1,13 @@
 import Link from 'next/link'
+import { formatDate } from 'ampless'
 import cmsConfig from '@/cms.config'
 import { listPublishedPosts } from '@/lib/posts-public'
+import { TagList } from '@/components/tag-list'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Home() {
-  const posts = await listPublishedPosts()
+  const { items: posts } = await listPublishedPosts()
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
@@ -25,12 +27,13 @@ export default async function Home() {
               <Link href={`/${post.slug}`} className="block group">
                 <h2 className="text-2xl font-semibold group-hover:underline">{post.title}</h2>
                 {post.publishedAt && (
-                  <time className="text-sm text-gray-500">
-                    {new Date(post.publishedAt).toLocaleDateString()}
+                  <time dateTime={post.publishedAt} className="text-sm text-gray-500">
+                    {formatDate(post.publishedAt, cmsConfig.dateFormat, cmsConfig.timezone)}
                   </time>
                 )}
                 {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}
               </Link>
+              <TagList tags={post.tags} className="mt-3" />
             </li>
           ))}
         </ul>
