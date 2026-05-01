@@ -209,7 +209,9 @@ export function ThemeSettingsForm({
       {/* Manifest fields for the currently active theme. */}
       <form onSubmit={save} className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold">{manifest.label} customization</h2>
+          <h2 className="text-lg font-semibold">
+            {t('theme.customizationHeading', { theme: manifest.label })}
+          </h2>
           {manifest.description && (
             <p className="text-sm text-muted-foreground">{manifest.description}</p>
           )}
