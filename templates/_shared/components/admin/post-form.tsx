@@ -2,7 +2,13 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createPost, updatePost, deletePost, type Post } from 'ampless'
+import {
+  createPost,
+  updatePost,
+  deletePost,
+  type Post,
+  type ContentFormat,
+} from 'ampless'
 import { readAdminSiteIdFromCookie } from '@/lib/admin-site-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +21,8 @@ interface PostFormProps {
   post?: Post
 }
 
+const EMPTY_TIPTAP_DOC = { type: 'doc', content: [{ type: 'paragraph' }] }
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -24,17 +32,24 @@ function slugify(s: string): string {
     .replace(/-+/g, '-')
 }
 
+// When the user picks a different format mid-edit, the body shape
+// changes (tiptap stores an object, the others store strings). Pre-
+// populate sensibly so they're not staring at junk.
+function defaultBodyForFormat(format: ContentFormat): unknown {
+  if (format === 'tiptap') return EMPTY_TIPTAP_DOC
+  return ''
+}
+
 export function PostForm({ post }: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
 
-  const emptyDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
-
   const [title, setTitle] = useState(post?.title ?? '')
   const [slug, setSlug] = useState(post?.slug ?? '')
   const [excerpt, setExcerpt] = useState(post?.excerpt ?? '')
-  const [body, setBody] = useState<unknown>(post?.body ?? emptyDoc)
+  const [format, setFormat] = useState<ContentFormat>(post?.format ?? 'tiptap')
+  const [body, setBody] = useState<unknown>(post?.body ?? EMPTY_TIPTAP_DOC)
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [saving, setSaving] = useState(false)
@@ -51,6 +66,20 @@ export function PostForm({ post }: PostFormProps) {
     )
   }
 
+  function changeFormat(next: ContentFormat) {
+    if (next === format) return
+    // Body can't translate cleanly across formats (a tiptap doc isn't
+    // a Markdown string). Reset to a sensible default for the new
+    // format so the editor isn't showing structurally wrong content.
+    // Skipped if the new shape happens to match what's already there.
+    const incompatible =
+      (format === 'tiptap') !== (next === 'tiptap')
+    setFormat(next)
+    if (incompatible) {
+      setBody(defaultBodyForFormat(next))
+    }
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
@@ -65,16 +94,13 @@ export function PostForm({ post }: PostFormProps) {
             title,
             slug: slug || slugify(title),
             excerpt: excerpt || undefined,
+            format,
             body,
             status,
             publishedAt:
               status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
             tags,
           },
-          // siteId is part of the post's compound key — without this the
-          // provider falls back to 'default' and tries to update a row
-          // that doesn't exist, which DynamoDB rejects with a
-          // ConditionalCheckFailedException.
           { siteId: post!.siteId }
         )
       } else {
@@ -83,7 +109,7 @@ export function PostForm({ post }: PostFormProps) {
           slug: slug || slugify(title),
           title,
           excerpt: excerpt || undefined,
-          format: 'tiptap',
+          format,
           body,
           status,
           publishedAt: status === 'published' ? new Date().toISOString() : undefined,
@@ -149,8 +175,32 @@ export function PostForm({ post }: PostFormProps) {
       </div>
 
       <div className="space-y-2">
+        <Label htmlFor="format">{t('posts.form.format')}</Label>
+        <select
+          id="format"
+          value={format}
+          onChange={(e) => changeFormat(e.target.value as ContentFormat)}
+          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+        >
+          <option value="tiptap">Tiptap (rich editor)</option>
+          <option value="markdown">Markdown</option>
+          <option value="html">HTML</option>
+        </select>
+        <p className="text-xs text-muted-foreground">{t('posts.form.formatHint')}</p>
+      </div>
+
+      <div className="space-y-2">
         <Label>{t('posts.form.body')}</Label>
-        <TiptapEditor initialContent={body} onChange={setBody} />
+        {format === 'tiptap' ? (
+          <TiptapEditor initialContent={body} onChange={setBody} />
+        ) : (
+          <Textarea
+            rows={20}
+            value={typeof body === 'string' ? body : ''}
+            onChange={(e) => setBody(e.target.value)}
+            className="font-mono text-xs"
+          />
+        )}
       </div>
 
       <div className="space-y-2">

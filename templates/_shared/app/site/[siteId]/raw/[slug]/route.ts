@@ -1,4 +1,5 @@
 import { getPublishedPost } from '@/lib/posts-public'
+import { renderBody } from '@/lib/posts'
 
 interface Ctx {
   params: Promise<{ siteId: string; slug: string }>
@@ -7,24 +8,29 @@ interface Ctx {
 export const dynamic = 'force-dynamic'
 
 /**
- * Bare HTML route. Returns a published post's body as the entire
- * HTTP response, with no theme chrome and no Next.js layout wrapping
- * — the post is expected to ship a full `<!DOCTYPE html>...` document.
+ * Bare HTML route. Returns the published post's rendered body as the
+ * entire HTTP response — no Next.js root layout, no theme chrome.
  *
- * Why this is a route handler (not a page): the root layout always
- * emits `<html>` / `<head>` / `<body>`, which means a normal page
- * can't replace the document. A `route.ts` returns a Response
+ * Reached via the slug-suffix convention: middleware rewrites
+ * `/<slug>.html` → `/site/<siteId>/raw/<slug>.html`. The post is
+ * looked up by the full slug (including the `.html` part), so what
+ * the admin types in the slug field IS the URL.
+ *
+ * Why this is a route handler (not a page): Next.js's root layout
+ * always emits `<html>` / `<head>` / `<body>`, which means a normal
+ * page can't replace the document. A `route.ts` returns a Response
  * directly and bypasses React rendering entirely.
  *
- * Use cases: marketing splash pages, one-off landing flows with
- * tracking pixels in `<head>`, anything that needs full control of
- * the document.
+ * Format pairing:
+ *   - `format: 'html'` with a full `<!DOCTYPE html>...</html>` body
+ *     → the body lands in the response unchanged. Best fit for
+ *     custom landing pages with their own `<head>`, styles, scripts.
+ *   - `format: 'tiptap'` / `'markdown'` → renderBody returns an
+ *     HTML fragment. Browsers render fragments fine, but the page
+ *     ships without `<!DOCTYPE>` / `<head>` / `<title>`. If you care
+ *     about those, use `format: 'html'`.
  *
- * Reachable at `/raw/<slug>` — middleware rewrites that path into
- * `/site/<siteId>/raw/<slug>` like any other public URL. Posts at
- * regular `/<slug>` keep going through the theme.
- *
- * Trust model: the returned HTML is the editor's content verbatim,
+ * Trust model: the response body is the editor's content verbatim,
  * with no sanitization. Same trust assumption as `format: 'html'`
  * post bodies on the regular path — see
  * docs/architecture/04-access-layer-mcp.md §"editor の信頼モデル".
@@ -35,14 +41,7 @@ export async function GET(_request: Request, { params }: Ctx): Promise<Response>
   if (!post) {
     return new Response('Not Found', { status: 404 })
   }
-  if (post.format !== 'html') {
-    return new Response(
-      `This post is not in HTML format. /raw/<slug> requires format: 'html'.`,
-      { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
-    )
-  }
-  const body = typeof post.body === 'string' ? post.body : String(post.body ?? '')
-  return new Response(body, {
+  return new Response(renderBody(post), {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

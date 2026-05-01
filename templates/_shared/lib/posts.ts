@@ -131,7 +131,7 @@ function renderInlineMarkdown(text: string): string {
 
 export function renderBody(post: Post): string {
   // 仕様: editor は信頼された主体。`'html'` フォーマットは body をその
-  // ままレンダリングする（任意 HTML / script 可）。ファイル冒頭のコメント
+  // ままレンダリングする (任意 HTML / script 可)。ファイル冒頭のコメント
   // および 04-access-layer-mcp.md を参照。
   if (post.format === 'html') return String(post.body)
   if (post.format === 'markdown') return renderMarkdown(String(post.body))

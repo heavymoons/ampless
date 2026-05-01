@@ -4,6 +4,21 @@ import cmsConfig from './cms.config'
 
 const MULTI_SITE = isMultiSite(cmsConfig)
 
+// Slug-suffix convention for bare HTML pages. A request to a single
+// path segment ending in `.html` (e.g. `/promo.html`) is rewritten to
+// the layout-less route handler under `/site/<siteId>/raw/<slug>`,
+// which returns the post body as a `text/html` response without any
+// theme chrome or Next.js root layout. The browser URL stays as-is.
+//
+// Conventional and zero-infrastructure: middleware doesn't need to
+// know per-post format. The route handler at /raw/<slug> looks up the
+// post and returns whatever `renderBody` produces. If the post is in
+// `format: 'html'` with a complete `<!DOCTYPE html>...</html>` body,
+// it lands in the response unchanged. Tiptap / markdown posts with a
+// `.html` slug will render as HTML fragments — works but the author
+// is on their own for missing `<head>` etc.
+const RAW_HTML_PATH_RE = /^\/([^/]+\.html)$/
+
 // Public path → /site/{siteId}/... internal rewrite. The browser URL
 // stays unchanged; Next.js resolves the rewritten path under
 // `app/site/[siteId]/...`.
@@ -25,8 +40,13 @@ export function middleware(request: NextRequest) {
 
   const url = request.nextUrl.clone()
   if (!url.pathname.startsWith('/site/')) {
-    const tail = url.pathname === '/' ? '' : url.pathname
-    url.pathname = `/site/${siteId}${tail}`
+    const rawMatch = RAW_HTML_PATH_RE.exec(url.pathname)
+    if (rawMatch) {
+      url.pathname = `/site/${siteId}/raw/${rawMatch[1]}`
+    } else {
+      const tail = url.pathname === '/' ? '' : url.pathname
+      url.pathname = `/site/${siteId}${tail}`
+    }
   }
 
   const response = NextResponse.rewrite(url)

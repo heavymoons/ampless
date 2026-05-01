@@ -64,6 +64,8 @@
       "slugPlaceholder": "my-post-slug",
       "excerpt": "Excerpt",
       "body": "Body",
+      "format": "Format",
+      "formatHint": "Tiptap is the rich editor. Markdown / HTML use a plain textarea. Tip: a slug ending in .html (e.g. promo.html) serves the post as a bare HTML response with no theme chrome.",
       "tags": "Tags",
       "tagsPlaceholder": "comma, separated, tags",
       "tagsHint": "Used to group posts on tag pages (e.g. /tag/tech).",
