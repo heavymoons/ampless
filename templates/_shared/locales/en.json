@@ -82,6 +82,7 @@
     "queued": "{count} file(s) queued",
     "deleteConfirm": "Delete this file?",
     "copyUrl": "Copy URL",
+    "copyTag": "Copy as HTML tag",
     "delete": "Delete",
     "empty": "No media yet.",
     "dialog": {

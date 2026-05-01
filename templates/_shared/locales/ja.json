@@ -82,6 +82,7 @@
     "queued": "{count}件のファイルがキュー中",
     "deleteConfirm": "このファイルを削除しますか?",
     "copyUrl": "URLをコピー",
+    "copyTag": "HTMLタグとしてコピー",
     "delete": "削除",
     "empty": "メディアがまだありません。",
     "dialog": {
