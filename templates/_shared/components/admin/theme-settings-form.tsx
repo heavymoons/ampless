@@ -80,15 +80,26 @@ export function ThemeSettingsForm({
     }))
   }
 
-  // After a write the read path needs both (1) the S3 cache rebuild by
-  // the trusted processor and (2) the Next.js fetch cache invalidation
-  // for that tag. Without (2), every subsequent request would still
-  // serve the old JSON from the route's fetch cache (60s TTL). After
-  // the rebuild window we force a full page reload — `router.refresh()`
-  // only re-renders server components and leaves the form's useState
-  // (field values / pendingTheme / optimisticActive) carrying the
-  // previous theme's data, which was confusing on theme switches. A
-  // hard reload remounts everything against the freshly-cached state.
+  // After a write the public-site fetch cache (60s TTL) needs to be
+  // invalidated so the next visit gets fresh data. The trusted
+  // processor takes ~5-10s to rebuild the S3 JSON, so we delay the
+  // invalidation a bit before firing it.
+  //
+  // We do NOT reload the admin page in the background here — the form
+  // already shows what the user typed, and re-reading from S3 right
+  // after save can race with the rebuild and surface a stale empty
+  // form. Theme switching uses a separate hard-reload path because
+  // the manifest schema itself changes.
+  function scheduleCacheInvalidation() {
+    setTimeout(async () => {
+      try {
+        await invalidateSiteSettingsCache(siteId)
+      } catch (err) {
+        console.warn('[theme] cache invalidation failed', err)
+      }
+    }, CACHE_REBUILD_DELAY_MS)
+  }
+
   function scheduleHardReload() {
     setTimeout(async () => {
       try {
@@ -165,7 +176,12 @@ export function ThemeSettingsForm({
       setInfo(t('theme.saved'))
       // Clear touched flags so the next save round only writes new edits.
       setState((prev) => ({ values: prev.values, touched: {} }))
-      scheduleHardReload()
+      // Invalidate the public-site cache in the background so visitors
+      // see the change soon. We intentionally don't reload the admin
+      // page here — the form already reflects what the user typed,
+      // and re-reading from S3 immediately after save can race with
+      // the trusted processor's rebuild and show stale data.
+      scheduleCacheInvalidation()
     } catch (err) {
       console.error('[theme] save failed', err)
       setError(err instanceof Error ? err.message : String(err))
