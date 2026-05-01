@@ -35,9 +35,10 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 
 #### マルチサイト基盤（最優先）
 - [ ] `byStatus` GSI を `siteId+status` 複合キーに改修（v0.1 単一サイト前提を解除）
-- [ ] subdomain → `siteId` ルーティング（middleware.ts の本実装）
-- [ ] cms.config の `sites` フィールドを実装に反映（複数サイトの公開設定）
+- [ ] hostname → `siteId` ルーティング（middleware.ts 本実装、サブドメインも完全別ドメインも同じ仕組みで対応）
+- [ ] cms.config の `sites.{id}.domains[]` を実装に反映（複数サイトの公開設定、1 サイトに複数ドメイン紐付け可）
 - [ ] 管理画面のサイト切り替え UI
+- [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
 
 #### テーマ / 見た目カスタマイズ
 - [ ] `configSchema` ベースの軽カスタマイズ（primaryColor、フォント、ロゴ、sidebar 切替）
