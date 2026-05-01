@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-rss",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "RSS / Atom feed plugin for ampless",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,20 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-rss"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-rss#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -20,5 +33,11 @@
   "dependencies": {
     "ampless": "workspace:*"
   },
-  "keywords": ["ampless", "plugin", "rss", "atom", "feed"]
+  "keywords": [
+    "ampless",
+    "plugin",
+    "rss",
+    "atom",
+    "feed"
+  ]
 }

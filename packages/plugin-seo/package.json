@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-seo",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "SEO plugin for ampless",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,20 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-seo"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
   "dependencies": {
     "ampless": "workspace:*"
   },
@@ -20,5 +33,9 @@
     "lint": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "keywords": ["ampless", "plugin", "seo"]
+  "keywords": [
+    "ampless",
+    "plugin",
+    "seo"
+  ]
 }

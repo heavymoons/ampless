@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-webhook",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Webhook plugin for ampless — POST events to external URLs",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,20 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-webhook"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -20,5 +33,9 @@
   "dependencies": {
     "ampless": "workspace:*"
   },
-  "keywords": ["ampless", "plugin", "webhook"]
+  "keywords": [
+    "ampless",
+    "plugin",
+    "webhook"
+  ]
 }

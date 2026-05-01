@@ -1,6 +1,6 @@
 {
   "name": "ampless",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Serverless CMS for AWS Amplify",
   "license": "MIT",
   "type": "module",
@@ -14,7 +14,20 @@
       "types": "./dist/media/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/ampless"
+  },
+  "homepage": "https://github.com/heavymoons/ampless#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -24,5 +37,11 @@
   "dependencies": {
     "@jsquash/webp": "^1.4.0"
   },
-  "keywords": ["cms", "aws", "amplify", "serverless", "blog"]
+  "keywords": [
+    "cms",
+    "aws",
+    "amplify",
+    "serverless",
+    "blog"
+  ]
 }

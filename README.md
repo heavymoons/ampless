@@ -1,32 +1,95 @@
 # ampless
 
-Serverless CMS for AWS Amplify.
+**Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
 
-> ⚠️ **Early development** — not yet usable.
+> v0.1 (MVP). The shape is settling but APIs may evolve until v1.0.
 
-## What is ampless?
+## Why ampless
 
-ampless is an open-source CMS built natively for AWS Amplify. Think of it as [EmDash](https://emdash.dev) for the AWS ecosystem.
+- **AWS-native.** Runs entirely on Amplify Gen 2 — Cognito for auth, DynamoDB for content, S3 for media, Lambda for plugins, AppSync for queries. No extra moving parts.
+- **AI-first.** The MCP server (`@ampless/mcp-server`) lets Claude Desktop, Cursor, Claude Code and anything else that speaks MCP read and write your posts directly.
+- **Plugin-friendly.** Trust-level-segregated Lambdas (`untrusted` / `trusted`) execute event hooks without giving every plugin access to your data.
+- **TypeScript-first.** Everything from `cms.config.ts` to event handlers is typed end-to-end.
 
-- **Next.js** (App Router) frontend
-- **DynamoDB** for content storage (Portable Text)
-- **S3** for media
-- **Cognito** for authentication
-- **Lambda** for plugin execution with IAM-based sandboxing
-
-## Quick Start
+## Quick start
 
 ```bash
 npx create-ampless@latest
 ```
 
+The CLI scaffolds a Next.js 15 (App Router) project. Then:
+
+```bash
+cd <your-project>
+npm install
+npx ampx sandbox      # provisions AWS dev resources, generates amplify_outputs.json
+npm run dev           # http://localhost:3000
+```
+
+Sign up at `/login` — the first registered user is automatically promoted to the `ampless-admin` Cognito group.
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | Next.js 15 App Router |
+| UI | shadcn/ui + Tailwind v4 |
+| Editor | tiptap (with image/link extensions) |
+| Backend | AWS Amplify Gen 2 (CDK-based) |
+| Auth | Cognito (User Pool + Identity Pool) |
+| Data | DynamoDB |
+| Media | S3 (public/private prefixes, presigned-URL or direct delivery) |
+| API | AppSync GraphQL (custom JS resolvers for public reads) |
+| Plugins | Lambda functions, trust-level segregated, fed by DynamoDB Streams → SQS |
+
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`ampless`](./packages/ampless) | CMS core |
-| [`create-ampless`](./packages/create-ampless) | CLI scaffolding tool |
-| [`@ampless/plugin-seo`](./packages/plugin-seo) | SEO plugin |
+| Package | Purpose |
+|---|---|
+| [`ampless`](./packages/ampless) | Core types, plugin contract, shared utilities |
+| [`create-ampless`](./packages/create-ampless) | `npx create-ampless@latest` — project scaffolding |
+| [`@ampless/plugin-seo`](./packages/plugin-seo) | OGP / Twitter / canonical metadata + `sitemap.xml` |
+| [`@ampless/plugin-rss`](./packages/plugin-rss) | RSS 2.0 `/feed.xml` |
+| [`@ampless/plugin-webhook`](./packages/plugin-webhook) | POST events to external URLs (HMAC-signed) |
+| [`@ampless/mcp-server`](./packages/mcp-server) | MCP server for Claude Desktop / Cursor / Claude Code |
+
+## Plugins in `cms.config.ts`
+
+```ts
+import { defineConfig } from 'ampless'
+import seoPlugin from '@ampless/plugin-seo'
+import rssPlugin from '@ampless/plugin-rss'
+import webhookPlugin from '@ampless/plugin-webhook'
+
+export default defineConfig({
+  site: { name: 'My Blog', url: 'https://example.com' },
+  plugins: [
+    seoPlugin({ twitterSite: '@example' }),
+    rssPlugin({ language: 'en', limit: 20 }),
+    webhookPlugin({
+      endpoints: [{ url: 'https://example.com/hooks/ampless', secret: process.env.WEBHOOK_SECRET }],
+    }),
+  ],
+})
+```
+
+## Editor trust model (read this before granting `editor` access)
+
+ampless treats `ampless-editor` as a trusted principal — same shape as WordPress's `unfiltered_html` capability. Editors can store arbitrary HTML / JavaScript in post bodies and the public site renders it verbatim. The full spec is in [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md); the short version is **don't grant `editor` to anyone you wouldn't also grant `admin`**.
+
+## Roadmap
+
+| Version | Highlights |
+|---|---|
+| v0.1 (now) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
+| v0.2 | Multi-site (subdomain routing), Markdown/HTML canonical formats, before-hooks, AI provider abstraction, theme switching, WordPress WXR import |
+| v1.0 | Custom content types, REST API, eject support |
+
+Full list in [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md).
+
+## Architecture
+
+[`docs/architecture/`](./docs/architecture/) has the design docs split per concern. [`ARCHITECTURE.md`](./ARCHITECTURE.md) is the table of contents.
 
 ## Contributing
 

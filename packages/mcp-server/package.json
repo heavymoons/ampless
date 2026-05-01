@@ -1,6 +1,6 @@
 {
   "name": "@ampless/mcp-server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "MCP server for ampless — lets AI agents (Claude Desktop, Cursor, Claude Code) read and write posts and media via AppSync",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,20 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/mcp-server"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/mcp-server#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -26,5 +39,11 @@
     "amazon-cognito-identity-js": "^6.3.12",
     "ampless": "workspace:*"
   },
-  "keywords": ["ampless", "mcp", "ai", "claude", "cms"]
+  "keywords": [
+    "ampless",
+    "mcp",
+    "ai",
+    "claude",
+    "cms"
+  ]
 }
