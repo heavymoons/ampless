@@ -37,6 +37,26 @@ cfnBucket.publicAccessBlockConfiguration = {
   restrictPublicBuckets: false,
 }
 
+// CORS so cross-origin asset loads work from the public site —
+// fonts referenced from CSS, ES modules with `crossorigin`, source
+// maps, fetch() / XMLHttpRequest reading the response body. Plain
+// `<link>` / `<script>` / `<img>` already work without CORS (no-CORS
+// loads), but anything that wants to *read* the bytes cross-origin
+// needs these headers. AllowedOrigins is `*` because uploads are
+// already public (the bucket policy grants anonymous s3:GetObject
+// on `public/*`); CORS just lets the browser read what's already
+// publicly fetchable.
+cfnBucket.corsConfiguration = {
+  corsRules: [
+    {
+      allowedMethods: ['GET', 'HEAD'],
+      allowedOrigins: ['*'],
+      allowedHeaders: ['*'],
+      maxAge: 3000,
+    },
+  ],
+}
+
 backend.storage.resources.bucket.addToResourcePolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
