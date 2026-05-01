@@ -57,15 +57,24 @@ export function PostForm({ post }: PostFormProps) {
     try {
       const tags = parseTags(tagsInput)
       if (isEdit) {
-        await updatePost(post!.postId, {
-          title,
-          slug: slug || slugify(title),
-          excerpt: excerpt || undefined,
-          body,
-          status,
-          publishedAt: status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
-          tags,
-        })
+        await updatePost(
+          post!.postId,
+          {
+            title,
+            slug: slug || slugify(title),
+            excerpt: excerpt || undefined,
+            body,
+            status,
+            publishedAt:
+              status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
+            tags,
+          },
+          // siteId is part of the post's compound key — without this the
+          // provider falls back to 'default' and tries to update a row
+          // that doesn't exist, which DynamoDB rejects with a
+          // ConditionalCheckFailedException.
+          { siteId: post!.siteId }
+        )
       } else {
         await createPost({
           siteId: readAdminSiteIdFromCookie(),
