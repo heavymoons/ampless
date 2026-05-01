@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { listPosts, type Post } from 'ampless'
+import { readAdminSiteIdFromCookie } from '@/lib/admin-site-client'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
@@ -11,7 +12,8 @@ export default function PostsList() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    listPosts({ status: 'all' })
+    const siteId = readAdminSiteIdFromCookie()
+    listPosts({ status: 'all', siteId })
       .then(setPosts)
       .finally(() => setLoading(false))
   }, [])

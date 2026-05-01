@@ -87,7 +87,10 @@ function makeContext(plugin: AmplessPlugin, siteId: string): PluginRuntimeContex
     site: config.site,
     listPublishedPosts: () => listPublished(siteId),
     async writePublicAsset(key, body, contentType) {
-      const objectKey = `public/plugins/${plugin.name}/${key}`
+      // S3 key includes siteId so multi-site deployments don't collide
+      // (site1's sitemap.xml vs site2's sitemap.xml). Plugin name keeps
+      // the existing per-plugin segregation.
+      const objectKey = `public/plugins/${plugin.name}/${siteId}/${key}`
       await s3.send(
         new PutObjectCommand({
           Bucket: BUCKET,

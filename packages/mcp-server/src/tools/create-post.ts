@@ -1,4 +1,4 @@
-import type { Post } from 'ampless'
+import { composeSiteIdStatus, type Post } from 'ampless'
 import type { GraphqlClient } from '../appsync.js'
 import { POST_FIELDS, encodeBody, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
@@ -71,6 +71,8 @@ export async function createPost(
       status,
       publishedAt,
       tags: args.tags,
+      // Denormalized GSI key for `bySiteIdStatus`.
+      siteIdStatus: composeSiteIdStatus(siteId, status),
     },
   })
 

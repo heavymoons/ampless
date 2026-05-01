@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react'
 import { notFound } from 'next/navigation'
 import { getPostById, type Post } from 'ampless'
+import { readAdminSiteIdFromCookie } from '@/lib/admin-site-client'
 import { PostForm } from '@/components/admin/post-form'
 
 export default function EditPostPage({ params }: { params: Promise<{ postId: string }> }) {
@@ -12,7 +13,8 @@ export default function EditPostPage({ params }: { params: Promise<{ postId: str
   const [missing, setMissing] = useState(false)
 
   useEffect(() => {
-    getPostById(postId)
+    const siteId = readAdminSiteIdFromCookie()
+    getPostById(postId, { siteId })
       .then((p) => {
         if (!p) setMissing(true)
         else setPost(p)

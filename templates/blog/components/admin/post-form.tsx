@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createPost, updatePost, deletePost, type Post } from 'ampless'
+import { readAdminSiteIdFromCookie } from '@/lib/admin-site-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -67,7 +68,7 @@ export function PostForm({ post }: PostFormProps) {
         })
       } else {
         await createPost({
-          siteId: 'default',
+          siteId: readAdminSiteIdFromCookie(),
           slug: slug || slugify(title),
           title,
           excerpt: excerpt || undefined,

@@ -16,6 +16,7 @@ export type {
   Page,
   Media,
   Config,
+  SiteConfig,
   AuthContext,
   Role,
   ContentFormat,
@@ -24,6 +25,13 @@ export type {
   MediaProcessingDefaults,
   DateFormat,
 } from './types.js'
+export {
+  DEFAULT_SITE_ID,
+  resolveSiteId,
+  isMultiSite,
+  siteFor,
+  composeSiteIdStatus,
+} from './sites.js'
 export { formatDate } from './format.js'
 export { escapeXml } from './xml.js'
 export { formatPublicAssetUrl } from './storage.js'

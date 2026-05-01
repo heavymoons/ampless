@@ -13,7 +13,14 @@ const nav = [
   { href: '/admin/media', label: 'Media', icon: Image },
 ]
 
-export function Sidebar({ email }: { email: string }) {
+export function Sidebar({
+  email,
+  siteSelector,
+}: {
+  email: string
+  /** Rendered above the main nav in multi-site mode. */
+  siteSelector?: React.ReactNode
+}) {
   const pathname = usePathname()
 
   return (
@@ -23,6 +30,8 @@ export function Sidebar({ email }: { email: string }) {
           ampless
         </Link>
       </div>
+
+      {siteSelector ? <div className="border-b">{siteSelector}</div> : null}
 
       <nav className="flex-1 space-y-1 p-2">
         {nav.map((item) => {

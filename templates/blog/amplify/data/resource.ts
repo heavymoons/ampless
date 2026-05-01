@@ -13,12 +13,19 @@ const schema = a.schema({
       status: a.enum(['draft', 'published']),
       publishedAt: a.datetime(),
       tags: a.string().array(),
+      // Denormalized GSI key — `${siteId}#${status}` — set by every
+      // write path (admin client, MCP tools). Lets the public read
+      // resolvers do a single Query for "site X's published posts,
+      // newest first" without table-level filtering.
+      siteIdStatus: a.string(),
     })
     .identifier(['siteId', 'postId'])
-    // Secondary index on `status` + `publishedAt` so the public read
-    // resolvers can fetch only published posts efficiently.
+    // GSI partitioned by siteId+status, sorted by publishedAt. The
+    // resolvers Query `siteIdStatus = "${siteId}#published"` and read
+    // only the relevant partition — no scan-and-filter, even when the
+    // table holds many sites.
     .secondaryIndexes((index) => [
-      index('status').sortKeys(['publishedAt']).name('byStatus'),
+      index('siteIdStatus').sortKeys(['publishedAt']).name('bySiteIdStatus'),
     ])
     // Direct table access is admin/editor only — guests must go through
     // the custom queries below, which strip drafts at the resolver level.

@@ -11,20 +11,20 @@ import { getPublishedPost } from '@/lib/posts-public'
 
 export const dynamic = 'force-dynamic'
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}): Promise<Metadata> {
-  const { slug } = await params
-  const post = await getPublishedPost(slug)
-  if (!post) return {}
-  return postMetadata(post)
+interface Props {
+  params: Promise<{ siteId: string; slug: string }>
 }
 
-export default async function PostPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const post = await getPublishedPost(slug)
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { siteId, slug } = await params
+  const post = await getPublishedPost(slug, { siteId })
+  if (!post) return {}
+  return postMetadata(post, siteId)
+}
+
+export default async function PostPage({ params }: Props) {
+  const { siteId, slug } = await params
+  const post = await getPublishedPost(slug, { siteId })
   if (!post) notFound()
 
   const defaultLightbox = cmsConfig.media?.imageDisplay === 'lightbox'

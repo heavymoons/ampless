@@ -1,22 +1,23 @@
 import { util } from '@aws-appsync/utils'
 
-// AppSync JS resolver: returns posts where status='published'.
-// Uses the `byStatus` GSI: PK=status, SK=publishedAt. So:
-//   - newest-first ordering is free (scanIndexForward: false)
-//   - date-range filtering (`from`, `to`) is pushed to the SK condition,
-//     reading only the matching range instead of the whole partition
-//   - `nextToken` lets callers paginate without re-issuing a fresh query
+// AppSync JS resolver: list a site's published posts, newest first.
 //
-// Authorization is enforced by AppSync; this resolver guarantees the
-// `status='published'` partition condition so guests can never observe
-// drafts even if they call the underlying AppSync API directly.
+// Reads the `bySiteIdStatus` GSI:
+//   PK = `${siteId}#${status}`   (denormalized field set by writers)
+//   SK = publishedAt
+// so a single Query reads only one site's published partition. Drafts
+// never appear because the PK condition pins status='published'.
+//
+// Date-range filtering (`from`, `to`) is pushed into the SK condition,
+// so DynamoDB only reads the matching range. `nextToken` paginates
+// without re-issuing a fresh query.
 export function request(ctx) {
   const { siteId = 'default', from, to, limit, nextToken } = ctx.args
 
-  // Build SK condition: optionally restrict by publishedAt range.
-  let keyExpression = '#status = :status'
-  const expressionNames = { '#status': 'status' }
-  const expressionValueMap = { ':status': 'published' }
+  const partition = `${siteId}#published`
+  let keyExpression = '#siteIdStatus = :siteIdStatus'
+  const expressionNames = { '#siteIdStatus': 'siteIdStatus' }
+  const expressionValueMap = { ':siteIdStatus': partition }
 
   if (from && to) {
     keyExpression += ' AND #publishedAt BETWEEN :from AND :to'
@@ -35,18 +36,11 @@ export function request(ctx) {
 
   return {
     operation: 'Query',
-    index: 'byStatus',
+    index: 'bySiteIdStatus',
     query: {
       expression: keyExpression,
       expressionNames,
       expressionValues: util.dynamodb.toMapValues(expressionValueMap),
-    },
-    // Filter by siteId after the GSI query. (For multi-tenant deployments
-    // we'd add a composite GSI keyed by siteId+status; out of scope for v0.1.)
-    filter: {
-      expression: '#siteId = :siteId',
-      expressionNames: { '#siteId': 'siteId' },
-      expressionValues: util.dynamodb.toMapValues({ ':siteId': siteId }),
     },
     scanIndexForward: false, // newest first
     limit: limit ?? 20,

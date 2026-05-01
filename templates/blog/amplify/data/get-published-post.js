@@ -1,22 +1,27 @@
 import { util } from '@aws-appsync/utils'
 
 // AppSync JS resolver: returns a single published post by slug.
-// Uses the `byStatus` GSI so drafts are dropped at the index partition.
+//
+// Reads the `bySiteIdStatus` GSI so the partition key already isolates
+// the requesting site's published rows. Slug is enforced via filter
+// (slug is not part of the GSI key but the partition is small enough
+// per site that a filter is cheap).
 export function request(ctx) {
   const siteId = ctx.args.siteId ?? 'default'
   const slug = ctx.args.slug
+  const partition = `${siteId}#published`
   return {
     operation: 'Query',
-    index: 'byStatus',
+    index: 'bySiteIdStatus',
     query: {
-      expression: '#status = :status',
-      expressionNames: { '#status': 'status' },
-      expressionValues: util.dynamodb.toMapValues({ ':status': 'published' }),
+      expression: '#siteIdStatus = :siteIdStatus',
+      expressionNames: { '#siteIdStatus': 'siteIdStatus' },
+      expressionValues: util.dynamodb.toMapValues({ ':siteIdStatus': partition }),
     },
     filter: {
-      expression: '#siteId = :siteId AND #slug = :slug',
-      expressionNames: { '#siteId': 'siteId', '#slug': 'slug' },
-      expressionValues: util.dynamodb.toMapValues({ ':siteId': siteId, ':slug': slug }),
+      expression: '#slug = :slug',
+      expressionNames: { '#slug': 'slug' },
+      expressionValues: util.dynamodb.toMapValues({ ':slug': slug }),
     },
     limit: 1,
   }

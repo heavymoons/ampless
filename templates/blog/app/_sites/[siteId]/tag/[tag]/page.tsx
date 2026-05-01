@@ -6,10 +6,14 @@ import cmsConfig from '@/cms.config'
 
 export const dynamic = 'force-dynamic'
 
-export default async function TagPage({ params }: { params: Promise<{ tag: string }> }) {
-  const { tag } = await params
+interface Props {
+  params: Promise<{ siteId: string; tag: string }>
+}
+
+export default async function TagPage({ params }: Props) {
+  const { siteId, tag } = await params
   const decodedTag = decodeURIComponent(tag)
-  const { items: posts } = await listPostsByTag(decodedTag, { limit: 50 })
+  const { items: posts } = await listPostsByTag(decodedTag, { siteId, limit: 50 })
 
   if (posts.length === 0) notFound()
 

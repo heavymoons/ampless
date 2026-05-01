@@ -57,6 +57,22 @@ export interface MediaProcessingDefaults {
   losslessForPng?: boolean
 }
 
+/**
+ * Per-site override. The top-level `Config.site` provides defaults that
+ * fall through when these are unset. `domains` is required because it's
+ * how the middleware maps incoming requests to a siteId.
+ */
+export interface SiteConfig {
+  /** Hostnames this site responds to (subdomains, separate apex domains, both fine). */
+  domains: string[]
+  /** Override `Config.site.name` for this site. */
+  name?: string
+  /** Override `Config.site.url` (canonical) for this site. */
+  url?: string
+  /** Override `Config.site.description` for this site. */
+  description?: string
+}
+
 export interface Config {
   site: {
     name: string
@@ -81,7 +97,12 @@ export interface Config {
    * production) and the browser.
    */
   timezone?: string
-  sites?: Record<string, { domains: string[] }>
+  /**
+   * Multi-site configuration. When 2+ entries are declared, the runtime
+   * switches to multi-site mode (host-based routing + Cache-Control:
+   * private). When 0 or 1 entries, single-site mode is used.
+   */
+  sites?: Record<string, SiteConfig>
   /**
    * Active plugins. Each entry is the result of a plugin factory call
    * (e.g. `seoPlugin({ ... })`) or a raw AmplessPlugin object. Strings are
