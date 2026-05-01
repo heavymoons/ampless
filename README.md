@@ -2,7 +2,7 @@
 
 **Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
 
-> v0.1 (MVP). The shape is settling but APIs may evolve until v1.0.
+> Pre-release, closed development until v1.0 RC. Shape is settling but APIs may still evolve.
 
 ## Why ampless
 
@@ -79,11 +79,15 @@ ampless treats `ampless-editor` as a trusted principal — same shape as WordPre
 
 ## Roadmap
 
-| Version | Highlights |
+ampless is being developed in the open eventually, but **the repo stays private until v1.0 RC**. Public release happens once it's good enough to run the maintainer's own multiple sites and the project's own marketing page is built with ampless itself.
+
+| Phase | Highlights |
 |---|---|
-| v0.1 (now) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
-| v0.2 | Multi-site (subdomain routing), Markdown/HTML canonical formats, before-hooks, AI provider abstraction, theme switching, WordPress WXR import |
-| v1.0 | Custom content types, REST API, eject support |
+| v0.1 (done — internal) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
+| v0.x (in progress) | Multi-site, theme customization, MCP HTTP transport + access tokens, AI provider abstraction, WXR import, monitoring polish |
+| v1.0 RC (public-flip trigger) | Core + first-party plugins are enough to run a real site; ampless's own marketing page exists |
+| v1.0 stable | Admin polish, custom content types, REST API, eject |
+| v2.0+ | Third-party plugins, marketplace, WASM sandbox |
 
 Full list in [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md).
 
