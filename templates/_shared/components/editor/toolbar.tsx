@@ -15,12 +15,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { MediaPicker } from '@/components/admin/media-picker'
 import { cn } from '@/lib/cn'
+import { useT } from '@/components/i18n-provider'
 
 interface ToolbarProps {
   editor: Editor | null
 }
 
 export function Toolbar({ editor }: ToolbarProps) {
+  const t = useT()
   if (!editor) return null
 
   const tools = [
@@ -35,7 +37,7 @@ export function Toolbar({ editor }: ToolbarProps) {
 
   const setLink = () => {
     const previousUrl = (editor.getAttributes('link').href as string | undefined) ?? ''
-    const url = window.prompt('URL', previousUrl)
+    const url = window.prompt(t('editor.linkPrompt'), previousUrl)
     if (url === null) return
     if (url === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run()

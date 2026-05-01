@@ -3,6 +3,7 @@ import { formatDate, type ThemeRouteContext } from 'ampless'
 import { listPublishedPosts } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { TagList } from '@/components/tag-list'
+import { t } from '@/lib/i18n'
 
 export default async function MinimalHome({ params }: ThemeRouteContext) {
   const { siteId } = await params
@@ -19,7 +20,7 @@ export default async function MinimalHome({ params }: ThemeRouteContext) {
       </header>
 
       {posts.length === 0 ? (
-        <p className="text-gray-500">No posts published yet.</p>
+        <p className="text-gray-500">{t('public.noPosts')}</p>
       ) : (
         <ul className="space-y-8">
           {posts.map((post) => (

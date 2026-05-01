@@ -17,6 +17,7 @@ import { uploadProcessedImage } from '@/lib/upload'
 import { ImageUploadDialog } from './image-upload-dialog'
 import type { ProcessOptions } from 'ampless/media'
 import cmsConfig from '@/cms.config'
+import { useT } from '@/components/i18n-provider'
 
 interface MediaPickerProps {
   trigger: React.ReactNode
@@ -24,6 +25,7 @@ interface MediaPickerProps {
 }
 
 export function MediaPicker({ trigger, onSelect }: MediaPickerProps) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -94,10 +96,8 @@ export function MediaPicker({ trigger, onSelect }: MediaPickerProps) {
           <DialogHeader>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <DialogTitle>Insert image</DialogTitle>
-                <DialogDescription>
-                  Pick from your media library or upload a new file.
-                </DialogDescription>
+                <DialogTitle>{t('mediaPicker.title')}</DialogTitle>
+                <DialogDescription>{t('mediaPicker.description')}</DialogDescription>
               </div>
               <Button
                 type="button"
@@ -106,7 +106,7 @@ export function MediaPicker({ trigger, onSelect }: MediaPickerProps) {
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="mr-2 h-3 w-3" />
-                Upload new
+                {t('mediaPicker.uploadNew')}
               </Button>
             </div>
           </DialogHeader>
@@ -119,11 +119,12 @@ export function MediaPicker({ trigger, onSelect }: MediaPickerProps) {
             onChange={handleFileSelected}
           />
 
-          {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {loading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {!loading && items.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No media yet. Click <strong>Upload new</strong> to add the first image.
+              {t('mediaPicker.empty')}{' '}
+              {t('mediaPicker.emptyHint', { action: t('mediaPicker.emptyAction') })}
             </p>
           )}
 

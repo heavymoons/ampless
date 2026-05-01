@@ -6,8 +6,10 @@ import { listPosts, type Post } from 'ampless'
 import { readAdminSiteIdFromCookie } from '@/lib/admin-site-client'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useT } from '@/components/i18n-provider'
 
 export default function PostsList() {
+  const t = useT()
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -21,19 +23,19 @@ export default function PostsList() {
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Posts</h1>
+        <h1 className="text-3xl font-bold">{t('posts.list.title')}</h1>
         <Button asChild>
-          <Link href="/admin/posts/new">New post</Link>
+          <Link href="/admin/posts/new">{t('posts.list.newButton')}</Link>
         </Button>
       </div>
 
       {loading ? (
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">{t('common.loading')}</p>
       ) : posts.length === 0 ? (
         <div className="rounded-md border p-12 text-center">
-          <p className="text-muted-foreground">No posts yet.</p>
+          <p className="text-muted-foreground">{t('posts.list.empty')}</p>
           <Button asChild className="mt-4">
-            <Link href="/admin/posts/new">Create your first post</Link>
+            <Link href="/admin/posts/new">{t('posts.list.createFirst')}</Link>
           </Button>
         </div>
       ) : (
@@ -41,10 +43,10 @@ export default function PostsList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Slug</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead>{t('posts.list.columnTitle')}</TableHead>
+                <TableHead>{t('posts.list.columnStatus')}</TableHead>
+                <TableHead>{t('posts.list.columnSlug')}</TableHead>
+                <TableHead>{t('posts.list.columnUpdated')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -66,7 +68,7 @@ export default function PostsList() {
                           : 'inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700'
                       }
                     >
-                      {post.status}
+                      {t(`common.${post.status}`)}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">

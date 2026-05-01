@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { listPosts, type Post } from 'ampless'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { useT } from '@/components/i18n-provider'
 
 export default function AdminDashboard() {
+  const t = useT()
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -22,25 +24,25 @@ export default function AdminDashboard() {
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <h1 className="text-3xl font-bold">{t('dashboard.title')}</h1>
         <Button asChild>
-          <Link href="/admin/posts/new">New post</Link>
+          <Link href="/admin/posts/new">{t('dashboard.newPost')}</Link>
         </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Posts</CardTitle>
+            <CardTitle>{t('dashboard.totalPosts')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{loading ? '—' : posts.length}</p>
-            <p className="text-sm text-muted-foreground">total</p>
+            <p className="text-sm text-muted-foreground">{t('dashboard.totalLabel')}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Published</CardTitle>
+            <CardTitle>{t('dashboard.published')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{loading ? '—' : published}</p>
@@ -48,7 +50,7 @@ export default function AdminDashboard() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Drafts</CardTitle>
+            <CardTitle>{t('dashboard.drafts')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{loading ? '—' : drafts}</p>

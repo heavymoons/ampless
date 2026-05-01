@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { TiptapEditor } from '@/components/editor/tiptap-editor'
+import { useT } from '@/components/i18n-provider'
 
 interface PostFormProps {
   post?: Post
@@ -25,6 +26,7 @@ function slugify(s: string): string {
 
 export function PostForm({ post }: PostFormProps) {
   const router = useRouter()
+  const t = useT()
   const isEdit = !!post
 
   const emptyDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -99,7 +101,7 @@ export function PostForm({ post }: PostFormProps) {
 
   async function handleDelete() {
     if (!post) return
-    if (!confirm(`Delete "${post.title}"?`)) return
+    if (!confirm(t('posts.form.deleteConfirm', { title: post.title }))) return
     setSaving(true)
     try {
       await deletePost(post.postId)
@@ -114,7 +116,7 @@ export function PostForm({ post }: PostFormProps) {
   return (
     <form onSubmit={save} className="space-y-6">
       <div className="space-y-2">
-        <Label htmlFor="title">Title</Label>
+        <Label htmlFor="title">{t('posts.form.title')}</Label>
         <Input
           id="title"
           required
@@ -127,17 +129,17 @@ export function PostForm({ post }: PostFormProps) {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="slug">Slug</Label>
+        <Label htmlFor="slug">{t('posts.form.slug')}</Label>
         <Input
           id="slug"
           value={slug}
           onChange={(e) => setSlug(e.target.value)}
-          placeholder={slugify(title) || 'my-post-slug'}
+          placeholder={slugify(title) || t('posts.form.slugPlaceholder')}
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="excerpt">Excerpt</Label>
+        <Label htmlFor="excerpt">{t('posts.form.excerpt')}</Label>
         <Textarea
           id="excerpt"
           rows={2}
@@ -147,33 +149,31 @@ export function PostForm({ post }: PostFormProps) {
       </div>
 
       <div className="space-y-2">
-        <Label>Body</Label>
+        <Label>{t('posts.form.body')}</Label>
         <TiptapEditor initialContent={body} onChange={setBody} />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="tags">Tags</Label>
+        <Label htmlFor="tags">{t('posts.form.tags')}</Label>
         <Input
           id="tags"
           value={tagsInput}
           onChange={(e) => setTagsInput(e.target.value)}
-          placeholder="comma, separated, tags"
+          placeholder={t('posts.form.tagsPlaceholder')}
         />
-        <p className="text-xs text-muted-foreground">
-          Used to group posts on tag pages (e.g. /tag/tech).
-        </p>
+        <p className="text-xs text-muted-foreground">{t('posts.form.tagsHint')}</p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="status">Status</Label>
+        <Label htmlFor="status">{t('posts.form.status')}</Label>
         <select
           id="status"
           value={status}
           onChange={(e) => setStatus(e.target.value as Post['status'])}
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         >
-          <option value="draft">Draft</option>
-          <option value="published">Published</option>
+          <option value="draft">{t('common.draft')}</option>
+          <option value="published">{t('common.published')}</option>
         </select>
       </div>
 
@@ -181,11 +181,15 @@ export function PostForm({ post }: PostFormProps) {
 
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={saving}>
-          {saving ? 'Saving...' : isEdit ? 'Save changes' : 'Create post'}
+          {saving
+            ? t('common.saving')
+            : isEdit
+              ? t('posts.form.saveChanges')
+              : t('posts.form.createPost')}
         </Button>
         {isEdit && (
           <Button type="button" variant="destructive" onClick={handleDelete} disabled={saving}>
-            Delete
+            {t('posts.form.delete')}
           </Button>
         )}
       </div>

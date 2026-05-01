@@ -16,10 +16,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useT } from '@/components/i18n-provider'
 
 // Format choices the dialog exposes. The 'original' OutputFormat exists in
 // the core API for programmatic callers, but we hide it from the dialog to
-// avoid conflation with the "元画像のままアップロード" checkbox above.
+// avoid conflation with the "useOriginal" checkbox above.
 type FormatChoice = 'auto' | 'webp' | 'jpeg'
 type AspectChoice = 'free' | '1:1' | '4:3' | '16:9' | '3:2'
 
@@ -105,6 +106,7 @@ export function ImageUploadDialog({
   onSkip,
   onCancel,
 }: ImageUploadDialogProps) {
+  const t = useT()
   const defaultMaxDimension = defaults?.maxDimension ?? 2400
   const defaultQuality = defaults?.quality ?? 0.85
   const losslessForPng = defaults?.losslessForPng ?? true
@@ -219,8 +221,10 @@ export function ImageUploadDialog({
         <DialogHeader>
           <DialogTitle className="truncate">{file.name}</DialogTitle>
           <DialogDescription>
-            {remaining > 1 ? `${remaining} file(s) remaining` : `${formatBytes(file.size)} · ${file.type || 'unknown'}`}
-            {busy && ' · uploading…'}
+            {remaining > 1
+              ? t('media.dialog.remaining', { count: remaining })
+              : `${formatBytes(file.size)} · ${file.type || 'unknown'}`}
+            {busy && t('media.dialog.uploading')}
           </DialogDescription>
         </DialogHeader>
 
@@ -265,16 +269,16 @@ export function ImageUploadDialog({
               disabled={busy}
               onChange={(e) => setOriginal(e.target.checked)}
             />
-            <span>元画像のままアップロード</span>
+            <span>{t('media.dialog.useOriginal')}</span>
             {passthrough && (
-              <span className="text-xs text-muted-foreground">（GIF/SVG/AVIF/HEIC/BMP/TIFF は自動で原本扱い）</span>
+              <span className="text-xs text-muted-foreground">{t('media.dialog.passthroughNote')}</span>
             )}
           </label>
 
           {!original && !passthrough && (
             <>
               <div>
-                <Label>アスペクト比</Label>
+                <Label>{t('media.dialog.aspectRatio')}</Label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {ASPECT_CHOICES.map((choice) => (
                     <Button
@@ -292,7 +296,7 @@ export function ImageUploadDialog({
               </div>
 
               <div>
-                <Label>出力フォーマット</Label>
+                <Label>{t('media.dialog.outputFormat')}</Label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {FORMAT_CHOICES.map((choice) => (
                     <Button
@@ -320,13 +324,13 @@ export function ImageUploadDialog({
                     disabled={busy}
                     onChange={(e) => setLosslessOverride(e.target.checked)}
                   />
-                  <span>ロスレス WebP</span>
+                  <span>{t('media.dialog.losslessWebp')}</span>
                 </label>
               )}
 
               {showQualitySlider && (
                 <div>
-                  <Label>品質: {Math.round(quality * 100)}</Label>
+                  <Label>{t('media.dialog.quality', { value: Math.round(quality * 100) })}</Label>
                   <input
                     type="range"
                     min={50}
@@ -341,7 +345,7 @@ export function ImageUploadDialog({
               )}
 
               <div className="max-w-xs">
-                <Label htmlFor="maxDimension">長辺最大 (px)</Label>
+                <Label htmlFor="maxDimension">{t('media.dialog.maxDimension')}</Label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {MAX_DIMENSION_PRESETS.map((preset) => (
                     <Button
@@ -373,13 +377,13 @@ export function ImageUploadDialog({
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" type="button" onClick={onCancel}>
-            Cancel all
+            {t('media.dialog.cancelAll')}
           </Button>
           <Button variant="outline" type="button" disabled={busy} onClick={onSkip}>
-            Skip
+            {t('media.dialog.skip')}
           </Button>
           <Button type="button" disabled={busy} onClick={handleConfirm}>
-            {busy ? 'Uploading…' : 'Upload'}
+            {busy ? t('media.dialog.uploadingButton') : t('media.dialog.upload')}
           </Button>
         </div>
       </DialogContent>

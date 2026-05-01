@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { ADMIN_SITE_COOKIE } from '@/lib/admin-site-client'
+import { useT } from '@/components/i18n-provider'
 
 interface SiteOption {
   id: string
@@ -18,6 +19,7 @@ interface Props {
 // current page so server components re-read the new siteId.
 export function SiteSelector({ current, sites }: Props) {
   const router = useRouter()
+  const t = useT()
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value
@@ -28,7 +30,7 @@ export function SiteSelector({ current, sites }: Props) {
   return (
     <div className="px-3 py-2">
       <label className="block text-xs uppercase tracking-wide text-muted-foreground mb-1">
-        Site
+        {t('sites.selector.label')}
       </label>
       <select
         value={current}

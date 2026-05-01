@@ -8,6 +8,7 @@ import { TagList } from '@/components/tag-list'
 import { postMetadata } from '@/lib/seo'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { getPublishedPost } from '@/lib/posts-public'
+import { t } from '@/lib/i18n'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -35,7 +36,7 @@ export default async function MinimalPost({ params }: PostCtx) {
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <nav className="mb-8">
-        <Link href="/" className="text-sm text-gray-500 hover:underline">← Back</Link>
+        <Link href="/" className="text-sm text-gray-500 hover:underline">{t('public.back')}</Link>
       </nav>
 
       <article>

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { formatDate, type ThemeRouteContext } from 'ampless'
 import { listPostsByTag } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
+import { t } from '@/lib/i18n'
 
 export default async function MinimalTag({ params }: ThemeRouteContext<{ tag: string }>) {
   const { siteId, tag } = await params
@@ -17,11 +18,11 @@ export default async function MinimalTag({ params }: ThemeRouteContext<{ tag: st
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <nav className="mb-8">
-        <Link href="/" className="text-sm text-gray-500 hover:underline">← Home</Link>
+        <Link href="/" className="text-sm text-gray-500 hover:underline">{t('public.home')}</Link>
       </nav>
 
       <header className="mb-12 border-b pb-6">
-        <p className="text-sm text-gray-500">Tag</p>
+        <p className="text-sm text-gray-500">{t('public.tagLabel')}</p>
         <h1 className="text-4xl font-bold tracking-tight">#{decodedTag}</h1>
       </header>
 

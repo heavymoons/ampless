@@ -24,7 +24,8 @@
     "published": "公開済",
     "preview": "プレビュー",
     "active": "アクティブ",
-    "siteId": "サイトID"
+    "siteId": "サイトID",
+    "updated": "更新日"
   },
   "sidebar": {
     "brand": "ampless",
@@ -33,59 +34,89 @@
     "media": "メディア",
     "sites": "サイト",
     "viewSite": "サイトを表示",
-    "signOut": "サインアウト"
+    "signOut": "サインアウト",
+    "site": "サイト"
   },
   "dashboard": {
     "title": "ダッシュボード",
-    "welcome": "amplessへようこそ"
+    "newPost": "新規記事",
+    "totalPosts": "記事",
+    "totalLabel": "総数",
+    "published": "公開済",
+    "drafts": "下書き"
   },
   "posts": {
     "list": {
-      "title": "記事一覧",
+      "title": "記事",
       "newButton": "新規記事",
-      "empty": "記事がまだありません。最初の1件を作成してください。",
-      "publishedAt": "公開日",
-      "untitled": "(タイトル未設定)"
+      "empty": "記事がまだありません。",
+      "createFirst": "最初の記事を作成",
+      "columnTitle": "タイトル",
+      "columnStatus": "ステータス",
+      "columnSlug": "スラッグ",
+      "columnUpdated": "更新日"
     },
     "form": {
       "newTitle": "新規記事",
       "editTitle": "記事を編集",
-      "slug": "スラッグ",
-      "slugHint": "URLに使う識別子(小文字、ハイフン)。",
       "title": "タイトル",
+      "slug": "スラッグ",
+      "slugPlaceholder": "my-post-slug",
       "excerpt": "抜粋",
-      "tags": "タグ",
-      "tagsHint": "カンマ区切りで指定。",
-      "format": "フォーマット",
       "body": "本文",
-      "publishedAt": "公開日時",
-      "saveDraft": "下書き保存",
-      "saveAndPublish": "保存して公開",
-      "unpublish": "非公開にする",
-      "delete": "記事を削除",
-      "deleteConfirm": "この記事を削除しますか?元に戻せません。",
-      "saved": "保存しました。",
-      "deleted": "削除しました。"
+      "tags": "タグ",
+      "tagsPlaceholder": "カンマ, 区切り, タグ",
+      "tagsHint": "タグページで記事をグルーピング (例: /tag/tech)。",
+      "status": "ステータス",
+      "saveChanges": "変更を保存",
+      "createPost": "記事を作成",
+      "delete": "削除",
+      "deleteConfirm": "「{title}」を削除しますか?"
     }
   },
   "media": {
     "title": "メディア",
-    "upload": "アップロード",
     "uploading": "アップロード中...",
-    "empty": "アップロード済みのファイルはありません。",
-    "size": "サイズ",
-    "type": "種類",
-    "uploadedAt": "アップロード日時",
+    "queued": "{count}件のファイルがキュー中",
     "deleteConfirm": "このファイルを削除しますか?",
-    "copyUrl": "URLをコピー"
+    "copyUrl": "URLをコピー",
+    "delete": "削除",
+    "empty": "メディアがまだありません。",
+    "dialog": {
+      "remaining": "残り{count}件",
+      "uploading": " · アップロード中…",
+      "useOriginal": "元画像のままアップロード",
+      "passthroughNote": "(GIF/SVG/AVIF/HEIC/BMP/TIFFは自動で原本扱い)",
+      "aspectRatio": "アスペクト比",
+      "outputFormat": "出力フォーマット",
+      "losslessWebp": "ロスレス WebP",
+      "quality": "品質: {value}",
+      "maxDimension": "長辺最大 (px)",
+      "cancelAll": "すべてキャンセル",
+      "skip": "スキップ",
+      "upload": "アップロード",
+      "uploadingButton": "アップロード中…"
+    }
+  },
+  "mediaPicker": {
+    "title": "画像を挿入",
+    "description": "メディアライブラリから選ぶか、新しいファイルをアップロードしてください。",
+    "uploadNew": "新規アップロード",
+    "empty": "メディアがまだありません。",
+    "emptyHint": "{action}をクリックして最初の画像を追加してください。",
+    "emptyAction": "新規アップロード"
   },
   "sites": {
     "list": {
-      "title": "サイト一覧",
-      "empty": "サイトが設定されていません。cms.config.tsを編集して追加してください。"
+      "title": "サイト",
+      "description": "サイトごとの設定はDynamoDBに保存されています。サイトの追加とドメインの紐付けはcms.config.tsで行ってください。",
+      "columnSiteId": "サイトID",
+      "columnName": "名前",
+      "columnUrl": "URL",
+      "columnDomains": "ドメイン",
+      "edit": "編集"
     },
     "edit": {
-      "siteId": "サイトID",
       "themeLink": "テーマ設定 →",
       "site": "サイト",
       "media": "メディア",
@@ -100,7 +131,8 @@
       "imageDisplayLightbox": "ライトボックス",
       "dateFormatIso": "ISO形式 (YYYY-MM-DD)",
       "dateFormatLong": "長い形式 (2026年4月27日)",
-      "dateFormatLocale": "ロケール依存"
+      "dateFormatLocale": "ロケール依存",
+      "defaultPlaceholder": "デフォルト ({value})"
     },
     "selector": {
       "label": "サイト"
@@ -122,6 +154,18 @@
     "customizationHint": "空欄にするとマニフェストのデフォルト値に戻ります。",
     "lengthHelp": "CSSの長さ。例: 0.5rem, 4px。",
     "imagePlaceholder": "https://… または /media/…"
+  },
+  "editor": {
+    "linkPrompt": "URL",
+    "altPrompt": "代替テキスト",
+    "image": {
+      "inline": "インライン",
+      "inlineTitle": "強制的にインライン表示",
+      "lightbox": "ライトボックス",
+      "lightboxTitle": "強制的にクリックで拡大",
+      "alt": "代替",
+      "delete": "削除"
+    }
   },
   "auth": {
     "common": {
@@ -169,5 +213,11 @@
       "passwordTooShort": "パスワードは8文字以上必要です。",
       "userExists": "このメールアドレスのアカウントは既に存在します。"
     }
+  },
+  "public": {
+    "back": "← 戻る",
+    "home": "← ホーム",
+    "noPosts": "まだ公開された記事はありません。",
+    "tagLabel": "タグ"
   }
 }

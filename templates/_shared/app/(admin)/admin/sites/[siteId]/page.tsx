@@ -6,6 +6,7 @@ import {
   SiteSettingsForm,
   type SiteSettingsFormValues,
 } from '@/components/admin/site-settings-form'
+import { t } from '@/lib/i18n'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,18 +49,18 @@ export default async function EditSitePage({ params }: Props) {
           href="/admin/sites"
           className="text-sm text-muted-foreground hover:underline"
         >
-          ← Sites
+          ← {t('sidebar.sites')}
         </Link>
         <h1 className="mt-2 text-3xl font-bold">{settings.site.name}</h1>
         <p className="text-sm text-muted-foreground">
-          siteId: <code className="font-mono">{siteId}</code>
+          {t('common.siteId')}: <code className="font-mono">{siteId}</code>
         </p>
         <div className="mt-4">
           <Link
             href={`/admin/sites/${siteId}/theme`}
             className="text-sm font-medium underline"
           >
-            Theme settings →
+            {t('sites.edit.themeLink')}
           </Link>
         </div>
       </div>

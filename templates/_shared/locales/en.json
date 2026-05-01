@@ -24,7 +24,8 @@
     "published": "Published",
     "preview": "Preview",
     "active": "Active",
-    "siteId": "siteId"
+    "siteId": "siteId",
+    "updated": "Updated"
   },
   "sidebar": {
     "brand": "ampless",
@@ -33,59 +34,89 @@
     "media": "Media",
     "sites": "Sites",
     "viewSite": "View site",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "site": "Site"
   },
   "dashboard": {
     "title": "Dashboard",
-    "welcome": "Welcome to ampless"
+    "newPost": "New post",
+    "totalPosts": "Posts",
+    "totalLabel": "total",
+    "published": "Published",
+    "drafts": "Drafts"
   },
   "posts": {
     "list": {
       "title": "Posts",
       "newButton": "New post",
-      "empty": "No posts yet. Create your first one.",
-      "publishedAt": "Published",
-      "untitled": "(untitled)"
+      "empty": "No posts yet.",
+      "createFirst": "Create your first post",
+      "columnTitle": "Title",
+      "columnStatus": "Status",
+      "columnSlug": "Slug",
+      "columnUpdated": "Updated"
     },
     "form": {
       "newTitle": "New post",
       "editTitle": "Edit post",
-      "slug": "Slug",
-      "slugHint": "URL-safe identifier (lowercase, hyphens).",
       "title": "Title",
+      "slug": "Slug",
+      "slugPlaceholder": "my-post-slug",
       "excerpt": "Excerpt",
-      "tags": "Tags",
-      "tagsHint": "Comma-separated.",
-      "format": "Format",
       "body": "Body",
-      "publishedAt": "Publish date",
-      "saveDraft": "Save draft",
-      "saveAndPublish": "Save & publish",
-      "unpublish": "Unpublish",
-      "delete": "Delete post",
-      "deleteConfirm": "Delete this post? This can't be undone.",
-      "saved": "Saved.",
-      "deleted": "Deleted."
+      "tags": "Tags",
+      "tagsPlaceholder": "comma, separated, tags",
+      "tagsHint": "Used to group posts on tag pages (e.g. /tag/tech).",
+      "status": "Status",
+      "saveChanges": "Save changes",
+      "createPost": "Create post",
+      "delete": "Delete",
+      "deleteConfirm": "Delete \"{title}\"?"
     }
   },
   "media": {
     "title": "Media",
-    "upload": "Upload",
     "uploading": "Uploading...",
-    "empty": "No uploads yet.",
-    "size": "Size",
-    "type": "Type",
-    "uploadedAt": "Uploaded",
+    "queued": "{count} file(s) queued",
     "deleteConfirm": "Delete this file?",
-    "copyUrl": "Copy URL"
+    "copyUrl": "Copy URL",
+    "delete": "Delete",
+    "empty": "No media yet.",
+    "dialog": {
+      "remaining": "{count} file(s) remaining",
+      "uploading": " · uploading…",
+      "useOriginal": "Upload as original",
+      "passthroughNote": "(GIF/SVG/AVIF/HEIC/BMP/TIFF are passed through automatically)",
+      "aspectRatio": "Aspect ratio",
+      "outputFormat": "Output format",
+      "losslessWebp": "Lossless WebP",
+      "quality": "Quality: {value}",
+      "maxDimension": "Max dimension (px)",
+      "cancelAll": "Cancel all",
+      "skip": "Skip",
+      "upload": "Upload",
+      "uploadingButton": "Uploading…"
+    }
+  },
+  "mediaPicker": {
+    "title": "Insert image",
+    "description": "Pick from your media library or upload a new file.",
+    "uploadNew": "Upload new",
+    "empty": "No media yet.",
+    "emptyHint": "Click {action} to add the first image.",
+    "emptyAction": "Upload new"
   },
   "sites": {
     "list": {
       "title": "Sites",
-      "empty": "No sites configured. Edit cms.config.ts to add sites."
+      "description": "Per-site settings stored in DynamoDB. Adding sites and binding domains is done in cms.config.ts.",
+      "columnSiteId": "Site ID",
+      "columnName": "Name",
+      "columnUrl": "URL",
+      "columnDomains": "Domains",
+      "edit": "Edit"
     },
     "edit": {
-      "siteId": "siteId",
       "themeLink": "Theme settings →",
       "site": "Site",
       "media": "Media",
@@ -100,7 +131,8 @@
       "imageDisplayLightbox": "Lightbox",
       "dateFormatIso": "ISO (YYYY-MM-DD)",
       "dateFormatLong": "Long (April 27, 2026)",
-      "dateFormatLocale": "Locale"
+      "dateFormatLocale": "Locale",
+      "defaultPlaceholder": "Default ({value})"
     },
     "selector": {
       "label": "Site"
@@ -122,6 +154,18 @@
     "customizationHint": "Empty input resets to the manifest default.",
     "lengthHelp": "CSS length, e.g. 0.5rem, 4px.",
     "imagePlaceholder": "https://… or /media/…"
+  },
+  "editor": {
+    "linkPrompt": "URL",
+    "altPrompt": "Alt text",
+    "image": {
+      "inline": "Inline",
+      "inlineTitle": "Force inline display",
+      "lightbox": "Lightbox",
+      "lightboxTitle": "Force click-to-enlarge",
+      "alt": "Alt",
+      "delete": "Delete"
+    }
   },
   "auth": {
     "common": {
@@ -169,5 +213,11 @@
       "passwordTooShort": "Password must be at least 8 characters.",
       "userExists": "An account with this email already exists."
     }
+  },
+  "public": {
+    "back": "← Back",
+    "home": "← Home",
+    "noPosts": "No posts published yet.",
+    "tagLabel": "Tag"
   }
 }

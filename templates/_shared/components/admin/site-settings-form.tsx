@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useT } from '@/components/i18n-provider'
 
 export interface SiteSettingsFormValues {
   'site.name'?: string
@@ -37,6 +38,7 @@ const KEYS: Array<keyof SiteSettingsFormValues> = [
 
 export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
   const router = useRouter()
+  const t = useT()
   const [values, setValues] = useState<SiteSettingsFormValues>(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,9 +66,7 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
           return setSiteSetting(siteId, key, value)
         })
       )
-      setInfo(
-        'Saved. The public site refreshes within ~1 minute (S3 cache + Next.js fetch cache).'
-      )
+      setInfo(t('sites.edit.saved'))
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -79,10 +79,10 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
     <form onSubmit={save} className="space-y-6 max-w-xl">
       <fieldset className="space-y-4">
         <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          Site
+          {t('sites.edit.site')}
         </legend>
         <div className="space-y-2">
-          <Label htmlFor="name">Name</Label>
+          <Label htmlFor="name">{t('common.name')}</Label>
           <Input
             id="name"
             value={values['site.name'] ?? ''}
@@ -91,7 +91,7 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="url">URL</Label>
+          <Label htmlFor="url">{t('common.url')}</Label>
           <Input
             id="url"
             value={values['site.url'] ?? ''}
@@ -100,7 +100,7 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor="description">{t('common.description')}</Label>
           <Textarea
             id="description"
             value={values['site.description'] ?? ''}
@@ -113,10 +113,10 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
 
       <fieldset className="space-y-4">
         <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          Media
+          {t('sites.edit.media')}
         </legend>
         <div className="space-y-2">
-          <Label htmlFor="imageDisplay">Image display</Label>
+          <Label htmlFor="imageDisplay">{t('sites.edit.imageDisplay')}</Label>
           <select
             id="imageDisplay"
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
@@ -125,13 +125,17 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
               update('media.imageDisplay', e.target.value as 'inline' | 'lightbox')
             }
           >
-            <option value="">Default ({fallback['media.imageDisplay'] ?? 'inline'})</option>
-            <option value="inline">Inline</option>
-            <option value="lightbox">Lightbox</option>
+            <option value="">
+              {t('sites.edit.defaultPlaceholder', {
+                value: fallback['media.imageDisplay'] ?? 'inline',
+              })}
+            </option>
+            <option value="inline">{t('sites.edit.imageDisplayInline')}</option>
+            <option value="lightbox">{t('sites.edit.imageDisplayLightbox')}</option>
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="imageMaxWidth">Image max width (CSS)</Label>
+          <Label htmlFor="imageMaxWidth">{t('sites.edit.imageMaxWidth')}</Label>
           <Input
             id="imageMaxWidth"
             value={values['media.imageMaxWidth'] ?? ''}
@@ -143,10 +147,10 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
 
       <fieldset className="space-y-4">
         <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          Date display
+          {t('sites.edit.dateDisplay')}
         </legend>
         <div className="space-y-2">
-          <Label htmlFor="dateFormat">Format</Label>
+          <Label htmlFor="dateFormat">{t('sites.edit.dateFormat')}</Label>
           <select
             id="dateFormat"
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
@@ -155,14 +159,18 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
               update('dateFormat', e.target.value as 'iso' | 'long' | 'locale')
             }
           >
-            <option value="">Default ({fallback['dateFormat'] ?? 'iso'})</option>
-            <option value="iso">ISO (YYYY-MM-DD)</option>
-            <option value="long">Long (April 27, 2026)</option>
-            <option value="locale">Locale</option>
+            <option value="">
+              {t('sites.edit.defaultPlaceholder', {
+                value: fallback['dateFormat'] ?? 'iso',
+              })}
+            </option>
+            <option value="iso">{t('sites.edit.dateFormatIso')}</option>
+            <option value="long">{t('sites.edit.dateFormatLong')}</option>
+            <option value="locale">{t('sites.edit.dateFormatLocale')}</option>
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="timezone">Timezone (IANA)</Label>
+          <Label htmlFor="timezone">{t('sites.edit.timezone')}</Label>
           <Input
             id="timezone"
             value={values['timezone'] ?? ''}
@@ -176,7 +184,7 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Button type="submit" disabled={saving}>
-        {saving ? 'Saving...' : 'Save settings'}
+        {saving ? t('common.saving') : t('sites.edit.saveButton')}
       </Button>
     </form>
   )
