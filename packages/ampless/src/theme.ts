@@ -19,13 +19,24 @@ export type ThemeFieldType =
   | 'length'
   | 'fontFamily'
 
+/**
+ * A user-facing string in a manifest. Either a plain string (rendered
+ * as-is, regardless of locale) or a per-locale map (the renderer picks
+ * the active locale, falling back to `en`, then to any value).
+ *
+ * Themes that ship in a single language can keep these as plain
+ * strings. The default themes use the map form so the same manifest
+ * works for both built-in dictionaries.
+ */
+export type LocalizedString = string | Record<string, string>
+
 interface ThemeFieldBase {
   /** Storage key. Persisted as `theme.{key}` in site settings. */
   key: string
-  label: string
-  description?: string
+  label: LocalizedString
+  description?: LocalizedString
   /** Optional UI grouping (e.g. 'Colors', 'Typography', 'Branding'). */
-  group?: string
+  group?: LocalizedString
   /** Used when no override is set. Always a string for storage uniformity. */
   default: string
   /**
@@ -50,7 +61,7 @@ export interface ThemeTextField extends ThemeFieldBase {
 
 export interface ThemeSelectField extends ThemeFieldBase {
   type: 'select'
-  options: ReadonlyArray<{ value: string; label: string }>
+  options: ReadonlyArray<{ value: string; label: LocalizedString }>
 }
 
 export interface ThemeImageField extends ThemeFieldBase {
@@ -63,7 +74,7 @@ export interface ThemeLengthField extends ThemeFieldBase {
 
 export interface ThemeFontFamilyField extends ThemeFieldBase {
   type: 'fontFamily'
-  options: ReadonlyArray<{ value: string; label: string }>
+  options: ReadonlyArray<{ value: string; label: LocalizedString }>
 }
 
 export type ThemeField =
@@ -77,13 +88,29 @@ export type ThemeField =
 export interface ThemeManifest {
   /** Theme directory name (`themes/<name>/`). */
   name: string
-  label: string
-  description?: string
+  label: LocalizedString
+  description?: LocalizedString
   fields: ReadonlyArray<ThemeField>
 }
 
 export function defineTheme(m: ThemeManifest): ThemeManifest {
   return m
+}
+
+/**
+ * Resolve a `LocalizedString` to a plain string for display.
+ * Strings pass through; maps pick `locale` → `fallback` → any value
+ * → empty. The empty fallback keeps the renderer from crashing on a
+ * malformed manifest while making the missing translation visible.
+ */
+export function resolveLocalized(
+  value: LocalizedString | undefined,
+  locale: string,
+  fallback: string = 'en'
+): string {
+  if (value === undefined) return ''
+  if (typeof value === 'string') return value
+  return value[locale] ?? value[fallback] ?? Object.values(value)[0] ?? ''
 }
 
 // --- Theme module (multi-theme runtime selection) ---

@@ -4,71 +4,92 @@ import { defineTheme } from 'ampless'
 // `/admin/sites/<siteId>/theme` — they're stored in KvStore and applied
 // at render time as CSS variables on every public page.
 //
-// Fields with `cssVar` set are injected into a `:root` style block.
-// Fields without `cssVar` are available to template code via
-// `loadThemeConfig(siteId)`.
+// Labels / descriptions / groups accept either a plain string (works in
+// any locale) or a `Record<locale, string>` map. The defaults ship in
+// English + Japanese; custom themes can mix both forms.
 export default defineTheme({
   name: 'blog',
-  label: 'Blog',
-  description: 'Neutral monochrome with shadcn/ui defaults.',
+  label: { en: 'Blog', ja: 'ブログ' },
+  description: {
+    en: 'Neutral monochrome with shadcn/ui defaults.',
+    ja: 'シャドCN/UIのデフォルトに準じたニュートラル系モノクロ。',
+  },
   fields: [
     {
       key: 'primary',
-      label: 'Primary color',
-      group: 'Colors',
+      label: { en: 'Primary color', ja: 'プライマリカラー' },
+      group: { en: 'Colors', ja: 'カラー' },
       type: 'color',
       default: 'oklch(0.205 0 0)',
       cssVar: '--primary',
-      description: 'Buttons, links, accent fills.',
+      description: {
+        en: 'Buttons, links, accent fills.',
+        ja: 'ボタン、リンク、強調表示の背景色。',
+      },
     },
     {
       key: 'accent',
-      label: 'Accent color',
-      group: 'Colors',
+      label: { en: 'Accent color', ja: 'アクセントカラー' },
+      group: { en: 'Colors', ja: 'カラー' },
       type: 'color',
       default: 'oklch(0.97 0 0)',
       cssVar: '--accent',
     },
     {
       key: 'ring',
-      label: 'Focus ring',
-      group: 'Colors',
+      label: { en: 'Focus ring', ja: 'フォーカスリング' },
+      group: { en: 'Colors', ja: 'カラー' },
       type: 'color',
       default: 'oklch(0.708 0 0)',
       cssVar: '--ring',
     },
     {
       key: 'destructive',
-      label: 'Destructive',
-      group: 'Colors',
+      label: { en: 'Destructive', ja: '破壊的操作' },
+      group: { en: 'Colors', ja: 'カラー' },
       type: 'color',
       default: 'oklch(0.577 0.245 27.325)',
       cssVar: '--destructive',
-      description: 'Delete buttons and error highlights.',
+      description: {
+        en: 'Delete buttons and error highlights.',
+        ja: '削除ボタンやエラー表示の色。',
+      },
     },
     {
       key: 'radius',
-      label: 'Corner radius',
-      group: 'Shape',
+      label: { en: 'Corner radius', ja: '角丸' },
+      group: { en: 'Shape', ja: '形状' },
       type: 'length',
       default: '0.5rem',
       cssVar: '--radius',
-      description: 'Border radius for cards, buttons, inputs.',
+      description: {
+        en: 'Border radius for cards, buttons, inputs.',
+        ja: 'カード、ボタン、入力欄の角丸。',
+      },
     },
     {
       key: 'bodyFont',
-      label: 'Body font',
-      group: 'Typography',
+      label: { en: 'Body font', ja: '本文フォント' },
+      group: { en: 'Typography', ja: 'タイポグラフィ' },
       type: 'fontFamily',
       default: 'system-ui, -apple-system, sans-serif',
       cssVar: '--ampless-body-font',
       options: [
-        { value: 'system-ui, -apple-system, sans-serif', label: 'System sans' },
-        { value: 'Georgia, "Times New Roman", serif', label: 'Serif (Georgia)' },
-        { value: '"Iowan Old Style", "Apple Garamond", serif', label: 'Serif (Iowan)' },
+        {
+          value: 'system-ui, -apple-system, sans-serif',
+          label: { en: 'System sans', ja: 'システムサンセリフ' },
+        },
+        {
+          value: 'Georgia, "Times New Roman", serif',
+          label: { en: 'Serif (Georgia)', ja: 'セリフ (Georgia)' },
+        },
+        {
+          value: '"Iowan Old Style", "Apple Garamond", serif',
+          label: { en: 'Serif (Iowan)', ja: 'セリフ (Iowan)' },
+        },
         {
           value: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          label: 'Monospace',
+          label: { en: 'Monospace', ja: '等幅' },
         },
       ],
     },

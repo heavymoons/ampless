@@ -1,10 +1,10 @@
 import Link from 'next/link'
-import { siteFor } from 'ampless'
+import { siteFor, resolveLocalized } from 'ampless'
 import cmsConfig from '@/cms.config'
 import { themeList } from '@/themes-registry'
 import { loadThemeConfig } from '@/lib/theme-config'
 import { ThemeSettingsForm } from '@/components/admin/theme-settings-form'
-import { t } from '@/lib/i18n'
+import { t, getLocale } from '@/lib/i18n'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +18,7 @@ interface Props {
 // admin sees the same effective state visitors see.
 export default async function ThemePage({ params }: Props) {
   const { siteId } = await params
+  const locale = getLocale()
   const site = siteFor(siteId, cmsConfig)
   const theme = await loadThemeConfig(siteId)
 
@@ -38,7 +39,8 @@ export default async function ThemePage({ params }: Props) {
         </Link>
         <h1 className="mt-2 text-3xl font-bold">{t('theme.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          {t('common.active')}: <strong>{theme.manifest.label}</strong> ({theme.activeTheme})
+          {t('common.active')}:{' '}
+          <strong>{resolveLocalized(theme.manifest.label, locale)}</strong> ({theme.activeTheme})
         </p>
       </div>
 

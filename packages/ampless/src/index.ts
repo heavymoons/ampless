@@ -75,6 +75,7 @@ export {
   themeSettingKey,
   validateThemeValue,
   resolveThemeValues,
+  resolveLocalized,
 } from './theme.js'
 export type {
   ThemeManifest,
@@ -88,6 +89,7 @@ export type {
   ThemeFontFamilyField,
   ThemeModule,
   ThemeRouteContext,
+  LocalizedString,
 } from './theme.js'
 
 export const VERSION = '0.0.1'

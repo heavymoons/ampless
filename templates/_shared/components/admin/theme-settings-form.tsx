@@ -7,14 +7,16 @@ import {
   deleteSiteSetting,
   themeSettingKey,
   validateThemeValue,
+  resolveLocalized,
   type ThemeManifest,
   type ThemeField,
+  type LocalizedString,
 } from 'ampless'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { invalidateSiteSettingsCache } from '@/lib/theme-actions'
-import { useT } from '@/components/i18n-provider'
+import { useT, useLocale } from '@/components/i18n-provider'
 
 // How long to wait after a switch / save before forcing a hard reload
 // to pick up the rebuilt S3 cache. The trusted processor typically
@@ -25,8 +27,8 @@ const CACHE_REBUILD_DELAY_MS = 8000
 
 interface ThemeOption {
   value: string
-  label: string
-  description?: string
+  label: LocalizedString
+  description?: LocalizedString
 }
 
 interface Props {
@@ -54,6 +56,7 @@ export function ThemeSettingsForm({
 }: Props) {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const [state, setState] = useState<ChangeState>({ values: initial, touched: {} })
   const [pendingTheme, setPendingTheme] = useState<string>(activeTheme)
   // Local view of which theme is "active" — updated optimistically as
@@ -188,15 +191,16 @@ export function ThemeSettingsForm({
         >
           {themeOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
-              {opt.label} ({opt.value})
+              {resolveLocalized(opt.label, locale)} ({opt.value})
             </option>
           ))}
         </select>
-        {themeOptions.find((o) => o.value === pendingTheme)?.description && (
-          <p className="text-xs text-muted-foreground">
-            {themeOptions.find((o) => o.value === pendingTheme)?.description}
-          </p>
-        )}
+        {(() => {
+          const desc = themeOptions.find((o) => o.value === pendingTheme)?.description
+          return desc ? (
+            <p className="text-xs text-muted-foreground">{resolveLocalized(desc, locale)}</p>
+          ) : null
+        })()}
         <Button
           type="submit"
           disabled={switching || pendingTheme === optimisticActive}
@@ -210,20 +214,24 @@ export function ThemeSettingsForm({
       <form onSubmit={save} className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold">
-            {t('theme.customizationHeading', { theme: manifest.label })}
+            {t('theme.customizationHeading', {
+              theme: resolveLocalized(manifest.label, locale),
+            })}
           </h2>
           {manifest.description && (
-            <p className="text-sm text-muted-foreground">{manifest.description}</p>
+            <p className="text-sm text-muted-foreground">
+              {resolveLocalized(manifest.description, locale)}
+            </p>
           )}
           <p className="mt-1 text-xs text-muted-foreground">
             {t('theme.customizationHint')}
           </p>
         </div>
 
-        {groups.map(({ name, fields }) => (
-          <fieldset key={name} className="space-y-4">
+        {groups.map(({ key, name, fields }) => (
+          <fieldset key={key} className="space-y-4">
             <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              {name}
+              {resolveLocalized(name, locale)}
             </legend>
             {fields.map((field) => (
               <FieldRow
@@ -248,17 +256,25 @@ export function ThemeSettingsForm({
   )
 }
 
+// Group fields by their `group` property (a LocalizedString or string).
+// We bucket by JSON-stringified key so multilingual maps with the same
+// content end up in the same bucket regardless of locale; the rendered
+// label is resolved per-locale at display time.
 function groupFields(
   fields: ReadonlyArray<ThemeField>
-): Array<{ name: string; fields: ThemeField[] }> {
-  const map = new Map<string, ThemeField[]>()
+): Array<{ key: string; name: LocalizedString; fields: ThemeField[] }> {
+  const map = new Map<string, { name: LocalizedString; fields: ThemeField[] }>()
   for (const field of fields) {
-    const g = field.group ?? 'General'
-    const arr = map.get(g) ?? []
-    arr.push(field)
-    map.set(g, arr)
+    const g: LocalizedString = field.group ?? 'General'
+    const k = typeof g === 'string' ? g : JSON.stringify(g)
+    const existing = map.get(k)
+    if (existing) {
+      existing.fields.push(field)
+    } else {
+      map.set(k, { name: g, fields: [field] })
+    }
   }
-  return Array.from(map.entries()).map(([name, fields]) => ({ name, fields }))
+  return Array.from(map.entries()).map(([key, { name, fields }]) => ({ key, name, fields }))
 }
 
 interface FieldRowProps {
@@ -270,17 +286,20 @@ interface FieldRowProps {
 
 function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
   const t = useT()
+  const locale = useLocale()
   const id = `theme-${field.key}`
-  // Field labels and descriptions come from the theme manifest, which
-  // is theme-author content rather than admin chrome — left unlocalized
-  // here. Theme authors control whether they ship localized labels.
+  // Manifest labels / descriptions can be plain strings or per-locale
+  // maps; `resolveLocalized` picks the right form for the active locale
+  // (falling back to English, then to any value).
   const labelEl = (
     <Label htmlFor={id} className={invalid ? 'text-destructive' : undefined}>
-      {field.label}
+      {resolveLocalized(field.label, locale)}
     </Label>
   )
   const description = field.description ? (
-    <p className="text-xs text-muted-foreground">{field.description}</p>
+    <p className="text-xs text-muted-foreground">
+      {resolveLocalized(field.description, locale)}
+    </p>
   ) : null
 
   switch (field.type) {
@@ -319,7 +338,7 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
             <option value="">{t('common.default')}</option>
             {field.options.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.label}
+                {resolveLocalized(opt.label, locale)}
               </option>
             ))}
           </select>
