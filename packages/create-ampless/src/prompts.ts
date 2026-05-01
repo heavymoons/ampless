@@ -3,7 +3,9 @@ import * as p from '@clack/prompts'
 export interface ProjectOptions {
   projectName: string
   siteName: string
-  theme: string
+  /** Themes to install. The first one is the default `theme.active`. */
+  themes: string[]
+  defaultTheme: string
   plugins: string[]
 }
 
@@ -30,14 +32,19 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
           defaultValue: 'My Blog',
         }),
 
-      theme: () =>
-        p.select({
-          message: 'Theme',
+      // Multiple themes can ship side-by-side. The first selected is the
+      // default active theme; admins can switch per-site at runtime. Add
+      // / remove themes later by editing themes-registry.ts and
+      // themes/<name>/.
+      themes: () =>
+        p.multiselect({
+          message: 'Themes to install (space to toggle)',
           options: [
             { value: 'blog', label: 'Blog — neutral monochrome (shadcn default)' },
             { value: 'minimal', label: 'Minimal — soft blue accent on warm neutral' },
           ],
-          initialValue: 'blog',
+          initialValues: ['blog', 'minimal'],
+          required: true,
         }),
 
       plugins: () =>
@@ -60,6 +67,12 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
     }
   )
 
+  const themes = result.themes as string[]
+  if (themes.length === 0) {
+    p.cancel('At least one theme must be selected.')
+    return null
+  }
+
   const confirmed = await p.confirm({
     message: `Create project "${result.projectName}"?`,
     initialValue: true,
@@ -70,5 +83,11 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
     return null
   }
 
-  return result as ProjectOptions
+  return {
+    projectName: result.projectName as string,
+    siteName: result.siteName as string,
+    themes,
+    defaultTheme: themes[0]!,
+    plugins: result.plugins as string[],
+  }
 }

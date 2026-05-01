@@ -1,6 +1,12 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+/*
+ * Tailwind v4 inline theme: every `--color-*` and `--radius-*` token
+ * the framework knows about reads from a CSS variable, so theme
+ * tokens.css files can override them at runtime by changing the right
+ * data-theme block.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -24,6 +30,14 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+/*
+ * Default tokens — used as fallback when no theme's `[data-theme=...]`
+ * selector matches (e.g. body has no data-theme attribute, or admin
+ * pages that aren't theme-scoped). Each installed theme ships its own
+ * `themes/<name>/tokens.css` overriding these under
+ * `[data-theme='<name>']`. The active theme's tokens win because the
+ * `<body data-theme="...">` attribute makes the scoped selector match.
+ */
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -43,6 +57,7 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.5rem;
+  --ampless-body-font: system-ui, -apple-system, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -68,8 +83,6 @@
 }
 
 body {
-  /* `--ampless-body-font` is injected by the theme manifest loader when
-     the bodyFont field is overridden; falls back to system fonts. */
   font-family: var(--ampless-body-font, system-ui, -apple-system, sans-serif);
   background: var(--background);
   color: var(--foreground);

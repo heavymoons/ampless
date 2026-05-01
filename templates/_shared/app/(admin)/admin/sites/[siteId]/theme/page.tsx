@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { siteFor } from 'ampless'
 import cmsConfig from '@/cms.config'
-import themeManifest from '@/theme.manifest'
+import { themeList } from '@/themes-registry'
 import { loadThemeConfig } from '@/lib/theme-config'
 import { ThemeSettingsForm } from '@/components/admin/theme-settings-form'
 
@@ -11,16 +11,20 @@ interface Props {
   params: Promise<{ siteId: string }>
 }
 
-// Server-rendered: pulls effective theme values from the S3 settings
-// cache (same pipeline the public site uses). KvStore reads happen on
-// the client only — the AppSync-backed provider lives in providers.tsx
-// — so server pages must always go through the cached JSON. Trade-off:
-// the admin sees their own write reflected after the cache rebuilds
-// (~60s); the form's `touched` state covers the in-session UI.
+// Theme admin: pick which installed theme is active for this site, plus
+// edit the active theme's customizable manifest fields. Reads through
+// the S3 site-settings cache (same path the public site uses) so the
+// admin sees the same effective state visitors see.
 export default async function ThemePage({ params }: Props) {
   const { siteId } = await params
   const site = siteFor(siteId, cmsConfig)
   const theme = await loadThemeConfig(siteId)
+
+  const themeOptions = themeList.map((t) => ({
+    value: t.name,
+    label: t.manifest.label,
+    description: t.manifest.description,
+  }))
 
   return (
     <div className="p-8">
@@ -31,19 +35,17 @@ export default async function ThemePage({ params }: Props) {
         >
           ← {site.name}
         </Link>
-        <h1 className="mt-2 text-3xl font-bold">Theme — {themeManifest.label}</h1>
-        {themeManifest.description && (
-          <p className="text-sm text-muted-foreground">{themeManifest.description}</p>
-        )}
-        <p className="mt-2 text-xs text-muted-foreground">
-          Customizable fields are declared in <code>theme.manifest.ts</code>.
-          Empty input resets to the manifest default.
+        <h1 className="mt-2 text-3xl font-bold">Theme</h1>
+        <p className="text-sm text-muted-foreground">
+          Active: <strong>{theme.manifest.label}</strong> ({theme.activeTheme})
         </p>
       </div>
 
       <ThemeSettingsForm
         siteId={siteId}
-        manifest={themeManifest}
+        manifest={theme.manifest}
+        activeTheme={theme.activeTheme}
+        themeOptions={themeOptions}
         initial={theme.values}
       />
     </div>

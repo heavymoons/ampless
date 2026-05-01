@@ -5,10 +5,12 @@ import {
   type ThemeManifest,
   type ThemeField,
 } from 'ampless'
-import themeManifest from '@/theme.manifest'
+import { resolveActiveTheme } from './theme-active'
 import { publicAssetUrl, isStorageConfigured } from './storage'
 
 export interface EffectiveThemeConfig {
+  /** Resolved active theme name (e.g. 'blog'). */
+  activeTheme: string
   manifest: ThemeManifest
   /** Resolved values, keyed by manifest field key. Always populated. */
   values: Record<string, string>
@@ -24,19 +26,16 @@ async function fetchRemote(siteId: string): Promise<Record<string, unknown> | nu
   } catch {
     return null
   }
-  // Same cache contract as `loadSiteSettings` — 60s S3 + Next.js fetch
-  // dedupe per-request. Theme overrides land in the same JSON.
   const res = await fetch(url, { next: { revalidate: 60, tags: [`site-settings:${siteId}`] } })
   if (!res.ok) return null
-  // The cache file is flat (`{ 'theme.primary': '...', 'site.name': '...' }`),
-  // so we can read it directly without unflattening.
   return (await res.json()) as Record<string, unknown>
 }
 
 /**
- * Resolve effective theme config for a site. Merges:
- *   1. KvStore-backed `theme.*` overrides (from S3 cache)
- *   2. manifest field defaults
+ * Resolve effective theme config for a site:
+ *   1. Active theme = `theme.active` setting (per-site) ?? DEFAULT_THEME
+ *   2. Manifest = the active theme's manifest
+ *   3. Values = stored `theme.<key>` overrides merged onto manifest defaults
  *
  * Stored values that fail validation (malformed colors, lengths,
  * unrecognized select options) are silently dropped and fall back to
@@ -45,17 +44,21 @@ async function fetchRemote(siteId: string): Promise<Record<string, unknown> | nu
 export async function loadThemeConfig(
   siteId: string = DEFAULT_SITE_ID
 ): Promise<EffectiveThemeConfig> {
-  const flat = await fetchRemote(siteId).catch(() => null)
+  const [active, flat] = await Promise.all([
+    resolveActiveTheme(siteId),
+    fetchRemote(siteId).catch(() => null),
+  ])
+  const manifest = active.module.manifest
   const stored: Record<string, unknown> = {}
   if (flat) {
-    for (const field of themeManifest.fields) {
+    for (const field of manifest.fields) {
       const k = themeSettingKey(field.key)
       if (k in flat) stored[k] = flat[k]
     }
   }
-  const values = resolveThemeValues(themeManifest, stored)
-  const cssVars = collectCssVars(themeManifest.fields, values)
-  return { manifest: themeManifest, values, cssVars }
+  const values = resolveThemeValues(manifest, stored)
+  const cssVars = collectCssVars(manifest.fields, values)
+  return { activeTheme: active.name, manifest, values, cssVars }
 }
 
 function collectCssVars(

@@ -14,9 +14,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+interface ThemeOption {
+  value: string
+  label: string
+  description?: string
+}
+
 interface Props {
   siteId: string
   manifest: ThemeManifest
+  activeTheme: string
+  themeOptions: ThemeOption[]
   /** Resolved values currently shown to the user (overrides ?? defaults). */
   initial: Record<string, string>
 }
@@ -28,10 +36,18 @@ interface ChangeState {
   touched: Record<string, boolean>
 }
 
-export function ThemeSettingsForm({ siteId, manifest, initial }: Props) {
+export function ThemeSettingsForm({
+  siteId,
+  manifest,
+  activeTheme,
+  themeOptions,
+  initial,
+}: Props) {
   const router = useRouter()
   const [state, setState] = useState<ChangeState>({ values: initial, touched: {} })
+  const [pendingTheme, setPendingTheme] = useState<string>(activeTheme)
   const [saving, setSaving] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [invalid, setInvalid] = useState<Record<string, boolean>>({})
@@ -41,6 +57,25 @@ export function ThemeSettingsForm({ siteId, manifest, initial }: Props) {
       values: { ...prev.values, [key]: value },
       touched: { ...prev.touched, [key]: true },
     }))
+  }
+
+  async function switchTheme(e: React.FormEvent) {
+    e.preventDefault()
+    if (pendingTheme === activeTheme) return
+    setSwitching(true)
+    setError(null)
+    setInfo(null)
+    try {
+      await setSiteSetting(siteId, 'theme.active', pendingTheme)
+      setInfo(
+        `Switched to ${pendingTheme}. Reload after the cache refreshes (~1 min) to see the new manifest fields.`
+      )
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSwitching(false)
+    }
   }
 
   async function save(e: React.FormEvent) {
@@ -102,31 +137,83 @@ export function ThemeSettingsForm({ siteId, manifest, initial }: Props) {
   const groups = groupFields(manifest.fields)
 
   return (
-    <form onSubmit={save} className="space-y-6 max-w-xl">
-      {groups.map(({ name, fields }) => (
-        <fieldset key={name} className="space-y-4">
-          <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            {name}
-          </legend>
-          {fields.map((field) => (
-            <FieldRow
-              key={field.key}
-              field={field}
-              value={state.values[field.key] ?? ''}
-              invalid={!!invalid[field.key]}
-              onChange={(v) => update(field.key, v)}
-            />
+    <div className="space-y-8 max-w-xl">
+      {/* Theme switcher — separate form so changing the active theme
+          triggers a refresh that re-renders this page with the new
+          theme's manifest fields. */}
+      <form onSubmit={switchTheme} className="space-y-3 rounded-md border p-4">
+        <div className="space-y-1">
+          <Label htmlFor="active-theme" className="text-sm font-medium">
+            Active theme
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Switching changes which theme renders this site. Each installed
+            theme exposes its own customization fields.
+          </p>
+        </div>
+        <select
+          id="active-theme"
+          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+          value={pendingTheme}
+          onChange={(e) => setPendingTheme(e.target.value)}
+        >
+          {themeOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label} ({opt.value})
+            </option>
           ))}
-        </fieldset>
-      ))}
+        </select>
+        {themeOptions.find((o) => o.value === pendingTheme)?.description && (
+          <p className="text-xs text-muted-foreground">
+            {themeOptions.find((o) => o.value === pendingTheme)?.description}
+          </p>
+        )}
+        <Button
+          type="submit"
+          disabled={switching || pendingTheme === activeTheme}
+          variant={pendingTheme === activeTheme ? 'outline' : 'default'}
+        >
+          {switching ? 'Switching...' : 'Switch theme'}
+        </Button>
+      </form>
 
-      {info && <p className="text-sm text-muted-foreground">{info}</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {/* Manifest fields for the currently active theme. */}
+      <form onSubmit={save} className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">{manifest.label} customization</h2>
+          {manifest.description && (
+            <p className="text-sm text-muted-foreground">{manifest.description}</p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Empty input resets to the manifest default.
+          </p>
+        </div>
 
-      <Button type="submit" disabled={saving}>
-        {saving ? 'Saving...' : 'Save theme'}
-      </Button>
-    </form>
+        {groups.map(({ name, fields }) => (
+          <fieldset key={name} className="space-y-4">
+            <legend className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+              {name}
+            </legend>
+            {fields.map((field) => (
+              <FieldRow
+                key={field.key}
+                field={field}
+                value={state.values[field.key] ?? ''}
+                invalid={!!invalid[field.key]}
+                onChange={(v) => update(field.key, v)}
+              />
+            ))}
+          </fieldset>
+        ))}
+
+        {info && <p className="text-sm text-muted-foreground">{info}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <Button type="submit" disabled={saving}>
+          {saving ? 'Saving...' : 'Save theme'}
+        </Button>
+      </form>
+    </div>
   )
 }
 

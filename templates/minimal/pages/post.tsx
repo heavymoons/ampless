@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { formatDate } from 'ampless'
+import { formatDate, type ThemeRouteContext } from 'ampless'
 import { renderBody } from '@/lib/posts'
 import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
@@ -9,20 +9,16 @@ import { postMetadata } from '@/lib/seo'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { getPublishedPost } from '@/lib/posts-public'
 
-export const dynamic = 'force-dynamic'
+type PostCtx = ThemeRouteContext<{ slug: string }>
 
-interface Props {
-  params: Promise<{ siteId: string; slug: string }>
-}
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generatePostMetadata({ params }: PostCtx): Promise<Metadata> {
   const { siteId, slug } = await params
   const post = await getPublishedPost(slug, { siteId })
   if (!post) return {}
   return postMetadata(post, siteId)
 }
 
-export default async function PostPage({ params }: Props) {
+export default async function MinimalPost({ params }: PostCtx) {
   const { siteId, slug } = await params
   const [post, settings] = await Promise.all([
     getPublishedPost(slug, { siteId }),

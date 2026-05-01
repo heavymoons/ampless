@@ -1,19 +1,16 @@
 import { publicAssetUrl } from '@/lib/storage'
 
-export const dynamic = 'force-dynamic'
-
-interface Props {
-  params: Promise<{ siteId: string }>
+interface Ctx {
+  siteId: string
+  request: Request
 }
 
 // /sitemap.xml proxy — plugin-seo regenerates the sitemap on every
 // content event and writes it to `public/plugins/seo/{siteId}/sitemap.xml`.
-export async function GET(_request: Request, { params }: Props) {
-  const { siteId } = await params
+export async function blogSitemapHandler({ siteId }: Ctx): Promise<Response> {
   const url = publicAssetUrl(`public/plugins/seo/${siteId}/sitemap.xml`)
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
-    // Empty sitemap before any publish has happened — keep crawlers happy.
     return new Response(
       `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n`,
       {

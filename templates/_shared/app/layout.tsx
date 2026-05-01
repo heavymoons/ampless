@@ -29,7 +29,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             ampless `validateThemeValue`. */}
         {themeCss && <style dangerouslySetInnerHTML={{ __html: themeCss }} />}
       </head>
-      <body className="min-h-screen">
+      {/* `data-theme` selects which theme's `tokens.css` block matches.
+          The active theme is resolved from `theme.active` site setting,
+          falling back to DEFAULT_THEME — see `resolveActiveTheme`. */}
+      <body className="min-h-screen" data-theme={theme.activeTheme}>
         <Providers>{children}</Providers>
       </body>
     </html>

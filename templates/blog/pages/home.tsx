@@ -1,16 +1,10 @@
 import Link from 'next/link'
-import { formatDate } from 'ampless'
+import { formatDate, type ThemeRouteContext } from 'ampless'
 import { listPublishedPosts } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { TagList } from '@/components/tag-list'
 
-export const dynamic = 'force-dynamic'
-
-interface Props {
-  params: Promise<{ siteId: string }>
-}
-
-export default async function Home({ params }: Props) {
+export default async function BlogHome({ params }: ThemeRouteContext) {
   const { siteId } = await params
   const settings = await loadSiteSettings(siteId)
   const { items: posts } = await listPublishedPosts({ siteId })

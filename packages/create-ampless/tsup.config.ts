@@ -5,9 +5,11 @@ import { resolve } from 'node:path'
 const TEMPLATES_ROOT = resolve(__dirname, '..', '..', 'templates')
 const DIST_TEMPLATES_ROOT = resolve(__dirname, 'dist', 'templates')
 
-// Theme overlays shipped in the npm tarball. Add new theme directory
-// names here when introducing a new templates/<theme>/ entry. Only
-// listed themes get bundled — anything else stays out.
+// Theme modules shipped in the npm tarball. Each lives at
+// `templates/<theme>/` (a self-contained theme: manifest + pages +
+// tokens.css). Add a new entry here when introducing a new theme so
+// the published tarball includes it; the CLI prompt also needs the
+// theme listed in `prompts.ts`.
 const THEMES = ['blog', 'minimal']
 
 // Shared base copied first during scaffold. Always bundled.

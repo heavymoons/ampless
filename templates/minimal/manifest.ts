@@ -1,8 +1,8 @@
 import { defineTheme } from 'ampless'
 
-// Customizable fields for the Minimal theme. Smaller surface than the
-// Blog manifest by design — Minimal is opinionated about typography and
-// spacing, so only the accent color and corner radius are exposed.
+// Minimal theme: smaller customization surface than Blog by design.
+// Minimal is opinionated about typography and spacing, so only the
+// accent color and corner radius are exposed.
 export default defineTheme({
   name: 'minimal',
   label: 'Minimal',

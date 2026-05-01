@@ -15,6 +15,7 @@ function resolveTemplatesDir(): string {
   return resolve(distDir, '..', '..', '..', 'templates')
 }
 
+/** Root that contains `_shared/` and every theme directory. */
 export const templatesDir = resolveTemplatesDir()
 
 /**

@@ -5,8 +5,8 @@ import { defineTheme } from 'ampless'
 // at render time as CSS variables on every public page.
 //
 // Fields with `cssVar` set are injected into a `:root` style block.
-// Fields without `cssVar` (currently none in this theme) would be
-// available to template code via `loadThemeConfig(siteId)`.
+// Fields without `cssVar` are available to template code via
+// `loadThemeConfig(siteId)`.
 export default defineTheme({
   name: 'blog',
   label: 'Blog',

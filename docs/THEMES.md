@@ -1,82 +1,155 @@
 # Authoring Themes for ampless
 
-A theme in ampless is a directory under `templates/` that overlays a
-shared base when a project is scaffolded by `create-ampless`. This
-document explains the layout, the manifest, and the conventions a
-theme is expected to follow.
+A theme in ampless is a self-contained module that ships under
+`themes/<name>/` in a scaffolded project. **Multiple themes are
+installed simultaneously** — each site picks its active theme at
+runtime, so a single deployment can render different subdomains with
+different themes.
+
+This document explains the layout, the manifest, and how to add a new
+theme.
 
 ## Big picture
 
 ```
-templates/
-  _shared/         common base — copied first by scaffold
-    amplify/
-    app/
-      (admin)/
-      api/
-      layout.tsx
-      providers.tsx
-    components/
-    lib/
-    middleware.ts
-    cms.config.ts
-    package.json
-    ...
-
-  blog/            theme overlay — copied on top of _shared
-    README.md
-    theme.manifest.ts
-    app/
-      globals.css
-      site/[siteId]/
-        page.tsx
-        [slug]/page.tsx
-        ...
-
-  minimal/         another theme overlay
-    ...
+project/
+  themes/
+    blog/
+      index.ts           # default export: ThemeModule
+      manifest.ts        # default export: ThemeManifest
+      tokens.css         # [data-theme='blog'] { --primary: ...; ... }
+      pages/
+        home.tsx
+        post.tsx
+        tag.tsx
+        feed.ts
+        sitemap.ts
+    minimal/
+      ...
+  themes-registry.ts     # imports every installed theme
+  app/
+    site/[siteId]/       # thin dispatchers — render the active theme
+      page.tsx
+      [slug]/page.tsx
+      tag/[tag]/page.tsx
+      feed.xml/route.ts
+      sitemap.xml/route.ts
+    layout.tsx           # sets <body data-theme={active}>
+    globals.css          # default tokens + Tailwind base
+    (admin)/             # admin app — theme-agnostic
+  cms.config.ts
+  ...
 ```
 
-When a user runs `npx create-ampless`, the CLI:
+## Runtime model
 
-1. Copies everything in `_shared/` to the destination.
-2. Overlays the chosen theme directory on top (theme files win on conflict).
-3. Substitutes `{{projectName}}` / `{{siteName}}` / etc. across all
-   text files.
+1. The middleware rewrites `https://blog.example.com/some-slug` →
+   `/site/blog/some-slug` and sets `x-site-id: blog`.
+2. The dispatcher (`app/site/[siteId]/page.tsx`) reads `theme.active`
+   for that siteId from the S3 site-settings cache.
+3. The active theme module is looked up in `themes-registry.ts`, and
+   its `components.Home` is rendered with the request params.
+4. The root layout sets `<body data-theme="<active>">`, so only the
+   matching theme's `tokens.css` block applies.
 
-So a theme only needs to ship the files that differ from the shared base.
+Switching themes per site = update the `theme.active` setting in the
+admin (or via MCP / API). No deploy required.
+
+Adding a new theme = drop `themes/<name>/` in, add it to
+`themes-registry.ts`, redeploy.
 
 ## What goes where
 
-| Lives in `_shared/` | Lives in the theme |
+| Lives in `themes/<name>/` | Lives in `app/` (shared) |
 | --- | --- |
-| Amplify backend (`amplify/`) | `theme.manifest.ts` |
-| Admin app (`app/(admin)/`) | `app/globals.css` (CSS tokens) |
-| API routes (`app/api/`) | `app/site/[siteId]/page.tsx` (home) |
-| Auth pages (`app/login/`) | `app/site/[siteId]/[slug]/page.tsx` (post) |
-| Root layout (`app/layout.tsx`) | `app/site/[siteId]/tag/[tag]/page.tsx` |
-| Providers (`app/providers.tsx`) | `app/site/[siteId]/feed.xml/route.ts` |
-| `lib/` (data, auth, posts, theme-config…) | `app/site/[siteId]/sitemap.xml/route.ts` |
-| `components/` (UI, editor, admin) | `README.md` |
-| `middleware.ts` | |
-| `cms.config.ts` | |
-| `package.json`, `tsconfig.json`, etc. | |
+| `manifest.ts` (customizable fields) | Dispatcher routes (`app/site/[siteId]/...`) |
+| `tokens.css` (CSS variables) | Default tokens (`app/globals.css`) |
+| `pages/home.tsx` | Root layout (`app/layout.tsx`) |
+| `pages/post.tsx` | Admin app (`app/(admin)/`) |
+| `pages/tag.tsx` | Auth pages (`app/login/`) |
+| `pages/feed.ts` (RSS handler) | API routes (`app/api/`) |
+| `pages/sitemap.ts` (sitemap handler) | Middleware, providers |
+| `index.ts` (theme module entry) | |
 
-The dividing line: anything that differs visually between themes lives
-in the overlay; anything that's project plumbing stays shared.
+A theme can ship its own components alongside (e.g.
+`themes/<name>/components/`) — anything not under `pages/` is just a
+private theme detail.
 
-## The manifest (`theme.manifest.ts`)
+## The theme module (`index.ts`)
 
-Every theme declares its customizable surface in `theme.manifest.ts`
-at the project root. Admin users edit those fields under
-`/admin/sites/<siteId>/theme`; values are persisted to KvStore and
-applied at render time as CSS variables (or read by template code).
+Every theme exports a default `ThemeModule`:
+
+```ts
+import { defineThemeModule } from 'ampless'
+import './tokens.css'
+import manifest from './manifest'
+import BlogHome from './pages/home'
+import BlogPost, { generatePostMetadata } from './pages/post'
+import BlogTag from './pages/tag'
+import { blogFeedHandler } from './pages/feed'
+import { blogSitemapHandler } from './pages/sitemap'
+
+export default defineThemeModule({
+  name: 'blog',
+  manifest,
+  components: {
+    Home: BlogHome,
+    Post: BlogPost,
+    Tag: BlogTag,
+  },
+  metadata: {
+    Post: generatePostMetadata,
+  },
+  routes: {
+    feed: blogFeedHandler,
+    sitemap: blogSitemapHandler,
+  },
+})
+```
+
+`tokens.css` is imported as a side effect so Next.js bundles it
+whenever the registry pulls this module in. All installed themes' CSS
+ships in every page, but only the active theme's `[data-theme="..."]`
+selector matches.
+
+### Component contract
+
+Theme components are async server components. Their `params` typing
+matches the dispatcher route shape:
+
+```ts
+import type { ThemeRouteContext } from 'ampless'
+
+export default async function BlogHome({ params }: ThemeRouteContext) {
+  const { siteId } = await params
+  // ... fetch posts, render
+}
+
+export default async function BlogPost(
+  { params }: ThemeRouteContext<{ slug: string }>
+) {
+  const { siteId, slug } = await params
+}
+```
+
+`Home` is required. `Post` and `Tag` are optional — the dispatcher
+returns 404 if the active theme doesn't define them.
+
+### Route handlers
+
+`routes.feed` and `routes.sitemap` receive `{ siteId, request }` and
+must return a `Response`. They're optional; missing handlers produce
+404 from the corresponding dispatcher route.
+
+## The manifest (`manifest.ts`)
+
+Declares which fields the admin UI exposes for runtime customization:
 
 ```ts
 import { defineTheme } from 'ampless'
 
 export default defineTheme({
-  name: 'blog',
+  name: 'blog',           // must match the theme directory name
   label: 'Blog',
   description: 'Neutral monochrome with shadcn defaults.',
   fields: [
@@ -88,153 +161,125 @@ export default defineTheme({
       default: 'oklch(0.205 0 0)',
       cssVar: '--primary',
     },
-    {
-      key: 'radius',
-      label: 'Corner radius',
-      group: 'Shape',
-      type: 'length',
-      default: '0.5rem',
-      cssVar: '--radius',
-    },
+    // ...
   ],
 })
 ```
 
-Each field declares:
+Each field has:
 
-- `key` — storage key within the theme namespace. Persisted as
-  `theme.<key>` in site settings.
-- `label` — shown in the admin form.
-- `group` (optional) — groups fields under a heading.
-- `description` (optional) — helper text below the input.
-- `type` — one of: `color`, `length`, `select`, `image`, `fontFamily`, `text`.
-- `default` — used when no override is set; always a string.
-- `cssVar` (optional) — if set, the loader injects
-  `<cssVar>: <value>` into a `:root` block on every public page.
-  Without `cssVar`, the field is data the theme reads via
-  `loadThemeConfig()`.
-- Type-specific extras:
-  - `select` / `fontFamily`: `options: [{ value, label }]`
-  - `text`: `maxLength?: number`
+- `key` — storage key. Persisted as `theme.<key>` in site settings.
+- `label`, `description?`, `group?` — admin UI labels.
+- `type` — `color`, `length`, `select`, `image`, `fontFamily`, `text`.
+- `default` — value used when no override is set.
+- `cssVar?` — if set, the loader injects it into `:root` at render time.
 
-### Validation
+See `validateThemeValue` (in `ampless`) for the accepted formats per
+type.
 
-`validateThemeValue` rejects malformed input before storage:
+### Per-theme variation
 
-| Type | Accepted form |
-| --- | --- |
-| `color` | `oklch(...)`, `oklab(...)`, `rgb(...)`, `rgba(...)`, `hsl(...)`, `hsla(...)`, `#rgb` / `#rrggbb` / `#rrggbbaa` |
-| `length` | `<number><px\|rem\|em\|%\|vh\|vw>` |
-| `select` / `fontFamily` | One of the declared `options` values |
-| `image` | `https://...` URL or root-relative `/...` path |
-| `text` | Stripped of control chars and `<>`; truncated to `maxLength` |
+Different themes can declare different fields. Blog might expose
+`primary / accent / radius / bodyFont`; Minimal might only expose
+`primary / radius`; a docs theme might expose `sidebarWidth /
+codeFont`. The admin form is generated from whichever theme is active,
+so it always matches the theme's actual customization surface.
 
-Stored values that fail validation at render time are silently dropped
-and replaced with the manifest default — keeping a typo from breaking
-the public site.
+## Tokens CSS
 
-## Hooking the manifest into globals.css
-
-Themes consume the CSS variables their manifest produces. The Blog
-theme exposes `--primary`, `--accent`, `--ring`, `--destructive`,
-`--radius`, and `--ampless-body-font`; its `globals.css` reads them in
-the standard shadcn style:
+Each theme ships `tokens.css` with its design tokens scoped under
+`[data-theme='<name>']`:
 
 ```css
-:root {
-  --primary: oklch(0.205 0 0); /* default — overridden inline by loader */
+[data-theme='blog'] {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
   --radius: 0.5rem;
-  ...
+  --ampless-body-font: system-ui, sans-serif;
+  /* ... */
 }
-body {
-  font-family: var(--ampless-body-font, system-ui, sans-serif);
+
+@media (prefers-color-scheme: dark) {
+  [data-theme='blog'] {
+    --background: oklch(0.145 0 0);
+    /* ... */
+  }
 }
 ```
 
-The loader emits `<style>:root { --primary: ...; ... }</style>` after
-`globals.css`, so any value the user has overridden wins. Defaults you
-write in `globals.css` are the **fallback for un-overridden fields**.
+The shared `app/globals.css` defines the same tokens at `:root` as
+fallbacks. The active theme's scoped block always wins because the
+attribute selector and `:root` selector have the same specificity, but
+the attribute one comes later in the cascade (theme tokens.css imports
+follow globals.css in the bundle).
 
-## Page layouts
-
-Public routes live under `app/site/[siteId]/`. The middleware rewrites
-`https://blog.example.com/some-slug` to `/site/blog/some-slug`
-internally, so page params look like `{ siteId: 'blog', slug: 'some-slug' }`.
-
-A theme typically ships:
-
-- `app/site/[siteId]/page.tsx` — homepage (post list)
-- `app/site/[siteId]/[slug]/page.tsx` — single post
-- `app/site/[siteId]/tag/[tag]/page.tsx` — tag archive
-- `app/site/[siteId]/feed.xml/route.ts` — RSS / Atom proxy
-- `app/site/[siteId]/sitemap.xml/route.ts` — sitemap proxy
-
-Use the existing libraries from `@/lib/`:
-
-- `loadSiteSettings(siteId)` — site name, description, date format
-- `listPublishedPosts({ siteId })` — query published posts
-- `getPublishedPost({ siteId, slug })` — single post
-- `siteFor(siteId, cmsConfig)` — per-site name/url/description from cms.config
+Manifest field overrides come in via inline `<style>:root { ... }</style>`
+in the document head, so they override the scoped tokens block too.
 
 ## Adding a new theme
 
-1. **Copy an existing theme directory** as your starting point:
+1. **Copy an existing theme directory:**
    ```bash
-   cp -R templates/blog templates/<your-theme>
+   cp -R themes/blog themes/your-theme
    ```
-2. **Edit `app/globals.css`** to use your design tokens. Keep the
-   `:root { ... }` block — the loader overrides individual variables
-   on top of it.
-3. **Edit `theme.manifest.ts`** to declare which fields admins should
-   be able to tweak online. Keep this minimal — only expose what
-   actually makes sense to vary per site.
-4. **Re-skin the page layouts** (`app/site/[siteId]/...`) with your
-   typography, layout, and component choices. You can introduce
-   theme-only components alongside (e.g. `components/<theme>/`) if
-   they aren't shared.
-5. **Update `README.md`** in the theme directory with a short
-   description of what makes this theme distinct.
-6. **Register the theme in the CLI**:
-   - Add it to the `theme` select options in
+2. **Rewrite `manifest.ts`** — change `name`, `label`, and which
+   fields you want to expose.
+3. **Edit `tokens.css`** — change the selector to
+   `[data-theme='your-theme']` and pick your design tokens.
+4. **Edit `pages/*.tsx`** — re-skin layouts. Keep the
+   `ThemeRouteContext` typing on the default exports.
+5. **Update `themes-registry.ts`** to import the new theme:
+   ```ts
+   import yourTheme from '@/themes/your-theme'
+
+   export const themes = {
+     blog,
+     minimal,
+     'your-theme': yourTheme,
+   } as const
+   ```
+6. **Update create-ampless** if you want the theme to ship in the npm
+   tarball:
+   - Add to `THEMES` in `packages/create-ampless/tsup.config.ts`.
+   - Add to the `themes` multiselect options in
      `packages/create-ampless/src/prompts.ts`.
-   - Add the directory name to the `THEMES` array in
-     `packages/create-ampless/tsup.config.ts` so the npm tarball
-     bundles it.
 7. **Verify**:
    ```bash
-   pnpm --filter create-ampless build
-   node packages/create-ampless/dist/index.js /tmp/test-theme
-   # pick your new theme, then:
-   cd /tmp/test-theme && npm install && npm run dev
+   npm run dev
+   # admin: /admin/sites/<siteId>/theme → switch to your-theme
    ```
 
 ## Storage layout
 
-Theme overrides live alongside other site settings:
+| Setting | Storage |
+| --- | --- |
+| Active theme per site | KvStore PK `siteconfig:<siteId>`, SK `theme.active`, value = theme name |
+| Manifest field overrides | KvStore PK `siteconfig:<siteId>`, SK `theme.<fieldKey>` |
 
-```
-KvStore PK = `siteconfig:<siteId>`
-KvStore SK = `theme.<fieldKey>`   (e.g. `theme.primary`, `theme.radius`)
-```
-
-The dispatcher Lambda watches the KvStore stream — any
-`siteconfig:*` write triggers a `site.settings.updated` event, and
-the trusted processor rebuilds
-`s3://<bucket>/public/site-settings/<siteId>.json`.
-
-Public pages read that S3 file via `loadThemeConfig(siteId)`. The
-file is fetched with a 60-second Next.js fetch cache, so admin edits
-propagate within ~1 minute.
+Both flow through the existing site-settings cache pipeline (KvStore
+stream → trusted processor → `s3://<bucket>/public/site-settings/<siteId>.json`).
+The public site reads that JSON file with a 60-second Next.js fetch
+cache; admin edits propagate within ~1 minute.
 
 ## Why per-theme manifests instead of a unified set?
 
-Different themes have different surfaces. A docs-style theme might
-expose a sidebar width and a tagline; a magazine theme might expose
-section accent colors and a hero image. Forcing every theme to share
+Different themes have different surfaces. Forcing every theme to share
 the same fields leads to:
 
 - Themes that ignore irrelevant fields (UI clutter).
 - Themes that can't expose their actual knobs (UI poverty).
 
-By tying the manifest to the theme, the admin UI is always faithful
-to what the theme can actually do — no more, no less.
+By tying the manifest to the theme, the admin UI is always faithful to
+what the theme can actually do — no more, no less.
+
+## Why bundle every installed theme even when only one is active?
+
+Switching themes should be instant — a single setting change, no
+deploy. Static-importing each theme means Next.js's bundler ships them
+all, so the active theme can change without rebuilding. The cost is a
+larger bundle proportional to the number of installed themes; the
+benefit is no rebuild on every theme decision.
+
+If a theme stops being used, remove it: drop `themes/<name>/` and the
+import + map entry in `themes-registry.ts`, then redeploy.

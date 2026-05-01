@@ -1,16 +1,10 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { formatDate } from 'ampless'
+import { formatDate, type ThemeRouteContext } from 'ampless'
 import { listPostsByTag } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 
-export const dynamic = 'force-dynamic'
-
-interface Props {
-  params: Promise<{ siteId: string; tag: string }>
-}
-
-export default async function TagPage({ params }: Props) {
+export default async function BlogTag({ params }: ThemeRouteContext<{ tag: string }>) {
   const { siteId, tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings] = await Promise.all([
