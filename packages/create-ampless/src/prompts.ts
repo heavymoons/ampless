@@ -33,7 +33,10 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
       theme: () =>
         p.select({
           message: 'Theme',
-          options: [{ value: 'blog', label: 'Blog' }],
+          options: [
+            { value: 'blog', label: 'Blog — neutral monochrome (shadcn default)' },
+            { value: 'minimal', label: 'Minimal — soft blue accent on warm neutral' },
+          ],
           initialValue: 'blog',
         }),
 
