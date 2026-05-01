@@ -80,17 +80,20 @@ export function ThemeSettingsForm({
   // After a write the read path needs both (1) the S3 cache rebuild by
   // the trusted processor and (2) the Next.js fetch cache invalidation
   // for that tag. Without (2), every subsequent request would still
-  // serve the old JSON from the route's fetch cache (60s TTL). We delay
-  // the invalidation a few seconds so the rebuild has actually
-  // happened, then revalidate + refresh.
-  function scheduleRefresh() {
+  // serve the old JSON from the route's fetch cache (60s TTL). After
+  // the rebuild window we force a full page reload — `router.refresh()`
+  // only re-renders server components and leaves the form's useState
+  // (field values / pendingTheme / optimisticActive) carrying the
+  // previous theme's data, which was confusing on theme switches. A
+  // hard reload remounts everything against the freshly-cached state.
+  function scheduleHardReload() {
     setTimeout(async () => {
       try {
         await invalidateSiteSettingsCache(siteId)
-        router.refresh()
       } catch (err) {
         console.warn('[theme] cache invalidation failed', err)
       }
+      window.location.reload()
     }, CACHE_REBUILD_DELAY_MS)
   }
 
@@ -104,8 +107,9 @@ export function ThemeSettingsForm({
       await setSiteSetting(siteId, 'theme.active', pendingTheme)
       setOptimisticActive(pendingTheme)
       setInfo(t('theme.switched', { theme: pendingTheme }))
-      scheduleRefresh()
+      scheduleHardReload()
     } catch (err) {
+      console.error('[theme] switch failed', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSwitching(false)
@@ -158,8 +162,9 @@ export function ThemeSettingsForm({
       setInfo(t('theme.saved'))
       // Clear touched flags so the next save round only writes new edits.
       setState((prev) => ({ values: prev.values, touched: {} }))
-      scheduleRefresh()
+      scheduleHardReload()
     } catch (err) {
+      console.error('[theme] save failed', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
