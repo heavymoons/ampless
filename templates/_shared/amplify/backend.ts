@@ -177,7 +177,16 @@ trustedFn.addToRolePolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
     actions: ['s3:PutObject', 's3:DeleteObject'],
-    resources: [`${backend.storage.resources.bucket.bucketArn}/public/plugins/*`],
+    resources: [
+      `${backend.storage.resources.bucket.bucketArn}/public/plugins/*`,
+      // Built-in cache: rebuildSiteSettingsCache writes the per-site
+      // JSON the public site reads. Without this entry the
+      // `site.settings.updated` handler S3 PutObject call fails
+      // silently (CloudWatch shows AccessDenied; the public site never
+      // sees theme.active overrides because the cache file never
+      // appears).
+      `${backend.storage.resources.bucket.bucketArn}/public/site-settings/*`,
+    ],
   })
 )
 trustedFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
