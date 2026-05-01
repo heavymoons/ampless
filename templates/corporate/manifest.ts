@@ -40,6 +40,18 @@ export default defineTheme({
       cssVar: '--radius',
     },
     {
+      key: 'featuredSlug',
+      label: { en: 'Top story slug', ja: 'トップストーリーのスラッグ' },
+      group: { en: 'Hero', ja: 'ヒーロー' },
+      type: 'text',
+      default: '',
+      maxLength: 200,
+      description: {
+        en: 'Slug of a published post to feature between the hero and the news list. Empty disables.',
+        ja: 'ヒーローとニュース一覧の間に載せたい公開記事のスラッグ。空なら非表示。',
+      },
+    },
+    {
       key: 'logoUrl',
       label: { en: 'Logo image URL', ja: 'ロゴ画像 URL' },
       group: { en: 'Branding', ja: 'ブランディング' },

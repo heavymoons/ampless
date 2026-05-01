@@ -76,6 +76,18 @@ export default defineTheme({
       cssVar: '--radius',
     },
     {
+      key: 'featuredSlug',
+      label: { en: 'Featured post slug', ja: 'フィーチャー記事のスラッグ' },
+      group: { en: 'Hero', ja: 'ヒーロー' },
+      type: 'text',
+      default: '',
+      maxLength: 200,
+      description: {
+        en: 'Slug of a published post to embed below the hero. Useful for "About" or "Welcome" content. Empty disables the section.',
+        ja: 'ヒーロー下に本文を埋め込みたい公開記事のスラッグ。「About」「Welcome」的なコンテンツ向け。空なら非表示。',
+      },
+    },
+    {
       key: 'logoUrl',
       label: { en: 'Logo image URL', ja: 'ロゴ画像 URL' },
       group: { en: 'Branding', ja: 'ブランディング' },

@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts } from '@/lib/posts-public'
+import { listPublishedPosts, getPublishedPost } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { loadThemeConfig } from '@/lib/theme-config'
+import { renderBody } from '@/lib/posts'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 
@@ -13,7 +14,17 @@ export default async function CorporateHome({ params }: ThemeRouteContext) {
     loadThemeConfig(siteId),
     listPublishedPosts({ siteId, limit: 8 }),
   ])
-  const posts = postsResult.items
+
+  // Top-story embed between hero and news. Filtered out of news to
+  // avoid duplication. Skipped silently if missing / unpublished.
+  const featuredSlug = theme.values.featuredSlug?.trim()
+  const featured = featuredSlug
+    ? await getPublishedPost(featuredSlug, { siteId })
+    : null
+  const posts = featured
+    ? postsResult.items.filter((p) => p.slug !== featured.slug)
+    : postsResult.items
+
   const tagline = theme.values.tagline?.trim()
   const footerLegend = theme.values.footerLegend?.trim()
 
@@ -44,6 +55,33 @@ export default async function CorporateHome({ params }: ThemeRouteContext) {
             )}
           </div>
         </section>
+
+        {featured && (
+          <section className="mx-auto max-w-4xl px-6 py-16">
+            <article>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--primary)]">
+                Top story
+              </p>
+              <h2 className="text-3xl font-bold tracking-tight">
+                <Link href={`/${featured.slug}`} className="hover:text-[var(--primary)]">
+                  {featured.title}
+                </Link>
+              </h2>
+              {featured.publishedAt && (
+                <time
+                  dateTime={featured.publishedAt}
+                  className="mt-2 block font-mono text-xs text-[var(--muted-foreground)]"
+                >
+                  {formatDate(featured.publishedAt, settings.dateFormat, settings.timezone)}
+                </time>
+              )}
+              <div
+                className="prose prose-neutral dark:prose-invert mt-6 max-w-none"
+                dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
+              />
+            </article>
+          </section>
+        )}
 
         {posts.length > 0 && (
           <section className="mx-auto max-w-4xl px-6 py-16">

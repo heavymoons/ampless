@@ -94,6 +94,18 @@ export default defineTheme({
       ],
     },
     {
+      key: 'featuredSlug',
+      label: { en: 'Featured post slug', ja: 'トップに固定する記事のスラッグ' },
+      group: { en: 'Home', ja: 'トップページ' },
+      type: 'text',
+      default: '',
+      maxLength: 200,
+      description: {
+        en: 'Slug of a published post to pin at the top of the home page. The post is rendered inline above the post list and removed from the regular feed to avoid duplication. Empty disables the feature.',
+        ja: 'トップページ先頭に固定したい公開記事のスラッグ。指定すると本文がインラインで描画され、通常の一覧からは除外されます。空なら無効。',
+      },
+    },
+    {
       key: 'logoUrl',
       label: { en: 'Logo image URL', ja: 'ロゴ画像 URL' },
       group: { en: 'Branding', ja: 'ブランディング' },

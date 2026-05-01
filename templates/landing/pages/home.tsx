@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts } from '@/lib/posts-public'
+import { listPublishedPosts, getPublishedPost } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { loadThemeConfig } from '@/lib/theme-config'
+import { renderBody } from '@/lib/posts'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 
@@ -16,7 +17,17 @@ export default async function LandingHome({ params }: ThemeRouteContext) {
     loadThemeConfig(siteId),
     listPublishedPosts({ siteId, limit: 6 }),
   ])
-  const posts = postsResult.items
+
+  // Featured embed below the hero — typical use is a short "About"
+  // or "Welcome" article. Filtered out of the Latest grid below to
+  // avoid showing the same post twice.
+  const featuredSlug = theme.values.featuredSlug?.trim()
+  const featured = featuredSlug
+    ? await getPublishedPost(featuredSlug, { siteId })
+    : null
+  const posts = featured
+    ? postsResult.items.filter((p) => p.slug !== featured.slug)
+    : postsResult.items
 
   const headline = theme.values.heroHeadline?.trim() || settings.site.name
   const subheadline =
@@ -52,6 +63,18 @@ export default async function LandingHome({ params }: ThemeRouteContext) {
             )}
           </div>
         </section>
+
+        {featured && (
+          <section className="mx-auto max-w-3xl px-6 py-16">
+            <article>
+              <h2 className="text-3xl font-bold tracking-tight">{featured.title}</h2>
+              <div
+                className="prose prose-neutral dark:prose-invert mt-6 max-w-none"
+                dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
+              />
+            </article>
+          </section>
+        )}
 
         {posts.length > 0 && (
           <section className="mx-auto max-w-5xl px-6 py-16">

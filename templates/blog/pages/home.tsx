@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { formatDate, parseLinkList, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts } from '@/lib/posts-public'
+import { listPublishedPosts, getPublishedPost } from '@/lib/posts-public'
 import { loadSiteSettings } from '@/lib/site-settings'
 import { loadThemeConfig } from '@/lib/theme-config'
+import { renderBody } from '@/lib/posts'
 import { TagList } from '@/components/tag-list'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
@@ -15,7 +16,18 @@ export default async function BlogHome({ params }: ThemeRouteContext) {
     loadThemeConfig(siteId),
     listPublishedPosts({ siteId }),
   ])
-  const posts = postsResult.items
+
+  // Featured (pinned) post: render the body inline above the list,
+  // then drop the same slug from the feed so it doesn't show twice.
+  // Missing / unpublished slugs return null and the section is skipped.
+  const featuredSlug = theme.values.featuredSlug?.trim()
+  const featured = featuredSlug
+    ? await getPublishedPost(featuredSlug, { siteId })
+    : null
+  const posts = featured
+    ? postsResult.items.filter((p) => p.slug !== featured.slug)
+    : postsResult.items
+
   const showHeader =
     parseLinkList(theme.values.headerNav).length > 0 || !!theme.values.logoUrl?.trim()
   const showFooter = parseLinkList(theme.values.footerLinks).length > 0
@@ -39,8 +51,28 @@ export default async function BlogHome({ params }: ThemeRouteContext) {
           )}
         </header>
 
+        {featured && (
+          <article className="mb-12 rounded-lg border bg-[var(--card)] p-6">
+            <Link href={`/${featured.slug}`} className="group">
+              <h2 className="text-2xl font-semibold group-hover:underline">{featured.title}</h2>
+              {featured.publishedAt && (
+                <time
+                  dateTime={featured.publishedAt}
+                  className="mt-1 block text-sm text-gray-500"
+                >
+                  {formatDate(featured.publishedAt, settings.dateFormat, settings.timezone)}
+                </time>
+              )}
+            </Link>
+            <div
+              className="prose prose-neutral dark:prose-invert mt-4 max-w-none"
+              dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
+            />
+          </article>
+        )}
+
         {posts.length === 0 ? (
-          <p className="text-gray-500">{t('public.noPosts')}</p>
+          !featured && <p className="text-gray-500">{t('public.noPosts')}</p>
         ) : (
           <ul className="space-y-8">
             {posts.map((post) => (
