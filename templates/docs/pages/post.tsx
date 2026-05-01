@@ -12,6 +12,7 @@ import { getPublishedPost } from '@/lib/posts-public'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
+import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -49,12 +50,10 @@ export default async function DocsPost({ params }: PostCtx) {
         brandClassName="font-mono text-sm font-semibold tracking-tight"
       />
 
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 lg:grid-cols-[15rem_1fr]">
-        <SiteSidebar
-          links={theme.values.sidebarNav}
-          siteId={siteId}
-          className="sticky top-6 self-start"
-        />
+      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-10 lg:grid-cols-[15rem_1fr] lg:gap-10">
+        <CollapsibleSidebar className="lg:sticky lg:top-6 lg:self-start">
+          <SiteSidebar links={theme.values.sidebarNav} siteId={siteId} />
+        </CollapsibleSidebar>
 
         <main className="min-w-0">
           <article>

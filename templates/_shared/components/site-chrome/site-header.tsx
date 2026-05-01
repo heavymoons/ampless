@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { parseLinkList, isTagListUrl } from 'ampless'
+import { MobileMenu } from './mobile-menu'
 
 interface Props {
   /** JSON-stringified linkList from theme.values.<key>. */
@@ -26,6 +27,10 @@ interface Props {
  * styling (font size / weight) via `brandClassName` so each theme can
  * keep its own typographic identity.
  *
+ * Responsive: the regular `<nav>` is hidden below `md` and replaced
+ * by a hamburger toggle (MobileMenu) that drops a panel overlay below
+ * the header.
+ *
  * `tag:<name>` URLs in the link list collapse to plain text — header
  * isn't the right surface for inline post lists; use SiteSidebar for
  * tag-driven nav.
@@ -41,10 +46,16 @@ export function SiteHeader({
   const items = parseLinkList(links)
   const trimmedLogo = logoUrl?.trim()
   return (
-    <header className={`flex items-center justify-between border-b px-6 py-4 ${className ?? ''}`}>
+    <header
+      className={`relative flex items-center justify-between border-b px-6 py-4 ${className ?? ''}`}
+    >
       <Link
         href="/"
-        className={trimmedLogo ? 'inline-flex items-center' : (brandClassName ?? 'font-semibold hover:text-[var(--primary)]')}
+        className={
+          trimmedLogo
+            ? 'inline-flex items-center'
+            : (brandClassName ?? 'font-semibold hover:text-[var(--primary)]')
+        }
       >
         {trimmedLogo ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -54,29 +65,29 @@ export function SiteHeader({
         )}
       </Link>
       {items.length > 0 && (
-        <nav className="flex items-center gap-5 text-sm">
-          {items.map((item, i) => {
-            // Tag references collapse to a plain label in the header —
-            // expanding them inline would blow out the chrome. Sidebars
-            // are the right surface for tag-driven post lists.
-            if (isTagListUrl(item.url)) {
+        <>
+          <nav className="hidden items-center gap-5 text-sm md:flex">
+            {items.map((item, i) => {
+              if (isTagListUrl(item.url)) {
+                return (
+                  <span key={i} className="text-muted-foreground">
+                    {item.label}
+                  </span>
+                )
+              }
               return (
-                <span key={i} className="text-muted-foreground">
+                <Link
+                  key={i}
+                  href={item.url}
+                  className="text-foreground hover:text-[var(--primary)]"
+                >
                   {item.label}
-                </span>
+                </Link>
               )
-            }
-            return (
-              <Link
-                key={i}
-                href={item.url}
-                className="text-foreground hover:text-[var(--primary)]"
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+            })}
+          </nav>
+          <MobileMenu items={items} className="md:hidden" />
+        </>
       )}
     </header>
   )

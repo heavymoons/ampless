@@ -44,11 +44,14 @@ export default async function CorporateTag({ params }: ThemeRouteContext<{ tag: 
         <ul className="divide-y border-t border-b">
           {posts.map((post) => (
             <li key={post.postId} className="py-5">
-              <Link href={`/${post.slug}`} className="group flex items-baseline gap-6">
+              <Link
+                href={`/${post.slug}`}
+                className="group flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-6"
+              >
                 {post.publishedAt && (
                   <time
                     dateTime={post.publishedAt}
-                    className="w-28 shrink-0 font-mono text-xs text-[var(--muted-foreground)]"
+                    className="font-mono text-xs text-[var(--muted-foreground)] sm:w-28 sm:shrink-0"
                   >
                     {formatDate(post.publishedAt, settings.dateFormat, settings.timezone)}
                   </time>
