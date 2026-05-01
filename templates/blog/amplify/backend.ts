@@ -65,13 +65,20 @@ backend.postConfirmation.resources.lambda.addToRolePolicy(
 // touch (trusted = read posts + write own S3 path; untrusted = nothing).
 // Failures retry up to 3 times then go to a shared DLQ.
 
-// 1. Enable streams on the Post table. (Page/Media to be added when those
-//    events have plugin consumers.) Amplify Gen 2 wraps the table in a
-//    custom resource (AmplifyDynamoDbTable), so we set the stream spec on
-//    the cfnResources entry rather than on a stock CfnTable.
+// 1. Enable streams on the Post and KvStore tables. Amplify Gen 2 wraps
+//    each table in a custom resource (AmplifyDynamoDbTable), so we set
+//    the stream spec on the cfnResources entry rather than on a stock
+//    CfnTable.
 const postTable = backend.data.resources.tables['Post']
 const cfnPostTable = backend.data.resources.cfnResources.amplifyDynamoDbTables['Post']
 cfnPostTable.streamSpecification = { streamViewType: 'NEW_AND_OLD_IMAGES' }
+
+const kvTable = backend.data.resources.tables['KvStore']
+const cfnKvTable = backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore']
+cfnKvTable.streamSpecification = { streamViewType: 'NEW_AND_OLD_IMAGES' }
+// DynamoDB TTL: rows whose `ttl` attribute is past `now` get garbage
+// collected (≤48h delay). Lets KvStore double as a cache.
+cfnKvTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
 
 const eventsStack = backend.createStack('amplessEvents')
 
@@ -100,6 +107,17 @@ dispatcherFn.addEventSource(
     bisectBatchOnError: true,
   })
 )
+// Also dispatch KvStore changes so site-settings updates trigger the
+// S3 cache rebuild. The dispatcher inspects the row's PK and only
+// emits events for `siteconfig:*` items.
+dispatcherFn.addEventSource(
+  new DynamoEventSource(kvTable, {
+    startingPosition: StartingPosition.LATEST,
+    batchSize: 10,
+    retryAttempts: 3,
+    bisectBatchOnError: true,
+  })
+)
 trustedQueue.grantSendMessages(dispatcherFn)
 untrustedQueue.grantSendMessages(dispatcherFn)
 dispatcherFn.addEnvironment('TRUSTED_QUEUE_URL', trustedQueue.queueUrl)
@@ -120,6 +138,10 @@ trustedFn.addToRolePolicy(
     resources: [`${postTable.tableArn}/index/*`],
   })
 )
+// KvStore: trusted processor needs to read site settings (to expand
+// the cache to S3 on update events). No write needed — settings are
+// written from the admin UI via AppSync.
+kvTable.grantReadData(trustedFn)
 // S3 grant is bucket-wide for `public/plugins/*` rather than per-plugin
 // prefix. Rationale:
 //   1. v0.1 trusted plugins are first-party only (see ARCHITECTURE.md §4),
@@ -141,6 +163,7 @@ trustedFn.addToRolePolicy(
 )
 trustedFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
 trustedFn.addEnvironment('AMPLESS_POST_TABLE', postTable.tableName)
+trustedFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
 
 // 6. Untrusted processor: SQS only, zero AWS data permissions.
 const untrustedFn = backend.processorUntrusted.resources.lambda

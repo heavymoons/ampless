@@ -32,6 +32,18 @@ export {
   siteFor,
   composeSiteIdStatus,
 } from './sites.js'
+export {
+  setKvStore,
+  hasKvStore,
+  getSiteSetting,
+  setSiteSetting,
+  deleteSiteSetting,
+  listSiteSettings,
+  flattenSettings,
+  unflattenSettings,
+  SITE_CONFIG_PK,
+} from './kv.js'
+export type { KvStore, KvItem } from './kv.js'
 export { formatDate } from './format.js'
 export { escapeXml } from './xml.js'
 export { formatPublicAssetUrl } from './storage.js'
@@ -47,9 +59,11 @@ export type {
   EventType,
   ContentEventType,
   MediaEventType,
+  SiteSettingsEventType,
   AmplessEvent,
   ContentEventPayload,
   MediaEventPayload,
+  SiteSettingsEventPayload,
   EventPayloadOf,
   StreamEventName,
 } from './events.js'

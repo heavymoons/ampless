@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'aws-amplify/auth'
-import { LayoutDashboard, FileText, Image, LogOut, ExternalLink } from 'lucide-react'
+import { LayoutDashboard, FileText, Image, Globe, LogOut, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 
@@ -11,6 +11,7 @@ const nav = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/posts', label: 'Posts', icon: FileText },
   { href: '/admin/media', label: 'Media', icon: Image },
+  { href: '/admin/sites', label: 'Sites', icon: Globe },
 ]
 
 export function Sidebar({

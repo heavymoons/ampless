@@ -6,7 +6,7 @@ import { renderBody } from '@/lib/posts'
 import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
 import { postMetadata } from '@/lib/seo'
-import cmsConfig from '@/cms.config'
+import { loadSiteSettings } from '@/lib/site-settings'
 import { getPublishedPost } from '@/lib/posts-public'
 
 export const dynamic = 'force-dynamic'
@@ -24,11 +24,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PostPage({ params }: Props) {
   const { siteId, slug } = await params
-  const post = await getPublishedPost(slug, { siteId })
+  const [post, settings] = await Promise.all([
+    getPublishedPost(slug, { siteId }),
+    loadSiteSettings(siteId),
+  ])
   if (!post) notFound()
 
-  const defaultLightbox = cmsConfig.media?.imageDisplay === 'lightbox'
-  const maxWidth = cmsConfig.media?.imageMaxWidth ?? '100%'
+  const defaultLightbox = settings.media.imageDisplay === 'lightbox'
+  const maxWidth = settings.media.imageMaxWidth ?? '100%'
   const proseStyle: React.CSSProperties = {
     ['--ampless-img-max-width' as string]: maxWidth,
   }
@@ -44,7 +47,7 @@ export default async function PostPage({ params }: Props) {
           <h1 className="text-4xl font-bold tracking-tight">{post.title}</h1>
           {post.publishedAt && (
             <time dateTime={post.publishedAt} className="mt-2 block text-sm text-gray-500">
-              {formatDate(post.publishedAt, cmsConfig.dateFormat, cmsConfig.timezone)}
+              {formatDate(post.publishedAt, settings.dateFormat, settings.timezone)}
             </time>
           )}
         </header>

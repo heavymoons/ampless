@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate } from 'ampless'
 import { listPostsByTag } from '@/lib/posts-public'
-import cmsConfig from '@/cms.config'
+import { loadSiteSettings } from '@/lib/site-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +13,10 @@ interface Props {
 export default async function TagPage({ params }: Props) {
   const { siteId, tag } = await params
   const decodedTag = decodeURIComponent(tag)
-  const { items: posts } = await listPostsByTag(decodedTag, { siteId, limit: 50 })
+  const [{ items: posts }, settings] = await Promise.all([
+    listPostsByTag(decodedTag, { siteId, limit: 50 }),
+    loadSiteSettings(siteId),
+  ])
 
   if (posts.length === 0) notFound()
 
@@ -35,7 +38,7 @@ export default async function TagPage({ params }: Props) {
               <h2 className="text-2xl font-semibold group-hover:underline">{post.title}</h2>
               {post.publishedAt && (
                 <time dateTime={post.publishedAt} className="text-sm text-gray-500">
-                  {formatDate(post.publishedAt, cmsConfig.dateFormat, cmsConfig.timezone)}
+                  {formatDate(post.publishedAt, settings.dateFormat, settings.timezone)}
                 </time>
               )}
               {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}

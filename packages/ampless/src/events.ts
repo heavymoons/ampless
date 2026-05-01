@@ -14,7 +14,9 @@ export type ContentEventType =
 
 export type MediaEventType = 'media.uploaded' | 'media.deleted'
 
-export type EventType = ContentEventType | MediaEventType
+export type SiteSettingsEventType = 'site.settings.updated'
+
+export type EventType = ContentEventType | MediaEventType | SiteSettingsEventType
 
 /** Minimal projection of a Post item carried in events (no body, to keep payloads small). */
 export interface ContentEventPayload {
@@ -34,11 +36,22 @@ export interface MediaEventPayload {
   mimeType: string
 }
 
+/**
+ * Emitted whenever any setting under `siteconfig:{siteId}` in KvStore
+ * is created, updated, or removed. Subscribers (built-in or user
+ * plugins) can rebuild caches, theme assets, etc.
+ */
+export interface SiteSettingsEventPayload {
+  siteId: string
+}
+
 export type EventPayloadOf<T extends EventType> = T extends ContentEventType
   ? ContentEventPayload
   : T extends MediaEventType
     ? MediaEventPayload
-    : never
+    : T extends SiteSettingsEventType
+      ? SiteSettingsEventPayload
+      : never
 
 export interface AmplessEvent<T extends EventType = EventType> {
   type: T

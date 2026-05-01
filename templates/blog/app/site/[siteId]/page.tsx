@@ -1,7 +1,7 @@
 import Link from 'next/link'
-import { formatDate, siteFor } from 'ampless'
-import cmsConfig from '@/cms.config'
+import { formatDate } from 'ampless'
 import { listPublishedPosts } from '@/lib/posts-public'
+import { loadSiteSettings } from '@/lib/site-settings'
 import { TagList } from '@/components/tag-list'
 
 export const dynamic = 'force-dynamic'
@@ -12,14 +12,16 @@ interface Props {
 
 export default async function Home({ params }: Props) {
   const { siteId } = await params
-  const site = siteFor(siteId, cmsConfig)
+  const settings = await loadSiteSettings(siteId)
   const { items: posts } = await listPublishedPosts({ siteId })
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <header className="mb-12 border-b pb-6">
-        <h1 className="text-4xl font-bold tracking-tight">{site.name}</h1>
-        {site.description && <p className="mt-2 text-gray-600">{site.description}</p>}
+        <h1 className="text-4xl font-bold tracking-tight">{settings.site.name}</h1>
+        {settings.site.description && (
+          <p className="mt-2 text-gray-600">{settings.site.description}</p>
+        )}
       </header>
 
       {posts.length === 0 ? (
@@ -32,7 +34,7 @@ export default async function Home({ params }: Props) {
                 <h2 className="text-2xl font-semibold group-hover:underline">{post.title}</h2>
                 {post.publishedAt && (
                   <time dateTime={post.publishedAt} className="text-sm text-gray-500">
-                    {formatDate(post.publishedAt, cmsConfig.dateFormat, cmsConfig.timezone)}
+                    {formatDate(post.publishedAt, settings.dateFormat, settings.timezone)}
                   </time>
                 )}
                 {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}

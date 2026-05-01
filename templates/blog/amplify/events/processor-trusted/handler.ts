@@ -22,32 +22,34 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
 const BUCKET = requireEnv('AMPLESS_BUCKET_NAME')
 const POST_TABLE = requireEnv('AMPLESS_POST_TABLE')
+const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
 // AWS_REGION is always set by the Lambda runtime; require it so a
 // misconfigured deploy fails at cold start instead of producing wrong
 // regional URLs at runtime.
 const REGION = requireEnv('AWS_REGION')
-const POST_BY_STATUS_INDEX = 'byStatus'
+const POST_BY_SITE_STATUS_INDEX = 'bySiteIdStatus'
 
 const trustedPlugins: AmplessPlugin[] = (config.plugins ?? []).filter(
   (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
 )
 
-// v0.1 single-site assumption: byStatus GSI is keyed only on `status`, so
-// we scan all published posts and filter by siteId post-query. v0.2
-// multi-site work plans to recompose this GSI as `siteId+status` so the
-// filter becomes a key condition (see ARCHITECTURE.md §3 / roadmap).
+// One Query per site partition: PK = `${siteId}#published`, SK
+// (publishedAt) gives newest-first ordering with `ScanIndexForward:
+// false`. No filter needed — drafts and other sites live in different
+// partitions.
 async function listPublished(siteId: string): Promise<Post[]> {
   const items: Post[] = []
   let exclusiveStartKey: Record<string, unknown> | undefined
+  const partition = `${siteId}#published`
   do {
     const res = await ddb.send(
       new QueryCommand({
         TableName: POST_TABLE,
-        IndexName: POST_BY_STATUS_INDEX,
-        KeyConditionExpression: '#status = :status',
-        FilterExpression: '#siteId = :siteId',
-        ExpressionAttributeNames: { '#status': 'status', '#siteId': 'siteId' },
-        ExpressionAttributeValues: { ':status': 'published', ':siteId': siteId },
+        IndexName: POST_BY_SITE_STATUS_INDEX,
+        KeyConditionExpression: '#siteIdStatus = :siteIdStatus',
+        ExpressionAttributeNames: { '#siteIdStatus': 'siteIdStatus' },
+        ExpressionAttributeValues: { ':siteIdStatus': partition },
+        ScanIndexForward: false,
         ExclusiveStartKey: exclusiveStartKey as never,
       })
     )
@@ -67,8 +69,6 @@ async function listPublished(siteId: string): Promise<Post[]> {
     }
     exclusiveStartKey = res.LastEvaluatedKey
   } while (exclusiveStartKey)
-  // Newest first.
-  items.sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''))
   return items
 }
 
@@ -105,6 +105,59 @@ function makeContext(plugin: AmplessPlugin, siteId: string): PluginRuntimeContex
   }
 }
 
+// --- Built-in: site settings cache ---
+//
+// Whenever any `siteconfig:{siteId}` row in KvStore changes, the
+// dispatcher emits a `site.settings.updated` event. This handler reads
+// every setting under that PK and writes a single JSON object to S3
+// at `public/site-settings/{siteId}.json`. The Next.js public site
+// fetches that file on render — the database is never reached on the
+// public path.
+//
+// Built into the trusted processor (not a user plugin) because the
+// public site cannot function without it once multi-site settings
+// move to KvStore.
+async function rebuildSiteSettingsCache(siteId: string): Promise<void> {
+  const settings: Record<string, unknown> = {}
+  let exclusiveStartKey: Record<string, unknown> | undefined
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: KV_TABLE,
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': 'pk' },
+        ExpressionAttributeValues: { ':pk': `siteconfig:${siteId}` },
+        ExclusiveStartKey: exclusiveStartKey as never,
+      })
+    )
+    for (const row of res.Items ?? []) {
+      const sk = row.sk as string | undefined
+      if (!sk) continue
+      // `value` is stored as AWSJSON (a string holding serialized JSON);
+      // decode for consumers, fall back to the raw value for resilience.
+      const raw = row.value
+      settings[sk] = typeof raw === 'string' ? safeParse(raw) : raw
+    }
+    exclusiveStartKey = res.LastEvaluatedKey
+  } while (exclusiveStartKey)
+
+  const objectKey = `public/site-settings/${siteId}.json`
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: objectKey,
+      Body: JSON.stringify(settings),
+      ContentType: 'application/json; charset=utf-8',
+      // Public site fetches with Next.js fetch cache (60s) — keep this
+      // short so admin edits propagate quickly without thrashing.
+      CacheControl: 'public, max-age=60',
+    })
+  )
+  console.log(
+    `[site-settings-cache] wrote ${objectKey} (${Object.keys(settings).length} keys)`
+  )
+}
+
 export const handler: SQSHandler = async (event) => {
   for (const record of event.Records) {
     let parsed: AmplessEvent
@@ -115,6 +168,21 @@ export const handler: SQSHandler = async (event) => {
       continue
     }
     const siteId = (parsed.payload as { siteId?: string }).siteId ?? 'default'
+
+    // Built-in: rebuild the site settings JSON cache. Runs before user
+    // plugins so they observe a consistent S3 state if they read it.
+    if (parsed.type === 'site.settings.updated') {
+      try {
+        await rebuildSiteSettingsCache(siteId)
+      } catch (err) {
+        console.error(
+          `[trusted-processor] site-settings-cache rebuild failed for ${siteId}`,
+          err
+        )
+        throw err
+      }
+    }
+
     for (const plugin of trustedPlugins) {
       const hook = plugin.hooks?.[parsed.type]
       if (!hook) continue

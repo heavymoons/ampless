@@ -19,8 +19,6 @@ const sqs = new SQSClient({})
 const TRUSTED_QUEUE_URL = requireEnv('TRUSTED_QUEUE_URL')
 const UNTRUSTED_QUEUE_URL = requireEnv('UNTRUSTED_QUEUE_URL')
 
-// DynamoDB rows can have any of these missing post-unmarshall, so the type
-// here is intentionally looser than ampless' ContentEventPayload.
 interface RawPost {
   siteId?: string
   postId?: string
@@ -31,18 +29,32 @@ interface RawPost {
   tags?: string[]
 }
 
-type EventType = ContentEventType
+interface RawKvItem {
+  pk?: string
+  sk?: string
+}
+
+type AmplessEventType = ContentEventType | 'site.settings.updated'
 
 interface AmplessEvent {
-  type: EventType
-  payload: RawPost
+  type: AmplessEventType
+  payload: Record<string, unknown>
   timestamp: string
 }
 
-// Decide which CMS-level events a Stream record represents. A single
-// Stream record can produce 0..2 events (e.g. INSERT of a published post
-// emits both `content.created` and `content.published`).
-function detectEvents(record: DynamoDBRecord): EventType[] {
+/**
+ * The dispatcher is wired to two streams (Post + KvStore). The
+ * `eventSourceARN` carries the table name so we can route appropriately.
+ *
+ *   arn:aws:dynamodb:<region>:<acct>:table/<TableName>/stream/...
+ */
+function tableNameFromArn(arn: string | undefined): string | null {
+  if (!arn) return null
+  const match = arn.match(/:table\/([^/]+)/)
+  return match ? match[1]! : null
+}
+
+function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[] {
   const oldItem = record.dynamodb?.OldImage
     ? (unmarshall(record.dynamodb.OldImage as never) as RawPost)
     : null
@@ -50,24 +62,17 @@ function detectEvents(record: DynamoDBRecord): EventType[] {
     ? (unmarshall(record.dynamodb.NewImage as never) as RawPost)
     : null
 
-  return detectContentEvents({
+  const types = detectContentEvents({
     eventName: record.eventName,
     oldStatus: oldItem?.status,
     newStatus: newItem?.status,
   })
-}
+  if (types.length === 0) return []
 
-function extractPayload(record: DynamoDBRecord): RawPost {
-  const newItem = record.dynamodb?.NewImage
-    ? (unmarshall(record.dynamodb.NewImage as never) as RawPost)
-    : null
-  const oldItem = record.dynamodb?.OldImage
-    ? (unmarshall(record.dynamodb.OldImage as never) as RawPost)
-    : null
   const item = newItem ?? oldItem ?? {}
   // Trim to the published event payload — drop body/format etc. to keep
   // SQS messages well under the 256 KiB limit even for large posts.
-  return {
+  const payload = {
     siteId: item.siteId,
     postId: item.postId,
     slug: item.slug,
@@ -76,6 +81,28 @@ function extractPayload(record: DynamoDBRecord): RawPost {
     publishedAt: item.publishedAt,
     tags: item.tags,
   }
+  return types.map((type) => ({ type, payload, timestamp }))
+}
+
+function emitKvEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[] {
+  const item = (record.dynamodb?.NewImage ?? record.dynamodb?.OldImage)
+    ? (unmarshall((record.dynamodb!.NewImage ?? record.dynamodb!.OldImage) as never) as RawKvItem)
+    : {}
+  const pk = item.pk
+  if (!pk) return []
+  // Only `siteconfig:{siteId}` rows trigger the site-settings cache
+  // rebuild. Cache rows (`cache:*`), plugin state, and other namespaces
+  // are intentionally ignored.
+  if (!pk.startsWith('siteconfig:')) return []
+  const siteId = pk.slice('siteconfig:'.length)
+  if (!siteId) return []
+  return [
+    {
+      type: 'site.settings.updated',
+      payload: { siteId },
+      timestamp,
+    },
+  ]
 }
 
 async function sendBatch(queueUrl: string, entries: SendMessageBatchRequestEntry[]) {
@@ -90,11 +117,13 @@ export const handler: DynamoDBStreamHandler = async (event) => {
   const timestamp = new Date().toISOString()
 
   for (const record of event.Records) {
-    const types = detectEvents(record)
-    if (types.length === 0) continue
-    const payload = extractPayload(record)
-    for (const type of types) {
-      messages.push({ type, payload, timestamp })
+    const tableName = tableNameFromArn(record.eventSourceARN)
+    // The table name carries an Amplify suffix (e.g. `Post-<api-id>-NONE`)
+    // but always starts with the schema model name.
+    if (tableName && tableName.startsWith('Post-')) {
+      messages.push(...emitContentEvents(record, timestamp))
+    } else if (tableName && tableName.startsWith('KvStore-')) {
+      messages.push(...emitKvEvents(record, timestamp))
     }
   }
 

@@ -100,6 +100,28 @@ const schema = a.schema({
     .identifier(['siteIdTag', 'publishedAtPostId'])
     .authorization((allow) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
 
+  // Generic key/value store. Two roles in one table:
+  //   - Site settings: PK = `siteconfig:{siteId}`, SK = dotted key
+  //     (`site.name`, `media.imageDisplay`, ...). No TTL → persistent.
+  //   - Caches / plugin state: PK = whatever namespace the caller picks
+  //     (`cache:{ns}`, `pluginstate:{name}:...`). TTL set → DynamoDB
+  //     auto-deletes within ~48h of expiry.
+  //
+  // Auth is admin/editor write only. Guests never read this table
+  // directly — site settings are mirrored to S3 by the site-settings-
+  // cache built-in plugin and the public site fetches from there.
+  KvStore: a
+    .model({
+      pk: a.string().required(),
+      sk: a.string().required(),
+      value: a.json(),
+      // Unix epoch seconds. When set, DynamoDB removes the row
+      // automatically (TimeToLive enabled in backend.ts).
+      ttl: a.integer(),
+    })
+    .identifier(['pk', 'sk'])
+    .authorization((allow) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
+
   // Custom return type for public post reads. Decoupling from `Post` lets
   // AppSync skip the model-level (admin-only) auth check on fields.
   PublicPost: a.customType({
