@@ -6,6 +6,7 @@ import { loadSiteSettings } from '@/lib/site-settings'
 import { loadThemeConfig } from '@/lib/theme-config'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
+import { SiteFooter } from '@/components/site-chrome/site-footer'
 import { t } from '@/lib/i18n'
 
 export default async function DocsTag({ params }: ThemeRouteContext<{ tag: string }>) {
@@ -67,6 +68,15 @@ export default async function DocsTag({ params }: ThemeRouteContext<{ tag: strin
           </ul>
         </main>
       </div>
+
+      <SiteFooter
+        links={theme.values.footerLinks}
+        legend={
+          <span>
+            © {new Date().getFullYear()} {settings.site.name}
+          </span>
+        }
+      />
     </>
   )
 }

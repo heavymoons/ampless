@@ -11,6 +11,7 @@ import { loadThemeConfig } from '@/lib/theme-config'
 import { getPublishedPost } from '@/lib/posts-public'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
+import { SiteFooter } from '@/components/site-chrome/site-footer'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -82,6 +83,15 @@ export default async function DocsPost({ params }: PostCtx) {
           </article>
         </main>
       </div>
+
+      <SiteFooter
+        links={theme.values.footerLinks}
+        legend={
+          <span>
+            © {new Date().getFullYear()} {settings.site.name}
+          </span>
+        }
+      />
 
       <LightboxBinder scopeSelector="#post-body" defaultLightbox={defaultLightbox} />
     </>

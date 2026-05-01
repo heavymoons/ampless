@@ -66,5 +66,13 @@ export default defineTheme({
       default: [],
       maxItems: 6,
     },
+    {
+      key: 'footerLinks',
+      label: { en: 'Footer links', ja: 'フッターリンク' },
+      group: { en: 'Navigation', ja: 'ナビゲーション' },
+      type: 'linkList',
+      default: [],
+      maxItems: 12,
+    },
   ],
 })

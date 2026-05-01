@@ -5,6 +5,7 @@ import { loadSiteSettings } from '@/lib/site-settings'
 import { loadThemeConfig } from '@/lib/theme-config'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
+import { SiteFooter } from '@/components/site-chrome/site-footer'
 
 // Docs home: sidebar nav on the left (with optional tag-driven
 // sections), latest posts list on the right. Acts as the docs landing
@@ -76,6 +77,15 @@ export default async function DocsHome({ params }: ThemeRouteContext) {
           )}
         </main>
       </div>
+
+      <SiteFooter
+        links={theme.values.footerLinks}
+        legend={
+          <span>
+            © {new Date().getFullYear()} {settings.site.name}
+          </span>
+        }
+      />
     </>
   )
 }
