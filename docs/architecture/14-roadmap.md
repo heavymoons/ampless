@@ -62,7 +62,6 @@ Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユ�
 
 #### コンテンツ周り
 - [ ] Markdown / HTML canonical 対応（tiptap 以外を編集時の一級扱い）
-- [ ] WXR インポート（WordPress からの記事 / メディア取り込み）
 - [ ] before-hooks（プラグインによる validation / 書き換え）
 - [ ] メディア系イベント（`media.uploaded` / `media.deleted` の処理経路）
 
@@ -70,6 +69,11 @@ Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユ�
 - [ ] CloudWatch ダッシュボード自動生成
 - [ ] DLQ アラーム
 - [ ] Cognito User Pool の本番 SES 設定ガイド + 自動セットアップ
+
+#### 移行ツール（必要になったら）
+- [ ] WXR インポート（WordPress からの記事 / メディア取り込み）
+
+ドッグフード対象に既存 WordPress サイトがあれば優先度が上がる項目。新規サイトばかりなら v1.0 RC 直前の余裕枠で対応すれば足りる。
 
 ---
 
