@@ -3,7 +3,7 @@ import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { runPrompts } from './prompts.js'
 import { scaffold } from './scaffold.js'
-import { templatePath } from './templates.js'
+import { sharedTemplateDir, templatePath } from './templates.js'
 import pc from 'picocolors'
 
 async function main() {
@@ -19,12 +19,13 @@ async function main() {
     process.exit(1)
   }
 
-  const tmplDir = templatePath(opts.theme)
+  const sharedDir = sharedTemplateDir()
+  const themeDir = templatePath(opts.theme)
   const s = spinner()
   s.start('Scaffolding project...')
 
   try {
-    await scaffold(tmplDir, destDir, opts)
+    await scaffold(sharedDir, themeDir, destDir, opts)
     s.stop('Done!')
   } catch (err) {
     s.stop('Failed.')

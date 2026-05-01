@@ -1,4 +1,4 @@
-import { cp, readFile, writeFile, readdir, stat } from 'fs/promises'
+import { cp, readFile, writeFile, readdir } from 'fs/promises'
 import { join, extname } from 'path'
 import type { ProjectOptions } from './prompts.js'
 
@@ -30,8 +30,25 @@ async function substituteDir(dirPath: string, vars: Record<string, string>): Pro
   )
 }
 
-export async function scaffold(templateDir: string, destDir: string, opts: ProjectOptions): Promise<void> {
-  await cp(templateDir, destDir, { recursive: true })
+/**
+ * Scaffold a new project from a shared base + theme overlay.
+ *
+ * 1. Copy the shared base (`templates/_shared/`) — admin app, amplify
+ *    backend, lib, ui components, middleware, cms.config defaults, etc.
+ * 2. Overlay the chosen theme directory (`templates/<theme>/`) on top —
+ *    public pages, globals.css, README, anything theme-specific. Files
+ *    that exist in both win on the theme side; theme-only files just
+ *    appear in addition.
+ * 3. Run `{{var}}` substitution on every text file in the result.
+ */
+export async function scaffold(
+  sharedDir: string,
+  themeDir: string,
+  destDir: string,
+  opts: ProjectOptions
+): Promise<void> {
+  await cp(sharedDir, destDir, { recursive: true })
+  await cp(themeDir, destDir, { recursive: true, force: true })
 
   const vars: Record<string, string> = {
     projectName: opts.projectName,

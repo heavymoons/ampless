@@ -5,10 +5,13 @@ import { resolve } from 'node:path'
 const TEMPLATES_ROOT = resolve(__dirname, '..', '..', 'templates')
 const DIST_TEMPLATES_ROOT = resolve(__dirname, 'dist', 'templates')
 
-// Themes shipped in the npm tarball. Add new theme directory names
-// here when introducing a new templates/<theme>/ entry. Only listed
-// themes get bundled — anything else stays out.
+// Theme overlays shipped in the npm tarball. Add new theme directory
+// names here when introducing a new templates/<theme>/ entry. Only
+// listed themes get bundled — anything else stays out.
 const THEMES = ['blog', 'minimal']
+
+// Shared base copied first during scaffold. Always bundled.
+const SHARED = '_shared'
 
 function shouldKeep(rel: string): boolean {
   // Skip developer-only artifacts inside per-theme working copies that
@@ -34,9 +37,9 @@ export default defineConfig({
   // src/templates.ts checks dist/templates first, then falls back to
   // the monorepo layout.
   async onSuccess() {
-    for (const theme of THEMES) {
-      const src = resolve(TEMPLATES_ROOT, theme)
-      const dest = resolve(DIST_TEMPLATES_ROOT, theme)
+    for (const dir of [SHARED, ...THEMES]) {
+      const src = resolve(TEMPLATES_ROOT, dir)
+      const dest = resolve(DIST_TEMPLATES_ROOT, dir)
       await rm(dest, { recursive: true, force: true })
       await mkdir(dest, { recursive: true })
       await cp(src, dest, {

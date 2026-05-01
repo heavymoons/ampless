@@ -17,6 +17,20 @@ function resolveTemplatesDir(): string {
 
 export const templatesDir = resolveTemplatesDir()
 
+/**
+ * Path to the shared base copied first by `scaffold()`. Contains the
+ * admin app, amplify backend, lib, ui components — anything every
+ * theme has in common.
+ */
+export function sharedTemplateDir(): string {
+  return resolve(templatesDir, '_shared')
+}
+
+/**
+ * Path to a theme overlay (e.g. `'blog'`, `'minimal'`). Contains the
+ * theme-specific public pages and CSS that get layered on top of
+ * the shared base.
+ */
 export function templatePath(theme: string): string {
   return resolve(templatesDir, theme)
 }
