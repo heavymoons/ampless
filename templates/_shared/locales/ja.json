@@ -129,7 +129,7 @@
       "password": "パスワード",
       "newPassword": "新しいパスワード",
       "code": "確認コード",
-      "passwordHint": "8文字以上。大文字、小文字、数字、記号を含めてください。",
+      "passwordHint": "8文字以上。",
       "working": "処理中..."
     },
     "signIn": {

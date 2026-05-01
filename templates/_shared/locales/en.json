@@ -129,7 +129,7 @@
       "password": "Password",
       "newPassword": "New password",
       "code": "Verification code",
-      "passwordHint": "Min 8 chars, with upper, lower, number, and symbol.",
+      "passwordHint": "Minimum 8 characters.",
       "working": "Working..."
     },
     "signIn": {

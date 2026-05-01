@@ -46,6 +46,25 @@ backend.storage.resources.bucket.addToResourcePolicy(
   })
 )
 
+// --- Auth: relax Cognito password policy to length-only ---
+//
+// `defineAuth` defaults to the Cognito-recommended policy: 8+ chars
+// AND uppercase AND lowercase AND number AND symbol. That's stricter
+// than the admin UX warrants for a single-tenant CMS — we want
+// "minimum 8 characters" full stop. Override directly on the CFN
+// user pool.
+const cfnUserPool = backend.auth.resources.cfnResources.cfnUserPool
+cfnUserPool.policies = {
+  passwordPolicy: {
+    minimumLength: 8,
+    requireLowercase: false,
+    requireUppercase: false,
+    requireNumbers: false,
+    requireSymbols: false,
+    temporaryPasswordValidityDays: 7,
+  },
+}
+
 // --- Auth: post-confirmation Lambda permissions ---
 backend.postConfirmation.resources.lambda.addToRolePolicy(
   new PolicyStatement({
