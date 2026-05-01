@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { DEFAULT_SITE_ID } from 'ampless'
 import { Providers } from './providers'
 import { siteMetadata } from '@/lib/seo'
+import { loadThemeConfig, renderThemeCss } from '@/lib/theme-config'
 import './globals.css'
 
 // Resolve metadata per site at request time. The middleware sets
@@ -15,9 +16,19 @@ export async function generateMetadata(): Promise<Metadata> {
   return siteMetadata(siteId)
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const h = await headers()
+  const siteId = h.get('x-site-id') ?? DEFAULT_SITE_ID
+  const theme = await loadThemeConfig(siteId)
+  const themeCss = renderThemeCss(theme.cssVars)
   return (
     <html lang="en">
+      <head>
+        {/* Inline `:root` overrides come AFTER globals.css so they win
+            against the static defaults. Validated values only — see
+            ampless `validateThemeValue`. */}
+        {themeCss && <style dangerouslySetInnerHTML={{ __html: themeCss }} />}
+      </head>
       <body className="min-h-screen">
         <Providers>{children}</Providers>
       </body>

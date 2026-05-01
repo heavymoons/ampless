@@ -69,5 +69,22 @@ export type {
 } from './events.js'
 export { detectContentEvents } from './events.js'
 export type { FieldDefinition, FieldType, ContentTypeDefinition } from './schema.js'
+export {
+  defineTheme,
+  themeSettingKey,
+  validateThemeValue,
+  resolveThemeValues,
+} from './theme.js'
+export type {
+  ThemeManifest,
+  ThemeField,
+  ThemeFieldType,
+  ThemeColorField,
+  ThemeTextField,
+  ThemeSelectField,
+  ThemeImageField,
+  ThemeLengthField,
+  ThemeFontFamilyField,
+} from './theme.js'
 
 export const VERSION = '0.0.1'

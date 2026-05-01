@@ -54,6 +54,14 @@ export default async function EditSitePage({ params }: Props) {
         <p className="text-sm text-muted-foreground">
           siteId: <code className="font-mono">{siteId}</code>
         </p>
+        <div className="mt-4">
+          <Link
+            href={`/admin/sites/${siteId}/theme`}
+            className="text-sm font-medium underline"
+          >
+            Theme settings →
+          </Link>
+        </div>
       </div>
 
       <SiteSettingsForm siteId={siteId} initial={initial} fallback={fallback} />

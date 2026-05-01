@@ -68,7 +68,9 @@
 }
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
+  /* `--ampless-body-font` is injected by the theme manifest loader when
+     the bodyFont field is overridden; falls back to system fonts. */
+  font-family: var(--ampless-body-font, system-ui, -apple-system, sans-serif);
   background: var(--background);
   color: var(--foreground);
 }
