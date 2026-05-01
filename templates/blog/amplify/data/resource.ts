@@ -115,8 +115,10 @@ const schema = a.schema({
   }),
 
   // Public read endpoints — guard against draft leakage via custom resolvers.
-  // Custom handlers only support apiKey / userPool / lambda auth, so we use
-  // a public API key for unauthenticated visitors.
+  // Anonymous visitors hit these via `allow.guest()` (Cognito Identity Pool
+  // unauthenticated role); no rotating API key. The resolvers themselves
+  // strip drafts at the data-source level, so the only thing guests can ever
+  // see is `status === 'published'` rows projected onto `PublicPost`.
   listPublishedPosts: a
     .query()
     .arguments({
@@ -138,7 +140,7 @@ const schema = a.schema({
       })
     )
     .authorization((allow) => [
-      allow.publicApiKey(),
+      allow.guest(),
       allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
@@ -154,7 +156,7 @@ const schema = a.schema({
       })
     )
     .authorization((allow) => [
-      allow.publicApiKey(),
+      allow.guest(),
       allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
@@ -177,7 +179,7 @@ const schema = a.schema({
       })
     )
     .authorization((allow) => [
-      allow.publicApiKey(),
+      allow.guest(),
       allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
@@ -187,7 +189,9 @@ export type Schema = ClientSchema<typeof schema>
 export const data = defineData({
   schema,
   authorizationModes: {
+    // userPool stays the default for admin operations (signed-in editors and
+    // admins). Anonymous public reads use the Identity Pool guest role,
+    // selected per-call via `authMode: 'identityPool'` from the public client.
     defaultAuthorizationMode: 'userPool',
-    apiKeyAuthorizationMode: { expiresInDays: 365 },
   },
 })

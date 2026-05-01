@@ -2,6 +2,9 @@
 // `listPublishedPosts` / `getPublishedPost` queries — those resolvers
 // hard-code the `status='published'` filter, so drafts are never exposed
 // even if a guest hits the AppSync API directly.
+//
+// authMode is 'identityPool' so reads use the Cognito Identity Pool
+// unauthenticated (guest) role. No rotating API key.
 
 import { cookies } from 'next/headers'
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
@@ -12,7 +15,7 @@ import type { Schema } from '../amplify/data/resource'
 const client = generateServerClientUsingCookies<Schema>({
   config: outputs,
   cookies,
-  authMode: 'apiKey',
+  authMode: 'identityPool',
 })
 
 // Derive the wire shape of a PublicPost directly from the generated client
