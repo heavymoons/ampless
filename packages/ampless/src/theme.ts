@@ -254,8 +254,10 @@ export function validateThemeValue(field: ThemeField, raw: unknown): string | nu
   }
 }
 
-const URL_RE =
-  /^(https?:\/\/[^\s]+|\/[^\s]*|tag:[^\s]+|mailto:[^\s]+|tel:[^\s]+|#[^\s]*)$/
+// Drop URLs that the browser would treat as a script execution
+// channel. Everything else — relative paths, bare domains, tag: refs,
+// mailto:, anchors — passes through and gets rendered as-is.
+const DANGEROUS_URL_RE = /^\s*(javascript|data|vbscript):/i
 
 function validateLinkListValue(field: ThemeLinkListField, raw: unknown): string | null {
   if (typeof raw !== 'string') return null
@@ -274,10 +276,15 @@ function validateLinkListValue(field: ThemeLinkListField, raw: unknown): string 
   for (const entry of parsed) {
     if (!entry || typeof entry !== 'object') continue
     const e = entry as Record<string, unknown>
-    const label = typeof e.label === 'string' ? e.label.replace(/[\x00-\x1f<>]/g, '').trim().slice(0, 120) : ''
-    const url = typeof e.url === 'string' ? e.url.trim().slice(0, 500) : ''
-    if (!label || !url) continue
-    if (!URL_RE.test(url)) continue
+    const rawLabel = typeof e.label === 'string' ? e.label : ''
+    const rawUrl = typeof e.url === 'string' ? e.url : ''
+    const label = rawLabel.replace(/[\x00-\x1f<>]/g, '').trim().slice(0, 120)
+    const url = rawUrl.replace(/[\x00-\x1f]/g, '').trim().slice(0, 500)
+    // Drop only fully-empty rows. Keep partial rows so admins can save
+    // mid-edit without their in-progress work disappearing — they'll
+    // come back and finish later.
+    if (!label && !url) continue
+    if (url && DANGEROUS_URL_RE.test(url)) continue
     cleaned.push({ label, url })
   }
   return JSON.stringify(cleaned)
