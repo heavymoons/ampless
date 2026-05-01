@@ -65,3 +65,12 @@ export function siteFor(
 export function composeSiteIdStatus(siteId: string, status: PostStatus): string {
   return `${siteId}#${status}`
 }
+
+/**
+ * Build the denormalized GSI key for `bySiteIdSlug`. The public
+ * `getPublishedPost(slug)` resolver does an O(1) PK lookup against
+ * this index, so every Post write must set it alongside the slug.
+ */
+export function composeSiteIdSlug(siteId: string, slug: string): string {
+  return `${siteId}#${slug}`
+}

@@ -13,19 +13,21 @@ const schema = a.schema({
       status: a.enum(['draft', 'published']),
       publishedAt: a.datetime(),
       tags: a.string().array(),
-      // Denormalized GSI key — `${siteId}#${status}` — set by every
-      // write path (admin client, MCP tools). Lets the public read
-      // resolvers do a single Query for "site X's published posts,
-      // newest first" without table-level filtering.
+      // Denormalized GSI keys — set by every write path (admin client,
+      // MCP tools). Same pattern as siteIdStatus: composing the
+      // partition key as a single string lets each public-read query
+      // hit DynamoDB with a pure PK Query, no filter pass.
+      //   siteIdStatus = `${siteId}#${status}`
+      //     → bySiteIdStatus partitions per site×status, sorted by publishedAt
+      //   siteIdSlug = `${siteId}#${slug}`
+      //     → bySiteIdSlug locates a single post by slug in O(1)
       siteIdStatus: a.string(),
+      siteIdSlug: a.string(),
     })
     .identifier(['siteId', 'postId'])
-    // GSI partitioned by siteId+status, sorted by publishedAt. The
-    // resolvers Query `siteIdStatus = "${siteId}#published"` and read
-    // only the relevant partition — no scan-and-filter, even when the
-    // table holds many sites.
     .secondaryIndexes((index) => [
       index('siteIdStatus').sortKeys(['publishedAt']).name('bySiteIdStatus'),
+      index('siteIdSlug').name('bySiteIdSlug'),
     ])
     // Direct table access is admin/editor only — guests must go through
     // the custom queries below, which strip drafts at the resolver level.

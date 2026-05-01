@@ -31,6 +31,7 @@ export {
   isMultiSite,
   siteFor,
   composeSiteIdStatus,
+  composeSiteIdSlug,
 } from './sites.js'
 export {
   setKvStore,

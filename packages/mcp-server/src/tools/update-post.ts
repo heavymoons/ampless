@@ -1,4 +1,4 @@
-import { composeSiteIdStatus, type Post } from 'ampless'
+import { composeSiteIdStatus, composeSiteIdSlug, type Post } from 'ampless'
 import type { GraphqlClient } from '../appsync.js'
 import { POST_FIELDS, encodeBody, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
@@ -62,9 +62,12 @@ export async function updatePost(
   if (args.status !== undefined) input.status = args.status
   if (args.publishedAt !== undefined) input.publishedAt = args.publishedAt
   if (args.tags !== undefined) input.tags = args.tags
-  // Recompute the denormalized GSI key whenever status changes.
+  // Recompute the denormalized GSI keys whenever status / slug changes.
   if (args.status !== undefined) {
     input.siteIdStatus = composeSiteIdStatus(siteId, args.status)
+  }
+  if (args.slug !== undefined) {
+    input.siteIdSlug = composeSiteIdSlug(siteId, args.slug)
   }
 
   const data = await client.query<{

@@ -2,6 +2,7 @@ import { generateClient } from 'aws-amplify/api'
 import {
   setPostsProvider,
   composeSiteIdStatus,
+  composeSiteIdSlug,
   type Post,
   type PostsProvider,
   type ListOptions,
@@ -158,9 +159,10 @@ const provider: PostsProvider = {
       status: input.status,
       publishedAt: input.publishedAt,
       tags: input.tags,
-      // Denormalized GSI key for `bySiteIdStatus`. Must match every
-      // change to siteId/status — see the update() branch below.
+      // Denormalized GSI keys. Must match every change to slug /
+      // status — see the update() branch below.
       siteIdStatus: composeSiteIdStatus(input.siteId, input.status),
+      siteIdSlug: composeSiteIdSlug(input.siteId, input.slug),
     })
     if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to create post')
     const created = toCorePost(data)
@@ -173,10 +175,11 @@ const provider: PostsProvider = {
     // Need the previous post snapshot to diff PostTag entries correctly.
     const oldPost = await this.getById(postId, { siteId })
 
-    // Whenever status (or, theoretically, siteId — but identifier is
-    // immutable so it can't actually change) is patched, recompute the
-    // denormalized GSI key.
+    // Whenever status / slug (or, theoretically, siteId — but
+    // identifier is immutable so it can't actually change) is
+    // patched, recompute the denormalized GSI keys.
     const nextStatus = patch.status ?? oldPost?.status
+    const nextSlug = patch.slug ?? oldPost?.slug
     const { data, errors } = await client.models.Post.update({
       siteId,
       postId,
@@ -190,6 +193,8 @@ const provider: PostsProvider = {
       ...(patch.tags !== undefined && { tags: patch.tags }),
       ...(patch.status !== undefined &&
         nextStatus && { siteIdStatus: composeSiteIdStatus(siteId, nextStatus) }),
+      ...(patch.slug !== undefined &&
+        nextSlug && { siteIdSlug: composeSiteIdSlug(siteId, nextSlug) }),
     })
     if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
     const updated = toCorePost(data)

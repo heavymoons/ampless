@@ -2,39 +2,32 @@ import { util } from '@aws-appsync/utils'
 
 // AppSync JS resolver: returns a single published post by slug.
 //
-// Reads the `bySiteIdStatus` GSI so the partition key already isolates
-// the requesting site's published rows. Slug is enforced via filter —
-// slug isn't part of the GSI key, and DynamoDB's filter runs *after*
-// the limit. With `limit: 1` we'd only ever read one row from the
-// partition (the latest published) and reject anything else, so older
-// slugs would 404. We instead read up to 1000 rows per page (the
-// service ceiling) and let the filter pick.
+// Reads the `bySiteIdSlug` GSI: PK = `${siteId}#${slug}`. A given
+// (site, slug) tuple identifies at most one row, so this is an O(1)
+// PK Query — no scan, no filter, no per-partition limit issues.
 //
-// For sites with > 1000 published posts a single page won't cover the
-// whole partition; pagination via nextToken is a v1.0 concern. Until
-// then this is correct for any realistic single-site post count.
+// Drafts are dropped in the response handler. The admin form
+// enforces a unique slug per site at the application layer, but if
+// somehow draft + published share a slug we prefer the published row.
 export function request(ctx) {
   const siteId = ctx.args.siteId ?? 'default'
   const slug = ctx.args.slug
-  const partition = `${siteId}#published`
+  const partition = `${siteId}#${slug}`
   return {
     operation: 'Query',
-    index: 'bySiteIdStatus',
+    index: 'bySiteIdSlug',
     query: {
-      expression: '#siteIdStatus = :siteIdStatus',
-      expressionNames: { '#siteIdStatus': 'siteIdStatus' },
-      expressionValues: util.dynamodb.toMapValues({ ':siteIdStatus': partition }),
+      expression: '#siteIdSlug = :siteIdSlug',
+      expressionNames: { '#siteIdSlug': 'siteIdSlug' },
+      expressionValues: util.dynamodb.toMapValues({ ':siteIdSlug': partition }),
     },
-    filter: {
-      expression: '#slug = :slug',
-      expressionNames: { '#slug': 'slug' },
-      expressionValues: util.dynamodb.toMapValues({ ':slug': slug }),
-    },
-    limit: 1000,
+    limit: 5,
   }
 }
 
 export function response(ctx) {
   if (ctx.error) util.error(ctx.error.message, ctx.error.type)
-  return ctx.result.items?.[0] ?? null
+  const items = ctx.result.items ?? []
+  const published = items.find((i) => i.status === 'published')
+  return published ?? null
 }
