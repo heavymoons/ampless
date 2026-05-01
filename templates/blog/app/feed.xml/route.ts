@@ -7,9 +7,6 @@ export const dynamic = 'force-dynamic'
 // `public/plugins/rss/feed.xml`.
 export async function GET() {
   const url = publicAssetUrl('public/plugins/rss/feed.xml')
-  if (!url) {
-    return new Response('Sandbox not deployed', { status: 503 })
-  }
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel></channel></rss>\n`, {

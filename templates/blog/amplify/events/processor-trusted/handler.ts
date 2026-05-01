@@ -2,7 +2,13 @@ import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
-import type { AmplessEvent, AmplessPlugin, PluginRuntimeContext, Post } from 'ampless'
+import {
+  formatPublicAssetUrl,
+  type AmplessEvent,
+  type AmplessPlugin,
+  type PluginRuntimeContext,
+  type Post,
+} from 'ampless'
 import config from '../../../cms.config'
 
 function requireEnv(name: string): string {
@@ -16,7 +22,10 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
 const BUCKET = requireEnv('AMPLESS_BUCKET_NAME')
 const POST_TABLE = requireEnv('AMPLESS_POST_TABLE')
-const REGION = process.env.AWS_REGION ?? 'us-east-1'
+// AWS_REGION is always set by the Lambda runtime; require it so a
+// misconfigured deploy fails at cold start instead of producing wrong
+// regional URLs at runtime.
+const REGION = requireEnv('AWS_REGION')
 const POST_BY_STATUS_INDEX = 'byStatus'
 
 const trustedPlugins: AmplessPlugin[] = (config.plugins ?? []).filter(
@@ -88,7 +97,7 @@ function makeContext(plugin: AmplessPlugin, siteId: string): PluginRuntimeContex
           CacheControl: 'public, max-age=300',
         })
       )
-      return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${objectKey}`
+      return formatPublicAssetUrl(BUCKET, REGION, objectKey)
     },
   }
 }

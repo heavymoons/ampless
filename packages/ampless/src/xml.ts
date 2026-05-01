@@ -1,6 +1,8 @@
-// Shared XML utilities for plugins that emit feeds, sitemaps, etc.
+// Shared utilities for plugins that emit feeds, sitemaps, etc.
 
-const XML_ESCAPES: Record<string, string> = {
+type XmlChar = '&' | '<' | '>' | '"' | "'"
+
+const XML_ESCAPES: Record<XmlChar, string> = {
   '&': '&amp;',
   '<': '&lt;',
   '>': '&gt;',
@@ -11,5 +13,5 @@ const XML_ESCAPES: Record<string, string> = {
 }
 
 export function escapeXml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => XML_ESCAPES[c]!)
+  return s.replace(/[&<>"']/g, (c) => XML_ESCAPES[c as XmlChar])
 }

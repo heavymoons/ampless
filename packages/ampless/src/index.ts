@@ -26,6 +26,7 @@ export type {
 } from './types.js'
 export { formatDate } from './format.js'
 export { escapeXml } from './xml.js'
+export { formatPublicAssetUrl } from './storage.js'
 export { definePlugin } from './plugin.js'
 export type {
   AmplessPlugin,

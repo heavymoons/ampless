@@ -5,7 +5,7 @@ import {
   SendMessageBatchCommand,
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs'
-import { detectContentEvents, type ContentEventType, type StreamEventName } from 'ampless'
+import { detectContentEvents, type ContentEventType } from 'ampless'
 
 // Fail fast at cold-start if required env vars are missing — cheaper than
 // debugging cryptic SQS-not-found errors per invocation.
@@ -51,7 +51,7 @@ function detectEvents(record: DynamoDBRecord): EventType[] {
     : null
 
   return detectContentEvents({
-    eventName: record.eventName as StreamEventName | undefined,
+    eventName: record.eventName,
     oldStatus: oldItem?.status,
     newStatus: newItem?.status,
   })

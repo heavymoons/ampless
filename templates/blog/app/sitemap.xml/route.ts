@@ -8,9 +8,6 @@ export const dynamic = 'force-dynamic'
 // deleted event, so we just stream the current version through.
 export async function GET() {
   const url = publicAssetUrl('public/plugins/seo/sitemap.xml')
-  if (!url) {
-    return new Response('Sandbox not deployed', { status: 503 })
-  }
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     // Empty sitemap before any publish has happened — keep crawlers happy.
