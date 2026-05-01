@@ -260,13 +260,26 @@ export function validateThemeValue(field: ThemeField, raw: unknown): string | nu
 const DANGEROUS_URL_RE = /^\s*(javascript|data|vbscript):/i
 
 function validateLinkListValue(field: ThemeLinkListField, raw: unknown): string | null {
-  if (typeof raw !== 'string') return null
-  const trimmed = raw.trim()
-  if (!trimmed) return JSON.stringify([])
+  // Accept three input shapes:
+  //   1. A JSON-string (admin form / fresh writes go through here).
+  //   2. An already-parsed array (the S3 settings cache can land here
+  //      depending on how AWSJSON round-trips through DynamoDB; we'd
+  //      rather coerce than reject and silently fall back to default).
+  //   3. null / undefined / "" — treat as empty list.
   let parsed: unknown
-  try {
-    parsed = JSON.parse(trimmed)
-  } catch {
+  if (Array.isArray(raw)) {
+    parsed = raw
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return JSON.stringify([])
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch {
+      return null
+    }
+  } else if (raw === null || raw === undefined) {
+    return JSON.stringify([])
+  } else {
     return null
   }
   if (!Array.isArray(parsed)) return null
