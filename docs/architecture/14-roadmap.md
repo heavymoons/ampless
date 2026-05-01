@@ -40,6 +40,15 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 - [ ] 管理画面のサイト切り替え UI
 - [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
 
+**SSR キャッシュとマルチドメインのトレードオフ:**
+
+Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユーザーが Cache Policy / Lambda@Edge を触れないため、マルチドメインで SSR レスポンスをキャッシュさせると site1 と site2 の同 path が衝突する。これにより:
+
+- **シングルサイト運用**（`sites` 未設定 or 1 サイト）: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュ活用 → Lambda 起動回数を削減
+- **マルチサイト運用**（`sites` 2 件以上）: middleware が `Cache-Control: private, no-store` を強制してキャッシュを完全 OFF（衝突を避ける代償として PV / Lambda コスト増）
+
+切り替えは `cms.config.sites` の件数で自動判定。両立は v1.0 後に Amplify Hosting を捨てて自前 CDK + CloudFront に移行した時の課題として残す。
+
 #### テーマ / 見た目カスタマイズ
 - [ ] `configSchema` ベースの軽カスタマイズ（primaryColor、フォント、ロゴ、sidebar 切替）
 - [ ] テーマ追加（ランディングページ、ポートフォリオ、ドキュメントサイト）
