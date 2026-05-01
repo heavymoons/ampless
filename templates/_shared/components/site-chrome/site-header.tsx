@@ -4,30 +4,55 @@ import { parseLinkList, isTagListUrl } from 'ampless'
 interface Props {
   /** JSON-stringified linkList from theme.values.<key>. */
   links: string | undefined
-  brand?: React.ReactNode
+  /** Optional logo image URL. When set, rendered as an <img>; the
+   *  siteName is used as alt text. Empty falls back to siteName text. */
+  logoUrl?: string
+  /** Site name. Used as the brand text when no logo, and as alt
+   *  text on the logo image. */
+  siteName?: string
+  /** Tailwind classes for the brand text wrapper (only when no logo). */
+  brandClassName?: string
+  /** Tailwind classes for the logo `<img>`. Defaults to a 32px-tall
+   *  auto-width sizing — themes can override for taller / specific
+   *  branding placements. */
+  logoClassName?: string
   className?: string
 }
 
 /**
  * Theme-agnostic header that consumes a `linkList` value (JSON string
- * from a theme manifest field). Themes wrap this with their own
- * spacing / colors via `className` and supply the `brand` element.
+ * from a theme manifest field). Renders a logo image when `logoUrl`
+ * is set; otherwise shows `siteName` text. Themes pick the brand
+ * styling (font size / weight) via `brandClassName` so each theme can
+ * keep its own typographic identity.
  *
- * `tag:<name>` URLs are rendered as plain text (no link); for nav
- * sections that should expand into post lists, use SiteSidebar
- * instead — header isn't the place to render dozens of posts inline.
+ * `tag:<name>` URLs in the link list collapse to plain text — header
+ * isn't the right surface for inline post lists; use SiteSidebar for
+ * tag-driven nav.
  */
-export function SiteHeader({ links, brand, className }: Props) {
+export function SiteHeader({
+  links,
+  logoUrl,
+  siteName,
+  brandClassName,
+  logoClassName = 'h-8 w-auto',
+  className,
+}: Props) {
   const items = parseLinkList(links)
+  const trimmedLogo = logoUrl?.trim()
   return (
     <header className={`flex items-center justify-between border-b px-6 py-4 ${className ?? ''}`}>
-      <div className="flex items-center gap-3 font-semibold">
-        {brand ?? (
-          <Link href="/" className="hover:text-[var(--primary)]">
-            Home
-          </Link>
+      <Link
+        href="/"
+        className={trimmedLogo ? 'inline-flex items-center' : (brandClassName ?? 'font-semibold hover:text-[var(--primary)]')}
+      >
+        {trimmedLogo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={trimmedLogo} alt={siteName ?? ''} className={logoClassName} />
+        ) : (
+          (siteName ?? 'Home')
         )}
-      </div>
+      </Link>
       {items.length > 0 && (
         <nav className="flex items-center gap-5 text-sm">
           {items.map((item, i) => {

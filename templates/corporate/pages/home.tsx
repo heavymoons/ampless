@@ -21,11 +21,9 @@ export default async function CorporateHome({ params }: ThemeRouteContext) {
     <>
       <SiteHeader
         links={theme.values.headerNav}
-        brand={
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            {settings.site.name}
-          </Link>
-        }
+        logoUrl={theme.values.logoUrl}
+        siteName={settings.site.name}
+        brandClassName="text-lg font-semibold tracking-tight"
       />
 
       <main>

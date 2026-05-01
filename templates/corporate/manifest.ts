@@ -40,6 +40,17 @@ export default defineTheme({
       cssVar: '--radius',
     },
     {
+      key: 'logoUrl',
+      label: { en: 'Logo image URL', ja: 'ロゴ画像 URL' },
+      group: { en: 'Branding', ja: 'ブランディング' },
+      type: 'image',
+      default: '',
+      description: {
+        en: 'URL or media path. Empty falls back to the site name as text.',
+        ja: '画像 URL またはメディアパス。空欄ならサイト名がテキスト表示されます。',
+      },
+    },
+    {
       key: 'headerNav',
       label: { en: 'Header navigation', ja: 'ヘッダーナビ' },
       group: { en: 'Navigation', ja: 'ナビゲーション' },

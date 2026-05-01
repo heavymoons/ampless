@@ -19,7 +19,8 @@ export default async function BlogTag({ params }: ThemeRouteContext<{ tag: strin
 
   if (posts.length === 0) notFound()
 
-  const showHeader = parseLinkList(theme.values.headerNav).length > 0
+  const showHeader =
+    parseLinkList(theme.values.headerNav).length > 0 || !!theme.values.logoUrl?.trim()
   const showFooter = parseLinkList(theme.values.footerLinks).length > 0
 
   return (
@@ -27,11 +28,9 @@ export default async function BlogTag({ params }: ThemeRouteContext<{ tag: strin
       {showHeader && (
         <SiteHeader
           links={theme.values.headerNav}
-          brand={
-            <Link href="/" className="hover:underline">
-              {settings.site.name}
-            </Link>
-          }
+          logoUrl={theme.values.logoUrl}
+          siteName={settings.site.name}
+          brandClassName="font-semibold hover:underline"
         />
       )}
 

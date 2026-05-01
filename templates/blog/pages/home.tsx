@@ -16,7 +16,8 @@ export default async function BlogHome({ params }: ThemeRouteContext) {
     listPublishedPosts({ siteId }),
   ])
   const posts = postsResult.items
-  const showHeader = parseLinkList(theme.values.headerNav).length > 0
+  const showHeader =
+    parseLinkList(theme.values.headerNav).length > 0 || !!theme.values.logoUrl?.trim()
   const showFooter = parseLinkList(theme.values.footerLinks).length > 0
 
   return (
@@ -24,11 +25,9 @@ export default async function BlogHome({ params }: ThemeRouteContext) {
       {showHeader && (
         <SiteHeader
           links={theme.values.headerNav}
-          brand={
-            <Link href="/" className="hover:underline">
-              {settings.site.name}
-            </Link>
-          }
+          logoUrl={theme.values.logoUrl}
+          siteName={settings.site.name}
+          brandClassName="font-semibold hover:underline"
         />
       )}
 

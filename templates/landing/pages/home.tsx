@@ -28,11 +28,9 @@ export default async function LandingHome({ params }: ThemeRouteContext) {
     <>
       <SiteHeader
         links={theme.values.headerNav}
-        brand={
-          <Link href="/" className="hover:text-[var(--primary)]">
-            {settings.site.name}
-          </Link>
-        }
+        logoUrl={theme.values.logoUrl}
+        siteName={settings.site.name}
+        brandClassName="font-semibold hover:text-[var(--primary)]"
       />
 
       <main>

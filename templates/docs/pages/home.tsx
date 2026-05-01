@@ -23,11 +23,9 @@ export default async function DocsHome({ params }: ThemeRouteContext) {
     <>
       <SiteHeader
         links={theme.values.headerNav}
-        brand={
-          <Link href="/" className="font-mono text-sm font-semibold tracking-tight">
-            {settings.site.name}
-          </Link>
-        }
+        logoUrl={theme.values.logoUrl}
+        siteName={settings.site.name}
+        brandClassName="font-mono text-sm font-semibold tracking-tight"
       />
 
       <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 lg:grid-cols-[15rem_1fr]">

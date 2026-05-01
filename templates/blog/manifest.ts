@@ -94,6 +94,17 @@ export default defineTheme({
       ],
     },
     {
+      key: 'logoUrl',
+      label: { en: 'Logo image URL', ja: 'ロゴ画像 URL' },
+      group: { en: 'Branding', ja: 'ブランディング' },
+      type: 'image',
+      default: '',
+      description: {
+        en: 'URL or media path. Empty falls back to the site name as text.',
+        ja: '画像 URL またはメディアパス。空欄ならサイト名がテキスト表示されます。',
+      },
+    },
+    {
       key: 'headerNav',
       label: { en: 'Header navigation', ja: 'ヘッダーナビ' },
       group: { en: 'Navigation', ja: 'ナビゲーション' },
@@ -101,8 +112,8 @@ export default defineTheme({
       default: [],
       maxItems: 8,
       description: {
-        en: 'Optional. When empty, the header is omitted entirely.',
-        ja: '任意。空の場合はヘッダー自体が表示されません。',
+        en: 'Optional. When empty and no logo is set, the header is omitted entirely.',
+        ja: '任意。空かつロゴ未設定の場合はヘッダー自体が表示されません。',
       },
     },
     {

@@ -219,7 +219,12 @@ export function themeSettingKey(fieldKey: string): string {
 const COLOR_RE =
   /^(#[0-9a-fA-F]{3,8}|rgb\([^)]+\)|rgba\([^)]+\)|hsl\([^)]+\)|hsla\([^)]+\)|oklch\([^)]+\)|oklab\([^)]+\))$/
 const LENGTH_RE = /^[\d.]+(px|rem|em|%|vh|vw)$/
-const IMAGE_URL_RE = /^(https?:\/\/[^\s]+|\/[^\s]*)$/
+// Image src: same denylist approach as linkList — block schemes the
+// browser would treat as script execution, accept everything else
+// (relative paths, http(s), data:image/... for inline base64). Image
+// elements never execute javascript: URLs even if we let them through,
+// but rejecting them up front keeps the stored values clean.
+const DANGEROUS_IMAGE_URL_RE = /^\s*(javascript|vbscript):/i
 
 /**
  * Reject malformed or potentially-injectable values before they reach
@@ -240,7 +245,7 @@ export function validateThemeValue(field: ThemeField, raw: unknown): string | nu
     case 'length':
       return LENGTH_RE.test(v) ? v : null
     case 'image':
-      return IMAGE_URL_RE.test(v) ? v : null
+      return DANGEROUS_IMAGE_URL_RE.test(v) ? null : v
     case 'select':
     case 'fontFamily':
       return field.options.some((o) => o.value === v) ? v : null

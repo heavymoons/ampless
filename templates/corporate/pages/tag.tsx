@@ -24,11 +24,9 @@ export default async function CorporateTag({ params }: ThemeRouteContext<{ tag: 
     <>
       <SiteHeader
         links={theme.values.headerNav}
-        brand={
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            {settings.site.name}
-          </Link>
-        }
+        logoUrl={theme.values.logoUrl}
+        siteName={settings.site.name}
+        brandClassName="text-lg font-semibold tracking-tight"
       />
 
       <main className="mx-auto max-w-4xl px-6 py-12">
