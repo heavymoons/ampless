@@ -52,6 +52,7 @@ Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユ�
 #### テーマ / 見た目カスタマイズ
 - [ ] `configSchema` ベースの軽カスタマイズ（primaryColor、フォント、ロゴ、sidebar 切替）
 - [ ] テーマ追加（ランディングページ、ポートフォリオ、ドキュメントサイト）
+- [ ] **`@ampless/theme-dads`** — デジタル庁デザインシステム準拠テーマ。`@digital-go-jp/tailwind-theme-plugin`（MIT、Tailwind v4 公式対応）と React sample components（MIT）を組み合わせて、レイアウト含めて DADS 仕様で配信できるテーマを公式提供。日本語・行政・公共向けサイトでの利用シナリオを意識
 - [ ] テーマ切り替え + iframe プレビュー（管理画面上）
 
 #### MCP / AI 連携の拡張
