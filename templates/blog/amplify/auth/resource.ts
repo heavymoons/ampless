@@ -1,11 +1,11 @@
 import { defineAuth } from '@aws-amplify/backend'
 import { postConfirmation } from './post-confirmation/resource.js'
 
-// `defineAuth` provisions a Cognito User Pool plus an Identity Pool. The
-// Identity Pool's unauthenticated (guest) role is what backs `allow.guest()`
-// on the data layer's custom queries (listPublishedPosts, getPublishedPost,
-// listPostsByTag) — that's how the public site reads posts without a
-// rotating AppSync API key. See amplify/data/resource.ts for the auth wiring.
+// `defineAuth` provisions a Cognito User Pool plus an Identity Pool.
+// Public reads from the blog use an AppSync API key, not the Identity
+// Pool guest role, because Amplify Gen 2 `a.handler.custom` resolvers
+// don't accept `allow.guest()` (only apiKey / userPool / lambda /
+// group / owner). See amplify/data/resource.ts and RUNBOOK.md.
 export const auth = defineAuth({
   loginWith: {
     email: true,

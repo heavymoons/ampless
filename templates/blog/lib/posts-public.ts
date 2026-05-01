@@ -3,8 +3,10 @@
 // hard-code the `status='published'` filter, so drafts are never exposed
 // even if a guest hits the AppSync API directly.
 //
-// authMode is 'identityPool' so reads use the Cognito Identity Pool
-// unauthenticated (guest) role. No rotating API key.
+// authMode is 'apiKey' because Amplify Gen 2 custom handlers
+// (`a.handler.custom`) don't support `allow.guest()` — only apiKey /
+// userPool / lambda / group / owner. We re-evaluated this in Phase 5;
+// see RUNBOOK.md for the API key rotation runbook.
 
 import { cookies } from 'next/headers'
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
@@ -15,7 +17,7 @@ import type { Schema } from '../amplify/data/resource'
 const client = generateServerClientUsingCookies<Schema>({
   config: outputs,
   cookies,
-  authMode: 'identityPool',
+  authMode: 'apiKey',
 })
 
 // Derive the wire shape of a PublicPost directly from the generated client
