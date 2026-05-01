@@ -76,3 +76,18 @@ body {
 * {
   border-color: var(--border);
 }
+
+/*
+  Tighten list spacing inside `.prose`. The Typography plugin's default
+  treats every <li> as roughly a paragraph's worth of vertical rhythm,
+  and tiptap wraps each list item in <p> — so we get double margins
+  and the list looks like loose paragraphs rather than a list.
+*/
+.prose :where(li):not(:where([class~='not-prose'] *)) {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+.prose :where(li > p):not(:where([class~='not-prose'] *)) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
