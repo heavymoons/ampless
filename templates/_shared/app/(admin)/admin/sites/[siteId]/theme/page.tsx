@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { siteFor, listSiteSettings, themeSettingKey, resolveThemeValues } from 'ampless'
+import { siteFor } from 'ampless'
 import cmsConfig from '@/cms.config'
 import themeManifest from '@/theme.manifest'
+import { loadThemeConfig } from '@/lib/theme-config'
 import { ThemeSettingsForm } from '@/components/admin/theme-settings-form'
 
 export const dynamic = 'force-dynamic'
@@ -10,21 +11,16 @@ interface Props {
   params: Promise<{ siteId: string }>
 }
 
-// Server-rendered: pulls every `theme.*` setting straight from KvStore
-// (bypasses the S3 cache so admin sees their own writes immediately).
-// The form renders fields off the manifest; storage keys are resolved
-// via `themeSettingKey` so the form and the loader stay in sync.
+// Server-rendered: pulls effective theme values from the S3 settings
+// cache (same pipeline the public site uses). KvStore reads happen on
+// the client only — the AppSync-backed provider lives in providers.tsx
+// — so server pages must always go through the cached JSON. Trade-off:
+// the admin sees their own write reflected after the cache rebuilds
+// (~60s); the form's `touched` state covers the in-session UI.
 export default async function ThemePage({ params }: Props) {
   const { siteId } = await params
   const site = siteFor(siteId, cmsConfig)
-  const allSettings = await listSiteSettings(siteId)
-
-  const stored: Record<string, unknown> = {}
-  for (const field of themeManifest.fields) {
-    const k = themeSettingKey(field.key)
-    if (k in allSettings) stored[k] = allSettings[k]
-  }
-  const initial = resolveThemeValues(themeManifest, stored)
+  const theme = await loadThemeConfig(siteId)
 
   return (
     <div className="p-8">
@@ -48,7 +44,7 @@ export default async function ThemePage({ params }: Props) {
       <ThemeSettingsForm
         siteId={siteId}
         manifest={themeManifest}
-        initial={initial}
+        initial={theme.values}
       />
     </div>
   )
