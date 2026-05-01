@@ -2,13 +2,35 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signIn, signUp, confirmSignUp } from 'aws-amplify/auth'
+import {
+  signIn,
+  signUp,
+  confirmSignUp,
+  resetPassword,
+  confirmResetPassword,
+} from 'aws-amplify/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
-type Mode = 'signIn' | 'signUp' | 'confirm'
+type Mode = 'signIn' | 'signUp' | 'confirm' | 'forgot' | 'reset'
+
+const TITLES: Record<Mode, string> = {
+  signIn: 'Sign in',
+  signUp: 'Create admin account',
+  confirm: 'Confirm email',
+  forgot: 'Reset password',
+  reset: 'Set new password',
+}
+
+const DESCRIPTIONS: Record<Mode, string> = {
+  signIn: 'Sign in to manage your site.',
+  signUp: 'The first user becomes the site admin.',
+  confirm: 'Enter the verification code sent to your email.',
+  forgot: 'We\'ll email you a verification code.',
+  reset: 'Enter the code from your email and a new password.',
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,11 +39,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  function go(next: Mode) {
+    setMode(next)
+    setError(null)
+    setInfo(null)
+    setCode('')
+    if (next === 'signIn' || next === 'signUp' || next === 'forgot') setPassword('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setInfo(null)
     setLoading(true)
 
     try {
@@ -39,13 +71,31 @@ export default function LoginPage() {
           password,
           options: { userAttributes: { email } },
         })
-        setMode('confirm')
-      } else {
+        go('confirm')
+      } else if (mode === 'confirm') {
         await confirmSignUp({ username: email, confirmationCode: code })
         const result = await signIn({ username: email, password })
         if (result.isSignedIn) {
           router.push('/admin')
           router.refresh()
+        }
+      } else if (mode === 'forgot') {
+        await resetPassword({ username: email })
+        setMode('reset')
+        setInfo('Verification code sent. Check your email.')
+      } else if (mode === 'reset') {
+        await confirmResetPassword({
+          username: email,
+          confirmationCode: code,
+          newPassword: password,
+        })
+        const result = await signIn({ username: email, password })
+        if (result.isSignedIn) {
+          router.push('/admin')
+          router.refresh()
+        } else {
+          setMode('signIn')
+          setInfo('Password updated. Please sign in.')
         }
       }
     } catch (err) {
@@ -55,57 +105,34 @@ export default function LoginPage() {
     }
   }
 
+  const showEmail = mode !== 'confirm' && mode !== 'reset'
+  const showPassword = mode === 'signIn' || mode === 'signUp' || mode === 'reset'
+  const showCode = mode === 'confirm' || mode === 'reset'
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>
-            {mode === 'signIn' ? 'Sign in' : mode === 'signUp' ? 'Create admin account' : 'Confirm email'}
-          </CardTitle>
-          <CardDescription>
-            {mode === 'signIn'
-              ? 'Sign in to manage your site.'
-              : mode === 'signUp'
-                ? 'The first user becomes the site admin.'
-                : 'Enter the verification code sent to your email.'}
-          </CardDescription>
+          <CardTitle>{TITLES[mode]}</CardTitle>
+          <CardDescription>{DESCRIPTIONS[mode]}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode !== 'confirm' && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'}
-                  />
-                  {mode === 'signUp' && (
-                    <p className="text-xs text-muted-foreground">
-                      Min 8 chars, with upper, lower, number, and symbol.
-                    </p>
-                  )}
-                </div>
-              </>
+            {showEmail && (
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                />
+              </div>
             )}
 
-            {mode === 'confirm' && (
+            {showCode && (
               <div className="space-y-2">
                 <Label htmlFor="code">Verification code</Label>
                 <Input
@@ -118,34 +145,93 @@ export default function LoginPage() {
               </div>
             )}
 
+            {showPassword && (
+              <div className="space-y-2">
+                <Label htmlFor="password">
+                  {mode === 'reset' ? 'New password' : 'Password'}
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={
+                    mode === 'signIn' ? 'current-password' : 'new-password'
+                  }
+                />
+                {(mode === 'signUp' || mode === 'reset') && (
+                  <p className="text-xs text-muted-foreground">
+                    Min 8 chars, with upper, lower, number, and symbol.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {info && <p className="text-sm text-muted-foreground">{info}</p>}
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Working...' : mode === 'signIn' ? 'Sign in' : mode === 'signUp' ? 'Sign up' : 'Confirm'}
+              {loading
+                ? 'Working...'
+                : mode === 'signIn'
+                  ? 'Sign in'
+                  : mode === 'signUp'
+                    ? 'Sign up'
+                    : mode === 'confirm'
+                      ? 'Confirm'
+                      : mode === 'forgot'
+                        ? 'Send code'
+                        : 'Update password'}
             </Button>
 
-            {mode === 'signIn' && (
-              <p className="text-center text-sm">
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={() => setMode('signUp')}
-                >
-                  Create admin account
-                </button>
-              </p>
-            )}
-            {mode === 'signUp' && (
-              <p className="text-center text-sm">
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={() => setMode('signIn')}
-                >
-                  Already have an account? Sign in
-                </button>
-              </p>
-            )}
+            <div className="space-y-1 text-center text-sm">
+              {mode === 'signIn' && (
+                <>
+                  <p>
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => go('forgot')}
+                    >
+                      Forgot password?
+                    </button>
+                  </p>
+                  <p>
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => go('signUp')}
+                    >
+                      Create admin account
+                    </button>
+                  </p>
+                </>
+              )}
+              {(mode === 'signUp' || mode === 'forgot' || mode === 'reset') && (
+                <p>
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    onClick={() => go('signIn')}
+                  >
+                    Back to sign in
+                  </button>
+                </p>
+              )}
+              {mode === 'reset' && (
+                <p>
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    onClick={() => go('forgot')}
+                  >
+                    Resend code
+                  </button>
+                </p>
+              )}
+            </div>
           </form>
         </CardContent>
       </Card>
