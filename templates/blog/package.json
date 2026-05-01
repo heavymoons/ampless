@@ -22,6 +22,7 @@
     "@tiptap/starter-kit": "^2.10.4",
     "@ampless/plugin-rss": "^0.0.1",
     "@ampless/plugin-seo": "^0.0.1",
+    "@ampless/plugin-webhook": "^0.0.1",
     "ampless": "^0.0.1",
     "aws-amplify": "^6.10.0",
     "class-variance-authority": "^0.7.1",

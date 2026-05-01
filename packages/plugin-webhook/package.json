@@ -1,0 +1,24 @@
+{
+  "name": "@ampless/plugin-webhook",
+  "version": "0.0.1",
+  "description": "Webhook plugin for ampless — POST events to external URLs",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": ["ampless", "plugin", "webhook"]
+}

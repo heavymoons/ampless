@@ -1,6 +1,7 @@
 import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
+// import webhookPlugin from '@ampless/plugin-webhook'
 
 export default defineConfig({
   site: {
@@ -52,5 +53,14 @@ export default defineConfig({
       limit: 20,
       // language: 'ja',
     }),
+    // webhookPlugin({
+    //   endpoints: [
+    //     {
+    //       url: 'https://example.com/webhook',
+    //       secret: process.env.WEBHOOK_SECRET,
+    //       events: ['content.published', 'content.unpublished', 'content.deleted'],
+    //     },
+    //   ],
+    // }),
   ],
 })

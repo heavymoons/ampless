@@ -43,6 +43,7 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
           options: [
             { value: 'seo', label: 'SEO — meta tags, OGP, sitemap', hint: 'recommended' },
             { value: 'rss', label: 'RSS — /feed.xml' },
+            { value: 'webhook', label: 'Webhook — POST events to external URLs' },
           ],
           initialValues: ['seo'],
           required: false,
