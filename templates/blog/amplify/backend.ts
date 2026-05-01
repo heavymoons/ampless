@@ -1,10 +1,12 @@
 import { defineBackend } from '@aws-amplify/backend'
 import { Effect, PolicyStatement, AnyPrincipal } from 'aws-cdk-lib/aws-iam'
 import type { CfnBucket } from 'aws-cdk-lib/aws-s3'
-import { Duration } from 'aws-cdk-lib'
+import { Duration, Stack } from 'aws-cdk-lib'
 import { Queue } from 'aws-cdk-lib/aws-sqs'
 import { StartingPosition } from 'aws-cdk-lib/aws-lambda'
 import { DynamoEventSource, SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources'
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events'
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets'
 
 import { auth } from './auth/resource.js'
 import { data } from './data/resource.js'
@@ -13,6 +15,7 @@ import { postConfirmation } from './auth/post-confirmation/resource.js'
 import { eventDispatcher } from './events/dispatcher/resource.js'
 import { processorTrusted } from './events/processor-trusted/resource.js'
 import { processorUntrusted } from './events/processor-untrusted/resource.js'
+import { apiKeyRenewer } from './functions/api-key-renewer/resource.js'
 
 const backend = defineBackend({
   auth,
@@ -22,6 +25,7 @@ const backend = defineBackend({
   eventDispatcher,
   processorTrusted,
   processorUntrusted,
+  apiKeyRenewer,
 })
 
 // --- Storage: make `public/*` directly fetchable from the browser ---
@@ -141,3 +145,36 @@ trustedFn.addEnvironment('AMPLESS_POST_TABLE', postTable.tableName)
 // 6. Untrusted processor: SQS only, zero AWS data permissions.
 const untrustedFn = backend.processorUntrusted.resources.lambda
 untrustedFn.addEventSource(new SqsEventSource(untrustedQueue, { batchSize: 5 }))
+
+// --- AppSync API key auto-renewal ---
+//
+// The public read path (listPublishedPosts / getPublishedPost / listPostsByTag)
+// authenticates with an AppSync API key because `a.handler.custom` doesn't
+// support `allow.guest()` in Amplify Gen 2 (verified 2026-04). The key has a
+// 365-day TTL and the public site silently 401s the moment it expires.
+//
+// To eliminate the rotation runbook, a monthly EventBridge rule pings a Lambda
+// that calls UpdateApiKey to push `expires` back to "now + 364 days". The key
+// id stays the same — amplify_outputs.json values remain valid, no rebuild
+// of the Next.js app required.
+const graphqlApi = backend.data.resources.cfnResources.cfnGraphqlApi
+const apiKeyRenewerFn = backend.apiKeyRenewer.resources.lambda
+
+apiKeyRenewerFn.addEnvironment('APPSYNC_API_ID', graphqlApi.attrApiId)
+apiKeyRenewerFn.addToRolePolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ['appsync:ListApiKeys', 'appsync:UpdateApiKey'],
+    // attrArn is `arn:aws:appsync:{region}:{account}:apis/{apiId}`; the API
+    // key resources live underneath, so a wildcard suffix covers them.
+    resources: [graphqlApi.attrArn, `${graphqlApi.attrArn}/*`],
+  })
+)
+
+// Schedule: run on the 1st of every month at 03:00 UTC. Cadence isn't
+// load-bearing; even quarterly would keep ≥ ~275 days of headroom. Monthly
+// just gives wide margin on missed invocations.
+new Rule(Stack.of(apiKeyRenewerFn), 'ApiKeyRenewerSchedule', {
+  schedule: Schedule.cron({ minute: '0', hour: '3', day: '1', month: '*', year: '*' }),
+  targets: [new LambdaFunction(apiKeyRenewerFn)],
+})

@@ -2,58 +2,59 @@
 
 Operational tasks for an ampless-powered site.
 
-## AppSync API key rotation
+## AppSync API key (auto-renewed)
 
 Public blog reads (`listPublishedPosts`, `getPublishedPost`,
-`listPostsByTag`) are gated by an AppSync API key with a 365-day TTL.
-The key lives in `amplify_outputs.json` and is therefore **visible to
-anyone visiting the public site**. Treat it as a low-trust credential —
-its only privilege is calling the three custom queries, which themselves
-only return rows where `status === 'published'`.
+`listPostsByTag`) are gated by an AppSync API key. The key lives in
+`amplify_outputs.json` and is therefore **visible to anyone visiting
+the public site** — treat it as a low-trust credential. Its only
+privilege is calling the three custom queries, which themselves only
+return rows where `status === 'published'`.
 
 ### Why an API key (and not the Identity Pool guest role)?
 
 Amplify Gen 2 `a.handler.custom` resolvers don't support `allow.guest()`
 or `allow.authenticated('identityPool')` — only apiKey / userPool /
-lambda / group / owner. Until that changes, the public read path needs
-to be either an API key or a custom Lambda function data source. v0.1
-chose the API key for simplicity; switching to a Lambda data source is
-a v0.2 candidate when the operational cost of rotation outweighs the
-runtime cost of cold starts.
+lambda / group / owner. v0.1 chose API key for simplicity; switching
+the public reads to a Lambda function data source (`a.handler.function`)
+is a v0.2 candidate.
 
-### When to rotate
+### Auto-renewal — no rotation runbook required
 
-- **Routine**: at least 30 days before the key's `expiresInDays`
-  deadline (configured in `amplify/data/resource.ts`). AppSync hard-
-  rejects requests after expiry — missing the rotation = public site
-  goes down.
-- **Suspected leak**: immediately. (Note: rate-limit your AppSync API in
-  CloudFront / WAF if you depend on this for cost control.)
+The `api-key-renewer` Lambda (see `amplify/functions/api-key-renewer/`)
+is invoked by an EventBridge schedule on the 1st of every month at
+03:00 UTC. It calls `AppSync.UpdateApiKey` to push `expires` to
+"now + 364 days" on the existing key, so:
 
-### How to rotate
+- the key id never changes,
+- `amplify_outputs.json` stays valid,
+- the Next.js app does not need to be rebuilt,
+- at any moment, the key has at least ~334 days of remaining validity.
 
-1. Bump the version of `amplify/data/resource.ts` (any change forces
-   redeploy). For a no-op nudge, edit a comment and save.
-2. Run a fresh deployment so Amplify regenerates the key:
-   ```bash
-   npx ampx sandbox        # local development
-   npx ampx pipeline-deploy --branch <branch> --app-id <app-id>
-   ```
-3. Confirm the new key is in `amplify_outputs.json` (`data.api_key`) and
-   redeploy the Next.js app so SSR picks up the new key.
+If you want to inspect or trigger it manually:
 
-### Reset the schedule
+```bash
+# verify current expiry
+aws appsync list-api-keys \
+  --region <region-from-amplify_outputs.json:data.aws_region> \
+  --api-id <api-id-derived-from-amplify_outputs.json:data.url>
 
-If you want a different TTL, edit `amplify/data/resource.ts`:
-
-```ts
-authorizationModes: {
-  defaultAuthorizationMode: 'userPool',
-  apiKeyAuthorizationMode: { expiresInDays: 365 }, // 7–365
-},
+# manual run (e.g. after a long sandbox pause)
+aws lambda invoke \
+  --function-name $(aws lambda list-functions \
+    --query "Functions[?contains(FunctionName,'api-key-renewer')].FunctionName | [0]" \
+    --output text) \
+  /tmp/out.json && cat /tmp/out.json
 ```
 
-Lower TTLs reduce blast radius on leak but require more frequent rotation.
+### If a key is suspected leaked
+
+Immediate response is to rotate the key value (not just push expiry):
+
+1. In `amplify/data/resource.ts`, edit a comment to force a CFN update
+2. Run `npx ampx sandbox` (sandbox) or `npx ampx pipeline-deploy ...`
+   (production) — Amplify regenerates the key value
+3. Re-deploy the Next.js app so SSR picks up the new `data.api_key`
 
 ## Common operations
 
