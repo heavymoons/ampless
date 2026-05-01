@@ -66,6 +66,7 @@
       "body": "本文",
       "format": "フォーマット",
       "formatHint": "Tiptap はリッチエディタ。Markdown / HTML はプレーンテキストエリア。ヒント: スラッグの末尾が .html (例: promo.html) の場合、テーマchrome無しで本文 HTML を直接返します。",
+      "insertMedia": "メディアを挿入",
       "tags": "タグ",
       "tagsPlaceholder": "カンマ, 区切り, タグ",
       "tagsHint": "タグページで記事をグルーピング (例: /tag/tech)。",

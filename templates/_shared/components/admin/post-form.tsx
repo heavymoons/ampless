@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Image as ImageIcon } from 'lucide-react'
 import {
   createPost,
   updatePost,
@@ -15,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { TiptapEditor } from '@/components/editor/tiptap-editor'
+import { MediaPicker } from '@/components/admin/media-picker'
 import { useT } from '@/components/i18n-provider'
 
 interface PostFormProps {
@@ -22,6 +24,25 @@ interface PostFormProps {
 }
 
 const EMPTY_TIPTAP_DOC = { type: 'doc', content: [{ type: 'paragraph' }] }
+
+const IMAGE_URL_RE = /\.(jpe?g|png|gif|webp|avif|svg|bmp|tiff?)(\?|$)/i
+const STYLESHEET_URL_RE = /\.css(\?|$)/i
+const SCRIPT_URL_RE = /\.m?js(\?|$)/i
+
+// Build the snippet to insert into a textarea body for the chosen
+// format. The MediaPicker hands us a URL only, so we infer the asset
+// type from the URL extension.
+function snippetFor(url: string, format: ContentFormat): string {
+  const isImage = IMAGE_URL_RE.test(url)
+  if (format === 'markdown') {
+    return isImage ? `![](${url})` : url
+  }
+  // html
+  if (isImage) return `<img src="${url}" alt="" />`
+  if (STYLESHEET_URL_RE.test(url)) return `<link rel="stylesheet" href="${url}" />`
+  if (SCRIPT_URL_RE.test(url)) return `<script src="${url}"></script>`
+  return url
+}
 
 function slugify(s: string): string {
   return s
@@ -44,6 +65,7 @@ export function PostForm({ post }: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [title, setTitle] = useState(post?.title ?? '')
   const [slug, setSlug] = useState(post?.slug ?? '')
@@ -64,6 +86,31 @@ export function PostForm({ post }: PostFormProps) {
           .filter(Boolean)
       )
     )
+  }
+
+  function insertMediaSnippet(url: string) {
+    if (format === 'tiptap') return // tiptap handles images via its own MediaPicker
+    const snippet = snippetFor(url, format)
+    const ta = bodyTextareaRef.current
+    const current = typeof body === 'string' ? body : ''
+    if (!ta) {
+      // No DOM ref yet — append to end as fallback.
+      setBody(current + snippet)
+      return
+    }
+    const start = ta.selectionStart ?? current.length
+    const end = ta.selectionEnd ?? current.length
+    const next = current.slice(0, start) + snippet + current.slice(end)
+    setBody(next)
+    // After React re-renders the textarea with the new value, restore
+    // focus and place the cursor right after the inserted snippet.
+    requestAnimationFrame(() => {
+      const t2 = bodyTextareaRef.current
+      if (!t2) return
+      t2.focus()
+      const pos = start + snippet.length
+      t2.setSelectionRange(pos, pos)
+    })
   }
 
   function changeFormat(next: ContentFormat) {
@@ -190,11 +237,29 @@ export function PostForm({ post }: PostFormProps) {
       </div>
 
       <div className="space-y-2">
-        <Label>{t('posts.form.body')}</Label>
+        <div className="flex items-center justify-between">
+          <Label>{t('posts.form.body')}</Label>
+          {format !== 'tiptap' && (
+            // For textarea-based formats (markdown / html) there's no
+            // embedded toolbar, so we surface the MediaPicker as a
+            // standalone button. Selecting an asset inserts a
+            // format-aware snippet at the cursor.
+            <MediaPicker
+              onSelect={insertMediaSnippet}
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  <ImageIcon className="mr-2 h-3 w-3" />
+                  {t('posts.form.insertMedia')}
+                </Button>
+              }
+            />
+          )}
+        </div>
         {format === 'tiptap' ? (
           <TiptapEditor initialContent={body} onChange={setBody} />
         ) : (
           <Textarea
+            ref={bodyTextareaRef}
             rows={20}
             value={typeof body === 'string' ? body : ''}
             onChange={(e) => setBody(e.target.value)}

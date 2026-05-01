@@ -254,10 +254,21 @@ export function ImageUploadDialog({
             </ReactCrop>
           </div>
         )}
-        {previewUrl && !showCropper && (
+        {previewUrl && !showCropper && isImage && (
           <div className="flex h-48 items-center justify-center rounded-md bg-muted">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={previewUrl} alt="preview" className="max-h-full max-w-full object-contain" />
+          </div>
+        )}
+        {!isImage && (
+          // Non-image upload: skip the broken-img preview. Show the
+          // file's name / size / mime so the admin can confirm before
+          // committing the bytes to S3.
+          <div className="flex h-32 flex-col items-center justify-center gap-1 rounded-md bg-muted text-sm text-muted-foreground">
+            <span className="font-medium">{file.name}</span>
+            <span className="font-mono text-xs">
+              {formatBytes(file.size)} · {file.type || 'unknown'}
+            </span>
           </div>
         )}
 
