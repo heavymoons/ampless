@@ -10,7 +10,7 @@ const DIST_TEMPLATES_ROOT = resolve(__dirname, 'dist', 'templates')
 // tokens.css). Add a new entry here when introducing a new theme so
 // the published tarball includes it; the CLI prompt also needs the
 // theme listed in `prompts.ts`.
-const THEMES = ['blog', 'minimal']
+const THEMES = ['blog', 'minimal', 'landing', 'corporate', 'docs']
 
 // Shared base copied first during scaffold. Always bundled.
 const SHARED = '_shared'

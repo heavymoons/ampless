@@ -18,6 +18,21 @@ export type ThemeFieldType =
   | 'image'
   | 'length'
   | 'fontFamily'
+  | 'linkList'
+
+/**
+ * Single entry in a `linkList` field. Stored as part of a JSON array
+ * under the field's storage key. `url` may be:
+ *  - a relative path (`/about`)
+ *  - an absolute URL (`https://example.com`)
+ *  - a tag reference (`tag:guide`) — themes interpret this as
+ *    "expand to a list of posts with this tag" rather than rendering
+ *    a literal link.
+ */
+export interface LinkListItem {
+  label: string
+  url: string
+}
 
 /**
  * A user-facing string in a manifest. Either a plain string (rendered
@@ -77,6 +92,22 @@ export interface ThemeFontFamilyField extends ThemeFieldBase {
   options: ReadonlyArray<{ value: string; label: LocalizedString }>
 }
 
+/**
+ * A repeatable list of {label, url} entries — used for nav menus,
+ * footer link sets, sidebar groups, etc. Stored in KvStore as a JSON
+ * string so it fits the existing `string`-valued site-settings cache.
+ *
+ * `default` is declared as a plain array for ergonomics; the loader
+ * stringifies it on the fly so manifest authors don't have to call
+ * JSON.stringify by hand.
+ */
+export interface ThemeLinkListField extends Omit<ThemeFieldBase, 'default' | 'cssVar'> {
+  type: 'linkList'
+  default: ReadonlyArray<LinkListItem>
+  /** Cap admin-supplied list length. Default 50. */
+  maxItems?: number
+}
+
 export type ThemeField =
   | ThemeColorField
   | ThemeTextField
@@ -84,6 +115,7 @@ export type ThemeField =
   | ThemeImageField
   | ThemeLengthField
   | ThemeFontFamilyField
+  | ThemeLinkListField
 
 export interface ThemeManifest {
   /** Theme directory name (`themes/<name>/`). */
@@ -198,6 +230,7 @@ const IMAGE_URL_RE = /^(https?:\/\/[^\s]+|\/[^\s]*)$/
  * Returns the normalized value, or null if the input is rejected.
  */
 export function validateThemeValue(field: ThemeField, raw: unknown): string | null {
+  if (field.type === 'linkList') return validateLinkListValue(field, raw)
   if (typeof raw !== 'string') return null
   const v = raw.trim()
   if (!v) return null
@@ -221,6 +254,71 @@ export function validateThemeValue(field: ThemeField, raw: unknown): string | nu
   }
 }
 
+const URL_RE =
+  /^(https?:\/\/[^\s]+|\/[^\s]*|tag:[^\s]+|mailto:[^\s]+|tel:[^\s]+|#[^\s]*)$/
+
+function validateLinkListValue(field: ThemeLinkListField, raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return JSON.stringify([])
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parsed)) return null
+  const max = field.maxItems ?? 50
+  if (parsed.length > max) return null
+  const cleaned: LinkListItem[] = []
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as Record<string, unknown>
+    const label = typeof e.label === 'string' ? e.label.replace(/[\x00-\x1f<>]/g, '').trim().slice(0, 120) : ''
+    const url = typeof e.url === 'string' ? e.url.trim().slice(0, 500) : ''
+    if (!label || !url) continue
+    if (!URL_RE.test(url)) continue
+    cleaned.push({ label, url })
+  }
+  return JSON.stringify(cleaned)
+}
+
+/** Parse a stored linkList JSON value into typed items. Tolerant: bad
+ *  shapes resolve to []. Throwing here would cascade into rendering. */
+export function parseLinkList(raw: string | undefined | null): LinkListItem[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((e): e is LinkListItem =>
+        !!e &&
+        typeof e === 'object' &&
+        typeof (e as { label: unknown }).label === 'string' &&
+        typeof (e as { url: unknown }).url === 'string'
+      )
+      .map((e) => ({ label: e.label, url: e.url }))
+  } catch {
+    return []
+  }
+}
+
+export function stringifyLinkList(items: ReadonlyArray<LinkListItem>): string {
+  return JSON.stringify(items.map((i) => ({ label: i.label, url: i.url })))
+}
+
+/**
+ * Detect a `tag:<name>` URL form. Themes use this to render a list of
+ * posts under a heading instead of a literal link — useful for docs
+ * sidebars and category-style nav.
+ */
+export function isTagListUrl(url: string): { tag: string } | null {
+  const m = /^tag:(.+)$/.exec(url.trim())
+  if (!m) return null
+  const tag = m[1]!.trim()
+  return tag ? { tag } : null
+}
+
 /**
  * Resolve effective values for every manifest field, merging stored
  * overrides on top of defaults. `stored` is the flat settings map keyed
@@ -236,7 +334,18 @@ export function resolveThemeValues(
     const storeKey = themeSettingKey(field.key)
     const raw = stored[storeKey]
     const validated = raw !== undefined ? validateThemeValue(field, raw) : null
-    out[field.key] = validated ?? field.default
+    out[field.key] = validated ?? defaultValueAsString(field)
   }
   return out
+}
+
+/**
+ * Manifest field defaults are typed differently per field — most are
+ * plain strings (color, length, text, etc.), but `linkList` defaults
+ * are arrays for ergonomics. Normalize both to the storage form
+ * (always a string) so consumers see one shape.
+ */
+function defaultValueAsString(field: ThemeField): string {
+  if (field.type === 'linkList') return stringifyLinkList(field.default)
+  return field.default
 }

@@ -67,6 +67,9 @@ function collectCssVars(
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const field of fields) {
+    // linkList fields are JSON arrays consumed by template code, not
+    // CSS — they don't have a cssVar at all. Skip via type guard.
+    if (field.type === 'linkList') continue
     if (!field.cssVar) continue
     const v = values[field.key]
     if (v) out[field.cssVar] = v

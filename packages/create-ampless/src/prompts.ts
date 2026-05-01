@@ -42,8 +42,11 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
           options: [
             { value: 'blog', label: 'Blog — neutral monochrome (shadcn default)' },
             { value: 'minimal', label: 'Minimal — soft blue accent on warm neutral' },
+            { value: 'landing', label: 'Landing — hero-led marketing page' },
+            { value: 'corporate', label: 'Corporate — slate / navy company site' },
+            { value: 'docs', label: 'Docs — sidebar-led docs (tag-driven sections)' },
           ],
-          initialValues: ['blog', 'minimal'],
+          initialValues: ['blog'],
           required: true,
         }),
 

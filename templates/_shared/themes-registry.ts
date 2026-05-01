@@ -5,13 +5,23 @@
 // `theme.active` (per-site, in KvStore) picks which theme renders for
 // each request; everything listed here gets bundled so switching is
 // instant.
+//
+// This shared placeholder lists every default theme so the file
+// compiles inside _shared/. The scaffold rewrites it at install time
+// to import only the themes the user picked.
 
 import blog from '@/themes/blog'
 import minimal from '@/themes/minimal'
+import landing from '@/themes/landing'
+import corporate from '@/themes/corporate'
+import docs from '@/themes/docs'
 
 export const themes = {
   blog,
   minimal,
+  landing,
+  corporate,
+  docs,
 } as const
 
 export type ThemeName = keyof typeof themes

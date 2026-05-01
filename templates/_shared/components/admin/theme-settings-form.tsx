@@ -8,9 +8,12 @@ import {
   themeSettingKey,
   validateThemeValue,
   resolveLocalized,
+  parseLinkList,
+  stringifyLinkList,
   type ThemeManifest,
   type ThemeField,
   type LocalizedString,
+  type LinkListItem,
 } from 'ampless'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -378,7 +381,141 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
           />
         </div>
       )
+    case 'linkList':
+      return (
+        <LinkListField
+          field={field}
+          labelEl={labelEl}
+          description={description}
+          value={value}
+          onChange={onChange}
+        />
+      )
   }
+}
+
+interface LinkListFieldProps {
+  field: ThemeField & { type: 'linkList' }
+  labelEl: React.ReactNode
+  description: React.ReactNode
+  value: string
+  onChange: (v: string) => void
+}
+
+/**
+ * Repeatable rows of (label, url) pairs, plus add / remove / move-up /
+ * move-down buttons. Saves a JSON-stringified array on every edit, so
+ * the form's existing save() round trip stores it verbatim.
+ *
+ * URLs prefixed with `tag:<name>` are rendered with a hint that the
+ * theme will expand them into a post list — encourages discoverability
+ * of the docs-style sidebar pattern.
+ */
+function LinkListField({ field, labelEl, description, value, onChange }: LinkListFieldProps) {
+  const items: LinkListItem[] = parseLinkList(value)
+  const max = field.maxItems ?? 50
+
+  function commit(next: LinkListItem[]) {
+    onChange(stringifyLinkList(next))
+  }
+
+  function update(idx: number, patch: Partial<LinkListItem>) {
+    commit(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+  }
+
+  function add() {
+    if (items.length >= max) return
+    commit([...items, { label: '', url: '' }])
+  }
+
+  function remove(idx: number) {
+    commit(items.filter((_, i) => i !== idx))
+  }
+
+  function move(idx: number, delta: -1 | 1) {
+    const target = idx + delta
+    if (target < 0 || target >= items.length) return
+    const next = items.slice()
+    const [moved] = next.splice(idx, 1)
+    next.splice(target, 0, moved!)
+    commit(next)
+  }
+
+  return (
+    <div className="space-y-2">
+      {labelEl}
+      {description}
+      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+        {items.length === 0 && (
+          <p className="text-xs text-muted-foreground">No links yet.</p>
+        )}
+        {items.map((item, idx) => {
+          const isTagRef = /^tag:/.test(item.url.trim())
+          return (
+            <div key={idx} className="flex flex-wrap items-start gap-2">
+              <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                <Input
+                  value={item.label}
+                  placeholder="Label"
+                  onChange={(e) => update(idx, { label: e.target.value })}
+                />
+                <Input
+                  value={item.url}
+                  placeholder="/path or https://… or tag:name"
+                  onChange={(e) => update(idx, { url: e.target.value })}
+                  className={isTagRef ? 'font-mono text-xs' : undefined}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => move(idx, -1)}
+                  disabled={idx === 0}
+                  aria-label="Move up"
+                >
+                  ↑
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => move(idx, 1)}
+                  disabled={idx === items.length - 1}
+                  aria-label="Move down"
+                >
+                  ↓
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => remove(idx)}
+                  aria-label="Remove"
+                >
+                  ×
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={add}
+          disabled={items.length >= max}
+        >
+          + Add link
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Tip: use <code>tag:&lt;name&gt;</code> as a URL to render a list
+          of posts with that tag instead of a single link.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 interface ColorFieldProps {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { formatDate, parseLinkList, type ThemeRouteContext } from 'ampless'
+import { formatDate, type ThemeRouteContext } from 'ampless'
 import { renderBody } from '@/lib/posts'
 import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
@@ -22,7 +22,7 @@ export async function generatePostMetadata({ params }: PostCtx): Promise<Metadat
   return postMetadata(post, siteId)
 }
 
-export default async function BlogPost({ params }: PostCtx) {
+export default async function CorporatePost({ params }: PostCtx) {
   const { siteId, slug } = await params
   const [post, settings, theme] = await Promise.all([
     getPublishedPost(slug, { siteId }),
@@ -36,32 +36,34 @@ export default async function BlogPost({ params }: PostCtx) {
   const proseStyle: React.CSSProperties = {
     ['--ampless-img-max-width' as string]: maxWidth,
   }
-  const showHeader = parseLinkList(theme.values.headerNav).length > 0
-  const showFooter = parseLinkList(theme.values.footerLinks).length > 0
+  const footerLegend = theme.values.footerLegend?.trim()
 
   return (
     <>
-      {showHeader && (
-        <SiteHeader
-          links={theme.values.headerNav}
-          brand={
-            <Link href="/" className="hover:underline">
-              {settings.site.name}
-            </Link>
-          }
-        />
-      )}
+      <SiteHeader
+        links={theme.values.headerNav}
+        brand={
+          <Link href="/" className="text-lg font-semibold tracking-tight">
+            {settings.site.name}
+          </Link>
+        }
+      />
 
-      <main className="mx-auto max-w-2xl px-6 py-12">
-        <nav className="mb-8">
-          <Link href="/" className="text-sm text-gray-500 hover:underline">{t('public.back')}</Link>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        <nav className="mb-6">
+          <Link href="/" className="text-sm text-[var(--muted-foreground)] hover:text-[var(--primary)]">
+            {t('public.back')}
+          </Link>
         </nav>
 
         <article>
           <header className="mb-8 border-b pb-6">
-            <h1 className="text-4xl font-bold tracking-tight">{post.title}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{post.title}</h1>
             {post.publishedAt && (
-              <time dateTime={post.publishedAt} className="mt-2 block text-sm text-gray-500">
+              <time
+                dateTime={post.publishedAt}
+                className="mt-2 block font-mono text-xs text-[var(--muted-foreground)]"
+              >
                 {formatDate(post.publishedAt, settings.dateFormat, settings.timezone)}
               </time>
             )}
@@ -80,16 +82,17 @@ export default async function BlogPost({ params }: PostCtx) {
         <LightboxBinder scopeSelector="#post-body" defaultLightbox={defaultLightbox} />
       </main>
 
-      {showFooter && (
-        <SiteFooter
-          links={theme.values.footerLinks}
-          legend={
-            <span>
+      <SiteFooter
+        links={theme.values.footerLinks}
+        legend={
+          <div className="space-y-1">
+            {footerLegend && <p>{footerLegend}</p>}
+            <p>
               © {new Date().getFullYear()} {settings.site.name}
-            </span>
-          }
-        />
-      )}
+            </p>
+          </div>
+        }
+      />
     </>
   )
 }

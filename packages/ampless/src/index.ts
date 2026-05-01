@@ -76,6 +76,9 @@ export {
   validateThemeValue,
   resolveThemeValues,
   resolveLocalized,
+  parseLinkList,
+  stringifyLinkList,
+  isTagListUrl,
 } from './theme.js'
 export type {
   ThemeManifest,
@@ -87,9 +90,11 @@ export type {
   ThemeImageField,
   ThemeLengthField,
   ThemeFontFamilyField,
+  ThemeLinkListField,
   ThemeModule,
   ThemeRouteContext,
   LocalizedString,
+  LinkListItem,
 } from './theme.js'
 
 export const VERSION = '0.0.1'

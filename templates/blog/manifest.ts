@@ -93,5 +93,29 @@ export default defineTheme({
         },
       ],
     },
+    {
+      key: 'headerNav',
+      label: { en: 'Header navigation', ja: 'ヘッダーナビ' },
+      group: { en: 'Navigation', ja: 'ナビゲーション' },
+      type: 'linkList',
+      default: [],
+      maxItems: 8,
+      description: {
+        en: 'Optional. When empty, the header is omitted entirely.',
+        ja: '任意。空の場合はヘッダー自体が表示されません。',
+      },
+    },
+    {
+      key: 'footerLinks',
+      label: { en: 'Footer links', ja: 'フッターリンク' },
+      group: { en: 'Navigation', ja: 'ナビゲーション' },
+      type: 'linkList',
+      default: [],
+      maxItems: 12,
+      description: {
+        en: 'Optional. When empty and no copyright text exists, the footer is omitted.',
+        ja: '任意。空の場合はフッター自体が省略されます。',
+      },
+    },
   ],
 })
