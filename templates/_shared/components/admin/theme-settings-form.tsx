@@ -13,6 +13,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { invalidateSiteSettingsCache } from '@/lib/theme-actions'
+
+// How long to wait after a switch / save before forcing a hard reload
+// to pick up the rebuilt S3 cache. The trusted processor typically
+// finishes rebuilding `public/site-settings/{siteId}.json` within
+// 5-10 seconds of the KvStore write; this gives that pipeline some
+// slack before we re-fetch.
+const CACHE_REBUILD_DELAY_MS = 8000
 
 interface ThemeOption {
   value: string
@@ -46,6 +54,11 @@ export function ThemeSettingsForm({
   const router = useRouter()
   const [state, setState] = useState<ChangeState>({ values: initial, touched: {} })
   const [pendingTheme, setPendingTheme] = useState<string>(activeTheme)
+  // Local view of which theme is "active" — updated optimistically as
+  // soon as a switch saves, so the indicator reflects the user's
+  // action without waiting for the S3 cache rebuild + Next.js cache
+  // invalidation roundtrip.
+  const [optimisticActive, setOptimisticActive] = useState<string>(activeTheme)
   const [saving, setSaving] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,18 +72,36 @@ export function ThemeSettingsForm({
     }))
   }
 
+  // After a write the read path needs both (1) the S3 cache rebuild by
+  // the trusted processor and (2) the Next.js fetch cache invalidation
+  // for that tag. Without (2), every subsequent request would still
+  // serve the old JSON from the route's fetch cache (60s TTL). We delay
+  // the invalidation a few seconds so the rebuild has actually
+  // happened, then revalidate + refresh.
+  function scheduleRefresh() {
+    setTimeout(async () => {
+      try {
+        await invalidateSiteSettingsCache(siteId)
+        router.refresh()
+      } catch (err) {
+        console.warn('[theme] cache invalidation failed', err)
+      }
+    }, CACHE_REBUILD_DELAY_MS)
+  }
+
   async function switchTheme(e: React.FormEvent) {
     e.preventDefault()
-    if (pendingTheme === activeTheme) return
+    if (pendingTheme === optimisticActive) return
     setSwitching(true)
     setError(null)
     setInfo(null)
     try {
       await setSiteSetting(siteId, 'theme.active', pendingTheme)
+      setOptimisticActive(pendingTheme)
       setInfo(
-        `Switched to ${pendingTheme}. Reload after the cache refreshes (~1 min) to see the new manifest fields.`
+        `Switched to ${pendingTheme}. Public site refreshes within ~10 seconds (S3 cache rebuild).`
       )
-      router.refresh()
+      scheduleRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -122,11 +153,11 @@ export function ThemeSettingsForm({
     try {
       await Promise.all(writes)
       setInfo(
-        'Saved. The public site refreshes within ~1 minute (S3 cache + Next.js fetch cache).'
+        'Saved. Public site refreshes within ~10 seconds (S3 cache rebuild).'
       )
       // Clear touched flags so the next save round only writes new edits.
       setState((prev) => ({ values: prev.values, touched: {} }))
-      router.refresh()
+      scheduleRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -147,8 +178,8 @@ export function ThemeSettingsForm({
             Active theme
           </Label>
           <p className="text-xs text-muted-foreground">
-            Switching changes which theme renders this site. Each installed
-            theme exposes its own customization fields.
+            Currently active: <strong>{optimisticActive}</strong>
+            {optimisticActive !== activeTheme && ' (just switched — propagating)'}
           </p>
         </div>
         <select
@@ -170,8 +201,8 @@ export function ThemeSettingsForm({
         )}
         <Button
           type="submit"
-          disabled={switching || pendingTheme === activeTheme}
-          variant={pendingTheme === activeTheme ? 'outline' : 'default'}
+          disabled={switching || pendingTheme === optimisticActive}
+          variant={pendingTheme === optimisticActive ? 'outline' : 'default'}
         >
           {switching ? 'Switching...' : 'Switch theme'}
         </Button>
