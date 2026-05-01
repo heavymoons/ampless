@@ -4,6 +4,7 @@ import cmsConfig from '@/cms.config'
 import { themeList } from '@/themes-registry'
 import { loadThemeConfig } from '@/lib/theme-config'
 import { ThemeSettingsForm } from '@/components/admin/theme-settings-form'
+import { t } from '@/lib/i18n'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,10 +21,10 @@ export default async function ThemePage({ params }: Props) {
   const site = siteFor(siteId, cmsConfig)
   const theme = await loadThemeConfig(siteId)
 
-  const themeOptions = themeList.map((t) => ({
-    value: t.name,
-    label: t.manifest.label,
-    description: t.manifest.description,
+  const themeOptions = themeList.map((m) => ({
+    value: m.name,
+    label: m.manifest.label,
+    description: m.manifest.description,
   }))
 
   return (
@@ -35,9 +36,9 @@ export default async function ThemePage({ params }: Props) {
         >
           ← {site.name}
         </Link>
-        <h1 className="mt-2 text-3xl font-bold">Theme</h1>
+        <h1 className="mt-2 text-3xl font-bold">{t('theme.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          Active: <strong>{theme.manifest.label}</strong> ({theme.activeTheme})
+          {t('common.active')}: <strong>{theme.manifest.label}</strong> ({theme.activeTheme})
         </p>
       </div>
 

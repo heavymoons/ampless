@@ -98,6 +98,14 @@ export interface Config {
    */
   timezone?: string
   /**
+   * UI locale for the admin app. The scaffolded project ships
+   * `locales/<code>.json` dictionaries; defaults are `en` and `ja`.
+   * Add a new language by dropping `locales/<code>.json` in and
+   * updating the dictionary map in `lib/i18n.ts`. Per-site override is
+   * possible via the `locale` site setting.
+   */
+  locale?: string
+  /**
    * Multi-site configuration. When 2+ entries are declared, the runtime
    * switches to multi-site mode (host-based routing + Cache-Control:
    * private). When 0 or 1 entries, single-site mode is used.

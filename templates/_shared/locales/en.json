@@ -1,0 +1,173 @@
+{
+  "common": {
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "loading": "Loading...",
+    "default": "Default",
+    "remove": "Remove",
+    "create": "Create",
+    "yes": "Yes",
+    "no": "No",
+    "confirm": "Confirm",
+    "title": "Title",
+    "name": "Name",
+    "description": "Description",
+    "url": "URL",
+    "tags": "Tags",
+    "status": "Status",
+    "actions": "Actions",
+    "draft": "Draft",
+    "published": "Published",
+    "preview": "Preview",
+    "active": "Active",
+    "siteId": "siteId"
+  },
+  "sidebar": {
+    "brand": "ampless",
+    "dashboard": "Dashboard",
+    "posts": "Posts",
+    "media": "Media",
+    "sites": "Sites",
+    "viewSite": "View site",
+    "signOut": "Sign out"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome to ampless"
+  },
+  "posts": {
+    "list": {
+      "title": "Posts",
+      "newButton": "New post",
+      "empty": "No posts yet. Create your first one.",
+      "publishedAt": "Published",
+      "untitled": "(untitled)"
+    },
+    "form": {
+      "newTitle": "New post",
+      "editTitle": "Edit post",
+      "slug": "Slug",
+      "slugHint": "URL-safe identifier (lowercase, hyphens).",
+      "title": "Title",
+      "excerpt": "Excerpt",
+      "tags": "Tags",
+      "tagsHint": "Comma-separated.",
+      "format": "Format",
+      "body": "Body",
+      "publishedAt": "Publish date",
+      "saveDraft": "Save draft",
+      "saveAndPublish": "Save & publish",
+      "unpublish": "Unpublish",
+      "delete": "Delete post",
+      "deleteConfirm": "Delete this post? This can't be undone.",
+      "saved": "Saved.",
+      "deleted": "Deleted."
+    }
+  },
+  "media": {
+    "title": "Media",
+    "upload": "Upload",
+    "uploading": "Uploading...",
+    "empty": "No uploads yet.",
+    "size": "Size",
+    "type": "Type",
+    "uploadedAt": "Uploaded",
+    "deleteConfirm": "Delete this file?",
+    "copyUrl": "Copy URL"
+  },
+  "sites": {
+    "list": {
+      "title": "Sites",
+      "empty": "No sites configured. Edit cms.config.ts to add sites."
+    },
+    "edit": {
+      "siteId": "siteId",
+      "themeLink": "Theme settings →",
+      "site": "Site",
+      "media": "Media",
+      "imageDisplay": "Image display",
+      "imageMaxWidth": "Image max width (CSS)",
+      "dateDisplay": "Date display",
+      "dateFormat": "Format",
+      "timezone": "Timezone (IANA)",
+      "saved": "Saved. The public site refreshes within ~1 minute (S3 cache + Next.js fetch cache).",
+      "saveButton": "Save settings",
+      "imageDisplayInline": "Inline",
+      "imageDisplayLightbox": "Lightbox",
+      "dateFormatIso": "ISO (YYYY-MM-DD)",
+      "dateFormatLong": "Long (April 27, 2026)",
+      "dateFormatLocale": "Locale"
+    },
+    "selector": {
+      "label": "Site"
+    }
+  },
+  "theme": {
+    "title": "Theme",
+    "activeLabel": "Active theme",
+    "currentlyActive": "Currently active: {theme}",
+    "propagating": " (just switched — propagating)",
+    "switchButton": "Switch theme",
+    "switching": "Switching...",
+    "switched": "Switched to {theme}. Public site refreshes within ~10 seconds (S3 cache rebuild).",
+    "saveButton": "Save theme",
+    "saving": "Saving...",
+    "saved": "Saved. Public site refreshes within ~10 seconds (S3 cache rebuild).",
+    "invalidValues": "One or more values are invalid — fix highlighted fields and try again.",
+    "customizationHeading": "{theme} customization",
+    "customizationHint": "Empty input resets to the manifest default.",
+    "lengthHelp": "CSS length, e.g. 0.5rem, 4px.",
+    "imagePlaceholder": "https://… or /media/…"
+  },
+  "auth": {
+    "common": {
+      "email": "Email",
+      "password": "Password",
+      "newPassword": "New password",
+      "code": "Verification code",
+      "passwordHint": "Min 8 chars, with upper, lower, number, and symbol.",
+      "working": "Working..."
+    },
+    "signIn": {
+      "title": "Sign in",
+      "description": "Sign in to manage your site.",
+      "submit": "Sign in",
+      "forgotPassword": "Forgot password?",
+      "createAccount": "Create admin account"
+    },
+    "signUp": {
+      "title": "Create admin account",
+      "description": "The first user becomes the site admin.",
+      "submit": "Sign up",
+      "backToSignIn": "Back to sign in"
+    },
+    "confirm": {
+      "title": "Confirm email",
+      "description": "Enter the verification code sent to your email.",
+      "submit": "Confirm"
+    },
+    "forgot": {
+      "title": "Reset password",
+      "description": "We'll email you a verification code.",
+      "submit": "Send code",
+      "codeSent": "Verification code sent. Check your email."
+    },
+    "reset": {
+      "title": "Set new password",
+      "description": "Enter the code from your email and a new password.",
+      "submit": "Update password",
+      "resendCode": "Resend code",
+      "passwordUpdated": "Password updated. Please sign in."
+    },
+    "additionalStep": "Sign-in needs additional step: {step}",
+    "errors": {
+      "invalidCredentials": "Invalid email or password.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "userExists": "An account with this email already exists."
+    }
+  }
+}

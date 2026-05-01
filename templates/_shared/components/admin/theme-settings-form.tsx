@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { invalidateSiteSettingsCache } from '@/lib/theme-actions'
+import { useT } from '@/components/i18n-provider'
 
 // How long to wait after a switch / save before forcing a hard reload
 // to pick up the rebuilt S3 cache. The trusted processor typically
@@ -52,6 +53,7 @@ export function ThemeSettingsForm({
   initial,
 }: Props) {
   const router = useRouter()
+  const t = useT()
   const [state, setState] = useState<ChangeState>({ values: initial, touched: {} })
   const [pendingTheme, setPendingTheme] = useState<string>(activeTheme)
   // Local view of which theme is "active" — updated optimistically as
@@ -98,9 +100,7 @@ export function ThemeSettingsForm({
     try {
       await setSiteSetting(siteId, 'theme.active', pendingTheme)
       setOptimisticActive(pendingTheme)
-      setInfo(
-        `Switched to ${pendingTheme}. Public site refreshes within ~10 seconds (S3 cache rebuild).`
-      )
+      setInfo(t('theme.switched', { theme: pendingTheme }))
       scheduleRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -146,15 +146,13 @@ export function ThemeSettingsForm({
     if (Object.keys(newInvalid).length > 0) {
       setInvalid(newInvalid)
       setSaving(false)
-      setError('One or more values are invalid — fix highlighted fields and try again.')
+      setError(t('theme.invalidValues'))
       return
     }
 
     try {
       await Promise.all(writes)
-      setInfo(
-        'Saved. Public site refreshes within ~10 seconds (S3 cache rebuild).'
-      )
+      setInfo(t('theme.saved'))
       // Clear touched flags so the next save round only writes new edits.
       setState((prev) => ({ values: prev.values, touched: {} }))
       scheduleRefresh()
@@ -175,11 +173,11 @@ export function ThemeSettingsForm({
       <form onSubmit={switchTheme} className="space-y-3 rounded-md border p-4">
         <div className="space-y-1">
           <Label htmlFor="active-theme" className="text-sm font-medium">
-            Active theme
+            {t('theme.activeLabel')}
           </Label>
           <p className="text-xs text-muted-foreground">
-            Currently active: <strong>{optimisticActive}</strong>
-            {optimisticActive !== activeTheme && ' (just switched — propagating)'}
+            {t('theme.currentlyActive', { theme: optimisticActive })}
+            {optimisticActive !== activeTheme && t('theme.propagating')}
           </p>
         </div>
         <select
@@ -204,7 +202,7 @@ export function ThemeSettingsForm({
           disabled={switching || pendingTheme === optimisticActive}
           variant={pendingTheme === optimisticActive ? 'outline' : 'default'}
         >
-          {switching ? 'Switching...' : 'Switch theme'}
+          {switching ? t('theme.switching') : t('theme.switchButton')}
         </Button>
       </form>
 
@@ -216,7 +214,7 @@ export function ThemeSettingsForm({
             <p className="text-sm text-muted-foreground">{manifest.description}</p>
           )}
           <p className="mt-1 text-xs text-muted-foreground">
-            Empty input resets to the manifest default.
+            {t('theme.customizationHint')}
           </p>
         </div>
 
@@ -241,7 +239,7 @@ export function ThemeSettingsForm({
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" disabled={saving}>
-          {saving ? 'Saving...' : 'Save theme'}
+          {saving ? t('theme.saving') : t('theme.saveButton')}
         </Button>
       </form>
     </div>
@@ -269,7 +267,11 @@ interface FieldRowProps {
 }
 
 function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
+  const t = useT()
   const id = `theme-${field.key}`
+  // Field labels and descriptions come from the theme manifest, which
+  // is theme-author content rather than admin chrome — left unlocalized
+  // here. Theme authors control whether they ship localized labels.
   const labelEl = (
     <Label htmlFor={id} className={invalid ? 'text-destructive' : undefined}>
       {field.label}
@@ -296,9 +298,7 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
             aria-invalid={invalid}
             className="font-mono text-xs"
           />
-          <p className="text-xs text-muted-foreground">
-            CSS length, e.g. <code>0.5rem</code>, <code>4px</code>.
-          </p>
+          <p className="text-xs text-muted-foreground">{t('theme.lengthHelp')}</p>
         </div>
       )
     case 'select':
@@ -314,7 +314,7 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
             onChange={(e) => onChange(e.target.value)}
             aria-invalid={invalid}
           >
-            <option value="">Default</option>
+            <option value="">{t('common.default')}</option>
             {field.options.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -331,7 +331,7 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
           <Input
             id={id}
             value={value}
-            placeholder={field.default || 'https://… or /media/…'}
+            placeholder={field.default || t('theme.imagePlaceholder')}
             onChange={(e) => onChange(e.target.value)}
             aria-invalid={invalid}
           />

@@ -1,0 +1,173 @@
+{
+  "common": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "back": "戻る",
+    "loading": "読み込み中...",
+    "default": "デフォルト",
+    "remove": "削除",
+    "create": "作成",
+    "yes": "はい",
+    "no": "いいえ",
+    "confirm": "確認",
+    "title": "タイトル",
+    "name": "名前",
+    "description": "説明",
+    "url": "URL",
+    "tags": "タグ",
+    "status": "ステータス",
+    "actions": "操作",
+    "draft": "下書き",
+    "published": "公開済",
+    "preview": "プレビュー",
+    "active": "アクティブ",
+    "siteId": "サイトID"
+  },
+  "sidebar": {
+    "brand": "ampless",
+    "dashboard": "ダッシュボード",
+    "posts": "記事",
+    "media": "メディア",
+    "sites": "サイト",
+    "viewSite": "サイトを表示",
+    "signOut": "サインアウト"
+  },
+  "dashboard": {
+    "title": "ダッシュボード",
+    "welcome": "amplessへようこそ"
+  },
+  "posts": {
+    "list": {
+      "title": "記事一覧",
+      "newButton": "新規記事",
+      "empty": "記事がまだありません。最初の1件を作成してください。",
+      "publishedAt": "公開日",
+      "untitled": "(タイトル未設定)"
+    },
+    "form": {
+      "newTitle": "新規記事",
+      "editTitle": "記事を編集",
+      "slug": "スラッグ",
+      "slugHint": "URLに使う識別子(小文字、ハイフン)。",
+      "title": "タイトル",
+      "excerpt": "抜粋",
+      "tags": "タグ",
+      "tagsHint": "カンマ区切りで指定。",
+      "format": "フォーマット",
+      "body": "本文",
+      "publishedAt": "公開日時",
+      "saveDraft": "下書き保存",
+      "saveAndPublish": "保存して公開",
+      "unpublish": "非公開にする",
+      "delete": "記事を削除",
+      "deleteConfirm": "この記事を削除しますか?元に戻せません。",
+      "saved": "保存しました。",
+      "deleted": "削除しました。"
+    }
+  },
+  "media": {
+    "title": "メディア",
+    "upload": "アップロード",
+    "uploading": "アップロード中...",
+    "empty": "アップロード済みのファイルはありません。",
+    "size": "サイズ",
+    "type": "種類",
+    "uploadedAt": "アップロード日時",
+    "deleteConfirm": "このファイルを削除しますか?",
+    "copyUrl": "URLをコピー"
+  },
+  "sites": {
+    "list": {
+      "title": "サイト一覧",
+      "empty": "サイトが設定されていません。cms.config.tsを編集して追加してください。"
+    },
+    "edit": {
+      "siteId": "サイトID",
+      "themeLink": "テーマ設定 →",
+      "site": "サイト",
+      "media": "メディア",
+      "imageDisplay": "画像表示",
+      "imageMaxWidth": "画像の最大幅(CSS)",
+      "dateDisplay": "日付表示",
+      "dateFormat": "フォーマット",
+      "timezone": "タイムゾーン(IANA)",
+      "saved": "保存しました。公開サイトには約1分以内に反映されます(S3キャッシュ + Next.jsキャッシュ)。",
+      "saveButton": "設定を保存",
+      "imageDisplayInline": "インライン",
+      "imageDisplayLightbox": "ライトボックス",
+      "dateFormatIso": "ISO形式 (YYYY-MM-DD)",
+      "dateFormatLong": "長い形式 (2026年4月27日)",
+      "dateFormatLocale": "ロケール依存"
+    },
+    "selector": {
+      "label": "サイト"
+    }
+  },
+  "theme": {
+    "title": "テーマ",
+    "activeLabel": "アクティブテーマ",
+    "currentlyActive": "現在のアクティブテーマ: {theme}",
+    "propagating": " (切替中 — 反映待ち)",
+    "switchButton": "テーマを切り替え",
+    "switching": "切り替え中...",
+    "switched": "{theme}に切り替えました。公開サイトには約10秒以内に反映されます(S3キャッシュ再生成)。",
+    "saveButton": "テーマを保存",
+    "saving": "保存中...",
+    "saved": "保存しました。公開サイトには約10秒以内に反映されます(S3キャッシュ再生成)。",
+    "invalidValues": "不正な値が含まれています — ハイライトされたフィールドを修正して再度お試しください。",
+    "customizationHeading": "{theme}のカスタマイズ",
+    "customizationHint": "空欄にするとマニフェストのデフォルト値に戻ります。",
+    "lengthHelp": "CSSの長さ。例: 0.5rem, 4px。",
+    "imagePlaceholder": "https://… または /media/…"
+  },
+  "auth": {
+    "common": {
+      "email": "メールアドレス",
+      "password": "パスワード",
+      "newPassword": "新しいパスワード",
+      "code": "確認コード",
+      "passwordHint": "8文字以上。大文字、小文字、数字、記号を含めてください。",
+      "working": "処理中..."
+    },
+    "signIn": {
+      "title": "サインイン",
+      "description": "サインインしてサイトを管理します。",
+      "submit": "サインイン",
+      "forgotPassword": "パスワードをお忘れですか?",
+      "createAccount": "管理者アカウントを作成"
+    },
+    "signUp": {
+      "title": "管理者アカウントの作成",
+      "description": "最初のユーザーがサイト管理者になります。",
+      "submit": "アカウント作成",
+      "backToSignIn": "サインインに戻る"
+    },
+    "confirm": {
+      "title": "メールアドレスの確認",
+      "description": "メールに送信された確認コードを入力してください。",
+      "submit": "確認"
+    },
+    "forgot": {
+      "title": "パスワードリセット",
+      "description": "確認コードをメールで送信します。",
+      "submit": "コードを送信",
+      "codeSent": "確認コードを送信しました。メールをご確認ください。"
+    },
+    "reset": {
+      "title": "新しいパスワードを設定",
+      "description": "メールに送信された確認コードと新しいパスワードを入力してください。",
+      "submit": "パスワードを更新",
+      "resendCode": "コードを再送信",
+      "passwordUpdated": "パスワードを更新しました。サインインしてください。"
+    },
+    "additionalStep": "サインインに追加ステップが必要です: {step}",
+    "errors": {
+      "invalidCredentials": "メールアドレスまたはパスワードが正しくありません。",
+      "passwordTooShort": "パスワードは8文字以上必要です。",
+      "userExists": "このメールアドレスのアカウントは既に存在します。"
+    }
+  }
+}

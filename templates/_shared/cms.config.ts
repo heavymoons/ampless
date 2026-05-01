@@ -8,6 +8,9 @@ export default defineConfig({
     name: '{{siteName}}',
     url: 'http://localhost:3000',
   },
+  // Admin UI language. Built-in dictionaries: 'ja', 'en'. Add more by
+  // dropping `locales/<code>.json` and registering it in `lib/i18n.ts`.
+  locale: 'ja',
   media: {
     delivery: 'nextjs',
     // 'inline'   — images flow inline at imageMaxWidth (default)

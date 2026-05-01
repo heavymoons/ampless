@@ -4,6 +4,8 @@ import { DEFAULT_SITE_ID } from 'ampless'
 import { Providers } from './providers'
 import { siteMetadata } from '@/lib/seo'
 import { loadThemeConfig, renderThemeCss } from '@/lib/theme-config'
+import { getLocale, getDictionary } from '@/lib/i18n'
+import { I18nProvider } from '@/components/i18n-provider'
 import './globals.css'
 
 // Resolve metadata per site at request time. The middleware sets
@@ -21,8 +23,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const siteId = h.get('x-site-id') ?? DEFAULT_SITE_ID
   const theme = await loadThemeConfig(siteId)
   const themeCss = renderThemeCss(theme.cssVars)
+  const locale = getLocale()
+  const dict = getDictionary(locale)
   return (
-    <html lang="en">
+    <html lang={locale}>
       <head>
         {/* Inline `:root` overrides come AFTER globals.css so they win
             against the static defaults. Validated values only — see
@@ -33,7 +37,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           The active theme is resolved from `theme.active` site setting,
           falling back to DEFAULT_THEME — see `resolveActiveTheme`. */}
       <body className="min-h-screen" data-theme={theme.activeTheme}>
-        <Providers>{children}</Providers>
+        <Providers>
+          <I18nProvider locale={locale} dict={dict}>
+            {children}
+          </I18nProvider>
+        </Providers>
       </body>
     </html>
   )

@@ -13,27 +13,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { useT } from '@/components/i18n-provider'
 
 type Mode = 'signIn' | 'signUp' | 'confirm' | 'forgot' | 'reset'
 
-const TITLES: Record<Mode, string> = {
-  signIn: 'Sign in',
-  signUp: 'Create admin account',
-  confirm: 'Confirm email',
-  forgot: 'Reset password',
-  reset: 'Set new password',
-}
-
-const DESCRIPTIONS: Record<Mode, string> = {
-  signIn: 'Sign in to manage your site.',
-  signUp: 'The first user becomes the site admin.',
-  confirm: 'Enter the verification code sent to your email.',
-  forgot: 'We\'ll email you a verification code.',
-  reset: 'Enter the code from your email and a new password.',
-}
-
 export default function LoginPage() {
   const router = useRouter()
+  const t = useT()
   const [mode, setMode] = useState<Mode>('signIn')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -63,7 +49,7 @@ export default function LoginPage() {
           router.push('/admin')
           router.refresh()
         } else {
-          setError(`Sign-in needs additional step: ${result.nextStep.signInStep}`)
+          setError(t('auth.additionalStep', { step: result.nextStep.signInStep }))
         }
       } else if (mode === 'signUp') {
         await signUp({
@@ -82,7 +68,7 @@ export default function LoginPage() {
       } else if (mode === 'forgot') {
         await resetPassword({ username: email })
         setMode('reset')
-        setInfo('Verification code sent. Check your email.')
+        setInfo(t('auth.forgot.codeSent'))
       } else if (mode === 'reset') {
         await confirmResetPassword({
           username: email,
@@ -95,7 +81,7 @@ export default function LoginPage() {
           router.refresh()
         } else {
           setMode('signIn')
-          setInfo('Password updated. Please sign in.')
+          setInfo(t('auth.reset.passwordUpdated'))
         }
       }
     } catch (err) {
@@ -113,14 +99,14 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{TITLES[mode]}</CardTitle>
-          <CardDescription>{DESCRIPTIONS[mode]}</CardDescription>
+          <CardTitle>{t(`auth.${mode}.title`)}</CardTitle>
+          <CardDescription>{t(`auth.${mode}.description`)}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {showEmail && (
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('auth.common.email')}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -134,7 +120,7 @@ export default function LoginPage() {
 
             {showCode && (
               <div className="space-y-2">
-                <Label htmlFor="code">Verification code</Label>
+                <Label htmlFor="code">{t('auth.common.code')}</Label>
                 <Input
                   id="code"
                   required
@@ -148,7 +134,7 @@ export default function LoginPage() {
             {showPassword && (
               <div className="space-y-2">
                 <Label htmlFor="password">
-                  {mode === 'reset' ? 'New password' : 'Password'}
+                  {mode === 'reset' ? t('auth.common.newPassword') : t('auth.common.password')}
                 </Label>
                 <Input
                   id="password"
@@ -163,7 +149,7 @@ export default function LoginPage() {
                 />
                 {(mode === 'signUp' || mode === 'reset') && (
                   <p className="text-xs text-muted-foreground">
-                    Min 8 chars, with upper, lower, number, and symbol.
+                    {t('auth.common.passwordHint')}
                   </p>
                 )}
               </div>
@@ -173,17 +159,7 @@ export default function LoginPage() {
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? 'Working...'
-                : mode === 'signIn'
-                  ? 'Sign in'
-                  : mode === 'signUp'
-                    ? 'Sign up'
-                    : mode === 'confirm'
-                      ? 'Confirm'
-                      : mode === 'forgot'
-                        ? 'Send code'
-                        : 'Update password'}
+              {loading ? t('auth.common.working') : t(`auth.${mode}.submit`)}
             </Button>
 
             <div className="space-y-1 text-center text-sm">
@@ -195,7 +171,7 @@ export default function LoginPage() {
                       className="text-primary hover:underline"
                       onClick={() => go('forgot')}
                     >
-                      Forgot password?
+                      {t('auth.signIn.forgotPassword')}
                     </button>
                   </p>
                   <p>
@@ -204,7 +180,7 @@ export default function LoginPage() {
                       className="text-primary hover:underline"
                       onClick={() => go('signUp')}
                     >
-                      Create admin account
+                      {t('auth.signIn.createAccount')}
                     </button>
                   </p>
                 </>
@@ -216,7 +192,7 @@ export default function LoginPage() {
                     className="text-primary hover:underline"
                     onClick={() => go('signIn')}
                   >
-                    Back to sign in
+                    {t('auth.signUp.backToSignIn')}
                   </button>
                 </p>
               )}
@@ -227,7 +203,7 @@ export default function LoginPage() {
                     className="text-primary hover:underline"
                     onClick={() => go('forgot')}
                   >
-                    Resend code
+                    {t('auth.reset.resendCode')}
                   </button>
                 </p>
               )}
