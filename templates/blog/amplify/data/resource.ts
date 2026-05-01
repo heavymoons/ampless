@@ -22,6 +22,13 @@ const schema = a.schema({
     ])
     // Direct table access is admin/editor only — guests must go through
     // the custom queries below, which strip drafts at the resolver level.
+    //
+    // editor is a trusted principal: body is stored verbatim and rendered
+    // without sanitization. editor can persist arbitrary HTML / JS via
+    // `format: 'html'` or via tiptap attribute payloads. This is a
+    // deliberate design choice — see docs/architecture/04-access-layer-mcp.md
+    // §"editor の信頼モデル". Do not grant editor to anyone you wouldn't
+    // also trust as admin.
     .authorization((allow) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
 
   Page: a

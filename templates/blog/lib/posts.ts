@@ -1,5 +1,16 @@
 import type { Post } from 'ampless'
 
+// NOTE: editor は信頼された主体として扱う設計のため、本ファイルでは
+// 投稿本文に含まれる HTML / JavaScript を**意図的にサニタイズしない**。
+// editor が `attrs.alt` 等の属性経由で `"` をブレイクアウトして任意の
+// JS を仕込めること、`format: 'html'` で `<script>` を保存できること
+// は仕様。詳細は docs/architecture/04-access-layer-mcp.md の
+// 「editor の信頼モデル（仕様）」を参照。
+//
+// このコメントを読んでサニタイズを追加したくなった場合、まずその設計
+// 判断を読んでから、必要なら opt-in プラグインとして実装すること。
+
+// タグ構造を壊さないための最低限のエスケープ（XSS 対策ではない）。
 function escape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -119,6 +130,9 @@ function renderInlineMarkdown(text: string): string {
 }
 
 export function renderBody(post: Post): string {
+  // 仕様: editor は信頼された主体。`'html'` フォーマットは body をその
+  // ままレンダリングする（任意 HTML / script 可）。ファイル冒頭のコメント
+  // および 04-access-layer-mcp.md を参照。
   if (post.format === 'html') return String(post.body)
   if (post.format === 'markdown') return renderMarkdown(String(post.body))
   if (post.format === 'tiptap') return renderTiptap(post.body as TiptapNode)

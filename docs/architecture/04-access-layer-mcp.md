@@ -155,6 +155,33 @@ async function requireAdmin() {
 | REST API | API キー | キー発行時に設定 |
 | MCP | MCP アクセストークン | トークン発行時に設定 |
 
+#### editor の信頼モデル（仕様）
+
+ampless では `editor` は **信頼された主体（trusted principal）** として扱う。WordPress の `unfiltered_html` capability と同じ思想で、**editor は記事本文として任意の HTML / JavaScript を保存できる**ことを設計上の仕様とする。
+
+具体的には:
+
+- Post の `body` フィールドはサーバ側でサニタイズしない
+  - `format: 'tiptap' | 'markdown' | 'html'` の全フォーマットでサニタイズなし
+  - tiptap 属性（`href`, `src`, `alt`, `title` 等）の値もサニタイズなし
+  - `<script>` タグや `javascript:` URI、属性ブレイクアウト経由のイベントハンドラ注入を含めて、editor が書いたものはそのまま保存され、公開ページで `dangerouslySetInnerHTML` 経由でレンダリングされる
+- 結果として editor は、公開記事を閲覧する **任意のブラウザ（admin の閲覧を含む）で任意の JavaScript を実行できる**
+- これは editor の権限境界を「コンテンツの CRUD」に閉じない設計判断であり、CMS としての表現自由度（埋め込みウィジェット、独自スクリプトを使うキャンペーンページ、HTML メールテンプレート、等）を優先したトレードオフ
+
+**運用上の含意:**
+
+- **editor 権限を渡す相手は admin と同等に信頼できる人物に限る。** 信頼できないユーザーには editor ではなく `reader` のみを与える、または別 Cognito User Pool（別 Amplify 環境）に分離する。
+- editor が悪意を持った場合に得られる権限の上限は `admin` と等価とみなしてよい（editor は公開記事から admin の Cognito JWT を localStorage 経由で奪取し、AppSync を admin として操作できる）。
+- このトレードオフを変えたい運用者向けに、v0.2 以降で **opt-in のサニタイズプラグイン**（DOMPurify ベース）を提供予定。スキーマ自体は変えず、プラグイン側で `before:content.update` フックを介して body を書き換える形にする。
+
+**セキュリティレビューでの取り扱い:**
+
+editor 権限を持つ攻撃者を脅威モデルに含める指摘（editor → admin の権限昇格、stored XSS による JWT 漏洩、`format: 'html'` の任意スクリプト保存など）は、**仕様であって脆弱性ではない**。レビュー時はこれらの経路を仕様として明示的に除外し、以下を脆弱性として扱う:
+
+- 認証されていない（または `reader` のみの）主体が editor 相当の書き込みを行えてしまう経路
+- editor の操作が他テナント（別 `siteId` の sites — v0.2 マルチサイト時）に波及する経路
+- admin / 運用者を経由しないサーバ側 RCE、シークレット漏洩、IAM 昇格
+
 ### MCP Server (`packages/mcp-server`)
 
 AI エージェント（Claude 等）からコンテンツを操作するための MCP インターフェース。
