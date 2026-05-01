@@ -4,9 +4,13 @@ import cmsConfig from './cms.config'
 
 const MULTI_SITE = isMultiSite(cmsConfig)
 
-// Public path → /_sites/{siteId}/... rewrite. Admin / API / login /
-// static files are excluded by the matcher below, so this only
-// touches the public blog surface.
+// Public path → /site/{siteId}/... internal rewrite. The browser URL
+// stays unchanged; Next.js resolves the rewritten path under
+// `app/site/[siteId]/...`.
+//
+// (We use `/site/` rather than `/_sites/` because Next.js treats
+// folders with an underscore prefix as private — they're not routable
+// even via middleware rewrites.)
 //
 // In multi-site mode we additionally force `Cache-Control: private,
 // no-store` because Amplify Hosting's CloudFront cache key doesn't
@@ -20,9 +24,9 @@ export function middleware(request: NextRequest) {
   }
 
   const url = request.nextUrl.clone()
-  if (!url.pathname.startsWith('/_sites/')) {
+  if (!url.pathname.startsWith('/site/')) {
     const tail = url.pathname === '/' ? '' : url.pathname
-    url.pathname = `/_sites/${siteId}${tail}`
+    url.pathname = `/site/${siteId}${tail}`
   }
 
   const response = NextResponse.rewrite(url)
