@@ -250,23 +250,8 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
 
   switch (field.type) {
     case 'color':
-      return (
-        <div className="space-y-2">
-          {labelEl}
-          {description}
-          <div className="flex gap-2">
-            <Input
-              id={id}
-              value={value}
-              placeholder={field.default}
-              onChange={(e) => onChange(e.target.value)}
-              aria-invalid={invalid}
-              className="font-mono text-xs"
-            />
-          </div>
-          <ColorPreview value={value || field.default} />
-        </div>
-      )
+      return <ColorField field={field} id={id} labelEl={labelEl} description={description} value={value} invalid={invalid} onChange={onChange} />
+
     case 'length':
       return (
         <div className="space-y-2">
@@ -339,15 +324,92 @@ function FieldRow({ field, value, invalid, onChange }: FieldRowProps) {
   }
 }
 
-function ColorPreview({ value }: { value: string }) {
+interface ColorFieldProps {
+  field: ThemeField & { type: 'color' }
+  id: string
+  labelEl: React.ReactNode
+  description: React.ReactNode
+  value: string
+  invalid: boolean
+  onChange: (v: string) => void
+}
+
+/**
+ * Color picker with two layers:
+ *   1. Native `<input type="color">` swatch (a no-dep, no-popup,
+ *      browser-rendered picker).
+ *   2. A text Input for advanced syntax (`oklch(...)`, `hsl(...)`).
+ *
+ * The picker only natively understands `#rrggbb`, but a canvas trick
+ * lets the browser parse any CSS color and round-trip it to hex —
+ * including `oklch()` (Chromium 111+, Firefox 113+, Safari 16.4+).
+ * When the user picks via the swatch, we write hex; when they type
+ * `oklch(...)` in the text field, we keep it verbatim.
+ */
+function ColorField({
+  field,
+  id,
+  labelEl,
+  description,
+  value,
+  invalid,
+  onChange,
+}: ColorFieldProps) {
+  const effective = value || field.default
+  const hex = useColorAsHex(effective)
   return (
-    <div className="flex items-center gap-2">
-      <span
-        className="inline-block h-6 w-12 rounded border"
-        style={{ background: value }}
-        aria-hidden
-      />
-      <code className="text-xs text-muted-foreground">{value}</code>
+    <div className="space-y-2">
+      {labelEl}
+      {description}
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={hex}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 w-12 cursor-pointer rounded border border-input bg-background p-0"
+          aria-label={`${field.label} swatch`}
+        />
+        <Input
+          id={id}
+          value={value}
+          placeholder={field.default}
+          onChange={(e) => onChange(e.target.value)}
+          aria-invalid={invalid}
+          className="font-mono text-xs"
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block h-4 w-4 rounded border"
+          style={{ background: effective }}
+          aria-hidden
+        />
+        <code className="text-xs text-muted-foreground">{effective}</code>
+      </div>
     </div>
   )
+}
+
+/**
+ * Resolve any CSS color string (hex / rgb / hsl / oklch / named) to
+ * `#rrggbb` for the native color picker. Uses canvas color parsing,
+ * which round-trips any color the browser can render. Falls back to
+ * black when parsing fails or on the server (SSR).
+ */
+function useColorAsHex(value: string): string {
+  if (typeof document === 'undefined') return '#000000'
+  const m = /^#([0-9a-fA-F]{6})$/.exec(value)
+  if (m) return value.toLowerCase()
+  try {
+    const ctx = document.createElement('canvas').getContext('2d')
+    if (!ctx) return '#000000'
+    // Reset to a known value; if the next assignment is invalid the
+    // previous fillStyle survives, which we don't want.
+    ctx.fillStyle = '#000000'
+    ctx.fillStyle = value
+    const out = ctx.fillStyle as string
+    return /^#[0-9a-fA-F]{6}$/.test(out) ? out : '#000000'
+  } catch {
+    return '#000000'
+  }
 }
