@@ -45,6 +45,17 @@ export function TiptapEditor({ initialContent, onChange }: TiptapEditorProps) {
           'prose prose-neutral dark:prose-invert max-w-none min-h-[400px] px-4 py-3 focus:outline-none',
       },
     },
+    onCreate: ({ editor }) => {
+      // Tiptap accepts both JSON docs and HTML strings as initial
+      // content — when given HTML it parses to the internal doc on
+      // mount but doesn't fire onUpdate (no user edit yet). Fire
+      // onChange here so the parent's `body` state matches the
+      // parsed JSON immediately. Otherwise a format-switch sequence
+      // like markdown → tiptap → markdown leaves the parent holding
+      // a raw HTML string the second time around, and converters
+      // that expect a JSON doc return empty.
+      onChange?.(editor.getJSON())
+    },
     onUpdate: ({ editor }) => {
       onChange?.(editor.getJSON())
     },

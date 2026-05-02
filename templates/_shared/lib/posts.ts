@@ -135,7 +135,15 @@ export function renderBody(post: Post): string {
   // および 04-access-layer-mcp.md を参照。
   if (post.format === 'html') return String(post.body)
   if (post.format === 'markdown') return renderMarkdown(String(post.body))
-  if (post.format === 'tiptap') return renderTiptap(post.body as TiptapNode)
+  if (post.format === 'tiptap') {
+    // Defensive: a tiptap-formatted post may have its body persisted
+    // as a raw HTML string if the admin saved straight after a
+    // format-switch sequence (markdown → tiptap → save without
+    // editing). Treat string bodies as already-rendered HTML rather
+    // than crashing into empty output.
+    if (typeof post.body === 'string') return post.body
+    return renderTiptap(post.body as TiptapNode)
+  }
   return ''
 }
 
@@ -147,8 +155,17 @@ export function renderBody(post: Post): string {
 // and tiptap-specific attributes (image display modes etc.) may not
 // survive a markdown trip.
 
-/** Convert a tiptap doc to its HTML form. Same renderer the public site uses. */
+/**
+ * Convert a tiptap doc to its HTML form. Same renderer the public
+ * site uses. Defensive: tiptap accepts an HTML string as initial
+ * content and parses it on mount, but won't fire onUpdate until the
+ * user edits — so a format-switch chain (e.g. markdown → tiptap →
+ * markdown without editing) can still hand us a raw HTML string
+ * here. In that case, return it as-is rather than walking it as a
+ * malformed tiptap node and producing empty output.
+ */
 export function tiptapToHtml(doc: unknown): string {
+  if (typeof doc === 'string') return doc
   return renderTiptap(doc as TiptapNode)
 }
 
@@ -161,8 +178,13 @@ export function markdownToHtml(md: string): string {
  * Walk a tiptap doc and emit Markdown. Mirrors `renderTiptap` in
  * shape but produces markdown syntax. Loses anything markdown can't
  * express (data attributes, image display modes, custom marks).
+ *
+ * Same defensive path as tiptapToHtml: a string input means tiptap
+ * hasn't emitted JSON yet (the body is still the HTML we handed it).
+ * Route through htmlToMarkdown so the content survives.
  */
 export function tiptapToMarkdown(doc: unknown): string {
+  if (typeof doc === 'string') return htmlToMarkdown(doc)
   const node = doc as TiptapNode
   return tiptapNodeToMarkdown(node).trim() + '\n'
 }
