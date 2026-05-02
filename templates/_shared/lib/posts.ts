@@ -139,12 +139,154 @@ export function renderBody(post: Post): string {
   return ''
 }
 
-/**
- * Convert a tiptap doc to its HTML form. Used by the admin post form
- * to preserve the user's work when switching format from tiptap to
- * html — they get the equivalent HTML in the textarea instead of an
- * empty editor.
- */
+// --- Format converters ---
+//
+// Used by the admin post form to preserve the user's work when they
+// switch format mid-edit. Round-trips are best-effort: tiptap → html
+// is exact, the others approximate. Tables, complex inline marks,
+// and tiptap-specific attributes (image display modes etc.) may not
+// survive a markdown trip.
+
+/** Convert a tiptap doc to its HTML form. Same renderer the public site uses. */
 export function tiptapToHtml(doc: unknown): string {
   return renderTiptap(doc as TiptapNode)
+}
+
+/** Convert markdown to HTML using the built-in minimal renderer. */
+export function markdownToHtml(md: string): string {
+  return renderMarkdown(md)
+}
+
+/**
+ * Walk a tiptap doc and emit Markdown. Mirrors `renderTiptap` in
+ * shape but produces markdown syntax. Loses anything markdown can't
+ * express (data attributes, image display modes, custom marks).
+ */
+export function tiptapToMarkdown(doc: unknown): string {
+  const node = doc as TiptapNode
+  return tiptapNodeToMarkdown(node).trim() + '\n'
+}
+
+function tiptapNodeToMarkdown(node: TiptapNode): string {
+  if (node.type === 'text') {
+    let txt = node.text ?? ''
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'bold') txt = `**${txt}**`
+      else if (mark.type === 'italic') txt = `*${txt}*`
+      else if (mark.type === 'code') txt = `\`${txt}\``
+      else if (mark.type === 'strike') txt = `~~${txt}~~`
+      else if (mark.type === 'link') txt = `[${txt}](${String(mark.attrs?.href ?? '#')})`
+    }
+    return txt
+  }
+  const children = (node.content ?? []).map(tiptapNodeToMarkdown).join('')
+  switch (node.type) {
+    case 'doc':
+      return children
+    case 'paragraph':
+      return children + '\n\n'
+    case 'heading': {
+      const level = Math.max(1, Math.min(6, Number(node.attrs?.level ?? 1)))
+      return '#'.repeat(level) + ' ' + children + '\n\n'
+    }
+    case 'bulletList':
+      return children + '\n'
+    case 'orderedList':
+      return children + '\n'
+    case 'listItem': {
+      const trimmed = children.replace(/\n+$/, '')
+      return '- ' + trimmed + '\n'
+    }
+    case 'codeBlock': {
+      const lang = node.attrs?.language ? String(node.attrs.language) : ''
+      return '```' + lang + '\n' + children + '\n```\n\n'
+    }
+    case 'blockquote':
+      return (
+        children
+          .replace(/\n+$/, '')
+          .split('\n')
+          .map((l) => '> ' + l)
+          .join('\n') + '\n\n'
+      )
+    case 'hardBreak':
+      return '  \n'
+    case 'horizontalRule':
+      return '\n---\n\n'
+    case 'image': {
+      const src = String(node.attrs?.src ?? '')
+      const alt = String(node.attrs?.alt ?? '')
+      return `![${alt}](${src})`
+    }
+    default:
+      return children
+  }
+}
+
+/**
+ * Regex-based HTML → Markdown converter. Handles the tag set the
+ * editor produces (`<p>` `<h1>`-`<h6>` `<strong>` `<em>` `<a>`
+ * `<img>` `<ul>` `<ol>` `<li>` `<code>` `<pre>` `<blockquote>` `<hr>`
+ * `<br>`). Anything else (tables, sections, divs) keeps its content
+ * but loses structural meaning.
+ *
+ * Not a full library — there are known limits like nested formatting
+ * inside list items potentially merging. Acceptable for a v0.x
+ * format-switch convenience; complex HTML round-trips shouldn't be
+ * relied on.
+ */
+export function htmlToMarkdown(html: string): string {
+  let md = html
+  md = md.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, text) => {
+    return '\n' + '#'.repeat(Number(level)) + ' ' + String(text).trim() + '\n\n'
+  })
+  md = md.replace(
+    /<pre[^>]*><code[^>]*(?:\sclass="language-([^"]+)")?[^>]*>([\s\S]*?)<\/code><\/pre>/gi,
+    (_, lang, code) => {
+      return '\n```' + (lang ?? '') + '\n' + String(code) + '\n```\n\n'
+    }
+  )
+  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, content) => {
+    return (
+      '\n' +
+      String(content)
+        .trim()
+        .split('\n')
+        .map((l: string) => '> ' + l)
+        .join('\n') +
+      '\n\n'
+    )
+  })
+  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, items) => {
+    return '\n' + String(items).replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n') + '\n'
+  })
+  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, items) => {
+    let i = 1
+    return (
+      '\n' +
+      String(items).replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, () => `${i++}. $1\n`) +
+      '\n'
+    )
+  })
+  md = md.replace(/<hr\s*\/?>/gi, '\n---\n\n')
+  md = md.replace(/<br\s*\/?>/gi, '  \n')
+  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
+  md = md.replace(/<img[^>]*?src="([^"]*)"[^>]*?alt="([^"]*)"[^>]*?\/?>/gi, '![$2]($1)')
+  md = md.replace(/<img[^>]*?alt="([^"]*)"[^>]*?src="([^"]*)"[^>]*?\/?>/gi, '![$1]($2)')
+  md = md.replace(/<img[^>]*?src="([^"]*)"[^>]*?\/?>/gi, '![]($1)')
+  md = md.replace(/<a[^>]*?href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)')
+  md = md.replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, '**$2**')
+  md = md.replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, '*$2*')
+  md = md.replace(/<s>([\s\S]*?)<\/s>/gi, '~~$1~~')
+  md = md.replace(/<code>([\s\S]*?)<\/code>/gi, '`$1`')
+  md = md.replace(/<\/?[^>]+>/g, '')
+  md = md
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+  md = md.replace(/\n{3,}/g, '\n\n')
+  return md.trim() + '\n'
 }

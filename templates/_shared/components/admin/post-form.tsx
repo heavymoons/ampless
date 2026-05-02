@@ -17,7 +17,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { TiptapEditor } from '@/components/editor/tiptap-editor'
 import { MediaPicker } from '@/components/admin/media-picker'
-import { tiptapToHtml } from '@/lib/posts'
+import {
+  tiptapToHtml,
+  tiptapToMarkdown,
+  markdownToHtml,
+  htmlToMarkdown,
+} from '@/lib/posts'
 import { useT } from '@/components/i18n-provider'
 
 interface PostFormProps {
@@ -117,23 +122,47 @@ export function PostForm({ post }: PostFormProps) {
   function changeFormat(next: ContentFormat) {
     if (next === format) return
 
-    // tiptap → html: render the tiptap doc to HTML and seed the
-    // textarea with it so the user's work transfers into the new
-    // editor instead of vanishing. Other directions don't have a
-    // clean automatic path (HTML → tiptap would need a parser, and
-    // HTML → markdown isn't well-defined), so they reset to the
-    // format-appropriate default.
-    if (format === 'tiptap' && next === 'html') {
-      setFormat(next)
-      setBody(tiptapToHtml(body))
-      return
+    // Convert the body across all six tiptap / html / markdown
+    // directions so the user keeps their content. tiptap is parsed
+    // by the editor when it remounts (it accepts HTML strings as
+    // initial content), so for *any* → tiptap we hand it HTML and
+    // tiptap reads it. Markdown → tiptap goes via HTML.
+    let nextBody: unknown = body
+    const k = `${format}→${next}` as
+      | 'tiptap→html'
+      | 'tiptap→markdown'
+      | 'html→tiptap'
+      | 'html→markdown'
+      | 'markdown→tiptap'
+      | 'markdown→html'
+    switch (k) {
+      case 'tiptap→html':
+        nextBody = tiptapToHtml(body)
+        break
+      case 'tiptap→markdown':
+        nextBody = tiptapToMarkdown(body)
+        break
+      case 'html→tiptap':
+        // Tiptap parses HTML strings on mount.
+        nextBody = String(body ?? '')
+        break
+      case 'markdown→tiptap':
+        nextBody = markdownToHtml(String(body ?? ''))
+        break
+      case 'html→markdown':
+        nextBody = htmlToMarkdown(String(body ?? ''))
+        break
+      case 'markdown→html':
+        nextBody = markdownToHtml(String(body ?? ''))
+        break
+      default:
+        // Unreachable for the three formats we expose, but reset to
+        // a sensible default if a new format is introduced later.
+        nextBody = defaultBodyForFormat(next)
     }
 
     setFormat(next)
-    const incompatible = (format === 'tiptap') !== (next === 'tiptap')
-    if (incompatible) {
-      setBody(defaultBodyForFormat(next))
-    }
+    setBody(nextBody)
   }
 
   async function save(e: React.FormEvent) {
