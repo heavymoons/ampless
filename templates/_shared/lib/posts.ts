@@ -138,3 +138,13 @@ export function renderBody(post: Post): string {
   if (post.format === 'tiptap') return renderTiptap(post.body as TiptapNode)
   return ''
 }
+
+/**
+ * Convert a tiptap doc to its HTML form. Used by the admin post form
+ * to preserve the user's work when switching format from tiptap to
+ * html — they get the equivalent HTML in the textarea instead of an
+ * empty editor.
+ */
+export function tiptapToHtml(doc: unknown): string {
+  return renderTiptap(doc as TiptapNode)
+}

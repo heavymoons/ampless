@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { TiptapEditor } from '@/components/editor/tiptap-editor'
 import { MediaPicker } from '@/components/admin/media-picker'
+import { tiptapToHtml } from '@/lib/posts'
 import { useT } from '@/components/i18n-provider'
 
 interface PostFormProps {
@@ -115,13 +116,21 @@ export function PostForm({ post }: PostFormProps) {
 
   function changeFormat(next: ContentFormat) {
     if (next === format) return
-    // Body can't translate cleanly across formats (a tiptap doc isn't
-    // a Markdown string). Reset to a sensible default for the new
-    // format so the editor isn't showing structurally wrong content.
-    // Skipped if the new shape happens to match what's already there.
-    const incompatible =
-      (format === 'tiptap') !== (next === 'tiptap')
+
+    // tiptap → html: render the tiptap doc to HTML and seed the
+    // textarea with it so the user's work transfers into the new
+    // editor instead of vanishing. Other directions don't have a
+    // clean automatic path (HTML → tiptap would need a parser, and
+    // HTML → markdown isn't well-defined), so they reset to the
+    // format-appropriate default.
+    if (format === 'tiptap' && next === 'html') {
+      setFormat(next)
+      setBody(tiptapToHtml(body))
+      return
+    }
+
     setFormat(next)
+    const incompatible = (format === 'tiptap') !== (next === 'tiptap')
     if (incompatible) {
       setBody(defaultBodyForFormat(next))
     }
