@@ -1,5 +1,11 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+/* DADS theme plugin from Digital Agency. Loaded globally so the
+ * `templates/dads/` theme can use DADS-conformant color variables
+ * (`--color-blue-900` etc., the canonical solidBlue). Other themes
+ * don't reference DADS-specific classes, so the plugin's tokens
+ * sit unused for them — small CSS overhead, no behavior change. */
+@plugin '@digital-go-jp/tailwind-theme-plugin';
 
 /*
  * Tailwind v4 inline theme: every `--color-*` and `--radius-*` token

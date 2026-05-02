@@ -45,6 +45,7 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
             { value: 'landing', label: 'Landing — hero-led marketing page' },
             { value: 'corporate', label: 'Corporate — slate / navy company site' },
             { value: 'docs', label: 'Docs — sidebar-led docs (tag-driven sections)' },
+            { value: 'dads', label: 'DADS — Digital Agency Design System (Japanese government style)' },
           ],
           initialValues: ['blog'],
           required: true,

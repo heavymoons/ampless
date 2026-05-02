@@ -15,6 +15,7 @@ import minimal from '@/themes/minimal'
 import landing from '@/themes/landing'
 import corporate from '@/themes/corporate'
 import docs from '@/themes/docs'
+import dads from '@/themes/dads'
 
 export const themes = {
   blog,
@@ -22,6 +23,7 @@ export const themes = {
   landing,
   corporate,
   docs,
+  dads,
 } as const
 
 export type ThemeName = keyof typeof themes
