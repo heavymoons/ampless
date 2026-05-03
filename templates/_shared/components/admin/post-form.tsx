@@ -7,6 +7,7 @@ import {
   createPost,
   updatePost,
   deletePost,
+  formatDate,
   type Post,
   type ContentFormat,
 } from 'ampless'
@@ -18,12 +19,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { TiptapEditor } from '@/components/editor/tiptap-editor'
 import { MediaPicker } from '@/components/admin/media-picker'
 import {
+  renderBody,
   tiptapToHtml,
   tiptapToMarkdown,
   markdownToHtml,
   htmlToMarkdown,
 } from '@/lib/posts'
 import { useT } from '@/components/i18n-provider'
+
+type PostFormView = 'edit' | 'preview'
 
 interface PostFormProps {
   post?: Post
@@ -82,6 +86,7 @@ export function PostForm({ post }: PostFormProps) {
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<PostFormView>('edit')
 
   function parseTags(raw: string): string[] {
     return Array.from(
@@ -224,8 +229,103 @@ export function PostForm({ post }: PostFormProps) {
     }
   }
 
+  // Build a Post-like object for preview-time rendering. Fields the
+  // current form state owns; everything else falls back to either the
+  // existing post (on edit) or sensible defaults.
+  const previewPost: Post = {
+    postId: post?.postId ?? 'preview',
+    siteId: post?.siteId ?? readAdminSiteIdFromCookie(),
+    slug: slug || slugify(title) || 'preview',
+    title,
+    excerpt: excerpt || undefined,
+    format,
+    body,
+    status,
+    publishedAt:
+      status === 'published'
+        ? (post?.publishedAt ?? new Date().toISOString())
+        : undefined,
+    tags: parseTags(tagsInput),
+  }
+
   return (
     <form onSubmit={save} className="space-y-6">
+      {/* Tab strip — keep both views mounted (visibility-only toggle)
+          so the tiptap editor doesn't lose focus / cursor / unsaved
+          changes when the user peeks at preview and comes back. */}
+      <div className="flex gap-1 border-b">
+        <button
+          type="button"
+          onClick={() => setView('edit')}
+          aria-pressed={view === 'edit'}
+          className={`px-4 py-2 text-sm font-medium transition ${
+            view === 'edit'
+              ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {t('posts.form.tabEdit')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('preview')}
+          aria-pressed={view === 'preview'}
+          className={`px-4 py-2 text-sm font-medium transition ${
+            view === 'preview'
+              ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {t('posts.form.tabPreview')}
+        </button>
+      </div>
+
+      {view === 'preview' && (
+        <article className="space-y-4">
+          <header className="border-b pb-4">
+            <h1 className="text-3xl font-bold tracking-tight">
+              {title || (
+                <span className="text-muted-foreground italic">
+                  {t('posts.form.previewNoTitle')}
+                </span>
+              )}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {previewPost.publishedAt ? (
+                <time dateTime={previewPost.publishedAt}>
+                  {formatDate(previewPost.publishedAt)}
+                </time>
+              ) : (
+                <span>{t('common.draft')}</span>
+              )}
+              <span className="mx-2">·</span>
+              <span className="font-mono text-xs uppercase">{format}</span>
+            </p>
+            {excerpt && (
+              <p className="mt-3 text-base text-muted-foreground">{excerpt}</p>
+            )}
+          </header>
+          <div
+            className="prose prose-neutral dark:prose-invert max-w-none"
+            dangerouslySetInnerHTML={{ __html: renderBody(previewPost) }}
+          />
+          {previewPost.tags && previewPost.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 border-t pt-4 text-sm">
+              {previewPost.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{t('posts.form.previewHint')}</p>
+        </article>
+      )}
+
+      <div className={view === 'edit' ? 'space-y-6' : 'hidden'}>
       <div className="space-y-2">
         <Label htmlFor="title">{t('posts.form.title')}</Label>
         <Input
@@ -345,6 +445,7 @@ export function PostForm({ post }: PostFormProps) {
             {t('posts.form.delete')}
           </Button>
         )}
+      </div>
       </div>
     </form>
   )
