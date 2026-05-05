@@ -193,11 +193,11 @@ export function ThemeSettingsForm({
   const groups = groupFields(manifest.fields)
 
   return (
-    <div className="space-y-8 max-w-xl">
+    <div className="space-y-8">
       {/* Theme switcher — separate form so changing the active theme
           triggers a refresh that re-renders this page with the new
           theme's manifest fields. */}
-      <form onSubmit={switchTheme} className="space-y-3 rounded-md border p-4">
+      <form onSubmit={switchTheme} className="max-w-xl space-y-3 rounded-md border p-4">
         <div className="space-y-1">
           <Label htmlFor="active-theme" className="text-sm font-medium">
             {t('theme.activeLabel')}
@@ -234,8 +234,24 @@ export function ThemeSettingsForm({
         </Button>
       </form>
 
+      {/* Live iframe preview. Hits the public home with
+          `?previewTheme=<pendingTheme>` so the user sees the chosen
+          theme without committing the switch. Reflects whatever
+          values are currently saved in S3 — unsaved manifest edits
+          require Save before showing here. */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">{t('theme.previewLabel')}</Label>
+        <iframe
+          key={pendingTheme}
+          src={`/?previewTheme=${encodeURIComponent(pendingTheme)}`}
+          title={t('theme.previewLabel')}
+          className="h-[600px] w-full rounded-md border bg-[var(--background)]"
+        />
+        <p className="text-xs text-muted-foreground">{t('theme.previewHint')}</p>
+      </div>
+
       {/* Manifest fields for the currently active theme. */}
-      <form onSubmit={save} className="space-y-6">
+      <form onSubmit={save} className="max-w-xl space-y-6">
         <div>
           <h2 className="text-lg font-semibold">
             {t('theme.customizationHeading', {

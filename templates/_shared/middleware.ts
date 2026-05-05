@@ -49,7 +49,17 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  const response = NextResponse.rewrite(url)
+  // Theme preview override. The admin's iframe-based preview hits
+  // `/?previewTheme=<name>` to show a different theme without
+  // committing the switch. We forward the query param into a request
+  // header so server components / `resolveActiveTheme` can pick it
+  // up via `headers()` regardless of which page handles the request.
+  const previewTheme = url.searchParams.get('previewTheme')
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-site-id', siteId)
+  if (previewTheme) requestHeaders.set('x-preview-theme', previewTheme)
+
+  const response = NextResponse.rewrite(url, { request: { headers: requestHeaders } })
   response.headers.set('x-site-id', siteId)
   if (MULTI_SITE) {
     response.headers.set('Cache-Control', 'private, no-store')

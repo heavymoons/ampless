@@ -154,6 +154,8 @@
     "switchButton": "Switch theme",
     "switching": "Switching...",
     "switched": "Switched to {theme}. Public site refreshes within ~10 seconds (S3 cache rebuild).",
+    "previewLabel": "Preview",
+    "previewHint": "Live preview of the selected theme using the public site. Reflects values currently saved in S3 — Save first to preview unsaved manifest edits.",
     "saveButton": "Save theme",
     "saving": "Saving...",
     "saved": "Saved. Public site refreshes within ~10 seconds (S3 cache rebuild).",
