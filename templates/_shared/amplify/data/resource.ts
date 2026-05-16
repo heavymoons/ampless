@@ -176,7 +176,6 @@ const schema = a.schema({
     )
     .authorization((allow) => [
       allow.publicApiKey(),
-      allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
 
@@ -192,7 +191,6 @@ const schema = a.schema({
     )
     .authorization((allow) => [
       allow.publicApiKey(),
-      allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
 
@@ -215,7 +213,6 @@ const schema = a.schema({
     )
     .authorization((allow) => [
       allow.publicApiKey(),
-      allow.authenticated(),
       allow.groups(['ampless-admin', 'ampless-editor']),
     ]),
 })
