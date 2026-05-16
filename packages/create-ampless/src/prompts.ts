@@ -20,7 +20,7 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
           placeholder: 'my-ampless-site',
           defaultValue: argProjectName ?? 'my-ampless-site',
           validate: (v) => {
-            if (!v.trim()) return 'Project name is required'
+            if (!v || !v.trim()) return 'Project name is required'
             if (!/^[a-z0-9-_]+$/.test(v)) return 'Use lowercase letters, numbers, hyphens, underscores'
           },
         }),

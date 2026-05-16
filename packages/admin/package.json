@@ -49,9 +49,9 @@
     "@tiptap/starter-kit": "^2.10.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0",
+    "lucide-react": "^1.16.0",
     "react-image-crop": "^11.0.7",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^3.6.0"
   },
   "peerDependencies": {
     "next": "^15",

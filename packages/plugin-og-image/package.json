@@ -29,7 +29,7 @@
   "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image#readme",
   "bugs": "https://github.com/heavymoons/ampless/issues",
   "dependencies": {
-    "@jsquash/avif": "^1.2.0",
+    "@jsquash/avif": "^2.1.1",
     "@jsquash/png": "^3.0.0",
     "@jsquash/webp": "^1.4.0",
     "ampless": "workspace:*"

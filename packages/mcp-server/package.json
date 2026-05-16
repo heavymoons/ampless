@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.1048.0",
     "amazon-cognito-identity-js": "^6.3.12",
     "ampless": "workspace:*"
   },

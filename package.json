@@ -16,14 +16,14 @@
     "release": "turbo run build && changeset publish"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.12",
-    "@types/node": "^25.6.0",
+    "@changesets/cli": "^2.31.0",
+    "@types/node": "^25.8.0",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
     "tsup": "^8.3.5",
-    "turbo": "^2.3.3",
+    "turbo": "^2.9.14",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.18.1",
+    "typescript-eslint": "^8.59.3",
     "vitest": "^2.1.8"
   }
 }
