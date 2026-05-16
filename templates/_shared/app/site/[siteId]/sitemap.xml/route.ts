@@ -1,17 +1,5 @@
-import { resolveActiveTheme } from '@/lib/theme-active'
-
-interface Ctx {
-  params: Promise<{ siteId: string }>
-}
+import { ampless } from '@/lib/ampless'
+import { createSitemapRouteHandler } from '@ampless/runtime/routes'
 
 export const dynamic = 'force-dynamic'
-
-export async function GET(request: Request, { params }: Ctx): Promise<Response> {
-  const { siteId } = await params
-  const { module } = await resolveActiveTheme(siteId)
-  const handler = module.routes?.sitemap
-  if (!handler) {
-    return new Response('sitemap not implemented for this theme', { status: 404 })
-  }
-  return handler({ siteId, request })
-}
+export const GET = createSitemapRouteHandler(ampless)

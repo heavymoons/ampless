@@ -1,0 +1,65 @@
+{
+  "name": "@ampless/runtime",
+  "version": "0.1.0",
+  "description": "Public-side runtime for ampless: post fetching, theme dispatch, middleware, public route handlers",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware.js",
+      "types": "./dist/middleware.d.ts"
+    },
+    "./routes": {
+      "import": "./dist/routes/index.js",
+      "types": "./dist/routes/index.d.ts"
+    },
+    "./dispatchers": {
+      "import": "./dist/dispatchers/index.js",
+      "types": "./dist/dispatchers/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/runtime"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/runtime#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "dependencies": {
+    "ampless": "workspace:*",
+    "@ampless/plugin-og-image": "workspace:*"
+  },
+  "peerDependencies": {
+    "next": "^15",
+    "react": "^18 || ^19",
+    "aws-amplify": "^6",
+    "@aws-amplify/adapter-nextjs": "^1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "ampless",
+    "runtime",
+    "cms"
+  ]
+}
