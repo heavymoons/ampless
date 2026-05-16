@@ -17,8 +17,18 @@
 //       eventDispatcher, processorTrusted, processorUntrusted, apiKeyRenewer,
 //     })
 //
-// Each `resource.ts` thin shell calls the corresponding factory; each
-// Lambda `handler.ts` thin shell re-exports `handler` from one of the
+// `amplify/{auth,data,storage}/resource.ts` MUST call the Amplify
+// factory (`defineAuth` / `defineData` / `defineStorage`) directly,
+// not through a wrapper in this package. Amplify Gen 2's import-path
+// verifier inspects the second stack frame and requires those calls
+// to originate from the user's `amplify/{auth,data,storage}/resource.ts`;
+// routing through `node_modules/@ampless/backend/...` trips the guard.
+// So this package exposes config-builder helpers (`amplessAuthConfig`,
+// `amplessStorageConfig`, `amplessSchemaModels`, ...) that return
+// plain options objects which the user spreads into the Amplify
+// factory call themselves.
+//
+// Lambda `handler.ts` thin shells re-export `handler` from one of the
 // subpath entries (so Amplify's esbuild bundles this package into the
 // Lambda).
 //
@@ -31,10 +41,10 @@
 export { defineAmplessBackend } from './backend.js'
 export type { DefineAmplessBackendOpts, AmplessBackend } from './backend.js'
 
-export { defineAmplessAuth } from './auth/index.js'
-export type { DefineAmplessAuthOpts } from './auth/index.js'
+export { amplessAuthConfig } from './auth/index.js'
+export type { AmplessAuthConfigOpts } from './auth/index.js'
 
-export { defineAmplessStorage } from './storage/index.js'
+export { amplessStorageConfig } from './storage/index.js'
 
 export {
   amplessSchemaModels,

@@ -1,7 +1,8 @@
-import { defineStorage } from '@aws-amplify/backend'
+import type { defineStorage } from '@aws-amplify/backend'
 
 /**
- * Provision the ampless S3 bucket with the standard access map:
+ * Build the ampless S3 bucket configuration as a plain options object
+ * suitable for `defineStorage(...)`. Access map:
  *   - `public/media/*`   — guest read, admin/editor full
  *   - `public/plugins/*` — guest read, admin full
  *
@@ -9,14 +10,23 @@ import { defineStorage } from '@aws-amplify/backend'
  * `public/site-settings/*`) are applied by `defineAmplessBackend`
  * after `defineBackend` runs.
  *
- * Return type is `unknown` because Amplify's storage construct type
- * carries internal pnpm paths that don't survive declaration emit —
- * the resulting `storage` resource flows into `defineAmplessBackend`
- * unchanged.
+ * Returning a config object — rather than calling `defineStorage`
+ * internally — keeps the actual `defineStorage` call inside the
+ * user's `amplify/storage/resource.ts`. Amplify Gen 2's import-path
+ * verifier (`@aws-amplify/backend-storage/lib/factory.js`) inspects
+ * the second stack frame and requires the call site to live at
+ * `amplify/storage/resource.ts`; routing through this package fails
+ * that check.
+ *
+ * Usage:
+ *
+ *     // amplify/storage/resource.ts
+ *     import { defineStorage } from '@aws-amplify/backend'
+ *     import { amplessStorageConfig } from '@ampless/backend'
+ *     export const storage = defineStorage(amplessStorageConfig())
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function defineAmplessStorage(): any {
-  return defineStorage({
+export function amplessStorageConfig(): Parameters<typeof defineStorage>[0] {
+  return {
     name: 'amplessMedia',
     access: (allow) => ({
       'public/media/*': [
@@ -28,5 +38,5 @@ export function defineAmplessStorage(): any {
         allow.groups(['ampless-admin']).to(['read', 'write', 'delete']),
       ],
     }),
-  })
+  }
 }

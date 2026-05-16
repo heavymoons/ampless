@@ -13,8 +13,8 @@ export default defineConfig({
   dts: true,
   clean: true,
   // Backend factories are consumed in two distinct contexts:
-  //   1. The main entry (defineAmplessBackend, defineAmplessAuth,
-  //      defineAmplessStorage, schema helpers) runs inside Amplify's
+  //   1. The main entry (defineAmplessBackend, amplessAuthConfig,
+  //      amplessStorageConfig, schema helpers) runs inside Amplify's
   //      CDK synth — `@aws-amplify/backend` and `aws-cdk-lib` are
   //      always already present in that environment, so they stay
   //      external (peer deps).

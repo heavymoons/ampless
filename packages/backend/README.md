@@ -38,11 +38,14 @@ export default defineAmplessBackend({
 ### `amplify/auth/resource.ts`
 
 ```ts
-import { defineAmplessAuth } from '@ampless/backend'
+import { defineAuth } from '@aws-amplify/backend'
+import { amplessAuthConfig } from '@ampless/backend'
 import { postConfirmation } from './post-confirmation/resource'
 
-export const auth = defineAmplessAuth({ postConfirmation })
+export const auth = defineAuth(amplessAuthConfig({ postConfirmation }))
 ```
+
+> `defineAuth` must live in `amplify/auth/resource.ts` itself. Amplify Gen 2's import-path verifier inspects the call site of `defineAuth` / `defineData` / `defineStorage` and throws `Amplify Auth must be defined in amplify/auth/resource.ts` if it's invoked from any other file (including a `node_modules/@ampless/backend/...` wrapper). `amplessAuthConfig` returns the props object so you can call `defineAuth(...)` here without losing the ampless defaults.
 
 ### `amplify/data/resource.ts`
 
@@ -65,9 +68,12 @@ The three AppSync JS resolver files (`list-published-posts.js`, `get-published-p
 ### `amplify/storage/resource.ts`
 
 ```ts
-import { defineAmplessStorage } from '@ampless/backend'
-export const storage = defineAmplessStorage()
+import { defineStorage } from '@aws-amplify/backend'
+import { amplessStorageConfig } from '@ampless/backend'
+export const storage = defineStorage(amplessStorageConfig())
 ```
+
+> Same import-path verifier constraint as auth — `defineStorage` has to be called from this file directly. `amplessStorageConfig` returns the props object.
 
 ### Lambda thin shells
 
@@ -102,7 +108,7 @@ export { handler } from '@ampless/backend/functions/api-key-renewer'
 
 ## Sub-paths
 
-- `@ampless/backend` — `defineAmplessBackend`, `defineAmplessAuth`, `defineAmplessStorage`, `amplessSchemaModels`, `extendAmplessSchema`, `defaultAuthorizationModes`
+- `@ampless/backend` — `defineAmplessBackend`, `amplessAuthConfig`, `amplessStorageConfig`, `amplessSchemaModels`, `extendAmplessSchema`, `defaultAuthorizationModes`
 - `@ampless/backend/auth/post-confirmation` — Lambda handler
 - `@ampless/backend/events/dispatcher` — Lambda handler
 - `@ampless/backend/events/processor-trusted` — `createProcessorTrustedHandler({ plugins, site })`
