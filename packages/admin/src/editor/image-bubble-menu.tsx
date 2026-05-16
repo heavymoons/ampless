@@ -1,6 +1,7 @@
 'use client'
 
-import { BubbleMenu, type Editor } from '@tiptap/react'
+import { type Editor } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import { Trash2, Pencil, ImageIcon, Maximize2 } from 'lucide-react'
 import { Button, cn } from '@ampless/runtime/ui'
 import { useT } from '../components/i18n-provider.js'
@@ -35,8 +36,8 @@ export function ImageBubbleMenu({ editor }: ImageBubbleMenuProps) {
   return (
     <BubbleMenu
       editor={editor}
-      shouldShow={({ editor }) => editor.isActive('image')}
-      tippyOptions={{ duration: 100, placement: 'top' }}
+      shouldShow={({ editor }: { editor: Editor }) => editor.isActive('image')}
+      options={{ placement: 'top' }}
     >
       <div className="flex items-center gap-1 rounded-md border bg-popover p-1 shadow">
         <Button
