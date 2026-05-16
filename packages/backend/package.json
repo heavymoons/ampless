@@ -1,0 +1,78 @@
+{
+  "name": "@ampless/backend",
+  "version": "0.1.0",
+  "description": "Amplify Gen 2 backend factories for ampless: auth, data, storage, event processors, API key renewer",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./auth/post-confirmation": {
+      "import": "./dist/auth/post-confirmation.js",
+      "types": "./dist/auth/post-confirmation.d.ts"
+    },
+    "./events/dispatcher": {
+      "import": "./dist/events/dispatcher.js",
+      "types": "./dist/events/dispatcher.d.ts"
+    },
+    "./events/processor-trusted": {
+      "import": "./dist/events/processor-trusted.js",
+      "types": "./dist/events/processor-trusted.d.ts"
+    },
+    "./events/processor-untrusted": {
+      "import": "./dist/events/processor-untrusted.js",
+      "types": "./dist/events/processor-untrusted.d.ts"
+    },
+    "./functions/api-key-renewer": {
+      "import": "./dist/functions/api-key-renewer.js",
+      "types": "./dist/functions/api-key-renewer.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/backend"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/backend#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "dependencies": {
+    "ampless": "workspace:*",
+    "@aws-sdk/client-appsync": "^3.717.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.717.0",
+    "@aws-sdk/client-dynamodb": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/client-sqs": "^3.717.0",
+    "@aws-sdk/lib-dynamodb": "^3.717.0",
+    "@aws-sdk/util-dynamodb": "^3.717.0"
+  },
+  "peerDependencies": {
+    "@aws-amplify/backend": "^1",
+    "aws-cdk-lib": "^2"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.13.0",
+    "@types/aws-lambda": "^8.10.147",
+    "aws-cdk-lib": "^2.174.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "ampless",
+    "backend",
+    "amplify",
+    "cms"
+  ]
+}

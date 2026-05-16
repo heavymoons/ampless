@@ -1,0 +1,310 @@
+import { defineBackend } from '@aws-amplify/backend'
+import { Effect, PolicyStatement, AnyPrincipal } from 'aws-cdk-lib/aws-iam'
+import type { CfnBucket } from 'aws-cdk-lib/aws-s3'
+import { Duration, Stack } from 'aws-cdk-lib'
+import { Queue } from 'aws-cdk-lib/aws-sqs'
+import { StartingPosition } from 'aws-cdk-lib/aws-lambda'
+import { DynamoEventSource, SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources'
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events'
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets'
+
+// `defineBackend`'s parameter is a record of resources. We can't import
+// stricter types (defineAuth / defineData / defineStorage / defineFunction
+// return types) without coupling this factory to the host project's
+// specific schema — and that schema is built dynamically via
+// `extendAmplessSchema(a, customModels)` in the user's resource.ts.
+// Use `Parameters<typeof defineBackend>[0]` to match defineBackend's own
+// loose typing and let CDK / Amplify do its usual runtime wiring.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AuthResource = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DataResource = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type StorageResource = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FunctionResource = any
+
+export interface DefineAmplessBackendOpts {
+  auth: AuthResource
+  data: DataResource
+  storage: StorageResource
+  postConfirmation: FunctionResource
+  eventDispatcher: FunctionResource
+  processorTrusted: FunctionResource
+  processorUntrusted: FunctionResource
+  apiKeyRenewer: FunctionResource
+}
+
+// The return type of `defineBackend` is parameterised on the input
+// resource record, and CDK's CloudFormation construct types refuse to
+// be unified with our loose `any` resource entries. The caller never
+// reads this through a typed handle in practice (everything happens
+// via Amplify's `amplify_outputs.json` and the generated `Schema`
+// client), so we surface the value as `unknown` and let consumers
+// re-export it directly.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AmplessBackend = any
+
+/**
+ * The end-to-end ampless backend wiring: identical to the 251-line
+ * `backend.ts` that used to live in `templates/_shared/amplify/`,
+ * but parameterised on the resource objects so users only have to
+ * compose the imports.
+ *
+ * What it does, in order:
+ *   1. Calls `defineBackend` with every Ampless resource.
+ *   2. Opens up the S3 bucket to anonymous reads under `public/*`
+ *      plus a permissive CORS rule for cross-origin asset fetches.
+ *   3. Relaxes the Cognito password policy to length-only.
+ *   4. Grants the post-confirmation Lambda permission to add
+ *      newly-confirmed users to Cognito groups.
+ *   5. Enables DynamoDB Streams on Post + KvStore, provisions
+ *      Trusted/Untrusted SQS queues with a shared DLQ, wires the
+ *      dispatcher Lambda to both streams and both queues, and
+ *      grants the trusted processor scoped data / S3 access.
+ *   6. Schedules the AppSync API key renewer to run monthly.
+ *
+ * The user-side `amplify/backend.ts` becomes:
+ *
+ *     import { defineAmplessBackend } from '@ampless/backend'
+ *     import { auth } from './auth/resource'
+ *     import { data } from './data/resource'
+ *     // ...
+ *     export default defineAmplessBackend({ auth, data, ... })
+ */
+export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBackend {
+  const backend = defineBackend({
+    auth: opts.auth,
+    data: opts.data,
+    storage: opts.storage,
+    postConfirmation: opts.postConfirmation,
+    eventDispatcher: opts.eventDispatcher,
+    processorTrusted: opts.processorTrusted,
+    processorUntrusted: opts.processorUntrusted,
+    apiKeyRenewer: opts.apiKeyRenewer,
+  })
+
+  // --- Storage: make `public/*` directly fetchable from the browser ---
+  const cfnBucket = backend.storage.resources.cfnResources.cfnBucket as CfnBucket
+  cfnBucket.publicAccessBlockConfiguration = {
+    blockPublicAcls: true,
+    blockPublicPolicy: false,
+    ignorePublicAcls: true,
+    restrictPublicBuckets: false,
+  }
+
+  // CORS so cross-origin asset loads work from the public site —
+  // fonts referenced from CSS, ES modules with `crossorigin`, source
+  // maps, fetch() / XMLHttpRequest reading the response body. Plain
+  // `<link>` / `<script>` / `<img>` already work without CORS (no-CORS
+  // loads), but anything that wants to *read* the bytes cross-origin
+  // needs these headers. AllowedOrigins is `*` because uploads are
+  // already public (the bucket policy grants anonymous s3:GetObject
+  // on `public/*`); CORS just lets the browser read what's already
+  // publicly fetchable.
+  cfnBucket.corsConfiguration = {
+    corsRules: [
+      {
+        allowedMethods: ['GET', 'HEAD'],
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+        maxAge: 3000,
+      },
+    ],
+  }
+
+  backend.storage.resources.bucket.addToResourcePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      principals: [new AnyPrincipal()],
+      actions: ['s3:GetObject'],
+      resources: [`${backend.storage.resources.bucket.bucketArn}/public/*`],
+    })
+  )
+
+  // --- Auth: relax Cognito password policy to length-only ---
+  //
+  // `defineAuth` defaults to the Cognito-recommended policy: 8+ chars
+  // AND uppercase AND lowercase AND number AND symbol. That's stricter
+  // than the admin UX warrants for a single-tenant CMS — we want
+  // "minimum 8 characters" full stop. Override directly on the CFN
+  // user pool.
+  const cfnUserPool = backend.auth.resources.cfnResources.cfnUserPool
+  cfnUserPool.policies = {
+    passwordPolicy: {
+      minimumLength: 8,
+      requireLowercase: false,
+      requireUppercase: false,
+      requireNumbers: false,
+      requireSymbols: false,
+      temporaryPasswordValidityDays: 7,
+    },
+  }
+
+  // --- Auth: post-confirmation Lambda permissions ---
+  backend.postConfirmation.resources.lambda.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['cognito-idp:AdminAddUserToGroup', 'cognito-idp:ListUsersInGroup'],
+      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
+    })
+  )
+
+  // --- Event system: DynamoDB Streams → SQS (×2) → trust_level Lambdas ---
+  //
+  // Architecture:
+  //   Post Stream → event-dispatcher → SQS-trusted    → processor-trusted
+  //                                  → SQS-untrusted  → processor-untrusted
+  //
+  // Each processor's IAM role is scoped to what its plugins are allowed to
+  // touch (trusted = read posts + write own S3 path; untrusted = nothing).
+  // Failures retry up to 3 times then go to a shared DLQ.
+
+  // 1. Enable streams on the Post and KvStore tables. Amplify Gen 2 wraps
+  //    each table in a custom resource (AmplifyDynamoDbTable), so we set
+  //    the stream spec on the cfnResources entry rather than on a stock
+  //    CfnTable.
+  const postTable = backend.data.resources.tables['Post']
+  const cfnPostTable = backend.data.resources.cfnResources.amplifyDynamoDbTables['Post']
+  cfnPostTable.streamSpecification = { streamViewType: 'NEW_AND_OLD_IMAGES' }
+
+  const kvTable = backend.data.resources.tables['KvStore']
+  const cfnKvTable = backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore']
+  cfnKvTable.streamSpecification = { streamViewType: 'NEW_AND_OLD_IMAGES' }
+  // DynamoDB TTL: rows whose `ttl` attribute is past `now` get garbage
+  // collected (≤48h delay). Lets KvStore double as a cache.
+  cfnKvTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
+
+  const eventsStack = backend.createStack('amplessEvents')
+
+  // 2. Shared dead-letter queue.
+  const eventsDlq = new Queue(eventsStack, 'EventsDlq', {
+    retentionPeriod: Duration.days(14),
+  })
+
+  // 3. Per-trust-level main queues.
+  const trustedQueue = new Queue(eventsStack, 'TrustedEventsQueue', {
+    visibilityTimeout: Duration.seconds(120),
+    deadLetterQueue: { maxReceiveCount: 3, queue: eventsDlq },
+  })
+  const untrustedQueue = new Queue(eventsStack, 'UntrustedEventsQueue', {
+    visibilityTimeout: Duration.seconds(60),
+    deadLetterQueue: { maxReceiveCount: 3, queue: eventsDlq },
+  })
+
+  // 4. Dispatcher Lambda: Stream → both SQS queues.
+  const dispatcherFn = backend.eventDispatcher.resources.lambda
+  dispatcherFn.addEventSource(
+    new DynamoEventSource(postTable, {
+      startingPosition: StartingPosition.LATEST,
+      batchSize: 10,
+      retryAttempts: 3,
+      bisectBatchOnError: true,
+    })
+  )
+  // Also dispatch KvStore changes so site-settings updates trigger the
+  // S3 cache rebuild. The dispatcher inspects the row's PK and only
+  // emits events for `siteconfig:*` items.
+  dispatcherFn.addEventSource(
+    new DynamoEventSource(kvTable, {
+      startingPosition: StartingPosition.LATEST,
+      batchSize: 10,
+      retryAttempts: 3,
+      bisectBatchOnError: true,
+    })
+  )
+  trustedQueue.grantSendMessages(dispatcherFn)
+  untrustedQueue.grantSendMessages(dispatcherFn)
+  dispatcherFn.addEnvironment('TRUSTED_QUEUE_URL', trustedQueue.queueUrl)
+  dispatcherFn.addEnvironment('UNTRUSTED_QUEUE_URL', untrustedQueue.queueUrl)
+
+  // 5. Trusted processor: SQS → plugin handlers, with read on posts + write
+  //    on own S3 plugin paths.
+  const trustedFn = backend.processorTrusted.resources.lambda
+  trustedFn.addEventSource(new SqsEventSource(trustedQueue, { batchSize: 5 }))
+  // grantReadData covers the table itself but not its GSIs in Amplify's
+  // custom AmplifyDynamoDbTable. Add explicit access to byStatus and any
+  // future indexes via index/*.
+  postTable.grantReadData(trustedFn)
+  trustedFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['dynamodb:Query', 'dynamodb:Scan'],
+      resources: [`${postTable.tableArn}/index/*`],
+    })
+  )
+  // KvStore: trusted processor needs to read site settings (to expand
+  // the cache to S3 on update events). No write needed — settings are
+  // written from the admin UI via AppSync.
+  kvTable.grantReadData(trustedFn)
+  // S3 grant is bucket-wide for `public/plugins/*` rather than per-plugin
+  // prefix. Rationale:
+  //   1. v0.1 trusted plugins are first-party only (see ARCHITECTURE.md §4),
+  //      so cross-plugin tampering isn't a threat model we're defending.
+  //   2. Per-plugin enumeration (`public/plugins/{name}/*` for each name)
+  //      doesn't scale — IAM inline policies cap at 10 KiB, breaking around
+  //      50 plugins; incompatible with the v0.2 marketplace direction.
+  //   3. The real key namespacing is enforced in code: `writePublicAsset`
+  //      always prefixes with the calling plugin's name, so a plugin can't
+  //      overwrite a sibling's path without bypassing the runtime context.
+  //   4. Strict per-plugin isolation is planned for v0.2 via plugin-per-Lambda
+  //      with capability-based dynamic IAM (see roadmap).
+  trustedFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:PutObject', 's3:DeleteObject'],
+      resources: [
+        `${backend.storage.resources.bucket.bucketArn}/public/plugins/*`,
+        // Built-in cache: rebuildSiteSettingsCache writes the per-site
+        // JSON the public site reads. Without this entry the
+        // `site.settings.updated` handler S3 PutObject call fails
+        // silently (CloudWatch shows AccessDenied; the public site never
+        // sees theme.active overrides because the cache file never
+        // appears).
+        `${backend.storage.resources.bucket.bucketArn}/public/site-settings/*`,
+      ],
+    })
+  )
+  trustedFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
+  trustedFn.addEnvironment('AMPLESS_POST_TABLE', postTable.tableName)
+  trustedFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
+
+  // 6. Untrusted processor: SQS only, zero AWS data permissions.
+  const untrustedFn = backend.processorUntrusted.resources.lambda
+  untrustedFn.addEventSource(new SqsEventSource(untrustedQueue, { batchSize: 5 }))
+
+  // --- AppSync API key auto-renewal ---
+  //
+  // The public read path (listPublishedPosts / getPublishedPost / listPostsByTag)
+  // authenticates with an AppSync API key because `a.handler.custom` doesn't
+  // support `allow.guest()` in Amplify Gen 2 (verified 2026-04). The key has a
+  // 365-day TTL and the public site silently 401s the moment it expires.
+  //
+  // To eliminate the rotation runbook, a monthly EventBridge rule pings a Lambda
+  // that calls UpdateApiKey to push `expires` back to "now + 364 days". The key
+  // id stays the same — amplify_outputs.json values remain valid, no rebuild
+  // of the Next.js app required.
+  const graphqlApi = backend.data.resources.cfnResources.cfnGraphqlApi
+  const apiKeyRenewerFn = backend.apiKeyRenewer.resources.lambda
+
+  apiKeyRenewerFn.addEnvironment('APPSYNC_API_ID', graphqlApi.attrApiId)
+  apiKeyRenewerFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['appsync:ListApiKeys', 'appsync:UpdateApiKey'],
+      // attrArn is `arn:aws:appsync:{region}:{account}:apis/{apiId}`; the API
+      // key resources live underneath, so a wildcard suffix covers them.
+      resources: [graphqlApi.attrArn, `${graphqlApi.attrArn}/*`],
+    })
+  )
+
+  // Schedule: run on the 1st of every month at 03:00 UTC. Cadence isn't
+  // load-bearing; even quarterly would keep ≥ ~275 days of headroom. Monthly
+  // just gives wide margin on missed invocations.
+  new Rule(Stack.of(apiKeyRenewerFn), 'ApiKeyRenewerSchedule', {
+    schedule: Schedule.cron({ minute: '0', hour: '3', day: '1', month: '*', year: '*' }),
+    targets: [new LambdaFunction(apiKeyRenewerFn)],
+  })
+
+  return backend
+}

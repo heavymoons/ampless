@@ -1,17 +1,8 @@
-import { defineAuth } from '@aws-amplify/backend'
+import { defineAmplessAuth } from '@ampless/backend'
 import { postConfirmation } from './post-confirmation/resource.js'
 
-// `defineAuth` provisions a Cognito User Pool plus an Identity Pool.
-// Public reads from the blog use an AppSync API key, not the Identity
-// Pool guest role, because Amplify Gen 2 `a.handler.custom` resolvers
-// don't accept `allow.guest()` (only apiKey / userPool / lambda /
-// group / owner). See amplify/data/resource.ts and RUNBOOK.md.
-export const auth = defineAuth({
-  loginWith: {
-    email: true,
-  },
-  groups: ['ampless-admin', 'ampless-editor', 'ampless-reader'],
-  triggers: {
-    postConfirmation,
-  },
-})
+// Provisions a Cognito User Pool + Identity Pool with the three role
+// groups (ampless-admin, ampless-editor, ampless-reader) and wires in
+// the post-confirmation Lambda that promotes the first confirmed user
+// to ampless-admin.
+export const auth = defineAmplessAuth({ postConfirmation })
