@@ -1,14 +1,9 @@
-'use client'
-
-import { Amplify } from 'aws-amplify'
-import outputs from '../amplify_outputs.json'
-
-let configured = false
+// Back-compat shim. The Amplify SDK is now configured by the admin's
+// `<AdminProviders>` bootstrap (mounted by the layout factory in
+// `@ampless/admin/pages`), so most call sites no longer need to call
+// `configureAmplify()` themselves. Kept as a no-op so any lingering
+// `import '@/lib/amplify'` side-effect imports stay safe.
 
 export function configureAmplify() {
-  if (configured) return
-  Amplify.configure(outputs, { ssr: true })
-  configured = true
+  // intentionally empty — admin bootstrap handles this
 }
-
-configureAmplify()

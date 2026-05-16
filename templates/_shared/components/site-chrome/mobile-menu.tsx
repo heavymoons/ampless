@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { isTagListUrl, type LinkListItem } from 'ampless'
-import { Sheet, SheetClose, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from '@ampless/runtime/ui'
 
 interface Props {
   items: LinkListItem[]

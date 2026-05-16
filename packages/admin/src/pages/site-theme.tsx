@@ -1,0 +1,67 @@
+import Link from 'next/link'
+import { siteFor, resolveLocalized, type ThemeManifest, type LocalizedString } from 'ampless'
+import type { Admin } from '../index.js'
+import { ThemeSettingsForm } from '../components/theme-settings-form.js'
+
+interface Props {
+  params: Promise<{ siteId: string }>
+}
+
+interface ThemeListEntry {
+  name: string
+  manifest: ThemeManifest
+}
+
+/**
+ * Theme admin: pick which installed theme is active for this site, plus
+ * edit the active theme's customizable manifest fields. Reads through
+ * the S3 site-settings cache (same path the public site uses) so the
+ * admin sees the same effective state visitors see.
+ *
+ * The full `themeList` (one entry per installed theme manifest) is
+ * passed in because the registry lives in the user's project — admin
+ * stays agnostic of which themes a project happens to install.
+ */
+export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<ThemeListEntry>) {
+  const { cmsConfig, t, locale, loadThemeConfig } = admin
+
+  async function ThemePage({ params }: Props) {
+    const { siteId } = await params
+    const site = siteFor(siteId, cmsConfig)
+    const theme = await loadThemeConfig(siteId)
+
+    const themeOptions = themeList.map((m) => ({
+      value: m.name,
+      label: m.manifest.label as LocalizedString,
+      description: m.manifest.description as LocalizedString | undefined,
+    }))
+
+    return (
+      <div className="p-8">
+        <div className="mb-8">
+          <Link
+            href={`/admin/sites/${siteId}`}
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            ← {site.name}
+          </Link>
+          <h1 className="mt-2 text-3xl font-bold">{t('theme.title')}</h1>
+          <p className="text-sm text-muted-foreground">
+            {t('common.active')}:{' '}
+            <strong>{resolveLocalized(theme.manifest.label, locale)}</strong> ({theme.activeTheme})
+          </p>
+        </div>
+
+        <ThemeSettingsForm
+          siteId={siteId}
+          manifest={theme.manifest}
+          activeTheme={theme.activeTheme}
+          themeOptions={themeOptions}
+          initial={theme.values}
+        />
+      </div>
+    )
+  }
+
+  return ThemePage
+}

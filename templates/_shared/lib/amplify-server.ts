@@ -1,6 +1,7 @@
-import { createServerRunner } from '@aws-amplify/adapter-nextjs'
-import outputs from '../amplify_outputs.json'
+// Back-compat shim. The Amplify SSR server runner moved to
+// `@ampless/admin` (L2 extraction). Existing call sites that import
+// `runWithAmplifyServerContext` from here keep working.
 
-export const { runWithAmplifyServerContext } = createServerRunner({
-  config: outputs,
-})
+import { admin } from './admin'
+
+export const { runWithAmplifyServerContext } = admin.amplifyServer

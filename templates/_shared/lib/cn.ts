@@ -1,6 +1,5 @@
-import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+// Back-compat shim. `cn()` moved to `@ampless/runtime/ui` (L2
+// extension) so admin + theme-side site-chrome share one source of
+// truth. New code should import `cn` from `@ampless/runtime/ui`.
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
+export { cn } from '@ampless/runtime/ui'

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Menu } from 'lucide-react'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetTrigger } from '@ampless/runtime/ui'
 
 interface Props {
   /** Sidebar content — typically `<SiteSidebar ... />`. */

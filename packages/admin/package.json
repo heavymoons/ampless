@@ -1,0 +1,83 @@
+{
+  "name": "@ampless/admin",
+  "version": "0.1.0",
+  "description": "Admin UI for ampless: post editor, media manager, site/theme settings",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./pages": {
+      "import": "./dist/pages/index.js",
+      "types": "./dist/pages/index.d.ts"
+    },
+    "./api": {
+      "import": "./dist/api/index.js",
+      "types": "./dist/api/index.d.ts"
+    },
+    "./components": {
+      "import": "./dist/components/index.js",
+      "types": "./dist/components/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/admin"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/admin#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "dependencies": {
+    "ampless": "workspace:*",
+    "@ampless/runtime": "workspace:*",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@tiptap/extension-image": "^2.10.4",
+    "@tiptap/extension-link": "^2.10.4",
+    "@tiptap/pm": "^2.10.4",
+    "@tiptap/react": "^2.10.4",
+    "@tiptap/starter-kit": "^2.10.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "react-image-crop": "^11.0.7",
+    "tailwind-merge": "^2.6.0"
+  },
+  "peerDependencies": {
+    "next": "^15",
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19",
+    "aws-amplify": "^6",
+    "@aws-amplify/adapter-nextjs": "^1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "aws-amplify": "^6.10.0",
+    "@aws-amplify/adapter-nextjs": "^1.6.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "ampless",
+    "admin",
+    "cms"
+  ]
+}
