@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidateTag } from 'next/cache'
+import { updateTag } from 'next/cache'
 
 /**
  * Force-invalidate the Next.js fetch cache for a site's settings JSON.
@@ -11,7 +11,11 @@ import { revalidateTag } from 'next/cache'
  *
  * The cache tag matches the one used in `theme-active.ts` and
  * `theme-config.ts` (in `@ampless/runtime`): `site-settings:{siteId}`.
+ *
+ * Uses `updateTag` (Next 16+) — the read-your-own-writes variant of
+ * the old `revalidateTag`, which is the right semantics inside a
+ * server action (this entire module is `'use server'`).
  */
 export async function invalidateSiteSettingsCache(siteId: string): Promise<void> {
-  revalidateTag(`site-settings:${siteId}`)
+  updateTag(`site-settings:${siteId}`)
 }
