@@ -50,4 +50,7 @@ jobs:
           # the bearer token and the registry rejects it (manifests as 404
           # on PUT for first-time publishes).
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
+          # NPM_CONFIG_PROVENANCE intentionally NOT set: npm provenance
+          # requires a public GitHub source repository. ampless's repo
+          # is private during the pre-1.0 closed-development phase. When
+          # the repo flips to public (around v1.0 RC), re-enable this.
