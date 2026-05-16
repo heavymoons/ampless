@@ -14,6 +14,8 @@
     "@ampless/runtime": "0.1.0"
   },
   "changesets": [
+    "auth-storage-config-helpers",
+    "dep-major-bumps",
     "initial-alpha"
   ]
 }
