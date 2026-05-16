@@ -20,6 +20,7 @@ function shouldKeep(rel: string): boolean {
   // shouldn't ship in the published template.
   if (rel.startsWith('node_modules')) return false
   if (rel.startsWith('.next')) return false
+  if (rel.startsWith('.turbo')) return false
   if (rel.startsWith('amplify_outputs')) return false
   if (rel.startsWith('.amplify')) return false
   if (rel.endsWith('tsconfig.tsbuildinfo')) return false

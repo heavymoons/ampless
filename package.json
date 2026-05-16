@@ -11,7 +11,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node scripts/sync-template-versions.mjs",
+    "sync-template-versions": "node scripts/sync-template-versions.mjs",
     "release": "turbo run build && changeset publish"
   },
   "devDependencies": {

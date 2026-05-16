@@ -2,8 +2,10 @@
 
 CLI scaffolding tool for [ampless](https://github.com/heavymoons/ampless) projects.
 
+> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0. Use the `@alpha` tag (the `@latest` tag won't exist until v1.0).
+
 ```bash
-npx create-ampless@latest
+npx create-ampless@alpha
 ```
 
 The wizard walks you through:

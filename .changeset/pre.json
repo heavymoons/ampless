@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@ampless/admin": "0.1.0",
+    "ampless": "0.1.0",
+    "@ampless/backend": "0.1.0",
+    "create-ampless": "0.1.0",
+    "@ampless/mcp-server": "0.1.0",
+    "@ampless/plugin-og-image": "0.1.0",
+    "@ampless/plugin-rss": "0.1.0",
+    "@ampless/plugin-seo": "0.1.0",
+    "@ampless/plugin-webhook": "0.1.0",
+    "@ampless/runtime": "0.1.0"
+  },
+  "changesets": [
+    "initial-alpha"
+  ]
+}

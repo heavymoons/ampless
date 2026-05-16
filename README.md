@@ -2,7 +2,7 @@
 
 **Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
 
-> Pre-release, closed development until v1.0 RC. Shape is settling but APIs may still evolve.
+> **Pre-release / alpha.** All packages publish under the `alpha` npm dist-tag (`0.x-alpha.y` semver). Breaking changes are possible in any minor version until v1.0 RC. The repo stays private until v1.0 RC — npm packages remain installable, but the source isn't browsable on GitHub yet.
 
 ## Why ampless
 
@@ -14,17 +14,19 @@
 ## Quick start
 
 ```bash
-npx create-ampless@latest
+npx create-ampless@alpha my-site
 ```
 
 The CLI scaffolds a Next.js 15 (App Router) project. Then:
 
 ```bash
-cd <your-project>
+cd my-site
 npm install
 npx ampx sandbox      # provisions AWS dev resources, generates amplify_outputs.json
 npm run dev           # http://localhost:3000
 ```
+
+> Use the `@alpha` tag — `@latest` is reserved for the eventual v1.0 release.
 
 Sign up at `/login` — the first registered user is automatically promoted to the `ampless-admin` Cognito group.
 

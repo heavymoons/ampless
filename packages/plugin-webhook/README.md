@@ -2,12 +2,14 @@
 
 POST ampless events to one or more external URLs.
 
+> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+
 Runs in the **untrusted** Lambda — it makes outbound HTTPS calls and never touches AWS data, so a compromised webhook receiver can't pivot into your CMS.
 
 ## Install
 
 ```bash
-npm install @ampless/plugin-webhook
+npm install @ampless/plugin-webhook@alpha
 ```
 
 ## Configure

@@ -2,6 +2,8 @@
 
 MCP (Model Context Protocol) server for [ampless](https://github.com/heavymoons/ampless). Lets AI agents — Claude Desktop, Cursor, Claude Code, and anything else that speaks MCP — read and write posts and upload media on your CMS instance.
 
+> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+
 ## Tools
 
 | Tool | What it does |
@@ -18,7 +20,7 @@ The server signs in to your Cognito User Pool with the credentials you provide (
 
 ## Install
 
-The server is published as a Node CLI; you typically don't install it globally — point your MCP client at `npx -y @ampless/mcp-server` instead.
+The server is published as a Node CLI; you typically don't install it globally — point your MCP client at `npx -y @ampless/mcp-server@alpha` instead.
 
 ## Configure
 

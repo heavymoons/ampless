@@ -2,12 +2,14 @@
 
 RSS 2.0 feed plugin for [ampless](https://github.com/heavymoons/ampless).
 
+> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+
 Regenerates `feed.xml` to S3 every time a post is published, unpublished, updated, or deleted. The Next.js `/feed.xml` route serves the latest version through.
 
 ## Install
 
 ```bash
-npm install @ampless/plugin-rss
+npm install @ampless/plugin-rss@alpha
 ```
 
 ## Configure

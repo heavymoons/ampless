@@ -5,6 +5,8 @@ editor (Tiptap + Markdown + HTML), media manager (S3 + image processing),
 site/theme settings, locale-aware UI strings, and the Next.js page
 factories that wire it all together.
 
+> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+
 ## Why a library?
 
 The admin UI used to live in the template project. Every bug fix and
@@ -16,7 +18,7 @@ flow as any other dependency.
 ## Install
 
 ```bash
-npm install @ampless/admin @ampless/runtime ampless
+npm install @ampless/admin@alpha @ampless/runtime@alpha ampless@alpha
 ```
 
 Peer-installs: `next`, `react`, `react-dom`, `aws-amplify`,
