@@ -2,6 +2,7 @@ import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
 // import webhookPlugin from '@ampless/plugin-webhook'
+// import ogImagePlugin, { loadFontFromUrl } from '@ampless/plugin-og-image'
 
 export default defineConfig({
   site: {
@@ -87,6 +88,23 @@ export default defineConfig({
     //       events: ['content.published', 'content.unpublished', 'content.deleted'],
     //     },
     //   ],
+    // }),
+    //
+    // Per-post OG images: SNS crawlers hit `/og/<slug>` and we render
+    // a JSX card → PNG via Next.js `ImageResponse`. Requires at least one
+    // font — ship a .ttf from your CDN or `/public` directory.
+    //
+    // ogImagePlugin({
+    //   fonts: [
+    //     {
+    //       name: 'Inter',
+    //       data: loadFontFromUrl('https://example.com/fonts/Inter-Regular.ttf'),
+    //       weight: 400,
+    //     },
+    //   ],
+    //   // 'content' picks the first image in the post body. Use 'theme'
+    //   // + themeImageUrl for a fixed banner, or 'none' for text-only.
+    //   image: 'content',
     // }),
   ],
 })

@@ -55,7 +55,11 @@ export type {
   PluginMetadata,
   PluginRuntimeContext,
   TrustLevel,
+  OgImageConfig,
+  OgImageFont,
+  OgImageRenderContext,
 } from './plugin.js'
+export { extractFirstImageUrl } from './post-images.js'
 export type {
   EventType,
   ContentEventType,

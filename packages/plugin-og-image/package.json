@@ -1,0 +1,55 @@
+{
+  "name": "@ampless/plugin-og-image",
+  "version": "0.1.0",
+  "description": "Dynamic Open Graph image generation plugin for ampless",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./load-image": {
+      "import": "./dist/load-image.js",
+      "types": "./dist/load-image.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-og-image"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "dependencies": {
+    "@jsquash/avif": "^1.2.0",
+    "@jsquash/png": "^3.0.0",
+    "@jsquash/webp": "^1.4.0",
+    "ampless": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "og-image",
+    "opengraph"
+  ]
+}
