@@ -20,6 +20,8 @@
     "initial-alpha",
     "lib-admin-no-ampless",
     "middleware-to-proxy",
+    "preserve-directives-tsup",
+    "proxy-config-inline",
     "shim-tdz-fix"
   ]
 }
