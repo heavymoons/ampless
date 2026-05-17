@@ -20,7 +20,11 @@ export function getDictionary(locale: Locale = admin.locale): Dictionary {
   return adminGetDictionary(locale)
 }
 
-export const t = admin.t
+// Arrow wrapper: defer `admin` resolution to call time. If a future
+// circular import chain triggers i18n.ts before admin.ts has finished
+// initialising, eager `admin.t` would TDZ; calling the method through
+// a wrapper avoids that.
+export const t: typeof admin.t = (key, vars) => admin.t(key, vars)
 
 export function translate(
   _dict: Dictionary,
