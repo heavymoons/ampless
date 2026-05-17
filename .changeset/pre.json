@@ -14,6 +14,7 @@
     "@ampless/runtime": "0.1.0"
   },
   "changesets": [
+    "admin-pages-server-side",
     "auth-storage-config-helpers",
     "dep-major-bumps",
     "i18n-provider-shim-use-client",
