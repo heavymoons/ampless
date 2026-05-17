@@ -1,4 +1,180 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { Plugin } from 'esbuild'
 import { defineConfig } from 'tsup'
+
+// `preserveDirectives` — inline esbuild plugin that re-prepends
+// per-file `'use client'` / `'use server'` directives onto the
+// emitted bundle chunks.
+//
+// Why this exists: tsup (via esbuild) strips per-file directives
+// when it concatenates source modules into a single output. That's
+// fine for app code, but a library shipped to a Next.js consumer
+// loses its server-vs-client boundary metadata, and the consumer
+// ends up evaluating React-hook / class-based client code in the
+// RSC server runtime, blowing up with
+//   `TypeError: Class extends value undefined is not a constructor or null`
+// (react-image-crop's ReactCrop is the typical trigger).
+//
+// Prior attempts (kept for future maintainers' awareness):
+// 1. `rollup-plugin-preserve-directives` — calls a rollup plugin
+//    API tsup doesn't fully implement (`renderChunk.call`).
+// 2. `esbuild-plugin-preserve-directives` — peer-dep / ESM-export
+//    mismatch with our esbuild version.
+// 3. Consumer-side shim `'use client'` — works for thin
+//    re-export shims but admin/pages must stay server components
+//    (they `await headers()` etc.).
+const preserveDirectives: Plugin = {
+  name: 'preserve-directives',
+  setup(build) {
+    const directiveByInput = new Map<string, 'use client' | 'use server'>()
+
+    build.onLoad({ filter: /\.[tj]sx?$/ }, async (args) => {
+      const text = await readFile(args.path, 'utf8')
+      // Match the first non-whitespace token — accept either single or
+      // double quotes, with or without a trailing semicolon. We don't
+      // try to skip leading comments; in this codebase all directives
+      // are the literal first line, and that matches React / Next.js
+      // conventions.
+      const m = text.match(/^\s*['"]use (client|server)['"]\s*;?/)
+      if (m) {
+        directiveByInput.set(args.path, `use ${m[1]}` as 'use client' | 'use server')
+      }
+      // Return undefined so esbuild falls through to its default
+      // loader. We're only using onLoad as a tap to read source text.
+      return undefined
+    })
+
+    // Force write: false so `result.outputFiles` is populated in
+    // `onEnd`. tsup already sets write: false today, but this stays
+    // defensive in case that ever changes.
+    build.initialOptions.write = false
+
+    build.onEnd(async (result) => {
+      if (result.errors.length || !result.metafile || !result.outputFiles) return
+
+      // Strategy: prepend the directive to two kinds of outputs:
+      //
+      //   1. Entry outputs whose own direct inputs include a
+      //      directive-bearing file (e.g. `dist/pages/index.js`
+      //      inlines all the 'use client' page modules — those
+      //      modules' source isn't in a shared chunk, so the
+      //      entry needs the directive itself).
+      //
+      //   2. Entry outputs that are pure re-export shims (their
+      //      sole direct input is the entry source file with no
+      //      directive of its own), and whose imported chunks
+      //      carry the directive (e.g. `dist/components/index.js`
+      //      re-exports from a 'use client' chunk). The entry
+      //      needs the directive so Next.js sees the client
+      //      boundary at the consumer-visible module.
+      //
+      // Internal chunks themselves are NOT marked — marking them
+      // can poison shared chunks that are also imported by server
+      // entries (`dist/index.js` shares chunk-XYZ with the client
+      // components, and a string constant exported from that
+      // chunk must remain accessible server-side).
+      //
+      // Edge case: an entry that reaches both `'use client'` and
+      // `'use server'` inputs. We can't honor both — prepend
+      // `'use client'` and warn. The maintainer should split the
+      // server-action surface into its own entry.
+      const metafileOutputs = result.metafile.outputs
+      const outputRelByAbs = new Map<string, string>()
+      for (const outputRel of Object.keys(metafileOutputs)) {
+        outputRelByAbs.set(path.resolve(process.cwd(), outputRel), outputRel)
+      }
+
+      function directivesFromInputs(
+        info: typeof metafileOutputs[string]
+      ): Set<'use client' | 'use server'> {
+        const dirs = new Set<'use client' | 'use server'>()
+        for (const inputRel of Object.keys(info.inputs)) {
+          const abs = path.resolve(process.cwd(), inputRel)
+          const dir = directiveByInput.get(abs)
+          if (dir) dirs.add(dir)
+        }
+        return dirs
+      }
+
+      function directivesFromImportedChunks(
+        info: typeof metafileOutputs[string]
+      ): Set<'use client' | 'use server'> {
+        const dirs = new Set<'use client' | 'use server'>()
+        for (const imp of info.imports ?? []) {
+          const chunkInfo = metafileOutputs[imp.path]
+          if (!chunkInfo) continue
+          for (const d of directivesFromInputs(chunkInfo)) dirs.add(d)
+        }
+        return dirs
+      }
+
+      const encoder = new TextEncoder()
+      for (let i = 0; i < result.outputFiles.length; i++) {
+        const file = result.outputFiles[i]
+        if (!file.path.endsWith('.js')) continue
+        const outputRel = outputRelByAbs.get(file.path)
+        if (!outputRel) continue
+        const info = metafileOutputs[outputRel]
+        if (!info) continue
+        // Skip internal chunks — see strategy comment above.
+        if (!info.entryPoint) continue
+
+        let dirs = directivesFromInputs(info)
+        if (dirs.size === 0) {
+          // No directive among this entry's own inputs. If the
+          // entry is a pure re-export shim — i.e. its only input
+          // is the entry source itself, meaning all the real code
+          // lives in chunks it imports — pull directives from
+          // those chunks. Otherwise (substantive entry with
+          // multiple inlined inputs and none directive-bearing),
+          // leave the entry untagged; that matches files like
+          // `dist/index.js` and `dist/api/index.js` which inline
+          // server-only code and must not be marked client.
+          const inputCount = Object.keys(info.inputs).length
+          const isPureReExport = inputCount <= 1
+          if (isPureReExport) {
+            dirs = directivesFromImportedChunks(info)
+          }
+        }
+        if (dirs.size === 0) continue
+
+        if (dirs.size > 1) {
+          console.warn(
+            `[preserve-directives] Output ${outputRel} reaches both ` +
+              `${[...dirs].join(' and ')} inputs. ` +
+              `Prepending 'use client' (the stricter boundary). ` +
+              `Split-and-fix per-directive output is out of scope — ` +
+              `adjust tsup entry/splitting if a server-action surface ` +
+              `needs its own bundle.`
+          )
+        }
+
+        const directive: 'use client' | 'use server' = dirs.has('use client')
+          ? 'use client'
+          : ([...dirs][0] as 'use server')
+        const existing = file.text
+        if (
+          existing.startsWith(`'${directive}'`) ||
+          existing.startsWith(`"${directive}"`)
+        ) {
+          continue
+        }
+        const next = `'${directive}';\n${existing}`
+        // tsup runs with `write: false`, so files are not on disk
+        // yet at this point. We rewrite the in-memory outputFiles
+        // entries; tsup will then write them out.
+        result.outputFiles[i] = {
+          ...file,
+          contents: encoder.encode(next),
+          hash: file.hash,
+          path: file.path,
+          text: next,
+        }
+      }
+    })
+  },
+}
 
 export default defineConfig({
   entry: [
@@ -10,14 +186,13 @@ export default defineConfig({
   format: ['esm'],
   dts: true,
   clean: true,
-  // NOTE: tsup/esbuild strips per-file `'use client'` / `'use server'`
-  // directives. We rely on the templates' shim files
-  // (components/i18n-provider.tsx, etc.) to carry the directive and
-  // re-establish the client boundary on the consumer side. If we later
-  // need a more robust solution (e.g. for non-shim consumers), a
-  // bespoke esbuild plugin or `splitting: false` + per-entry banner
-  // could work, but neither off-the-shelf plugin we tried is
-  // compatible with current tsup/esbuild versions.
+  // metafile is required so the `preserveDirectives` plugin can map
+  // output chunks back to the input source files that fed them, then
+  // re-prepend the appropriate `'use client'` / `'use server'`
+  // directive. See the plugin's preamble comment above for the
+  // history of why tsup/esbuild needs this.
+  metafile: true,
+  esbuildPlugins: [preserveDirectives],
   // Tiptap, radix, lucide, and other host-supplied deps must stay
   // external — Next.js bundles them once at the app level, so
   // pulling them into admin's bundle would double them (and break
