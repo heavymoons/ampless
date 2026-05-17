@@ -6,6 +6,19 @@
 // surface for v0.1 stays small and overridable later.
 
 export { I18nProvider, useT, useLocale } from './i18n-provider.js'
+export { AdminProviders } from './admin-providers.js'
+// Admin page view components — re-exported here both as an opt-in
+// escape hatch for projects that want to embed admin views outside
+// the bundled `@ampless/admin/pages` factories, AND so tsup splits
+// them into a shared chunk (instead of inlining them into
+// `dist/pages/index.js` and pulling the `'use client'` directive
+// across that server-side entry).
+export { AdminDashboard } from './admin-dashboard.js'
+export { PostsList } from './posts-list-view.js'
+export { NewPostPage } from './new-post-view.js'
+export { EditPostPage } from './edit-post-view.js'
+export { MediaPage } from './media-view.js'
+export { LoginPage } from './login-view.js'
 export {
   ADMIN_SITE_COOKIE,
   readAdminSiteIdFromCookie,

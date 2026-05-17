@@ -3,7 +3,7 @@ import type { Admin } from '../index.js'
 import { I18nProvider } from '../components/i18n-provider.js'
 import { Sidebar } from '../components/sidebar.js'
 import { SiteSelector } from '../components/site-selector.js'
-import { AdminProviders } from './admin-providers.js'
+import { AdminProviders } from '../components/admin-providers.js'
 
 /**
  * Build the admin layout component. Wraps every admin route with:

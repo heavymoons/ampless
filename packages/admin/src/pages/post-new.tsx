@@ -1,18 +1,11 @@
-'use client'
+import { NewPostPage } from '../components/new-post-view.js'
 
-import { PostForm } from '../components/post-form.js'
-import { useT } from '../components/i18n-provider.js'
-
-function NewPostPage() {
-  const t = useT()
-  return (
-    <div className="p-8">
-      <h1 className="mb-8 text-3xl font-bold">{t('posts.form.newTitle')}</h1>
-      <PostForm />
-    </div>
-  )
-}
-
+/**
+ * New post page. The view is a client component — this factory module
+ * stays server-side so `@ampless/admin/pages` can be imported from
+ * Server Components and the `'use client'` boundary is preserved at
+ * the cross-file reference.
+ */
 export function createNewPostPage(_admin: unknown) {
   return NewPostPage
 }

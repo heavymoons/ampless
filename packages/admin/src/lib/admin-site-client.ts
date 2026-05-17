@@ -10,8 +10,9 @@
 // project's config directly.
 
 import { DEFAULT_SITE_ID, isMultiSite, type Config } from 'ampless'
+import { ADMIN_SITE_COOKIE } from './admin-site-cookie.js'
 
-export const ADMIN_SITE_COOKIE = 'admin-site-id'
+export { ADMIN_SITE_COOKIE } from './admin-site-cookie.js'
 
 let cmsConfig: Config | null = null
 

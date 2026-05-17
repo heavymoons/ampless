@@ -53,7 +53,7 @@ const preserveDirectives: Plugin = {
     build.onEnd(async (result) => {
       if (result.errors.length || !result.metafile || !result.outputFiles) return
 
-      // Strategy: prepend the directive to two kinds of outputs:
+      // Strategy: prepend the directive to three kinds of outputs:
       //
       //   1. Entry outputs whose own direct inputs include a
       //      directive-bearing file (e.g. `dist/pages/index.js`
@@ -69,11 +69,26 @@ const preserveDirectives: Plugin = {
       //      needs the directive so Next.js sees the client
       //      boundary at the consumer-visible module.
       //
-      // Internal chunks themselves are NOT marked — marking them
-      // can poison shared chunks that are also imported by server
-      // entries (`dist/index.js` shares chunk-XYZ with the client
-      // components, and a string constant exported from that
-      // chunk must remain accessible server-side).
+      //   3. Internal chunks whose own inputs are entirely
+      //      `'use client'` (no `'use server'` mixed in) — these
+      //      need the directive so consumers that import them
+      //      across a server/client boundary (e.g. a server-side
+      //      `dist/pages/index.js` rendering a client component
+      //      that lives in a shared chunk) see the client
+      //      boundary at the import edge.
+      //
+      // Internal chunks that mix `'use client'` + `'use server'`
+      // inputs are left un-tagged with a warning — neither
+      // directive is correct for the whole file. The maintainer
+      // should split the server-action surface into its own
+      // entry. (`'use client'` chunks can still be safely imported
+      // from server entries: Next.js treats the imported values
+      // as client refs and emits boundary stubs. The dangerous
+      // case — a server-only entry that needs a server-friendly
+      // value from a client-marked chunk — doesn't arise in this
+      // codebase, but if you add one, the symptom will be a
+      // "client function called from server" runtime error and
+      // the fix is to split the chunk.)
       //
       // Edge case: an entry that reaches both `'use client'` and
       // `'use server'` inputs. We can't honor both — prepend
@@ -117,29 +132,50 @@ const preserveDirectives: Plugin = {
         if (!outputRel) continue
         const info = metafileOutputs[outputRel]
         if (!info) continue
-        // Skip internal chunks — see strategy comment above.
-        if (!info.entryPoint) continue
 
+        const isEntry = Boolean(info.entryPoint)
         let dirs = directivesFromInputs(info)
-        if (dirs.size === 0) {
-          // No directive among this entry's own inputs. If the
-          // entry is a pure re-export shim — i.e. its only input
-          // is the entry source itself, meaning all the real code
-          // lives in chunks it imports — pull directives from
-          // those chunks. Otherwise (substantive entry with
-          // multiple inlined inputs and none directive-bearing),
-          // leave the entry untagged; that matches files like
-          // `dist/index.js` and `dist/api/index.js` which inline
-          // server-only code and must not be marked client.
-          const inputCount = Object.keys(info.inputs).length
-          const isPureReExport = inputCount <= 1
-          if (isPureReExport) {
-            dirs = directivesFromImportedChunks(info)
+
+        if (isEntry) {
+          if (dirs.size === 0) {
+            // No directive among this entry's own inputs. If the
+            // entry is a pure re-export shim — i.e. its only input
+            // is the entry source itself, meaning all the real
+            // code lives in chunks it imports — pull directives
+            // from those chunks. Otherwise (substantive entry
+            // with multiple inlined inputs and none
+            // directive-bearing), leave the entry untagged; that
+            // matches files like `dist/index.js` and
+            // `dist/api/index.js` which inline server-only code
+            // and must not be marked client.
+            const inputCount = Object.keys(info.inputs).length
+            const isPureReExport = inputCount <= 1
+            if (isPureReExport) {
+              dirs = directivesFromImportedChunks(info)
+            }
           }
+        } else {
+          // Internal chunk. Only tag if its inputs are purely one
+          // directive (all `'use client'`, or all `'use server'`).
+          // If it mixes both, leave it un-tagged and warn —
+          // neither directive is correct for the whole file, and
+          // the fix is to split the chunk via an explicit entry.
+          if (dirs.size > 1) {
+            console.warn(
+              `[preserve-directives] Internal chunk ${outputRel} mixes ` +
+                `${[...dirs].join(' and ')} inputs. ` +
+                `Leaving un-tagged — neither directive is correct for the ` +
+                `whole file. Split the server-action surface into its own ` +
+                `entry to keep the boundaries clean.`
+            )
+            continue
+          }
+          if (dirs.size === 0) continue
         }
+
         if (dirs.size === 0) continue
 
-        if (dirs.size > 1) {
+        if (isEntry && dirs.size > 1) {
           console.warn(
             `[preserve-directives] Output ${outputRel} reaches both ` +
               `${[...dirs].join(' and ')} inputs. ` +
@@ -182,6 +218,16 @@ export default defineConfig({
     'src/pages/index.ts',
     'src/api/index.ts',
     'src/components/index.ts',
+    // Split the Server Action module into its own entry so it ends
+    // up in a file marked `'use server'` (via the preserveDirectives
+    // plugin), rather than getting bundled into the shared
+    // client-components chunk where its `'use server'` directive
+    // would be lost. Not part of the public API surface — consumed
+    // only by `src/components/theme-settings-form.tsx` via the
+    // relative `../lib/theme-actions.js` import, which resolves to
+    // this entry's output through the shared internal-chunk
+    // optimization that tsup performs across entries.
+    'src/lib/theme-actions.ts',
   ],
   format: ['esm'],
   dts: true,

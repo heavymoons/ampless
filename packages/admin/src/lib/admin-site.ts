@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { DEFAULT_SITE_ID, isMultiSite, siteFor, type Config } from 'ampless'
-import { ADMIN_SITE_COOKIE } from './admin-site-client.js'
+import { ADMIN_SITE_COOKIE } from './admin-site-cookie.js'
 
 /**
  * Active siteId in the admin panel.
