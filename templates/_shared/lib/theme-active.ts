@@ -3,6 +3,8 @@
 
 import { ampless } from './ampless'
 
-export const resolveActiveTheme = ampless.resolveActiveTheme.bind(ampless)
+// Arrow wrapper: defer `ampless` resolution to call time (avoid TDZ).
+export const resolveActiveTheme: typeof ampless.resolveActiveTheme =
+  (...args) => ampless.resolveActiveTheme(...args)
 
 export type { ResolvedTheme } from '@ampless/runtime'

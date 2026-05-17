@@ -3,6 +3,9 @@
 
 import { ampless } from './ampless'
 
-export const loadSiteSettings = ampless.loadSiteSettings.bind(ampless)
+// Arrow wrapper: defer `ampless` resolution to call time (avoid TDZ in
+// the themes-registry → theme → shim → ampless circular import chain).
+export const loadSiteSettings: typeof ampless.loadSiteSettings =
+  (...args) => ampless.loadSiteSettings(...args)
 
 export type { EffectiveSiteSettings } from '@ampless/runtime'

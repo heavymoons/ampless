@@ -4,5 +4,9 @@
 
 import { admin } from './admin'
 
-export const currentAdminSiteId = admin.currentAdminSiteId.bind(admin)
-export const adminSiteOptions = admin.adminSiteOptions.bind(admin)
+// Arrow wrappers: defer `admin` resolution to call time (avoid TDZ in
+// case of circular import chains touching admin shims).
+export const currentAdminSiteId: typeof admin.currentAdminSiteId =
+  (...args) => admin.currentAdminSiteId(...args)
+export const adminSiteOptions: typeof admin.adminSiteOptions =
+  (...args) => admin.adminSiteOptions(...args)

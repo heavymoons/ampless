@@ -6,6 +6,10 @@ import { admin } from './admin'
 
 export type { ServerSession } from '@ampless/admin'
 
-export const getServerSession = admin.getServerSession.bind(admin)
-export const isAdmin = admin.isAdmin.bind(admin)
-export const isEditor = admin.isEditor.bind(admin)
+// Arrow wrappers: defer `admin` resolution to call time (avoid TDZ).
+export const getServerSession: typeof admin.getServerSession =
+  (...args) => admin.getServerSession(...args)
+export const isAdmin: typeof admin.isAdmin =
+  (...args) => admin.isAdmin(...args)
+export const isEditor: typeof admin.isEditor =
+  (...args) => admin.isEditor(...args)

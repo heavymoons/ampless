@@ -3,5 +3,8 @@
 
 import { ampless } from './ampless'
 
-export const publicAssetUrl = ampless.publicAssetUrl.bind(ampless)
-export const isStorageConfigured = ampless.isStorageConfigured.bind(ampless)
+// Arrow wrappers: defer `ampless` resolution to call time (avoid TDZ).
+export const publicAssetUrl: typeof ampless.publicAssetUrl =
+  (...args) => ampless.publicAssetUrl(...args)
+export const isStorageConfigured: typeof ampless.isStorageConfigured =
+  (...args) => ampless.isStorageConfigured(...args)

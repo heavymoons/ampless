@@ -3,7 +3,9 @@
 
 import { ampless } from './ampless'
 
-export const loadThemeConfig = ampless.loadThemeConfig.bind(ampless)
+// Arrow wrapper: defer `ampless` resolution to call time (avoid TDZ).
+export const loadThemeConfig: typeof ampless.loadThemeConfig =
+  (...args) => ampless.loadThemeConfig(...args)
 
 export { renderThemeCss } from '@ampless/runtime'
 

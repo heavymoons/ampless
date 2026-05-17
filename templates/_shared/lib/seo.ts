@@ -4,5 +4,8 @@
 
 import { ampless } from './ampless'
 
-export const postMetadata = ampless.postMetadata.bind(ampless)
-export const siteMetadata = ampless.siteMetadata.bind(ampless)
+// Arrow wrappers: defer `ampless` resolution to call time (avoid TDZ).
+export const postMetadata: typeof ampless.postMetadata =
+  (...args) => ampless.postMetadata(...args)
+export const siteMetadata: typeof ampless.siteMetadata =
+  (...args) => ampless.siteMetadata(...args)
