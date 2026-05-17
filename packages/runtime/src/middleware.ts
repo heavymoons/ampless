@@ -89,14 +89,20 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
 }
 
 /**
- * Default Next.js middleware matcher config. Exposed as a constant so
- * templates can re-export it directly:
+ * Reference matcher config — admin / api / login / static assets /
+ * amplify_outputs.json are excluded so middleware doesn't rewrite
+ * legitimate non-blog routes into the public site tree.
  *
- *     export const config = defaultMatcherConfig
+ * **You can't re-export this directly.** Next.js 16's Turbopack
+ * requires `export const config` in `proxy.ts` (or `middleware.ts`)
+ * to be a statically analysable object literal — referencing an
+ * imported variable fails the build with:
+ *   "Next.js can't recognize the exported `config` field in route.
+ *    It needs to be a static object."
  *
- * Excludes admin / api / login / static assets / amplify_outputs.json
- * — without these exclusions middleware would rewrite legitimate
- * non-blog routes into the public site tree.
+ * So the scaffold inlines the matcher into the user's `proxy.ts`.
+ * This export is kept as a reference for documentation and for
+ * non-Next.js callers that want to inspect the canonical matcher.
  */
 export const defaultMatcherConfig = {
   matcher: [
