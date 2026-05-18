@@ -30,6 +30,7 @@
     "preserve-directives-tsup",
     "proxy-config-inline",
     "sanitize-cmsconfig-for-client",
-    "shim-tdz-fix"
+    "shim-tdz-fix",
+    "skip-confirm-noninteractive"
   ]
 }

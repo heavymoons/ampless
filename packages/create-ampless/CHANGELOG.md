@@ -1,5 +1,11 @@
 # create-ampless
 
+## 0.2.0-alpha.6
+
+### Patch Changes
+
+- 73b7462: Add --site-name, --themes, --plugins flags; skip all prompts when --skip-confirm is set
+
 ## 0.2.0-alpha.5
 
 ### Minor Changes
