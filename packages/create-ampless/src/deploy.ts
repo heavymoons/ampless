@@ -1,4 +1,5 @@
 import { execa, type Options as ExecaOptions } from 'execa'
+import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { spinner, log } from '@clack/prompts'
@@ -10,6 +11,7 @@ import {
   AMPLIFY_BACKEND_POLICY_ARN,
   type PreflightResult,
 } from './preflight.js'
+import { MOUNT_DEFAULT_GITIGNORE, originPointsAt } from './mount.js'
 
 /**
  * Deploy pipeline for `create-ampless --deploy`.
@@ -45,6 +47,12 @@ export interface DeployOptions {
   /** Opt into letting create-ampless provision the service role itself. */
   createIamRole?: boolean
   skipConfirm: boolean
+  /**
+   * Mount mode: the project directory already exists and may already be a
+   * git repo. Skips scaffold-coupled assumptions and makes the
+   * git-init/gh-create steps idempotent.
+   */
+  mount?: boolean
 }
 
 export interface DomainVerificationRecord {
@@ -221,14 +229,69 @@ function awsArgs(opts: DeployOptions, extra: string[]): string[] {
   return base
 }
 
-async function gitInitCommit(dir: string): Promise<void> {
-  await run('git', ['init', '-b', 'main'], { cwd: dir, step: 'git init' })
-  await run('git', ['add', '.'], { cwd: dir, step: 'git add' })
-  await run(
-    'git',
-    ['commit', '-m', 'Initial scaffold (create-ampless)'],
-    { cwd: dir, step: 'git commit' }
-  )
+async function isGitRepo(dir: string): Promise<boolean> {
+  const r = await execa('git', ['rev-parse', '--git-dir'], { cwd: dir, reject: false })
+  return r.exitCode === 0
+}
+
+async function isDirty(dir: string): Promise<boolean> {
+  const r = await execa('git', ['status', '--porcelain'], { cwd: dir, reject: false })
+  return (r.stdout?.toString() ?? '').trim().length > 0
+}
+
+async function currentBranch(dir: string): Promise<string | null> {
+  const r = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: dir,
+    reject: false,
+  })
+  if (r.exitCode !== 0) return null
+  const name = r.stdout?.toString().trim()
+  return name && name !== 'HEAD' ? name : null
+}
+
+async function ensureGitignore(dir: string): Promise<void> {
+  const target = resolve(dir, '.gitignore')
+  if (existsSync(target)) return
+  await writeFile(target, MOUNT_DEFAULT_GITIGNORE, 'utf-8')
+}
+
+/**
+ * Initialize a fresh git repo and commit, OR — if the directory is
+ * already a git repo — re-use it and commit any pending changes.
+ *
+ * In scaffold mode this always lands in the "fresh init" branch
+ * because `runDeploy` is called right after `scaffold()` writes files
+ * into a brand-new directory.
+ *
+ * In `--mount` mode the project may have been hand-edited and committed
+ * many times already; we just want to make sure there's a `main` branch
+ * pointing at a commit so the subsequent `gh repo create --push`
+ * succeeds.
+ */
+async function gitInitOrReuse(dir: string, mount: boolean): Promise<void> {
+  const repo = await isGitRepo(dir)
+  if (!repo) {
+    await run('git', ['init', '-b', 'main'], { cwd: dir, step: 'git init' })
+  }
+
+  const dirty = await isDirty(dir)
+  if (dirty) {
+    await run('git', ['add', '.'], { cwd: dir, step: 'git add' })
+    const message = mount && repo
+      ? 'Prepare for create-ampless --mount'
+      : 'Initial scaffold (create-ampless)'
+    await run('git', ['commit', '-m', message], { cwd: dir, step: 'git commit' })
+  }
+
+  if (mount) {
+    const branch = await currentBranch(dir)
+    if (branch && branch !== 'main') {
+      log.warn(
+        `Current branch is "${branch}" — Amplify Hosting will be wired to the "main" branch. ` +
+        'Push from "main" later, or rename your branch with `git branch -m main`.'
+      )
+    }
+  }
 }
 
 /**
@@ -241,15 +304,72 @@ function shortName(opts: DeployOptions): string {
   return basename(opts.projectDir)
 }
 
+async function ghRepoExists(name: string, token: string): Promise<boolean> {
+  const r = await execa('gh', ['repo', 'view', name], {
+    reject: false,
+    env: { ...process.env, GH_TOKEN: token },
+  })
+  return r.exitCode === 0
+}
+
+async function getOriginUrl(dir: string): Promise<string | null> {
+  const r = await execa('git', ['remote', 'get-url', 'origin'], {
+    cwd: dir,
+    reject: false,
+  })
+  if (r.exitCode !== 0) return null
+  const url = r.stdout?.toString().trim()
+  return url ? url : null
+}
+
+function repoHttpsUrl(owner: string, name: string): string {
+  return `https://github.com/${owner}/${name}`
+}
+
 async function ghRepoCreate(opts: DeployOptions): Promise<string> {
+  const owner = opts.githubOwner
+  const name = shortName(opts)
+  const fullName = `${owner}/${name}`
   const visibility = opts.githubPrivate ? '--private' : '--public'
-  const name = `${opts.githubOwner}/${shortName(opts)}`
+
+  const exists = await ghRepoExists(fullName, opts.githubToken)
+  if (exists) {
+    // Mount mode (or scaffold mode against a pre-existing repo): wire
+    // `origin` up if it isn't already, then push from the current branch
+    // to `main`. We do not force-push — non-fast-forward errors are
+    // surfaced to the user so they can manually reconcile.
+    const origin = await getOriginUrl(opts.projectDir)
+    if (origin && !originPointsAt(origin, owner, name)) {
+      throw new Error(
+        `Existing 'origin' remote points at ${origin}, but --mount expects ${fullName}.\n` +
+        `Remove or rename the existing remote (\`git remote remove origin\`) and re-run.`
+      )
+    }
+    if (!origin) {
+      await run(
+        'git',
+        ['remote', 'add', 'origin', `https://github.com/${fullName}.git`],
+        { cwd: opts.projectDir, step: 'git remote add origin' }
+      )
+    }
+    await run(
+      'git',
+      ['push', '-u', 'origin', 'HEAD:main'],
+      {
+        cwd: opts.projectDir,
+        step: 'git push origin main',
+        env: { ...process.env, GH_TOKEN: opts.githubToken },
+      }
+    )
+    return repoHttpsUrl(owner, name)
+  }
+
   const out = await run(
     'gh',
     [
       'repo',
       'create',
-      name,
+      fullName,
       '--source',
       opts.projectDir,
       '--push',
@@ -266,7 +386,7 @@ async function ghRepoCreate(opts: DeployOptions): Promise<string> {
   // `gh repo create` prints the URL on stdout; pick the last https://github.com/... token.
   const match = out.match(/https:\/\/github\.com\/[^\s]+/g)
   if (match && match.length > 0) return match[match.length - 1]!.replace(/[.,]$/, '')
-  return `https://github.com/${name}`
+  return repoHttpsUrl(owner, name)
 }
 
 interface AmplifyApp {
@@ -530,6 +650,7 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
   const pre = await runPreflight(opts, {
     iamServiceRoleArn: opts.iamServiceRoleArn,
     createIamRole: opts.createIamRole === true,
+    mountMode: opts.mount === true,
   })
   if (pre.problems.length > 0) {
     printPreflightReport(pre.problems)
@@ -581,10 +702,16 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
   }
 
   let s = spinner()
-  s.start('git init + initial commit')
+  const gitMsg = opts.mount
+    ? 'git: preparing repo for mount'
+    : 'git init + initial commit'
+  s.start(gitMsg)
   try {
-    await gitInitCommit(opts.projectDir)
-    s.stop('git: committed initial scaffold')
+    if (opts.mount) {
+      await ensureGitignore(opts.projectDir)
+    }
+    await gitInitOrReuse(opts.projectDir, opts.mount === true)
+    s.stop(opts.mount ? 'git: ready' : 'git: committed initial scaffold')
   } catch (err) {
     s.stop('git: failed')
     fail('git init / commit', err)

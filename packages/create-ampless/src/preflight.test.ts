@@ -201,6 +201,21 @@ describe('runPreflight — github repo already exists', () => {
     const result = await runPreflight(makeOpts())
     expect(result.problems.map((p) => p.id)).toContain('github-repo-exists')
   })
+
+  it('allows the existing repo in mount mode', async () => {
+    on((c) => c.cmd === 'gh' && c.args[0] === 'repo' && c.args[1] === 'view', {
+      exitCode: 0,
+      stdout: 'octocat/test-site',
+      stderr: '',
+    })
+    installHappyDefaults()
+    const result = await runPreflight(makeOpts(), { mountMode: true })
+    expect(result.problems.map((p) => p.id)).not.toContain('github-repo-exists')
+    // We also shouldn't have wasted a `gh repo view` call (preflight skips it).
+    expect(
+      calls.find((c) => c.cmd === 'gh' && c.args[0] === 'repo' && c.args[1] === 'view')
+    ).toBeUndefined()
+  })
 })
 
 describe('runPreflight — aws credentials missing', () => {

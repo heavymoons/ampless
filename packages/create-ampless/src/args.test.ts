@@ -119,4 +119,26 @@ describe('parseDeployArgs', () => {
     expect(out.createIamRole).toBe(false)
     expect(out.iamServiceRole).toBeUndefined()
   })
+
+  it('parses --mount as boolean (defaults to false)', () => {
+    expect(parseDeployArgs([]).mount).toBe(false)
+    expect(parseDeployArgs(['--mount']).mount).toBe(true)
+  })
+
+  it('combines --mount with deploy-ish flags without losing them', () => {
+    const out = parseDeployArgs([
+      '--mount',
+      '--github-owner', 'ishinao',
+      '--aws-profile', 'ishinao_net',
+      '--domain', 'ishinao.net',
+      '--create-iam-role',
+      '--skip-confirm',
+    ])
+    expect(out.mount).toBe(true)
+    expect(out.githubOwner).toBe('ishinao')
+    expect(out.awsProfile).toBe('ishinao_net')
+    expect(out.domain).toBe('ishinao.net')
+    expect(out.createIamRole).toBe(true)
+    expect(out.skipConfirm).toBe(true)
+  })
 })
