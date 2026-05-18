@@ -597,6 +597,12 @@ export interface RunPreflightArgs {
   iamServiceRoleArn?: string
   /** Set when the user passed `--create-iam-role`. */
   createIamRole?: boolean
+  /**
+   * Mount mode: the user is mounting an existing project directory onto
+   * a (possibly already-existing) GitHub repo. Relaxes the "repo must
+   * not exist" check so users can re-use an existing repo.
+   */
+  mountMode?: boolean
 }
 
 export async function runPreflight(
@@ -616,7 +622,9 @@ export async function runPreflight(
 
   // 5. target GitHub repo does NOT exist (needs gh + auth, but we can still
   //    attempt — if gh isn't installed checkGhInstalled already flagged it).
-  if (hasGh && opts.githubOwner) {
+  //    In --mount mode we allow the repo to already exist: deploy.ts will
+  //    add the remote and push instead of creating it fresh.
+  if (hasGh && opts.githubOwner && !extra.mountMode) {
     await checkGithubRepoFree(opts, opts.githubOwner, problems)
   }
 

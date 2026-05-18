@@ -19,6 +19,7 @@ export interface ParsedArgs {
   themes?: string[]
   plugins?: string[]
   deploy: boolean
+  mount: boolean
   githubOwner?: string
   githubPrivate: boolean
   githubToken?: string
@@ -51,6 +52,7 @@ const STRING_FLAGS = new Set([
 
 const BOOLEAN_FLAGS = new Set([
   '--deploy',
+  '--mount',
   '--github-private',
   '--create-iam-role',
   '--skip-confirm',
@@ -61,6 +63,7 @@ const BOOLEAN_FLAGS = new Set([
 export function parseDeployArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = {
     deploy: false,
+    mount: false,
     githubPrivate: false,
     createIamRole: false,
     skipConfirm: false,
@@ -83,6 +86,9 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
       switch (token) {
         case '--deploy':
           out.deploy = true
+          break
+        case '--mount':
+          out.mount = true
           break
         case '--github-private':
           out.githubPrivate = true
@@ -177,6 +183,7 @@ export const HELP_TEXT = `create-ampless — scaffold an ampless project
 
 Usage:
   npx create-ampless@alpha <project-name> [options]
+  npx create-ampless@alpha --mount [options]    # in an existing project dir
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -188,6 +195,12 @@ Options:
                               (default: seo)
   --deploy                    Also create GitHub repo + Amplify Hosting app and
                               kick off the first deploy after scaffolding
+  --mount                     Skip scaffolding and mount the CURRENT directory
+                              onto a new GitHub repo + Amplify Hosting app.
+                              Use after you've scaffolded and tested locally
+                              with 'npx ampx sandbox' and now want to publish.
+                              Implies --deploy. Scaffold flags (--site-name,
+                              --themes, --plugins) are ignored.
   --github-owner <login>      GitHub owner (user or org). Defaults to the
                               authenticated 'gh' user
   --github-private            Create a private repo (default: public)
