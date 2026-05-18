@@ -56,11 +56,11 @@ export async function gatherDeployOptions(
     githubOwner = answer.trim()
   }
 
-  // Repo visibility — only prompt when the flag wasn't explicit.
-  // `--github-private` flips to true; otherwise default to public, but
-  // the user can still pick at the prompt.
+  // Repo visibility — only prompt when the flag wasn't explicit AND we
+  // aren't in --skip-confirm mode. With --skip-confirm we default to
+  // public to match the documented zero-prompt CI flow.
   let githubPrivate = args.githubPrivate
-  if (!args.githubPrivate) {
+  if (!args.githubPrivate && !args.skipConfirm) {
     const choice = await p.select({
       message: 'Repository visibility',
       options: [

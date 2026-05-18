@@ -304,12 +304,28 @@ function shortName(opts: DeployOptions): string {
   return basename(opts.projectDir)
 }
 
+/**
+ * Whether `<owner>/<name>` resolves to an actual repo at that exact slug.
+ * Renamed repos leave a redirect: `gh repo view foo/old-name` will return
+ * the new repo's metadata, with `nameWithOwner` pointing at the new slug.
+ * We treat that as "does not exist at the requested slug" so the mount
+ * flow happily creates a fresh repo (which also clears the redirect).
+ */
 async function ghRepoExists(name: string, token: string): Promise<boolean> {
-  const r = await execa('gh', ['repo', 'view', name], {
+  const r = await execa('gh', ['repo', 'view', name, '--json', 'nameWithOwner'], {
     reject: false,
     env: { ...process.env, GH_TOKEN: token },
   })
-  return r.exitCode === 0
+  if (r.exitCode !== 0) return false
+  try {
+    const parsed = JSON.parse(r.stdout?.toString() ?? '{}') as { nameWithOwner?: string }
+    const resolved = parsed.nameWithOwner?.toLowerCase()
+    return resolved === name.toLowerCase()
+  } catch {
+    // If the JSON shape changes for some reason, fall back to "exists"
+    // semantics — safer to push to an existing remote than to clobber.
+    return true
+  }
 }
 
 async function getOriginUrl(dir: string): Promise<string | null> {
