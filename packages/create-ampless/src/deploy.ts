@@ -1,6 +1,6 @@
 import { execa, type Options as ExecaOptions } from 'execa'
 import { writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 import { spinner, log } from '@clack/prompts'
 import pc from 'picocolors'
 
@@ -220,9 +220,19 @@ async function gitInitCommit(dir: string): Promise<void> {
   )
 }
 
+/**
+ * Resolve a safe short name from the project location. `opts.projectName`
+ * may carry a full path (when the positional arg was a path like
+ * `../foo`) — both GitHub repo names and Amplify app names need just
+ * the leaf segment.
+ */
+function shortName(opts: DeployOptions): string {
+  return basename(opts.projectDir)
+}
+
 async function ghRepoCreate(opts: DeployOptions): Promise<string> {
   const visibility = opts.githubPrivate ? '--private' : '--public'
-  const name = `${opts.githubOwner}/${opts.projectName}`
+  const name = `${opts.githubOwner}/${shortName(opts)}`
   const out = await run(
     'gh',
     [
@@ -259,7 +269,7 @@ async function amplifyCreateApp(opts: DeployOptions, repoUrl: string): Promise<A
     awsArgs(opts, [
       'amplify',
       'create-app',
-      '--name', opts.projectName,
+      '--name', shortName(opts),
       '--repository', repoUrl,
       '--access-token', opts.githubToken,
       '--platform', 'WEB_COMPUTE',
@@ -433,7 +443,7 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
     }
     if (created.repoUrl) {
       cleanup.push(
-        `  - GitHub repo: ${created.repoUrl} (delete: gh repo delete ${opts.githubOwner}/${opts.projectName} --yes)`
+        `  - GitHub repo: ${created.repoUrl} (delete: gh repo delete ${opts.githubOwner}/${shortName(opts)} --yes)`
       )
     }
     const cleanupBlock = cleanup.length > 0
@@ -494,7 +504,9 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
     fail('aws amplify start-job', err)
   }
 
-  const amplifyAppUrl = `https://main.${app.appId}.${app.defaultDomain}`
+  // Amplify's `defaultDomain` from create-app already contains the appId
+  // segment (`<appId>.amplifyapp.com`), so we only prepend the branch.
+  const amplifyAppUrl = `https://main.${app.defaultDomain}`
   const result: DeployResult = {
     githubRepoUrl: created.repoUrl!,
     amplifyAppId: app.appId,
