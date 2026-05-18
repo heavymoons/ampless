@@ -21,6 +21,7 @@
     "create-ampless-deploy-flag",
     "create-ampless-mount-mode",
     "create-ampless-preflight",
+    "create-ampless-skip-confirm-and-redirect",
     "dep-major-bumps",
     "dispatcher-reactnode-return",
     "i18n-provider-shim-use-client",
