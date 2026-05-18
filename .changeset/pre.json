@@ -15,8 +15,10 @@
   },
   "changesets": [
     "admin-pages-server-side",
+    "admin-providers-sync-install",
     "auth-storage-config-helpers",
     "body-always-json-encode",
+    "create-ampless-deploy-flag",
     "dep-major-bumps",
     "i18n-provider-shim-use-client",
     "initial-alpha",
