@@ -73,10 +73,17 @@ interface DataClient {
   }
 }
 
-// AppSync's AWSJSON scalar requires a JSON-encoded string on the wire.
-// We always send/receive strings and parse on the way back into the app.
+// AppSync's AWSJSON scalar requires a *JSON-encoded* string on the wire.
+// That means a raw markdown body like `# Hello` must become `"# Hello"`
+// (a JSON string literal) — sending the bare `# Hello` triggers AppSync's
+//   `Variable 'body' has an invalid value`
+// validator. So we always JSON.stringify on the way out, including for
+// strings.
+//
+// On the way in, the stored value is JSON-encoded — JSON.parse decodes
+// it. The catch branch handles legacy rows that were written before this
+// rule was enforced, falling back to the raw string.
 function encodeBody(value: unknown): string {
-  if (typeof value === 'string') return value
   return JSON.stringify(value ?? null)
 }
 
