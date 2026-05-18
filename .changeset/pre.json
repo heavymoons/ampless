@@ -16,13 +16,17 @@
   "changesets": [
     "admin-pages-server-side",
     "auth-storage-config-helpers",
+    "body-always-json-encode",
     "dep-major-bumps",
     "i18n-provider-shim-use-client",
     "initial-alpha",
     "lib-admin-no-ampless",
+    "lib-amplify-restore-configure",
     "middleware-to-proxy",
+    "posttag-upsert",
     "preserve-directives-tsup",
     "proxy-config-inline",
+    "sanitize-cmsconfig-for-client",
     "shim-tdz-fix"
   ]
 }
