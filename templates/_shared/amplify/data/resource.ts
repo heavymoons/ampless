@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { a, defineData, type ClientSchema } from '@aws-amplify/backend'
 import { amplessSchemaModels, defaultAuthorizationModes } from '@ampless/backend'
+import { userAdmin } from '../functions/user-admin/resource.js'
 
 // AppSync's `a.handler.custom({ entry })` paths are resolved by CDK
 // relative to the file that called `a.handler.custom`. When the call
@@ -32,7 +33,7 @@ const resolverPaths = {
 }
 
 const schema = a.schema({
-  ...amplessSchemaModels(a, { resolverPaths }),
+  ...amplessSchemaModels(a, { resolverPaths, userAdminFunction: userAdmin }),
 })
 
 export type Schema = ClientSchema<typeof schema>

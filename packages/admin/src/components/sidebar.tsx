@@ -9,6 +9,7 @@ import {
   FileText,
   Image,
   Globe,
+  Users,
   LogOut,
   ExternalLink,
   Menu,
@@ -17,20 +18,32 @@ import {
 import { Button, cn } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
 
-const navItems = [
+interface NavItem {
+  href: string
+  key: string
+  icon: typeof LayoutDashboard
+  /** When true, only render for users in `ampless-admin`. */
+  adminOnly?: true
+}
+
+const navItems: readonly NavItem[] = [
   { href: '/admin', key: 'sidebar.dashboard', icon: LayoutDashboard },
   { href: '/admin/posts', key: 'sidebar.posts', icon: FileText },
   { href: '/admin/media', key: 'sidebar.media', icon: Image },
   { href: '/admin/sites', key: 'sidebar.sites', icon: Globe },
+  { href: '/admin/users', key: 'sidebar.users', icon: Users, adminOnly: true },
 ] as const
 
 export function Sidebar({
   email,
   siteSelector,
+  isAdmin,
 }: {
   email: string
   /** Rendered above the main nav in multi-site mode. */
   siteSelector?: React.ReactNode
+  /** Gates `adminOnly` nav entries (user management). */
+  isAdmin: boolean
 }) {
   const pathname = usePathname()
   const t = useT()
@@ -108,6 +121,7 @@ export function Sidebar({
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
           {navItems.map((item) => {
+            if (item.adminOnly && !isAdmin) return null
             const Icon = item.icon
             const isActive = pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href))
             return (

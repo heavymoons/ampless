@@ -33,6 +33,7 @@
     "posts": "記事",
     "media": "メディア",
     "sites": "サイト",
+    "users": "ユーザー",
     "viewSite": "サイトを表示",
     "signOut": "サインアウト",
     "site": "サイト",
@@ -146,6 +147,25 @@
     },
     "selector": {
       "label": "サイト"
+    }
+  },
+  "users": {
+    "list": {
+      "title": "ユーザー",
+      "description": "サインアップ済みユーザーを管理者または編集者に昇格します。サインアップ直後はロール無しのため、ここでアクセスを付与してください。",
+      "columnEmail": "メールアドレス",
+      "columnRole": "ロール",
+      "columnActions": "操作",
+      "save": "保存",
+      "saving": "保存中...",
+      "saved": "保存しました。",
+      "cannotEditSelf": "自分自身のロールは変更できません。",
+      "empty": "ユーザーがいません。",
+      "loading": "ユーザーを読み込み中...",
+      "error": "ユーザー一覧の取得に失敗しました",
+      "roleAdmin": "管理者",
+      "roleEditor": "編集者",
+      "roleNone": "なし"
     }
   },
   "theme": {

@@ -4,6 +4,7 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/auth/post-confirmation.ts',
+    'src/auth/user-admin.ts',
     'src/events/dispatcher.ts',
     'src/events/processor-trusted.ts',
     'src/events/processor-untrusted.ts',

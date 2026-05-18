@@ -33,6 +33,7 @@ export interface DefineAmplessBackendOpts {
   processorTrusted: FunctionResource
   processorUntrusted: FunctionResource
   apiKeyRenewer: FunctionResource
+  userAdmin: FunctionResource
 }
 
 // The return type of `defineBackend` is parameterised on the input
@@ -82,6 +83,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     processorTrusted: opts.processorTrusted,
     processorUntrusted: opts.processorUntrusted,
     apiKeyRenewer: opts.apiKeyRenewer,
+    userAdmin: opts.userAdmin,
   })
 
   // --- Storage: make `public/*` directly fetchable from the browser ---
@@ -148,6 +150,28 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
       actions: ['cognito-idp:AdminAddUserToGroup', 'cognito-idp:ListUsersInGroup'],
       resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
     })
+  )
+
+  // --- Auth: user-admin Lambda permissions ---
+  //
+  // Backs the admin UI's user-management page. Scoped wildcard on
+  // userpool arn matches the post-confirmation pattern — the Lambda
+  // reads `AMPLESS_USER_POOL_ID` at runtime and addresses one pool.
+  backend.userAdmin.resources.lambda.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: [
+        'cognito-idp:ListUsers',
+        'cognito-idp:AdminListGroupsForUser',
+        'cognito-idp:AdminAddUserToGroup',
+        'cognito-idp:AdminRemoveUserFromGroup',
+      ],
+      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
+    })
+  )
+  backend.userAdmin.resources.lambda.addEnvironment(
+    'AMPLESS_USER_POOL_ID',
+    backend.auth.resources.userPool.userPoolId
   )
 
   // --- Event system: DynamoDB Streams → SQS (×2) → trust_level Lambdas ---

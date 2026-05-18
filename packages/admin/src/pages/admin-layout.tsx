@@ -55,7 +55,11 @@ export function createAdminLayout(admin: Admin) {
       <AdminProviders outputs={admin.outputs} cmsConfig={sanitizeCmsConfigForClient(admin.cmsConfig)}>
         <I18nProvider locale={admin.locale} dict={admin.dict}>
           <div className="flex min-h-screen flex-col md:flex-row">
-            <Sidebar email={session!.email} siteSelector={selector} />
+            <Sidebar
+              email={session!.email}
+              siteSelector={selector}
+              isAdmin={admin.isAdmin(session)}
+            />
             <main className="min-w-0 flex-1">{children}</main>
           </div>
         </I18nProvider>

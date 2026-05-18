@@ -33,6 +33,7 @@
     "posts": "Posts",
     "media": "Media",
     "sites": "Sites",
+    "users": "Users",
     "viewSite": "View site",
     "signOut": "Sign out",
     "site": "Site",
@@ -146,6 +147,25 @@
     },
     "selector": {
       "label": "Site"
+    }
+  },
+  "users": {
+    "list": {
+      "title": "Users",
+      "description": "Promote signed-up users to admin or editor. Sign-ups always start with no role and must be granted access here.",
+      "columnEmail": "Email",
+      "columnRole": "Role",
+      "columnActions": "Actions",
+      "save": "Save",
+      "saving": "Saving...",
+      "saved": "Saved.",
+      "cannotEditSelf": "You cannot change your own role.",
+      "empty": "No users yet.",
+      "loading": "Loading users...",
+      "error": "Failed to load users",
+      "roleAdmin": "Admin",
+      "roleEditor": "Editor",
+      "roleNone": "None"
     }
   },
   "theme": {

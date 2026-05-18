@@ -43,6 +43,17 @@ export interface AmplessSchemaModelsOpts {
    * they must point to actual `.js` files inside the user's project.
    */
   resolverPaths?: Partial<AmplessResolverPaths>
+  /**
+   * Optional Amplify `defineFunction` ref backing the user-admin
+   * AppSync ops (`listAdminUsers` query, `setAdminUserRole` mutation).
+   * When supplied, the corresponding `AdminUser` customType + the two
+   * ops are added to the schema, both gated to `ampless-admin`.
+   *
+   * Typed as `unknown` because `defineFunction`'s return type carries
+   * internal pnpm paths that don't survive declaration emit — same
+   * pattern as `AmplessAuthConfigOpts.postConfirmation`.
+   */
+  userAdminFunction?: unknown
 }
 
 /**
@@ -304,6 +315,42 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.publicApiKey(),
         allow.groups(['ampless-admin', 'ampless-editor']),
       ]),
+
+    // User management ops, only wired when the caller supplies a
+    // Lambda function ref. Conditionally spread because
+    // `a.handler.function(undefined)` is not a valid call — projects
+    // that haven't opted into the user-admin Lambda must not see
+    // these schema entries.
+    ...(opts.userAdminFunction
+      ? {
+          AdminUser: a.customType({
+            userId: a.string().required(),
+            email: a.string().required(),
+            // 'admin' | 'editor' | 'none' — stored as string because
+            // a.enum() in customType doesn't round-trip cleanly across
+            // AppSync's typegen + the admin client cast pattern.
+            role: a.string().required(),
+          }),
+          listAdminUsers: a
+            .query()
+            .returns(a.ref('AdminUser').array())
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .handler(a.handler.function(opts.userAdminFunction as any))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .authorization((allow: any) => [allow.groups(['ampless-admin'])]),
+          setAdminUserRole: a
+            .mutation()
+            .arguments({
+              userId: a.string().required(),
+              role: a.string().required(),
+            })
+            .returns(a.ref('AdminUser'))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .handler(a.handler.function(opts.userAdminFunction as any))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .authorization((allow: any) => [allow.groups(['ampless-admin'])]),
+        }
+      : {}),
   }
 }
 

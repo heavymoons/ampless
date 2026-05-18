@@ -13,6 +13,10 @@
       "import": "./dist/auth/post-confirmation.js",
       "types": "./dist/auth/post-confirmation.d.ts"
     },
+    "./auth/user-admin": {
+      "import": "./dist/auth/user-admin.js",
+      "types": "./dist/auth/user-admin.d.ts"
+    },
     "./events/dispatcher": {
       "import": "./dist/events/dispatcher.js",
       "types": "./dist/events/dispatcher.d.ts"

@@ -8,6 +8,7 @@ import { eventDispatcher } from './events/dispatcher/resource.js'
 import { processorTrusted } from './events/processor-trusted/resource.js'
 import { processorUntrusted } from './events/processor-untrusted/resource.js'
 import { apiKeyRenewer } from './functions/api-key-renewer/resource.js'
+import { userAdmin } from './functions/user-admin/resource.js'
 
 // `defineAmplessBackend` provisions auth, data, storage, the event
 // system (DynamoDB Streams → SQS-trusted / SQS-untrusted → trust_level
@@ -24,6 +25,7 @@ const backend = defineAmplessBackend({
   processorTrusted,
   processorUntrusted,
   apiKeyRenewer,
+  userAdmin,
 })
 
 export default backend
