@@ -1,5 +1,12 @@
 # @ampless/admin
 
+## 0.2.0-alpha.6
+
+### Patch Changes
+
+- Updated dependencies [55734e5]
+  - @ampless/runtime@0.2.0-alpha.3
+
 ## 0.2.0-alpha.5
 
 ### Patch Changes
