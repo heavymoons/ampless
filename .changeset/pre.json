@@ -19,6 +19,7 @@
     "auth-storage-config-helpers",
     "body-always-json-encode",
     "create-ampless-deploy-flag",
+    "create-ampless-mount-mode",
     "create-ampless-preflight",
     "dep-major-bumps",
     "dispatcher-reactnode-return",
