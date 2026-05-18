@@ -10,8 +10,12 @@ export interface CreateProcessorUntrustedHandlerOpts {
   /**
    * The full `cms.config.plugins` array. The handler filters down to
    * untrusted plugins itself.
+   *
+   * Accepts the raw `Config['plugins']` shape (which permits string
+   * entries for future dynamic loading) — the runtime filter discards
+   * anything that isn't a plugin object.
    */
-  plugins?: AmplessPlugin[]
+  plugins?: Config['plugins']
   /**
    * The `cms.config.site` block, surfaced to plugin hooks via
    * `ctx.site` (read-only — untrusted plugins have no AWS-touching
