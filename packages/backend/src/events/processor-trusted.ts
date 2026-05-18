@@ -17,8 +17,12 @@ export interface CreateProcessorTrustedHandlerOpts {
    * trusted plugins itself so callers don't need to remember the
    * filter, and so adding `privileged` later only touches the handler
    * code in this package.
+   *
+   * Accepts the raw `Config['plugins']` shape (which permits string
+   * entries for future dynamic loading) — the runtime filter discards
+   * anything that isn't a plugin object.
    */
-  plugins?: AmplessPlugin[]
+  plugins?: Config['plugins']
   /**
    * The `cms.config.site` block, surfaced to plugin hooks via
    * `ctx.site`. Pass through from the thin shell — handlers must
