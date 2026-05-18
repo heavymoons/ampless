@@ -89,7 +89,7 @@ describe('AMPLIFY_BUILD_SPEC', () => {
         phases:
           preBuild:
             commands:
-              - npm ci
+              - npm install
           build:
             commands:
               - npx ampx pipeline-deploy --branch \$AWS_BRANCH --app-id \$AWS_APP_ID

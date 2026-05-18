@@ -19,6 +19,7 @@
     "auth-storage-config-helpers",
     "body-always-json-encode",
     "create-ampless-deploy-flag",
+    "create-ampless-preflight",
     "dep-major-bumps",
     "i18n-provider-shim-use-client",
     "initial-alpha",

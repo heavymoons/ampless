@@ -6,7 +6,7 @@ import { scaffold } from './scaffold.js'
 import { sharedTemplateDir, templatesDir } from './templates.js'
 import { parseDeployArgs, HELP_TEXT } from './args.js'
 import { gatherDeployOptions } from './deploy-prompts.js'
-import { runDeploy } from './deploy.js'
+import { runDeploy, PreflightError } from './deploy.js'
 import pc from 'picocolors'
 
 function buildNonInteractiveOpts(args: ReturnType<typeof parseDeployArgs>): ProjectOptions {
@@ -99,6 +99,10 @@ async function main() {
       )
       outro(lines.join('\n'))
     } catch (err) {
+      if (err instanceof PreflightError) {
+        // Report is already printed by runDeploy; just exit cleanly.
+        process.exit(1)
+      }
       log.error(err instanceof Error ? err.message : String(err))
       process.exit(1)
     }

@@ -3,6 +3,13 @@ import { writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { spinner, log } from '@clack/prompts'
 import pc from 'picocolors'
+import {
+  runPreflight,
+  printPreflightReport,
+  DEFAULT_AMPLIFY_ROLE_NAME,
+  AMPLIFY_BACKEND_POLICY_ARN,
+  type PreflightResult,
+} from './preflight.js'
 
 /**
  * Deploy pipeline for `create-ampless --deploy`.
@@ -33,6 +40,10 @@ export interface DeployOptions {
   domain?: string
   /** Explicit subdomain prefix; if set, takes precedence over auto-split. */
   subdomain?: string
+  /** Optional explicit Amplify Hosting service role ARN (`--iam-service-role`). */
+  iamServiceRoleArn?: string
+  /** Opt into letting create-ampless provision the service role itself. */
+  createIamRole?: boolean
   skipConfirm: boolean
 }
 
@@ -263,18 +274,26 @@ interface AmplifyApp {
   defaultDomain: string
 }
 
-async function amplifyCreateApp(opts: DeployOptions, repoUrl: string): Promise<AmplifyApp> {
+async function amplifyCreateApp(
+  opts: DeployOptions,
+  repoUrl: string,
+  iamServiceRoleArn?: string
+): Promise<AmplifyApp> {
+  const cmd = [
+    'amplify',
+    'create-app',
+    '--name', shortName(opts),
+    '--repository', repoUrl,
+    '--access-token', opts.githubToken,
+    '--platform', 'WEB_COMPUTE',
+    '--build-spec', AMPLIFY_BUILD_SPEC,
+  ]
+  if (iamServiceRoleArn) {
+    cmd.push('--iam-service-role-arn', iamServiceRoleArn)
+  }
   const out = await run(
     'aws',
-    awsArgs(opts, [
-      'amplify',
-      'create-app',
-      '--name', shortName(opts),
-      '--repository', repoUrl,
-      '--access-token', opts.githubToken,
-      '--platform', 'WEB_COMPUTE',
-      '--build-spec', AMPLIFY_BUILD_SPEC,
-    ]),
+    awsArgs(opts, cmd),
     { step: 'aws amplify create-app' }
   )
   const parsed = JSON.parse(out) as { app?: { appId?: string; defaultDomain?: string } }
@@ -422,10 +441,119 @@ async function amplifyCreateDomain(
   }
 }
 
+/**
+ * Idempotently provision the Amplify Hosting service role at deploy time.
+ * Only called when `--create-iam-role` was passed AND pre-flight didn't
+ * already find a matching role. Returns the role ARN.
+ */
+async function provisionIamServiceRole(opts: DeployOptions): Promise<string> {
+  const roleName = DEFAULT_AMPLIFY_ROLE_NAME
+  const trustPolicy = JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Effect: 'Allow',
+        Principal: { Service: 'amplify.amazonaws.com' },
+        Action: 'sts:AssumeRole',
+      },
+    ],
+  })
+
+  // 1. Create the role (or no-op if EntityAlreadyExists). We never pass
+  //    --region to IAM commands because IAM is global, but `awsArgs`
+  //    appends it anyway — that's fine, the CLI just ignores it for IAM.
+  const createArgs = [
+    'iam',
+    'create-role',
+    '--role-name',
+    roleName,
+    '--assume-role-policy-document',
+    trustPolicy,
+    '--description',
+    'Amplify Hosting service role created by create-ampless',
+  ]
+  try {
+    await run('aws', awsArgs(opts, createArgs), { step: 'aws iam create-role' })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!/EntityAlreadyExists/i.test(msg) && !/already exists/i.test(msg)) {
+      throw err
+    }
+    // role exists already — fall through to attach + lookup.
+  }
+
+  // 2. Attach the managed policy (idempotent — AWS just no-ops on duplicate).
+  await run(
+    'aws',
+    awsArgs(opts, [
+      'iam',
+      'attach-role-policy',
+      '--role-name',
+      roleName,
+      '--policy-arn',
+      AMPLIFY_BACKEND_POLICY_ARN,
+    ]),
+    { step: 'aws iam attach-role-policy' }
+  )
+
+  // 3. Look up the ARN.
+  const out = await run(
+    'aws',
+    awsArgs(opts, ['iam', 'get-role', '--role-name', roleName]),
+    { step: 'aws iam get-role' }
+  )
+  const parsed = JSON.parse(out) as { Role?: { Arn?: string } }
+  const arn = parsed.Role?.Arn
+  if (!arn) {
+    throw new Error(`aws iam get-role for ${roleName}: missing Role.Arn in response`)
+  }
+  return arn
+}
+
+/**
+ * Custom Error subclass thrown when pre-flight discovers problems. The
+ * caller (`index.ts`) catches this to exit cleanly without printing a
+ * stack trace.
+ */
+export class PreflightError extends Error {
+  readonly result: PreflightResult
+  constructor(result: PreflightResult) {
+    super('create-ampless --deploy: pre-flight failed')
+    this.name = 'PreflightError'
+    this.result = result
+  }
+}
+
 /** Run the full deploy pipeline. Errors include partial-progress hints. */
 export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
-  await ensureCommandExists('gh')
-  await ensureCommandExists('aws')
+  // ---- Pre-flight (no side effects) -----------------------------------
+  const pre = await runPreflight(opts, {
+    iamServiceRoleArn: opts.iamServiceRoleArn,
+    createIamRole: opts.createIamRole === true,
+  })
+  if (pre.problems.length > 0) {
+    printPreflightReport(pre.problems)
+    throw new PreflightError(pre)
+  }
+  const resolution = pre.resolution!
+
+  // From here on every step has side effects. Establish the role ARN
+  // (auto-create if requested) BEFORE git/gh/amplify side effects so we
+  // still don't half-deploy if IAM provisioning explodes.
+  let serviceRoleArn = resolution.iamServiceRoleArn
+  if (resolution.willCreateIamRole && !serviceRoleArn) {
+    const s0 = spinner()
+    s0.start(`Provisioning IAM service role ${DEFAULT_AMPLIFY_ROLE_NAME}`)
+    try {
+      serviceRoleArn = await provisionIamServiceRole(opts)
+      s0.stop(`IAM role: ${serviceRoleArn}`)
+    } catch (err) {
+      s0.stop('IAM role provisioning: failed')
+      throw new Error(
+        `Failed to provision IAM service role: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
 
   // Always write the build spec into the project so subsequent pushes
   // (with no --deploy) match what Amplify was created with.
@@ -476,7 +604,7 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
   s = spinner()
   s.start('Creating Amplify Hosting app')
   try {
-    app = await amplifyCreateApp(opts, created.repoUrl!)
+    app = await amplifyCreateApp(opts, created.repoUrl!, serviceRoleArn)
     created.appId = app.appId
     s.stop(`Amplify app: ${app.appId}`)
   } catch (err) {

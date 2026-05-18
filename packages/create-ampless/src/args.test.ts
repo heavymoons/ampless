@@ -103,4 +103,20 @@ describe('parseDeployArgs', () => {
     expect(out.plugins).toBeUndefined()
     expect(out.siteName).toBeUndefined()
   })
+
+  it('parses --iam-service-role', () => {
+    const out = parseDeployArgs(['--iam-service-role', 'arn:aws:iam::1:role/X'])
+    expect(out.iamServiceRole).toBe('arn:aws:iam::1:role/X')
+  })
+
+  it('parses --create-iam-role as boolean', () => {
+    const out = parseDeployArgs(['my-site', '--create-iam-role'])
+    expect(out.createIamRole).toBe(true)
+  })
+
+  it('defaults createIamRole to false', () => {
+    const out = parseDeployArgs(['my-site'])
+    expect(out.createIamRole).toBe(false)
+    expect(out.iamServiceRole).toBeUndefined()
+  })
 })

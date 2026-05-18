@@ -26,6 +26,8 @@ export interface ParsedArgs {
   awsRegion?: string
   domain?: string
   subdomain?: string
+  iamServiceRole?: string
+  createIamRole: boolean
   skipConfirm: boolean
   help: boolean
   unknown: string[]
@@ -44,11 +46,13 @@ const STRING_FLAGS = new Set([
   '--aws-region',
   '--domain',
   '--subdomain',
+  '--iam-service-role',
 ])
 
 const BOOLEAN_FLAGS = new Set([
   '--deploy',
   '--github-private',
+  '--create-iam-role',
   '--skip-confirm',
   '--help',
   '-h',
@@ -58,6 +62,7 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = {
     deploy: false,
     githubPrivate: false,
+    createIamRole: false,
     skipConfirm: false,
     help: false,
     unknown: [],
@@ -81,6 +86,9 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
           break
         case '--github-private':
           out.githubPrivate = true
+          break
+        case '--create-iam-role':
+          out.createIamRole = true
           break
         case '--skip-confirm':
           out.skipConfirm = true
@@ -142,6 +150,9 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
         case '--subdomain':
           out.subdomain = value
           break
+        case '--iam-service-role':
+          out.iamServiceRole = value
+          break
       }
       continue
     }
@@ -186,6 +197,12 @@ Options:
   --aws-region <region>       AWS region (defaults to aws config / env)
   --domain <name>             Custom domain (apex or subdomain) to attach
   --subdomain <prefix>        Subdomain prefix for the domain (default: apex)
+  --iam-service-role <arn>    Existing IAM role for Amplify Hosting (must trust
+                              amplify.amazonaws.com and have
+                              AmplifyBackendDeployFullAccess attached)
+  --create-iam-role           Let create-ampless provision the Amplify Hosting
+                              service role (idempotent; defaults to role name
+                              AmplifyDeployBackend)
   --skip-confirm              Skip all interactive prompts and use defaults /
                               flag values (for CI / automation)
   -h, --help                  Show this message

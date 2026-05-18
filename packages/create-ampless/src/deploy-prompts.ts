@@ -170,6 +170,8 @@ export async function gatherDeployOptions(
     awsRegion,
     domain,
     subdomain,
+    iamServiceRoleArn: args.iamServiceRole,
+    createIamRole: args.createIamRole,
     skipConfirm: args.skipConfirm,
   }
 }
