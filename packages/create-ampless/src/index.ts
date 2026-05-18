@@ -1,13 +1,35 @@
 import { spinner, outro, log } from '@clack/prompts'
 import { existsSync } from 'fs'
-import { resolve } from 'path'
-import { runPrompts } from './prompts.js'
+import { basename, resolve } from 'path'
+import { runPrompts, type ProjectOptions } from './prompts.js'
 import { scaffold } from './scaffold.js'
 import { sharedTemplateDir, templatesDir } from './templates.js'
 import { parseDeployArgs, HELP_TEXT } from './args.js'
 import { gatherDeployOptions } from './deploy-prompts.js'
 import { runDeploy } from './deploy.js'
 import pc from 'picocolors'
+
+function buildNonInteractiveOpts(args: ReturnType<typeof parseDeployArgs>): ProjectOptions {
+  // Resolve project name: CLI positional → directory basename → fallback
+  const projectName =
+    args.projectName ??
+    (() => {
+      const b = basename(process.cwd())
+      return b && b !== '/' ? b : 'my-ampless-site'
+    })()
+
+  const siteName = args.siteName ?? 'My Blog'
+  const themes = args.themes ?? ['blog']
+  const plugins = args.plugins ?? ['seo']
+
+  return {
+    projectName,
+    siteName,
+    themes,
+    defaultTheme: themes[0]!,
+    plugins,
+  }
+}
 
 async function main() {
   const args = parseDeployArgs(process.argv.slice(2))
@@ -20,7 +42,12 @@ async function main() {
     log.warn(`Unknown argument ignored: ${flag}`)
   }
 
-  const opts = await runPrompts(args.projectName)
+  let opts: ProjectOptions | null
+  if (args.skipConfirm) {
+    opts = buildNonInteractiveOpts(args)
+  } else {
+    opts = await runPrompts(args.projectName)
+  }
   if (!opts) return
 
   const destDir = resolve(process.cwd(), opts.projectName)

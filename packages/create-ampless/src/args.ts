@@ -15,6 +15,9 @@
 
 export interface ParsedArgs {
   projectName?: string
+  siteName?: string
+  themes?: string[]
+  plugins?: string[]
   deploy: boolean
   githubOwner?: string
   githubPrivate: boolean
@@ -28,7 +31,13 @@ export interface ParsedArgs {
   unknown: string[]
 }
 
+export const VALID_THEMES = ['blog', 'minimal', 'landing', 'corporate', 'docs', 'dads'] as const
+export const VALID_PLUGINS = ['seo', 'rss', 'webhook'] as const
+
 const STRING_FLAGS = new Set([
+  '--site-name',
+  '--themes',
+  '--plugins',
   '--github-owner',
   '--github-token',
   '--aws-profile',
@@ -90,6 +99,31 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
         throw new Error(`Missing value for ${token}`)
       }
       switch (token) {
+        case '--site-name':
+          out.siteName = value
+          break
+        case '--themes': {
+          const themes = value.split(',').map((t) => t.trim()).filter(Boolean)
+          const invalid = themes.filter((t) => !(VALID_THEMES as readonly string[]).includes(t))
+          if (invalid.length > 0) {
+            throw new Error(
+              `Invalid theme(s): ${invalid.join(', ')}. Valid values: ${VALID_THEMES.join(', ')}`
+            )
+          }
+          out.themes = themes
+          break
+        }
+        case '--plugins': {
+          const plugins = value.split(',').map((p) => p.trim()).filter(Boolean)
+          const invalid = plugins.filter((p) => !(VALID_PLUGINS as readonly string[]).includes(p))
+          if (invalid.length > 0) {
+            throw new Error(
+              `Invalid plugin(s): ${invalid.join(', ')}. Valid values: ${VALID_PLUGINS.join(', ')}`
+            )
+          }
+          out.plugins = plugins
+          break
+        }
         case '--github-owner':
           out.githubOwner = value
           break
@@ -134,6 +168,13 @@ Usage:
   npx create-ampless@alpha <project-name> [options]
 
 Options:
+  --site-name <name>          Site display name (default: "My Blog")
+  --themes <list>             Comma-separated theme names to install
+                              Valid: blog, minimal, landing, corporate, docs, dads
+                              (default: blog)
+  --plugins <list>            Comma-separated plugin names to install
+                              Valid: seo, rss, webhook
+                              (default: seo)
   --deploy                    Also create GitHub repo + Amplify Hosting app and
                               kick off the first deploy after scaffolding
   --github-owner <login>      GitHub owner (user or org). Defaults to the
@@ -145,6 +186,7 @@ Options:
   --aws-region <region>       AWS region (defaults to aws config / env)
   --domain <name>             Custom domain (apex or subdomain) to attach
   --subdomain <prefix>        Subdomain prefix for the domain (default: apex)
-  --skip-confirm              Don't ask 'proceed?' before running
+  --skip-confirm              Skip all interactive prompts and use defaults /
+                              flag values (for CI / automation)
   -h, --help                  Show this message
 `

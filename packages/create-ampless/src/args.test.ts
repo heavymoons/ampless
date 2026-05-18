@@ -63,4 +63,44 @@ describe('parseDeployArgs', () => {
     expect(out.projectName).toBe('my-site')
     expect(out.unknown).toContain('second-thing')
   })
+
+  it('parses --site-name', () => {
+    const out = parseDeployArgs(['--site-name', 'Awesome Blog'])
+    expect(out.siteName).toBe('Awesome Blog')
+  })
+
+  it('parses --site-name with = form', () => {
+    const out = parseDeployArgs(['--site-name=Cool Site'])
+    expect(out.siteName).toBe('Cool Site')
+  })
+
+  it('parses --themes as a comma-separated list', () => {
+    const out = parseDeployArgs(['--themes', 'blog,dads'])
+    expect(out.themes).toEqual(['blog', 'dads'])
+  })
+
+  it('parses --plugins as a comma-separated list', () => {
+    const out = parseDeployArgs(['--plugins', 'seo,rss'])
+    expect(out.plugins).toEqual(['seo', 'rss'])
+  })
+
+  it('parses a single --themes value', () => {
+    const out = parseDeployArgs(['--themes', 'minimal'])
+    expect(out.themes).toEqual(['minimal'])
+  })
+
+  it('throws on invalid theme name', () => {
+    expect(() => parseDeployArgs(['--themes', 'nonexistent'])).toThrow(/Invalid theme/)
+  })
+
+  it('throws on invalid plugin name', () => {
+    expect(() => parseDeployArgs(['--plugins', 'badplugin'])).toThrow(/Invalid plugin/)
+  })
+
+  it('leaves themes/plugins undefined when not passed', () => {
+    const out = parseDeployArgs(['my-site'])
+    expect(out.themes).toBeUndefined()
+    expect(out.plugins).toBeUndefined()
+    expect(out.siteName).toBeUndefined()
+  })
 })
