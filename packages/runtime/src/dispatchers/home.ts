@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
 import type { Ampless } from '../index.js'
 
@@ -5,26 +6,22 @@ interface Props {
   params: Promise<{ siteId: string }>
 }
 
-export type ThemeHomeDispatcher = (props: Props) => Promise<unknown>
+// Use `ReactNode` (via the `react` peer dep) — `Promise<unknown>`
+// trips Next.js 16's `AppPageConfig` type check during `next build`.
+export type ThemeHomeDispatcher = (props: Props) => Promise<ReactNode>
 export type ThemeHomeMetadata = (props: Props) => Promise<Metadata>
 
 /**
  * Home page dispatcher. Resolves the active theme for the request's
  * siteId and renders the theme's `components.Home` server component
  * with the same `params` Promise it was passed.
- *
- * The return type is `unknown` (cast at the route boundary) because
- * Next.js page-component prop types vary by route shape and the
- * underlying theme components are arbitrary server components.
  */
 export function createThemeHomeDispatcher(ampless: Ampless): ThemeHomeDispatcher {
-  return async function SiteHomeDispatcher({ params }: Props): Promise<unknown> {
+  return async function SiteHomeDispatcher({ params }: Props): Promise<ReactNode> {
     const { siteId } = await params
     const { module } = await ampless.resolveActiveTheme(siteId)
     const Home = module.components.Home
-    // The theme component is a server component; await its render and
-    // return the resulting React node.
-    return await Home({ params })
+    return (await Home({ params })) as ReactNode
   }
 }
 
