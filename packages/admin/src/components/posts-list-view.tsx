@@ -28,9 +28,9 @@ export function PostsList() {
   }, [])
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">{t('posts.list.title')}</h1>
+    <div className="mx-auto max-w-7xl p-4 md:p-8">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 md:mb-8">
+        <h1 className="text-2xl font-bold md:text-3xl">{t('posts.list.title')}</h1>
         <Button asChild>
           <Link href="/admin/posts/new">{t('posts.list.newButton')}</Link>
         </Button>
@@ -46,7 +46,7 @@ export function PostsList() {
           </Button>
         </div>
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>

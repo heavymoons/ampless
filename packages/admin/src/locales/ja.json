@@ -35,7 +35,9 @@
     "sites": "サイト",
     "viewSite": "サイトを表示",
     "signOut": "サインアウト",
-    "site": "サイト"
+    "site": "サイト",
+    "openMenu": "メニューを開く",
+    "closeMenu": "メニューを閉じる"
   },
   "dashboard": {
     "title": "ダッシュボード",

@@ -35,7 +35,9 @@
     "sites": "Sites",
     "viewSite": "View site",
     "signOut": "Sign out",
-    "site": "Site"
+    "site": "Site",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
   },
   "dashboard": {
     "title": "Dashboard",

@@ -37,15 +37,15 @@ export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<Theme
     }))
 
     return (
-      <div className="p-8">
-        <div className="mb-8">
+      <div className="mx-auto max-w-7xl p-4 md:p-8">
+        <div className="mb-6 md:mb-8">
           <Link
             href={`/admin/sites/${siteId}`}
             className="text-sm text-muted-foreground hover:underline"
           >
             ← {site.name}
           </Link>
-          <h1 className="mt-2 text-3xl font-bold">{t('theme.title')}</h1>
+          <h1 className="mt-2 text-2xl font-bold md:text-3xl">{t('theme.title')}</h1>
           <p className="text-sm text-muted-foreground">
             {t('common.active')}:{' '}
             <strong>{resolveLocalized(theme.manifest.label, locale)}</strong> ({theme.activeTheme})

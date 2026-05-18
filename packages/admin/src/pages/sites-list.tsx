@@ -25,15 +25,15 @@ export function createSitesListPage(admin: Admin) {
     const ids = multi ? Object.keys(cmsConfig.sites ?? {}) : [DEFAULT_SITE_ID]
 
     return (
-      <div className="p-8">
-        <div className="mb-8 flex items-center justify-between">
+      <div className="mx-auto max-w-7xl p-4 md:p-8">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 md:mb-8">
           <div>
-            <h1 className="text-3xl font-bold">{t('sites.list.title')}</h1>
+            <h1 className="text-2xl font-bold md:text-3xl">{t('sites.list.title')}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('sites.list.description')}</p>
           </div>
         </div>
 
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>

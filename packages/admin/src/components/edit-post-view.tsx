@@ -24,12 +24,13 @@ export function EditPostPage({ params }: { params: Promise<{ postId: string }> }
       .finally(() => setLoading(false))
   }, [postId])
 
-  if (loading) return <div className="p-8">{t('common.loading')}</div>
+  if (loading)
+    return <div className="mx-auto max-w-7xl p-4 md:p-8">{t('common.loading')}</div>
   if (missing) notFound()
 
   return (
-    <div className="p-8">
-      <h1 className="mb-8 text-3xl font-bold">{t('posts.form.editTitle')}</h1>
+    <div className="mx-auto max-w-7xl p-4 md:p-8">
+      <h1 className="mb-6 text-2xl font-bold md:mb-8 md:text-3xl">{t('posts.form.editTitle')}</h1>
       {post && <PostForm post={post} />}
     </div>
   )

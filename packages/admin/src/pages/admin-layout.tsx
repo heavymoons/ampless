@@ -54,9 +54,9 @@ export function createAdminLayout(admin: Admin) {
     return (
       <AdminProviders outputs={admin.outputs} cmsConfig={sanitizeCmsConfigForClient(admin.cmsConfig)}>
         <I18nProvider locale={admin.locale} dict={admin.dict}>
-          <div className="flex min-h-screen">
+          <div className="flex min-h-screen flex-col md:flex-row">
             <Sidebar email={session!.email} siteSelector={selector} />
-            <main className="flex-1 overflow-auto">{children}</main>
+            <main className="min-w-0 flex-1">{children}</main>
           </div>
         </I18nProvider>
       </AdminProviders>

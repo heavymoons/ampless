@@ -44,15 +44,15 @@ export function createSiteEditPage(admin: Admin) {
     }
 
     return (
-      <div className="p-8">
-        <div className="mb-8">
+      <div className="mx-auto max-w-7xl p-4 md:p-8">
+        <div className="mb-6 md:mb-8">
           <Link
             href="/admin/sites"
             className="text-sm text-muted-foreground hover:underline"
           >
             ← {t('sidebar.sites')}
           </Link>
-          <h1 className="mt-2 text-3xl font-bold">{settings.site.name}</h1>
+          <h1 className="mt-2 text-2xl font-bold md:text-3xl">{settings.site.name}</h1>
           <p className="text-sm text-muted-foreground">
             {t('common.siteId')}: <code className="font-mono">{siteId}</code>
           </p>
