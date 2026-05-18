@@ -199,7 +199,7 @@ Options:
   --subdomain <prefix>        Subdomain prefix for the domain (default: apex)
   --iam-service-role <arn>    Existing IAM role for Amplify Hosting (must trust
                               amplify.amazonaws.com and have
-                              AmplifyBackendDeployFullAccess attached)
+                              AdministratorAccess-Amplify attached)
   --create-iam-role           Let create-ampless provision the Amplify Hosting
                               service role (idempotent; defaults to role name
                               AmplifyDeployBackend)

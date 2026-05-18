@@ -50,9 +50,15 @@ export const DEFAULT_AMPLIFY_ROLE_NAME = 'AmplifyDeployBackend'
 /**
  * Managed policy required by Amplify Hosting builds that also deploy the
  * Amplify Gen 2 backend via `ampx pipeline-deploy`.
+ *
+ * Older AWS docs referenced `AmplifyBackendDeployFullAccess`, but that
+ * policy doesn't exist in the registry. The correct managed policy for
+ * Amplify Hosting service roles is `AdministratorAccess-Amplify`, which
+ * includes CDK / SSM / S3 / Cognito / DynamoDB / Lambda etc. that
+ * `ampx pipeline-deploy` needs.
  */
 export const AMPLIFY_BACKEND_POLICY_ARN =
-  'arn:aws:iam::aws:policy/AmplifyBackendDeployFullAccess'
+  'arn:aws:iam::aws:policy/AdministratorAccess-Amplify'
 
 const TRUST_POLICY_JSON = JSON.stringify({
   Version: '2012-10-17',
