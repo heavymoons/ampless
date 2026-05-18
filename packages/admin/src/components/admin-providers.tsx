@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect } from 'react'
 import type { Config } from 'ampless'
 import type { AmplessOutputs } from '@ampless/runtime'
 import { configureAmplify } from '../lib/amplify-client.js'
@@ -22,24 +21,25 @@ interface Props {
  * the client-side state modules, and installs the admin's posts / kv
  * providers so 'ampless'-imported functions hit the AppSync client.
  *
- * All side effects are idempotent; mounting this multiple times (e.g.
- * during HMR) won't double-register anything.
+ * All bootstrap calls happen synchronously during render, NOT in
+ * `useEffect`. React runs child useEffects before parent useEffects,
+ * so if `installAdminPostsProvider` were inside an effect, a child
+ * page's first `listPosts()` call (also in a useEffect) would race
+ * the install and fall back to ampless's dummy data. Synchronous
+ * registration guarantees the provider is in place before any child
+ * component mounts.
+ *
+ * All side effects are idempotent (the install functions guard with an
+ * `installed` flag) — mounting this multiple times (e.g. during HMR or
+ * remount) is safe.
  */
 export function AdminProviders({ outputs, cmsConfig, children }: Props) {
-  // Run state setters synchronously during render so client components
-  // that read them during their first render (post-form, sidebar, ...)
-  // see the registered values before they mount. The Amplify
-  // configure + providers wiring stays inside useEffect because those
-  // call `Amplify.configure` which is fine to defer to commit.
   configureAmplify(outputs)
   setAdminCmsConfig(cmsConfig)
   setAdminCmsConfigClient(cmsConfig)
   setAdminMediaContext(outputs, cmsConfig)
-
-  useEffect(() => {
-    installAdminPostsProvider()
-    installAdminKvProvider()
-  }, [])
+  installAdminPostsProvider()
+  installAdminKvProvider()
 
   return <>{children}</>
 }
