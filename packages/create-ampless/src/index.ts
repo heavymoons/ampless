@@ -4,12 +4,23 @@ import { resolve } from 'path'
 import { runPrompts } from './prompts.js'
 import { scaffold } from './scaffold.js'
 import { sharedTemplateDir, templatesDir } from './templates.js'
+import { parseDeployArgs, HELP_TEXT } from './args.js'
+import { gatherDeployOptions } from './deploy-prompts.js'
+import { runDeploy } from './deploy.js'
 import pc from 'picocolors'
 
 async function main() {
-  const argProjectName = process.argv[2]
+  const args = parseDeployArgs(process.argv.slice(2))
 
-  const opts = await runPrompts(argProjectName)
+  if (args.help) {
+    process.stdout.write(HELP_TEXT)
+    return
+  }
+  for (const flag of args.unknown) {
+    log.warn(`Unknown argument ignored: ${flag}`)
+  }
+
+  const opts = await runPrompts(args.projectName)
   if (!opts) return
 
   const destDir = resolve(process.cwd(), opts.projectName)
@@ -30,6 +41,41 @@ async function main() {
     s.stop('Failed.')
     log.error(String(err))
     process.exit(1)
+  }
+
+  if (args.deploy) {
+    const deployOpts = await gatherDeployOptions(args, destDir, opts.projectName)
+    if (!deployOpts) return
+
+    try {
+      const result = await runDeploy(deployOpts)
+      const lines = [
+        `${pc.green('✔')} Project deployed`,
+        ``,
+        `  GitHub:        ${pc.cyan(result.githubRepoUrl)}`,
+        `  Amplify app:   ${pc.cyan(result.amplifyAppId)}`,
+        `  Amplify URL:   ${pc.cyan(result.amplifyAppUrl)}`,
+      ]
+      if (result.domainUrl) {
+        lines.push(`  Custom domain: ${pc.cyan(result.domainUrl)}`)
+      }
+      if (result.domainVerification && result.domainVerification.length > 0) {
+        lines.push('', `  ${pc.bold('Add these DNS records to verify the domain:')}`)
+        for (const v of result.domainVerification) {
+          lines.push(`    ${v.cname}  CNAME  ${v.target}`)
+        }
+      }
+      lines.push(
+        '',
+        `  First build is now running in Amplify Hosting.`,
+        `  Watch it at ${pc.cyan(`https://console.aws.amazon.com/amplify/home#/${result.amplifyAppId}`)}`
+      )
+      outro(lines.join('\n'))
+    } catch (err) {
+      log.error(err instanceof Error ? err.message : String(err))
+      process.exit(1)
+    }
+    return
   }
 
   outro(
