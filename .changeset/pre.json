@@ -21,6 +21,7 @@
     "create-ampless-deploy-flag",
     "create-ampless-preflight",
     "dep-major-bumps",
+    "dispatcher-reactnode-return",
     "i18n-provider-shim-use-client",
     "initial-alpha",
     "lib-admin-no-ampless",
