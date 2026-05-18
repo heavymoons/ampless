@@ -142,6 +142,45 @@ export function installAdminPostsProvider(): void {
     const oldKeys = new Set(oldEntries.map(entryKey))
     const newKeys = new Set(newEntries.map(entryKey))
 
+    function fullRow(e: PostTagEntry) {
+      return {
+        siteIdTag: e.siteIdTag,
+        publishedAtPostId: e.publishedAtPostId,
+        siteId: post.siteId,
+        tag: e.siteIdTag.slice(post.siteId.length + 1),
+        postId: post.postId,
+        publishedAt: post.publishedAt!,
+        slug: post.slug,
+        title: post.title,
+        excerpt: post.excerpt,
+        tags: post.tags ?? [],
+      }
+    }
+
+    // Upsert: try update first, fall back to create on ConditionalCheckFailed.
+    // We can't trust oldKeys alone because legacy posts published before the
+    // PostTag denormalized index existed have no rows in DynamoDB even though
+    // oldPost.tags suggests they should — AppSync's `update` would otherwise
+    // fail with `attribute_exists` not satisfied.
+    //
+    // Also covers the reverse: if a row was somehow orphaned (post deleted
+    // but PostTag not), a `create` finds the existing PK → fall back to update.
+    async function upsertPostTag(e: PostTagEntry) {
+      const row = fullRow(e)
+      const upd = await client.models.PostTag.update(row)
+      if (!upd.errors) return
+      // AppSync surfaces DynamoDB ConditionalCheckFailedException as an error
+      // with `errorType: 'DynamoDB:ConditionalCheckFailedException'` or a
+      // message containing "conditional request failed". Either way, the
+      // safest reaction is to fall back to create.
+      const cre = await client.models.PostTag.create(row)
+      if (cre.errors) {
+        // If create also failed conditionally (row exists but update couldn't
+        // touch it — auth?), surface the original update error.
+        throw new Error(upd.errors[0]?.message ?? 'PostTag.update failed')
+      }
+    }
+
     // Remove entries that no longer apply (tag removed, unpublished, etc.).
     await Promise.all(
       oldEntries
@@ -149,41 +188,26 @@ export function installAdminPostsProvider(): void {
         .map((e) => client.models.PostTag.delete(e))
     )
 
-    // Add brand-new entries (tag added, just published, etc.).
+    // Add brand-new entries (tag added, just published, etc.). Try create
+    // first; on conditional fail (orphan row left over), fall through to
+    // update.
     await Promise.all(
       newEntries
         .filter((e) => !oldKeys.has(entryKey(e)))
-        .map((e) =>
-          client.models.PostTag.create({
-            siteIdTag: e.siteIdTag,
-            publishedAtPostId: e.publishedAtPostId,
-            siteId: post.siteId,
-            tag: e.siteIdTag.slice(post.siteId.length + 1),
-            postId: post.postId,
-            publishedAt: post.publishedAt!,
-            slug: post.slug,
-            title: post.title,
-            excerpt: post.excerpt,
-            tags: post.tags ?? [],
-          })
-        )
+        .map(async (e) => {
+          const cre = await client.models.PostTag.create(fullRow(e))
+          if (!cre.errors) return
+          const upd = await client.models.PostTag.update(fullRow(e))
+          if (upd.errors)
+            throw new Error(cre.errors[0]?.message ?? 'PostTag.create failed')
+        })
     )
 
     // Update entries whose key didn't change but display fields might have
-    // (title/slug/excerpt/tags). DynamoDB upserts fields on update.
+    // (title/slug/excerpt/tags). Use upsert to tolerate legacy posts where
+    // PostTag rows were never created.
     await Promise.all(
-      newEntries
-        .filter((e) => oldKeys.has(entryKey(e)))
-        .map((e) =>
-          client.models.PostTag.update({
-            siteIdTag: e.siteIdTag,
-            publishedAtPostId: e.publishedAtPostId,
-            slug: post.slug,
-            title: post.title,
-            excerpt: post.excerpt,
-            tags: post.tags ?? [],
-          })
-        )
+      newEntries.filter((e) => oldKeys.has(entryKey(e))).map(upsertPostTag)
     )
   }
 
