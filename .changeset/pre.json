@@ -29,6 +29,7 @@
     "middleware-to-proxy",
     "posttag-upsert",
     "preserve-directives-tsup",
+    "processor-plugins-config-type",
     "proxy-config-inline",
     "sanitize-cmsconfig-for-client",
     "shim-tdz-fix",
