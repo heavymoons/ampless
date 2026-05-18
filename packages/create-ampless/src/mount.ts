@@ -26,33 +26,11 @@ export function validateMountableProject(destDir: string): string | null {
   return null
 }
 
-/**
- * Default `.gitignore` we drop into a mount target if one isn't already
- * present. Mirrors what `templates/_shared/.gitignore` contains so older
- * scaffolds (and hand-rolled projects) don't accidentally commit
- * `amplify_outputs.json` or `node_modules`.
- */
-export const MOUNT_DEFAULT_GITIGNORE = `# Dependencies
-node_modules/
-
-# Next.js
-.next/
-.amplify/
-
-# Amplify outputs (regenerated on every deploy / sandbox)
-amplify_outputs.json
-
-# Env / OS noise
-.env
-.env.local
-.env.*.local
-.DS_Store
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-`
+// `MOUNT_DEFAULT_GITIGNORE` previously lived here; canonical content
+// has moved to `gitignore.ts` so scaffold + mount share one source of
+// truth. Re-exported under the historical name to avoid breaking any
+// downstream import that snuck in.
+export { DEFAULT_GITIGNORE as MOUNT_DEFAULT_GITIGNORE } from './gitignore.js'
 
 /**
  * Check whether an existing `origin` URL points at the repo we are about

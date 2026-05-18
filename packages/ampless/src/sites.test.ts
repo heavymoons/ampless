@@ -51,6 +51,16 @@ describe('resolveSiteId', () => {
   it('returns null when host is not registered', () => {
     expect(resolveSiteId('unknown.example.com', multi)).toBeNull()
   })
+
+  it('returns the single declared site for any host (catch-all, matches isMultiSite)', () => {
+    const oneSite: Config = {
+      ...single,
+      sites: { default: { domains: ['ampless.example.com'] } },
+    }
+    expect(resolveSiteId('ampless.example.com', oneSite)).toBe('default')
+    expect(resolveSiteId('localhost', oneSite)).toBe('default')
+    expect(resolveSiteId('whatever', oneSite)).toBe('default')
+  })
 })
 
 describe('isMultiSite', () => {

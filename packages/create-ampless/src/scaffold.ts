@@ -1,6 +1,7 @@
 import { cp, readFile, writeFile, readdir, mkdir, rm } from 'fs/promises'
 import { join, extname, resolve } from 'path'
 import { templatePath } from './templates.js'
+import { DEFAULT_GITIGNORE } from './gitignore.js'
 import type { ProjectOptions } from './prompts.js'
 
 const TEXT_EXTENSIONS = new Set([
@@ -102,6 +103,13 @@ export async function scaffold(
   // Overwrite the shared themes-registry.ts with the actually-installed list.
   const registryPath = resolve(destDir, 'themes-registry.ts')
   await writeFile(registryPath, buildRegistry(opts.themes), 'utf-8')
+
+  // Write the canonical `.gitignore` (generated from a constant rather
+  // than shipped in `templates/_shared/` to dodge npm's nested-dotfile
+  // packing quirks). Always overwrites, so the scaffold's notion of
+  // "what should never be committed" wins over any stale template.
+  const gitignorePath = resolve(destDir, '.gitignore')
+  await writeFile(gitignorePath, DEFAULT_GITIGNORE, 'utf-8')
 
   const vars: Record<string, string> = {
     projectName: opts.projectName,

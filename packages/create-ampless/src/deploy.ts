@@ -1,6 +1,6 @@
 import { execa, type Options as ExecaOptions } from 'execa'
 import { existsSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { spinner, log } from '@clack/prompts'
 import pc from 'picocolors'
@@ -11,7 +11,8 @@ import {
   AMPLIFY_BACKEND_POLICY_ARN,
   type PreflightResult,
 } from './preflight.js'
-import { MOUNT_DEFAULT_GITIGNORE, originPointsAt } from './mount.js'
+import { DEFAULT_GITIGNORE } from './gitignore.js'
+import { originPointsAt } from './mount.js'
 
 /**
  * Deploy pipeline for `create-ampless --deploy`.
@@ -186,6 +187,71 @@ export function splitDomain(
   return { registrable, subdomain: prefix }
 }
 
+/**
+ * Rewrite the scaffold defaults in `cms.config.ts` to reflect the
+ * deployed domain. Two changes, both idempotent and only applied when
+ * the scaffold placeholders are still present (so mount-mode users who
+ * already customized the file are not clobbered):
+ *
+ *  1. `site.url`: `'http://localhost:3000'` → `'https://<fullDomain>'`.
+ *  2. `sites.default.domains`: inject `sites: { default: { domains:
+ *     ['<fullDomain>'] } }` when no `sites:` block exists. Surfaces
+ *     the bound domain in the admin sites list. Single-entry `sites`
+ *     stays single-site mode (see `isMultiSite` in ampless).
+ *
+ * Returns the set of mutations made. Callers can use this for logging;
+ * the function never throws on a missing or already-customized file.
+ */
+export async function rewriteCmsConfigForDomain(
+  projectDir: string,
+  fullDomain: string
+): Promise<{ urlRewritten: boolean; sitesInjected: boolean }> {
+  const path = resolve(projectDir, 'cms.config.ts')
+  if (!existsSync(path)) {
+    return { urlRewritten: false, sitesInjected: false }
+  }
+
+  let content = await readFile(path, 'utf-8')
+  let urlRewritten = false
+  let sitesInjected = false
+
+  const urlRe = /url:\s*['"]http:\/\/localhost:3000['"]/
+  if (urlRe.test(content)) {
+    content = content.replace(urlRe, `url: 'https://${fullDomain}'`)
+    urlRewritten = true
+  }
+
+  // Detect an existing active `sites:` declaration (commented lines start
+  // with `//` and so won't match `^\s*sites:`).
+  const sitesActiveRe = /^\s*sites:\s*\{/m
+  if (!sitesActiveRe.test(content)) {
+    // Find the `site: { ... },` block and append a `sites:` block right
+    // after it. The non-greedy `[\s\S]*?` plus an anchor on `\n\2\},`
+    // (newline + same indent + `},`) makes the match tolerant of `}`
+    // characters inside string values like `'{{siteName}}'`.
+    const siteCloseRe = /(\n(\s*)site:\s*\{[\s\S]*?\n\2\},)/
+    const m = siteCloseRe.exec(content)
+    if (m) {
+      const indent = m[2] ?? '  '
+      const inner = indent + '  '
+      const innermost = inner + '  '
+      const inject =
+        `\n${indent}sites: {\n` +
+        `${inner}default: {\n` +
+        `${innermost}domains: ['${fullDomain}'],\n` +
+        `${inner}},\n` +
+        `${indent}},`
+      content = content.replace(siteCloseRe, `$1${inject}`)
+      sitesInjected = true
+    }
+  }
+
+  if (urlRewritten || sitesInjected) {
+    await writeFile(path, content, 'utf-8')
+  }
+  return { urlRewritten, sitesInjected }
+}
+
 interface RunOpts extends ExecaOptions {
   /** Friendly name to surface in error messages. */
   step?: string
@@ -252,7 +318,7 @@ async function currentBranch(dir: string): Promise<string | null> {
 async function ensureGitignore(dir: string): Promise<void> {
   const target = resolve(dir, '.gitignore')
   if (existsSync(target)) return
-  await writeFile(target, MOUNT_DEFAULT_GITIGNORE, 'utf-8')
+  await writeFile(target, DEFAULT_GITIGNORE, 'utf-8')
 }
 
 /**
@@ -695,6 +761,23 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
   // Always write the build spec into the project so subsequent pushes
   // (with no --deploy) match what Amplify was created with.
   await writeFile(resolve(opts.projectDir, 'amplify.yml'), AMPLIFY_BUILD_SPEC, 'utf-8')
+
+  // When deploying with a custom domain, swap the localhost scaffold
+  // defaults in cms.config.ts for the real URL + bind the domain to the
+  // default site so the admin sites list reflects production reality
+  // out of the gate. No-op when the user customized the file already
+  // (mount mode) or when no --domain was passed.
+  if (opts.domain) {
+    const { registrable, subdomain } = splitDomain(opts.domain, opts.subdomain)
+    const fullDomain = subdomain ? `${subdomain}.${registrable}` : registrable
+    const mutations = await rewriteCmsConfigForDomain(opts.projectDir, fullDomain)
+    if (mutations.urlRewritten || mutations.sitesInjected) {
+      const parts: string[] = []
+      if (mutations.urlRewritten) parts.push(`site.url → https://${fullDomain}`)
+      if (mutations.sitesInjected) parts.push(`sites.default.domains += ${fullDomain}`)
+      log.info(`cms.config.ts updated: ${parts.join(', ')}`)
+    }
+  }
 
   const created: { repoUrl?: string; appId?: string } = {}
 
