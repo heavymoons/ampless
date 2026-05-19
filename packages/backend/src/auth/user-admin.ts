@@ -1,4 +1,4 @@
-import type { AppSyncResolverHandler } from 'aws-lambda'
+import type { Handler } from 'aws-lambda'
 import {
   CognitoIdentityProviderClient,
   ListUsersCommand,
@@ -113,20 +113,51 @@ async function setAdminUserRole(
   return { userId, email, role: finalRole }
 }
 
-interface ListArgs {
-  /* no args */
-}
 interface SetArgs {
   userId: string
   role: string
 }
 
-export const handler: AppSyncResolverHandler<
-  ListArgs | SetArgs,
-  AdminUserDto | AdminUserDto[] | null
-> = async (event) => {
+/**
+ * Event shape that Amplify Gen 2 actually delivers to a Lambda data
+ * source attached via `a.handler.function()`. The CDK generated
+ * AppSync resource is a PIPELINE resolver whose Lambda-invocation
+ * function uses a VTL request mapping template that emits a flat
+ * payload:
+ *
+ *   {
+ *     "operation": "Invoke",
+ *     "payload": {
+ *       "typeName": "Query",
+ *       "fieldName": "listAdminUsers",
+ *       "arguments": { ... },
+ *       "identity": { ... },
+ *       "source": ..., "request": ..., "prev": ...
+ *     }
+ *   }
+ *
+ * Notably this is NOT the canonical `AppSyncResolverEvent` shape
+ * (which has `event.info.fieldName`). The `aws-lambda` package's
+ * `AppSyncResolverHandler` type is misleading here — typing the
+ * handler with it sends `event.info.fieldName` to `undefined` and
+ * blows up at runtime with
+ * `Cannot read properties of undefined (reading 'fieldName')`.
+ */
+interface UserAdminEvent {
+  typeName: string
+  fieldName: string
+  arguments: Partial<SetArgs>
+  identity?: unknown
+  source?: unknown
+  request?: unknown
+  prev?: unknown
+}
+
+export const handler: Handler<UserAdminEvent, AdminUserDto | AdminUserDto[] | null> = async (
+  event
+) => {
   const userPoolId = requireUserPoolId()
-  const field = event.info.fieldName
+  const field = event.fieldName
 
   try {
     if (field === 'listAdminUsers') {
