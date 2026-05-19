@@ -80,6 +80,18 @@
       "status": "ステータス",
       "noLayout": "レイアウトを使わない",
       "noLayoutHint": "テーマのヘッダー / フッター / root layout を介さず、本文を HTTP レスポンス本体としてそのまま返します。本文に <!DOCTYPE html>…</html> が含まれる場合はフォーマット: HTML との組み合わせが最適です。",
+      "formatStaticLabel": "Static (zip / ファイル一括)",
+      "static": {
+        "pick": ".zip または複数ファイルを選択",
+        "pickHint": "バンドル内のファイル間参照は相対パスのみ (先頭 / なし)。zip の中身は記事 slug の配下に展開され、テーマ装飾を介さずそのまま配信されます。",
+        "currentBundle": "現在のバンドル: {count} ファイル (entry: {entrypoint})",
+        "pendingBundle": "アップロード待ち: {count} ファイル, {size}",
+        "issuesTitle": "{count} 件の検証エラー",
+        "issuesHint": "該当パスを修正して再アップロードしてください。絶対パス (/foo) やプロトコル省略 (//cdn.example/foo) はバンドルの URL prefix 下で解決できません。",
+        "emptyBundle": "選択ファイルから取り出せる中身がありませんでした。",
+        "noBundle": "保存前にバンドルを選択してください。",
+        "previewHint": "Static バンドルは /<slug>/ から実 HTML として配信されます。保存後に公開 URL を開いて確認してください。"
+      },
       "saveChanges": "変更を保存",
       "createPost": "記事を作成",
       "delete": "削除",

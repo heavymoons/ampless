@@ -10,6 +10,7 @@ import {
   formatDate,
   type Post,
   type PostMetadata,
+  type StaticPostBody,
   type ContentFormat,
 } from 'ampless'
 import {
@@ -23,6 +24,12 @@ import { readAdminSiteIdFromCookie } from '../lib/admin-site-client.js'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
+import { StaticUploader } from './static-uploader.js'
+import {
+  uploadBundle,
+  deleteBundle,
+  type ExtractedFile,
+} from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
 
 type PostFormView = 'edit' | 'preview'
@@ -62,11 +69,23 @@ function slugify(s: string): string {
 }
 
 // When the user picks a different format mid-edit, the body shape
-// changes (tiptap stores an object, the others store strings). Pre-
-// populate sensibly so they're not staring at junk.
+// changes (tiptap stores an object, the others store strings, static
+// stores a manifest). Pre-populate sensibly so they're not staring at
+// junk.
 function defaultBodyForFormat(format: ContentFormat): unknown {
   if (format === 'tiptap') return EMPTY_TIPTAP_DOC
+  if (format === 'static') return null
   return ''
+}
+
+function isStaticBody(value: unknown): value is StaticPostBody {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'entrypoint' in value &&
+    'files' in value &&
+    Array.isArray((value as StaticPostBody).files)
+  )
 }
 
 export function PostForm({ post }: PostFormProps) {
@@ -86,6 +105,16 @@ export function PostForm({ post }: PostFormProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+
+  // Pending bundle for static posts. Held in memory until save so the
+  // user can cancel without leaving an orphan upload in S3. On save,
+  // `uploadBundle` flushes it, returns the manifest, and that becomes
+  // the post's `body`.
+  const [pendingBundle, setPendingBundle] = useState<{
+    files: ExtractedFile[]
+    entrypoint: string
+  } | null>(null)
+  const initialStaticBody = isStaticBody(post?.body) ? post!.body : null
 
   // Merge no_layout into whatever other metadata the post may have
   // accumulated (plugin state, SEO overrides, etc.) so the toggle never
@@ -140,50 +169,58 @@ export function PostForm({ post }: PostFormProps) {
   function changeFormat(next: ContentFormat) {
     if (next === format) return
 
-    // Convert the body across all six tiptap / html / markdown
-    // directions so the user keeps their content. tiptap is parsed
-    // by the editor when it remounts (it accepts HTML strings as
-    // initial content), so for *any* → tiptap we hand it HTML and
-    // tiptap reads it. Markdown → tiptap goes via HTML.
+    // Convert the body across tiptap / html / markdown so the user
+    // keeps their content. tiptap is parsed by the editor when it
+    // remounts (it accepts HTML strings as initial content), so for
+    // *any* → tiptap we hand it HTML and tiptap reads it. Markdown
+    // → tiptap goes via HTML. Switching to/from `static` resets the
+    // body — a bundle manifest can't be losslessly produced from
+    // prose, and prose can't be reconstituted from a file list.
     let nextBody: unknown = body
-    const k = `${format}→${next}` as
-      | 'tiptap→html'
-      | 'tiptap→markdown'
-      | 'html→tiptap'
-      | 'html→markdown'
-      | 'markdown→tiptap'
-      | 'markdown→html'
-    switch (k) {
-      case 'tiptap→html':
-        nextBody = tiptapToHtml(body)
-        break
-      case 'tiptap→markdown':
-        nextBody = tiptapToMarkdown(body)
-        break
-      case 'html→tiptap':
-        // Tiptap parses HTML strings on mount.
-        nextBody = String(body ?? '')
-        break
-      case 'markdown→tiptap':
-        nextBody = markdownToHtml(String(body ?? ''))
-        break
-      case 'html→markdown':
-        nextBody = htmlToMarkdown(String(body ?? ''))
-        break
-      case 'markdown→html':
-        nextBody = markdownToHtml(String(body ?? ''))
-        break
-      default:
-        // Unreachable for the three formats we expose, but reset to
-        // a sensible default if a new format is introduced later.
-        nextBody = defaultBodyForFormat(next)
+    if (next === 'static' || format === 'static') {
+      nextBody = defaultBodyForFormat(next)
+    } else {
+      const k = `${format}→${next}` as
+        | 'tiptap→html'
+        | 'tiptap→markdown'
+        | 'html→tiptap'
+        | 'html→markdown'
+        | 'markdown→tiptap'
+        | 'markdown→html'
+      switch (k) {
+        case 'tiptap→html':
+          nextBody = tiptapToHtml(body)
+          break
+        case 'tiptap→markdown':
+          nextBody = tiptapToMarkdown(body)
+          break
+        case 'html→tiptap':
+          // Tiptap parses HTML strings on mount.
+          nextBody = String(body ?? '')
+          break
+        case 'markdown→tiptap':
+          nextBody = markdownToHtml(String(body ?? ''))
+          break
+        case 'html→markdown':
+          nextBody = htmlToMarkdown(String(body ?? ''))
+          break
+        case 'markdown→html':
+          nextBody = markdownToHtml(String(body ?? ''))
+          break
+        default:
+          // Unreachable for the formats we expose, but reset to a
+          // sensible default if a new format is introduced later.
+          nextBody = defaultBodyForFormat(next)
+      }
     }
 
     setFormat(next)
     setBody(nextBody)
+    setPendingBundle(null)
     // no_layout only makes sense for raw-HTML posts (tiptap / markdown
     // fragments don't ship a DOCTYPE / head, so serving them bare is a
-    // footgun). Clear the flag when leaving html format so the
+    // footgun). Static bundles are already DOCTYPE-complete so the
+    // flag is redundant there. Clear it when leaving html format so the
     // checkbox-hidden state matches what gets persisted on save.
     if (next !== 'html') setNoLayout(false)
   }
@@ -196,15 +233,39 @@ export function PostForm({ post }: PostFormProps) {
     try {
       const tags = parseTags(tagsInput)
       const metadata = buildMetadata()
+      const finalSlug = slug || slugify(title)
+      const finalSiteId = post?.siteId ?? readAdminSiteIdFromCookie()
+
+      // For static posts, push the pending bundle to S3 before saving
+      // the post row. The returned manifest becomes the body so the
+      // DB always references files that actually exist. If no new
+      // bundle was picked, we re-use the existing manifest (edit-only
+      // metadata changes shouldn't re-upload).
+      let nextBody: unknown = body
+      if (format === 'static') {
+        if (pendingBundle) {
+          nextBody = await uploadBundle({
+            siteId: finalSiteId,
+            slug: finalSlug,
+            files: pendingBundle.files,
+            entrypoint: pendingBundle.entrypoint,
+          })
+        } else if (initialStaticBody) {
+          nextBody = initialStaticBody
+        } else {
+          throw new Error(t('posts.form.static.noBundle'))
+        }
+      }
+
       if (isEdit) {
         await updatePost(
           post!.postId,
           {
             title,
-            slug: slug || slugify(title),
+            slug: finalSlug,
             excerpt: excerpt || undefined,
             format,
-            body,
+            body: nextBody,
             status,
             publishedAt:
               status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
@@ -215,12 +276,12 @@ export function PostForm({ post }: PostFormProps) {
         )
       } else {
         await createPost({
-          siteId: readAdminSiteIdFromCookie(),
-          slug: slug || slugify(title),
+          siteId: finalSiteId,
+          slug: finalSlug,
           title,
           excerpt: excerpt || undefined,
           format,
-          body,
+          body: nextBody,
           status,
           publishedAt: status === 'published' ? new Date().toISOString() : undefined,
           tags,
@@ -241,6 +302,12 @@ export function PostForm({ post }: PostFormProps) {
     if (!confirm(t('posts.form.deleteConfirm', { title: post.title }))) return
     setSaving(true)
     try {
+      // Clear the bundle's S3 files before the post row goes away so
+      // we don't orphan ~megabytes of assets. Errors are swallowed —
+      // a partial S3 delete shouldn't block the post deletion.
+      if (post.format === 'static') {
+        await deleteBundle(post.siteId, post.slug).catch(() => undefined)
+      }
       await deletePost(post.postId)
       router.push('/admin/posts')
       router.refresh()
@@ -326,10 +393,16 @@ export function PostForm({ post }: PostFormProps) {
               <p className="mt-3 text-base text-muted-foreground">{excerpt}</p>
             )}
           </header>
-          <div
-            className="prose prose-neutral dark:prose-invert max-w-none"
-            dangerouslySetInnerHTML={{ __html: renderBody(previewPost) }}
-          />
+          {format === 'static' ? (
+            <p className="text-sm text-muted-foreground">
+              {t('posts.form.static.previewHint')}
+            </p>
+          ) : (
+            <div
+              className="prose prose-neutral dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: renderBody(previewPost) }}
+            />
+          )}
           {previewPost.tags && previewPost.tags.length > 0 && (
             <div className="flex flex-wrap gap-2 border-t pt-4 text-sm">
               {previewPost.tags.map((tag) => (
@@ -391,6 +464,7 @@ export function PostForm({ post }: PostFormProps) {
           <option value="tiptap">Tiptap (rich editor)</option>
           <option value="markdown">Markdown</option>
           <option value="html">HTML</option>
+          <option value="static">{t('posts.form.formatStaticLabel')}</option>
         </select>
         <p className="text-xs text-muted-foreground">{t('posts.form.formatHint')}</p>
       </div>
@@ -398,7 +472,7 @@ export function PostForm({ post }: PostFormProps) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label>{t('posts.form.body')}</Label>
-          {format !== 'tiptap' && (
+          {format !== 'tiptap' && format !== 'static' && (
             // For textarea-based formats (markdown / html) there's no
             // embedded toolbar, so we surface the MediaPicker as a
             // standalone button. Selecting an asset inserts a
@@ -416,6 +490,14 @@ export function PostForm({ post }: PostFormProps) {
         </div>
         {format === 'tiptap' ? (
           <TiptapEditor initialContent={body} onChange={setBody} />
+        ) : format === 'static' ? (
+          <StaticUploader
+            initial={initialStaticBody}
+            onFilesReady={(files, entrypoint) =>
+              setPendingBundle({ files, entrypoint })
+            }
+            onClear={() => setPendingBundle(null)}
+          />
         ) : (
           <Textarea
             ref={bodyTextareaRef}

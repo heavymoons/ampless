@@ -80,6 +80,18 @@
       "status": "Status",
       "noLayout": "No layout",
       "noLayoutHint": "Serve this post as bare HTML — no theme header, footer, or root layout. The body is returned as the entire response. Best paired with format: HTML when the body contains a full <!DOCTYPE html>…</html> document.",
+      "formatStaticLabel": "Static (zip / file bundle)",
+      "static": {
+        "pick": "Pick a .zip or one or more files",
+        "pickHint": "Bundle assets must reference each other with relative paths only (no leading /). The zip's contents are extracted into a directory under your post slug and served verbatim — no theme chrome.",
+        "currentBundle": "Current bundle: {count} files (entry: {entrypoint})",
+        "pendingBundle": "Pending upload: {count} files, {size}",
+        "issuesTitle": "{count} validation issue(s)",
+        "issuesHint": "Fix the listed paths and re-upload. Absolute (/foo) and protocol-relative (//cdn.example/foo) references break under the bundle's URL prefix.",
+        "emptyBundle": "No usable files found in the selection.",
+        "noBundle": "Pick a bundle before saving.",
+        "previewHint": "Static bundles render as the served HTML at /<slug>/. Preview by saving and visiting the public URL."
+      },
       "saveChanges": "Save changes",
       "createPost": "Create post",
       "delete": "Delete",
