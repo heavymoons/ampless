@@ -14,6 +14,7 @@ export type { ListOptions, CreatePostInput, PostsProvider } from './core.js'
 export type {
   Post,
   PostMetadata,
+  StaticPostBody,
   Page,
   Media,
   Config,

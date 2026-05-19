@@ -43,6 +43,21 @@ export function createThemePostDispatcher(ampless: Ampless): ThemePostDispatcher
     if (post?.metadata?.no_layout === true) {
       redirect(`/raw/${slug}`)
     }
+    if (post?.format === 'static') {
+      // Hand off to the static catch-all. The target URL needs a
+      // trailing slash so relative paths inside the bundle resolve
+      // against `/<slug>/…` rather than the site root — visiting
+      // `/<slug>` would make `<img src="img.png">` load from
+      // `/img.png` instead of `/<slug>/img.png`. The catch-all
+      // handler itself enforces this too, but doing it here avoids
+      // an extra hop.
+      const body = (post.body ?? null) as { entrypoint?: string } | null
+      const entrypoint =
+        typeof body?.entrypoint === 'string' && body.entrypoint
+          ? body.entrypoint
+          : 'index.html'
+      redirect(`/${slug}/${entrypoint}`)
+    }
     const { module } = await ampless.resolveActiveTheme(siteId)
     const Post = module.components.Post
     if (!Post) notFound()

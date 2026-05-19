@@ -1,4 +1,29 @@
-export type ContentFormat = 'tiptap' | 'markdown' | 'html'
+export type ContentFormat = 'tiptap' | 'markdown' | 'html' | 'static'
+
+/**
+ * Body shape for `format: 'static'` posts. The actual asset bytes
+ * live under S3 at `public/static/<siteId>/<slug>/<files...>` — the
+ * body here is the manifest describing which entrypoint to serve and
+ * which files are part of the bundle.
+ *
+ * Stored as JSON in the `body` column (same encoding pattern as the
+ * tiptap doc / html string / markdown string for the other formats).
+ *
+ * Hard constraint enforced at upload time: every asset must reference
+ * other assets in the bundle by **relative path** only. Absolute paths
+ * (`/foo`) and protocol-relative paths (`//cdn.example/foo`) inside
+ * referenced HTML / CSS are rejected so a bundle stays portable across
+ * any URL prefix without rewriting at serve time. See the admin's
+ * StaticUploader for the validation logic.
+ */
+export interface StaticPostBody {
+  /** Relative path to the entrypoint inside the bundle (default 'index.html'). */
+  entrypoint: string
+  /** Every file in the bundle (relative paths). Used for delete cleanup and admin display. */
+  files: string[]
+  /** ISO 8601 timestamp of the most recent upload. */
+  uploadedAt: string
+}
 
 export type PostStatus = 'draft' | 'published'
 
