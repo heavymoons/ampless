@@ -42,7 +42,7 @@ function makeTemplatePkg(): string {
       type: 'module',
       scripts: {
         dev: 'next dev',
-        'update-ampless': 'npx create-ampless@alpha upgrade',
+        'update-ampless': 'npx create-ampless@latest upgrade',
       },
       dependencies: {
         'ampless': '^0.2.0-alpha.1',
@@ -204,7 +204,7 @@ describe('runUpgradeIn', () => {
     expect(merged.scripts['my-script']).toBe('echo hello')
 
     // update-ampless script set from template
-    expect(merged.scripts['update-ampless']).toBe('npx create-ampless@alpha upgrade')
+    expect(merged.scripts['update-ampless']).toBe('npx create-ampless@latest upgrade')
   })
 
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it

@@ -226,9 +226,9 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
 export const HELP_TEXT = `create-ampless — scaffold an ampless project
 
 Usage:
-  npx create-ampless@alpha <project-name> [options]
-  npx create-ampless@alpha --mount [options]    # in an existing project dir
-  npx create-ampless@alpha upgrade [options]    # in an existing project dir
+  npx create-ampless@latest <project-name> [options]
+  npx create-ampless@latest --mount [options]    # in an existing project dir
+  npx create-ampless@latest upgrade [options]    # in an existing project dir
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -278,5 +278,5 @@ copy-theme <source> <target>
          (the convention that flags it as user-owned, so upgrade leaves
          it alone). Run inside an existing ampless project.
 
-         Example: npx create-ampless@alpha copy-theme blog my-blog
+         Example: npx create-ampless@latest copy-theme blog my-blog
 `

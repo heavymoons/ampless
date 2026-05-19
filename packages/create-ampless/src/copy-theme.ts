@@ -145,8 +145,8 @@ export async function runCopyTheme(args: ParsedArgs): Promise<void> {
   const target = args.copyThemeTarget
 
   if (!source || !target) {
-    log.error('Usage: npx create-ampless@alpha copy-theme <source> <target>')
-    log.info('Example: npx create-ampless@alpha copy-theme blog my-blog')
+    log.error('Usage: npx create-ampless@latest copy-theme <source> <target>')
+    log.info('Example: npx create-ampless@latest copy-theme blog my-blog')
     process.exit(1)
   }
 
