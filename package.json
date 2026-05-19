@@ -13,7 +13,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-template-versions.mjs",
     "sync-template-versions": "node scripts/sync-template-versions.mjs",
-    "release": "turbo run build && changeset publish && node scripts/sync-alpha-dist-tag.mjs"
+    "release": "turbo run build && changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
