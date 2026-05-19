@@ -1,4 +1,17 @@
 @import 'tailwindcss';
+
+/*
+ * Tailwind v4 doesn't scan `node_modules/` by default. The admin UI
+ * (`@ampless/admin`) and runtime UI bits (`@ampless/runtime`) ship
+ * compiled JS that uses Tailwind utility classes; without these
+ * explicit sources, every utility used only inside those packages
+ * (e.g. the admin sidebar's `flex`, `fixed`, `md:sticky`, ...) gets
+ * tree-shaken out of the final CSS, and the admin layout falls back
+ * to browser defaults — sidebar overlaps main content, etc.
+ */
+@source '../node_modules/@ampless/admin/dist';
+@source '../node_modules/@ampless/runtime/dist';
+
 @plugin '@tailwindcss/typography';
 /* DADS theme plugin from Digital Agency. Loaded globally so the
  * `templates/dads/` theme can use DADS-conformant color variables
