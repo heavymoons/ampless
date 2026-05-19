@@ -40,8 +40,30 @@ const PACKAGES_DIR = join(ROOT, 'packages')
 const entries = readdirSync(PACKAGES_DIR, { withFileTypes: true })
 
 let success = 0
-let skipped = 0
+let skippedPrivate = 0
+let skippedAlreadyTagged = 0
 let failures = 0
+
+/**
+ * Read the current `alpha` dist-tag for `name`, or `null` if it isn't
+ * set / the package isn't published / we can't reach the registry. We
+ * pre-check before `dist-tag add` because the npm registry returns
+ * `400 Bad Request` (not a no-op) for some packages when the requested
+ * tag→version already matches — unscoped names like `create-ampless`
+ * trip this consistently, scoped names like `@ampless/admin` don't.
+ * Pre-checking lets us skip the redundant PUT cleanly.
+ */
+function currentAlphaVersion(name) {
+  try {
+    const stdout = execSync(`npm dist-tag ls ${name}`, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString()
+    const m = stdout.match(/^alpha:\s*(\S+)\s*$/m)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
 
 for (const entry of entries) {
   if (!entry.isDirectory()) continue
@@ -53,13 +75,16 @@ for (const entry of entries) {
     continue
   }
   if (pkg.private || !pkg.name || !pkg.version) {
-    skipped++
+    skippedPrivate++
     continue
   }
   const target = `${pkg.name}@${pkg.version}`
+  const existing = currentAlphaVersion(pkg.name)
+  if (existing === pkg.version) {
+    skippedAlreadyTagged++
+    continue
+  }
   try {
-    // `--silent` to suppress the routine npm chatter; the script
-    // logs its own summary. Errors still surface via the try/catch.
     execSync(`npm dist-tag add ${target} alpha`, { stdio: ['ignore', 'inherit', 'inherit'] })
     success++
   } catch (err) {
@@ -68,5 +93,10 @@ for (const entry of entries) {
   }
 }
 
-console.log(`alpha dist-tag sync: ${success} synced, ${skipped} skipped (private), ${failures} failed`)
+console.log(
+  `alpha dist-tag sync: ${success} synced, ` +
+    `${skippedAlreadyTagged} already at target, ` +
+    `${skippedPrivate} skipped (private), ` +
+    `${failures} failed`
+)
 if (failures > 0) process.exit(1)
