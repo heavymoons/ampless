@@ -37,6 +37,7 @@ jobs:
       - run: pnpm test
 
       - name: Create Release PR or Publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
@@ -54,3 +55,21 @@ jobs:
           # requires a public GitHub source repository. ampless's repo
           # is private during the pre-1.0 closed-development phase. When
           # the repo flips to public (around v1.0 RC), re-enable this.
+
+      # `changeset publish` (in pre-release mode for packages that have
+      # never had a stable release) publishes to the `latest` dist tag
+      # only, leaving `alpha` frozen at whatever it was before pre-mode
+      # started. The sync script re-asserts `alpha = <current version>`
+      # for every public workspace package so `npx <pkg>@alpha` keeps
+      # resolving to the current pre-release.
+      #
+      # Runs as its own step (rather than chained into `pnpm release`)
+      # so the alpha tag gets reasserted on every main-branch push, not
+      # only when there was something new to publish — handy when the
+      # tag has drifted from latest and we need a no-op publish to
+      # bring it back in sync.
+      - name: Sync alpha dist-tag
+        if: always()
+        run: node scripts/sync-alpha-dist-tag.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
