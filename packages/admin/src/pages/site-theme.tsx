@@ -58,6 +58,7 @@ export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<Theme
           activeTheme={theme.activeTheme}
           themeOptions={themeOptions}
           initial={theme.values}
+          initialColorScheme={theme.colorScheme}
         />
       </div>
     )

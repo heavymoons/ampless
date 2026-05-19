@@ -7,48 +7,34 @@
  * loads, so `:root` selectors trump scoped attribute selectors of
  * equal specificity. The dispatcher emits `--primary` etc. only for
  * fields that have an override, leaving everything else to fall back
- * to these defaults. */
+ * to these defaults.
+ *
+ * Dark mode: tokens are declared with the CSS `light-dark(L, D)`
+ * function. The active `color-scheme` (set on `:root` and optionally
+ * pinned per-site via `html[data-color-scheme]`) selects whether L or
+ * D is rendered. `globals.css` opts the document into `color-scheme:
+ * light dark` by default — visitors with `prefers-color-scheme: dark`
+ * see the dark palette automatically.
+ */
 
 [data-theme='blog'] {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+  --foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --card: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+  --card-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --primary: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --primary-foreground: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
+  --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --muted-foreground: light-dark(oklch(0.556 0 0), oklch(0.708 0 0));
+  --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --destructive: light-dark(oklch(0.577 0.245 27.325), oklch(0.396 0.141 25.723));
+  --destructive-foreground: light-dark(oklch(0.985 0 0), oklch(0.985 0 0));
+  --border: light-dark(oklch(0.922 0 0), oklch(0.269 0 0));
+  --input: light-dark(oklch(0.922 0 0), oklch(0.269 0 0));
+  --ring: light-dark(oklch(0.708 0 0), oklch(0.439 0 0));
   --radius: 0.5rem;
   --ampless-body-font: system-ui, -apple-system, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme='blog'] {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.145 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.985 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.396 0.141 25.723);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(0.269 0 0);
-    --input: oklch(0.269 0 0);
-    --ring: oklch(0.439 0 0);
-  }
 }

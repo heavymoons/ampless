@@ -2,48 +2,26 @@
  * tighter radius, monospace-leaning code styling. */
 
 [data-theme='docs'] {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.18 0.02 280);
-  --card: oklch(0.99 0 0);
-  --card-foreground: oklch(0.18 0.02 280);
-  --primary: oklch(0.5 0.18 280);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.01 280);
-  --secondary-foreground: oklch(0.25 0.05 280);
-  --muted: oklch(0.97 0.005 280);
-  --muted-foreground: oklch(0.5 0.02 280);
-  --accent: oklch(0.95 0.04 280);
-  --accent-foreground: oklch(0.3 0.1 280);
-  --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.9 0.005 280);
-  --input: oklch(0.9 0.005 280);
-  --ring: oklch(0.5 0.18 280);
+  --background: light-dark(oklch(1 0 0), oklch(0.16 0.02 280));
+  --foreground: light-dark(oklch(0.18 0.02 280), oklch(0.96 0.005 280));
+  --card: light-dark(oklch(0.99 0 0), oklch(0.2 0.02 280));
+  --card-foreground: light-dark(oklch(0.18 0.02 280), oklch(0.96 0.005 280));
+  --primary: light-dark(oklch(0.5 0.18 280), oklch(0.72 0.16 280));
+  --primary-foreground: light-dark(oklch(0.99 0 0), oklch(0.16 0.02 280));
+  --secondary: light-dark(oklch(0.96 0.01 280), oklch(0.28 0.03 280));
+  --secondary-foreground: light-dark(oklch(0.25 0.05 280), oklch(0.96 0.005 280));
+  --muted: light-dark(oklch(0.97 0.005 280), oklch(0.24 0.02 280));
+  --muted-foreground: light-dark(oklch(0.5 0.02 280), oklch(0.7 0.02 280));
+  --accent: light-dark(oklch(0.95 0.04 280), oklch(0.32 0.06 280));
+  --accent-foreground: light-dark(oklch(0.3 0.1 280), oklch(0.96 0.005 280));
+  --destructive: light-dark(oklch(0.55 0.22 25), oklch(0.55 0.22 25));
+  --destructive-foreground: light-dark(oklch(0.99 0 0), oklch(0.99 0 0));
+  --border: light-dark(oklch(0.9 0.005 280), oklch(0.32 0.02 280));
+  --input: light-dark(oklch(0.9 0.005 280), oklch(0.32 0.02 280));
+  --ring: light-dark(oklch(0.5 0.18 280), oklch(0.72 0.16 280));
   --radius: 0.25rem;
   --ampless-body-font: system-ui, -apple-system, sans-serif;
   --ampless-code-font: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme='docs'] {
-    --background: oklch(0.16 0.02 280);
-    --foreground: oklch(0.96 0.005 280);
-    --card: oklch(0.2 0.02 280);
-    --card-foreground: oklch(0.96 0.005 280);
-    --primary: oklch(0.72 0.16 280);
-    --primary-foreground: oklch(0.16 0.02 280);
-    --secondary: oklch(0.28 0.03 280);
-    --secondary-foreground: oklch(0.96 0.005 280);
-    --muted: oklch(0.24 0.02 280);
-    --muted-foreground: oklch(0.7 0.02 280);
-    --accent: oklch(0.32 0.06 280);
-    --accent-foreground: oklch(0.96 0.005 280);
-    --destructive: oklch(0.55 0.22 25);
-    --destructive-foreground: oklch(0.99 0 0);
-    --border: oklch(0.32 0.02 280);
-    --input: oklch(0.32 0.02 280);
-    --ring: oklch(0.72 0.16 280);
-  }
 }
 
 /* Code font scope: prose code blocks under the docs theme use the
