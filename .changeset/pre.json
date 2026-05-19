@@ -41,6 +41,7 @@
     "sanitize-cmsconfig-for-client",
     "scaffold-all-themes-and-copy-theme",
     "shim-tdz-fix",
-    "skip-confirm-noninteractive"
+    "skip-confirm-noninteractive",
+    "static-content-format"
   ]
 }
