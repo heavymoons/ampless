@@ -1,6 +1,6 @@
 {
   "name": "@ampless/admin",
-  "version": "0.2.0-alpha.9",
+  "version": "0.2.0-alpha.10",
   "description": "Admin UI for ampless: post editor, media manager, site/theme settings",
   "license": "MIT",
   "type": "module",
