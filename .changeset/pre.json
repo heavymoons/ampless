@@ -48,6 +48,7 @@
     "shim-tdz-fix",
     "skip-confirm-noninteractive",
     "static-content-format",
-    "tailwind-source-admin-dist"
+    "tailwind-source-admin-dist",
+    "user-admin-pipeline-event-shape"
   ]
 }
