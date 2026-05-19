@@ -7,13 +7,14 @@
 // `amplify_outputs.json` and `cms.config` into a single `Admin`
 // instance.
 //
-// NOTE: We intentionally do NOT pass an `ampless` instance to
-// createAdmin. That would import `lib/ampless.ts`, which imports
-// `themes-registry`, which (via theme pages → `lib/i18n.ts`) imports
-// back to this file — a circular chain that crashes with a TDZ
-// ReferenceError on `ampless` at module init. `createAdmin` builds
-// its own internal Ampless when omitted, which is functionally
-// equivalent for admin's needs.
+// NOTE: we pass `ampless` as a thunk (not the resolved instance) so we
+// don't have a static `import './ampless'` at the top of this file.
+// A static import would form the cycle
+//   `lib/admin.ts → lib/ampless.ts → themes-registry → themes → lib/i18n.ts → lib/admin.ts`
+// and crash with a TDZ ReferenceError on `ampless` at module init.
+// The thunk uses dynamic `import()` so `lib/ampless.ts` only loads on
+// the first `loadSiteSettings` / `loadThemeConfig` call (request
+// time), by which point every module has finished initialising.
 
 import outputs from '../amplify_outputs.json'
 import cmsConfig from '@/cms.config'
@@ -22,6 +23,7 @@ import { createAdmin } from '@ampless/admin'
 export const admin = createAdmin({
   outputs,
   cmsConfig,
+  ampless: async () => (await import('./ampless')).ampless,
   locale: (cmsConfig as { locale?: string }).locale ?? 'en',
 })
 

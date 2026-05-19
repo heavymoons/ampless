@@ -40,14 +40,19 @@ export interface CreateAdminOpts {
   cmsConfig: Config
   /**
    * Optional pre-built ampless runtime instance for cross-package
-   * sharing. When omitted, admin doesn't build one — server pages
-   * (sites list / site edit / theme edit) still need
-   * `loadSiteSettings` / `loadThemeConfig`, so passing an `ampless`
-   * here lets admin reuse the same runtime your public pages already
-   * use. If not provided, the admin's server pages won't be able to
-   * load site settings.
+   * sharing. Accepts either the instance itself OR a thunk (sync or
+   * async). The thunk form is the recommended one for the template
+   * scaffold's `lib/admin.ts` — it lets the consumer break the
+   * `lib/admin.ts → lib/ampless.ts → themes-registry → … → lib/admin.ts`
+   * static-import cycle by lazily resolving `ampless` via `import()`
+   * inside the thunk body (the module isn't loaded until the first
+   * `loadSiteSettings` / `loadThemeConfig` call, by which time all
+   * other modules have finished initialising).
+   *
+   * When omitted, server pages that depend on settings / theme config
+   * throw at request time.
    */
-  ampless?: Ampless
+  ampless?: Ampless | (() => Ampless | Promise<Ampless>)
   /**
    * Locale for admin UI strings. Pass a string code ('en', 'ja') for a
    * built-in dictionary, or an object literal to override specific
@@ -109,10 +114,14 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
   // dashboard, posts list / new / edit, media, sites list) don't need
   // it. The two server-rendered settings pages do; they call through
   // these passthroughs.
-  const ampless = amplessIn ?? null
-
-  function requireAmpless(): Ampless {
-    if (!ampless) {
+  //
+  // When the caller passes a thunk (the recommended form for the
+  // scaffolded `lib/admin.ts`), the resolved instance is cached after
+  // the first call so subsequent calls don't re-invoke the thunk.
+  let amplessCache: Ampless | null = null
+  async function resolveAmpless(): Promise<Ampless> {
+    if (amplessCache) return amplessCache
+    if (amplessIn === undefined || amplessIn === null) {
       throw new Error(
         '[@ampless/admin] createAdmin was called without an `ampless` runtime ' +
           'instance, but a method that needs one (loadSiteSettings / loadThemeConfig) ' +
@@ -120,8 +129,19 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
           'reuse your public-side runtime.'
       )
     }
-    return ampless
+    const resolved = typeof amplessIn === 'function' ? await amplessIn() : amplessIn
+    amplessCache = resolved
+    return resolved
   }
+
+  // Eagerly resolved form exposed on `admin.ampless` for callers that
+  // need synchronous access. Falls back to `null` when the thunk form
+  // is used — those callers should call the higher-level methods on
+  // `admin` instead, which handle the async resolve internally.
+  const eagerAmpless: Ampless | null =
+    amplessIn !== undefined && amplessIn !== null && typeof amplessIn !== 'function'
+      ? amplessIn
+      : null
 
   return {
     t: (key, vars) => translate(dict, key, vars),
@@ -136,13 +156,13 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     currentAdminSiteId: adminSite.currentAdminSiteId,
     adminSiteOptions: adminSite.adminSiteOptions,
 
-    loadSiteSettings: (siteId) => requireAmpless().loadSiteSettings(siteId),
-    loadThemeConfig: (siteId) => requireAmpless().loadThemeConfig(siteId),
+    loadSiteSettings: async (siteId) => (await resolveAmpless()).loadSiteSettings(siteId),
+    loadThemeConfig: async (siteId) => (await resolveAmpless()).loadThemeConfig(siteId),
 
     publicMediaUrl: media.publicMediaUrl,
 
     outputs,
     cmsConfig,
-    ampless,
+    ampless: eagerAmpless,
   }
 }
