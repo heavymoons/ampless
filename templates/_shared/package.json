@@ -8,8 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "sandbox": "ampx sandbox",
-    "sandbox:dev": "ampx sandbox --once && next dev",
+    "sandbox": "ampx sandbox --once && next dev",
     "update-ampless": "npx create-ampless@latest upgrade",
     "copy-theme": "npx create-ampless@latest copy-theme"
   },

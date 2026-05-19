@@ -183,8 +183,7 @@ async function main() {
     `  Next steps:\n` +
     `    ${pc.cyan('cd')} ${opts.projectName}\n` +
     `    ${pc.cyan('npm install')}\n` +
-    `    ${pc.cyan('npx ampx sandbox')}   ${pc.dim('# start Amplify backend')}\n` +
-    `    ${pc.cyan('npm run dev')}         ${pc.dim('# start Next.js')}`
+    `    ${pc.cyan('npm run sandbox')}   ${pc.dim('# deploy sandbox + start Next.js')}`
   )
 }
 

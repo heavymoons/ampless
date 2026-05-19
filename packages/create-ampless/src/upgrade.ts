@@ -400,11 +400,20 @@ export async function runUpgradeIn(
   // Merge ampless-managed scripts. The allowlist (AMPLESS_MANAGED_SCRIPTS)
   // captures the scripts ampless owns end-to-end — the user is free to
   // edit `dev` / `build` / `start` and they survive every upgrade.
+  //
+  // Iterate the allowlist itself (not the template) so a script that
+  // ampless used to own but has since dropped from the template (e.g.
+  // `sandbox:dev`) gets cleaned out of the user's package.json on the
+  // next upgrade. Without this branch the obsolete key would linger
+  // forever.
   const templateScripts = (templatePkg['scripts'] ?? {}) as Record<string, string>
   const projectScripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
-  for (const [name, body] of Object.entries(templateScripts)) {
-    if (!AMPLESS_MANAGED_SCRIPTS.has(name)) continue
-    projectScripts[name] = body
+  for (const name of AMPLESS_MANAGED_SCRIPTS) {
+    if (name in templateScripts) {
+      projectScripts[name] = templateScripts[name]!
+    } else {
+      delete projectScripts[name]
+    }
   }
   if (Object.keys(projectScripts).length > 0) {
     projectPkg['scripts'] = projectScripts
