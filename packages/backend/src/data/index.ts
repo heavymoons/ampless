@@ -91,6 +91,14 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         status: a.enum(['draft', 'published']),
         publishedAt: a.datetime(),
         tags: a.string().array(),
+        // Free-form per-post metadata (JSON). Reserved well-known keys
+        // are documented on `PostMetadata` in `ampless/src/types.ts`.
+        // Currently:
+        //   no_layout: boolean — serve the post as bare HTML (no theme
+        //     chrome). The runtime's post dispatcher redirects to the
+        //     raw route handler when this is true.
+        // Other keys are passed through unchanged for plugin / app use.
+        metadata: a.json(),
         // Denormalized GSI keys — set by every write path (admin client,
         // MCP tools). Same pattern as siteIdStatus: composing the
         // partition key as a single string lets each public-read query
@@ -234,6 +242,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       status: a.string(),
       publishedAt: a.datetime(),
       tags: a.string().array(),
+      metadata: a.json(),
     }),
 
     // Paginated wrapper for list responses.

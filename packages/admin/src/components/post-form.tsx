@@ -9,6 +9,7 @@ import {
   deletePost,
   formatDate,
   type Post,
+  type PostMetadata,
   type ContentFormat,
 } from 'ampless'
 import {
@@ -81,9 +82,24 @@ export function PostForm({ post }: PostFormProps) {
   const [body, setBody] = useState<unknown>(post?.body ?? EMPTY_TIPTAP_DOC)
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
+  const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+
+  // Merge no_layout into whatever other metadata the post may have
+  // accumulated (plugin state, SEO overrides, etc.) so the toggle never
+  // wipes out unrelated keys. The flag is only meaningful for html
+  // posts (the UI hides the checkbox otherwise), so non-html formats
+  // always strip it — protects against stale flags surviving a format
+  // switch and confusing the dispatcher. Returns undefined when the
+  // resulting object would be empty, so we don't store a meaningless `{}`.
+  function buildMetadata(): PostMetadata | undefined {
+    const next: PostMetadata = { ...(post?.metadata ?? {}) }
+    if (noLayout && format === 'html') next.no_layout = true
+    else delete next.no_layout
+    return Object.keys(next).length > 0 ? next : undefined
+  }
 
   function parseTags(raw: string): string[] {
     return Array.from(
@@ -165,6 +181,11 @@ export function PostForm({ post }: PostFormProps) {
 
     setFormat(next)
     setBody(nextBody)
+    // no_layout only makes sense for raw-HTML posts (tiptap / markdown
+    // fragments don't ship a DOCTYPE / head, so serving them bare is a
+    // footgun). Clear the flag when leaving html format so the
+    // checkbox-hidden state matches what gets persisted on save.
+    if (next !== 'html') setNoLayout(false)
   }
 
   async function save(e: React.FormEvent) {
@@ -174,6 +195,7 @@ export function PostForm({ post }: PostFormProps) {
 
     try {
       const tags = parseTags(tagsInput)
+      const metadata = buildMetadata()
       if (isEdit) {
         await updatePost(
           post!.postId,
@@ -187,6 +209,7 @@ export function PostForm({ post }: PostFormProps) {
             publishedAt:
               status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
             tags,
+            metadata,
           },
           { siteId: post!.siteId }
         )
@@ -201,6 +224,7 @@ export function PostForm({ post }: PostFormProps) {
           status,
           publishedAt: status === 'published' ? new Date().toISOString() : undefined,
           tags,
+          metadata,
         })
       }
       router.push('/admin/posts')
@@ -426,6 +450,25 @@ export function PostForm({ post }: PostFormProps) {
           <option value="published">{t('common.published')}</option>
         </select>
       </div>
+
+      {format === 'html' && (
+        <div className="space-y-2">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={noLayout}
+              onChange={(e) => setNoLayout(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              <span className="font-medium">{t('posts.form.noLayout')}</span>
+              <span className="block text-xs text-muted-foreground">
+                {t('posts.form.noLayoutHint')}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

@@ -78,6 +78,8 @@
       "tagsPlaceholder": "カンマ, 区切り, タグ",
       "tagsHint": "タグページで記事をグルーピング (例: /tag/tech)。",
       "status": "ステータス",
+      "noLayout": "レイアウトを使わない",
+      "noLayoutHint": "テーマのヘッダー / フッター / root layout を介さず、本文を HTTP レスポンス本体としてそのまま返します。本文に <!DOCTYPE html>…</html> が含まれる場合はフォーマット: HTML との組み合わせが最適です。",
       "saveChanges": "変更を保存",
       "createPost": "記事を作成",
       "delete": "削除",

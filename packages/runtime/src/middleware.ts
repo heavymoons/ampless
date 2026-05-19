@@ -7,31 +7,22 @@ export interface CreateMiddlewareOpts {
 
 export type MiddlewareFn = (request: NextRequest) => NextResponse
 
-// Slug-suffix convention for bare HTML pages. A request to a single
-// path segment ending in `.html` (e.g. `/promo.html`) is rewritten to
-// the layout-less route handler under `/site/<siteId>/raw/<slug>`,
-// which returns the post body as a `text/html` response without any
-// theme chrome or Next.js root layout. The browser URL stays as-is.
-//
-// Conventional and zero-infrastructure: middleware doesn't need to
-// know per-post format. The route handler at /raw/<slug> looks up the
-// post and returns whatever `renderBody` produces. If the post is in
-// `format: 'html'` with a complete `<!DOCTYPE html>...</html>` body,
-// it lands in the response unchanged. Tiptap / markdown posts with a
-// `.html` slug will render as HTML fragments — works but the author
-// is on their own for missing `<head>` etc.
-const RAW_HTML_PATH_RE = /^\/([^/]+\.html)$/
-
 /**
  * Build the ampless public-site middleware. Performs:
  *
  *  - hostname → siteId resolution (multi-site rewrites)
  *  - `/path` → `/site/<siteId>/path` internal rewrite
- *  - `<slug>.html` → `/site/<siteId>/raw/<slug>.html` (bare HTML route)
  *  - `?previewTheme=<name>` → `x-preview-theme` header forwarding
  *  - `Cache-Control: private, no-store` in multi-site mode (Amplify
  *    Hosting's CloudFront cache key doesn't include Host, so SSR
  *    responses would cross-contaminate at the same path)
+ *
+ * No-layout / bare-HTML routing is data-driven: the theme post
+ * dispatcher reads `post.metadata.no_layout` and redirects to
+ * `/raw/<slug>` when set. The plain prefix-prepend below picks up
+ * that path because the raw route lives at
+ * `app/site/<siteId>/raw/<slug>/route.ts` — no special middleware
+ * branch is needed.
  *
  * The factory captures the multi-site flag at construction time so the
  * hot path stays a pair of cheap header lookups.
@@ -60,13 +51,8 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
 
     const url = request.nextUrl.clone()
     if (!url.pathname.startsWith('/site/')) {
-      const rawMatch = RAW_HTML_PATH_RE.exec(url.pathname)
-      if (rawMatch) {
-        url.pathname = `/site/${siteId}/raw/${rawMatch[1]}`
-      } else {
-        const tail = url.pathname === '/' ? '' : url.pathname
-        url.pathname = `/site/${siteId}${tail}`
-      }
+      const tail = url.pathname === '/' ? '' : url.pathname
+      url.pathname = `/site/${siteId}${tail}`
     }
 
     // Theme preview override. The admin's iframe-based preview hits

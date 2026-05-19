@@ -78,6 +78,8 @@
       "tagsPlaceholder": "comma, separated, tags",
       "tagsHint": "Used to group posts on tag pages (e.g. /tag/tech).",
       "status": "Status",
+      "noLayout": "No layout",
+      "noLayoutHint": "Serve this post as bare HTML — no theme header, footer, or root layout. The body is returned as the entire response. Best paired with format: HTML when the body contains a full <!DOCTYPE html>…</html> document.",
       "saveChanges": "Save changes",
       "createPost": "Create post",
       "delete": "Delete",

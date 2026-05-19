@@ -10,10 +10,13 @@ export type RawRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
  * Bare HTML route. Returns the published post's rendered body as the
  * entire HTTP response — no Next.js root layout, no theme chrome.
  *
- * Reached via the slug-suffix convention: middleware rewrites
- * `/<slug>.html` → `/site/<siteId>/raw/<slug>.html`. The post is
- * looked up by the full slug (including the `.html` part), so what
- * the admin types in the slug field IS the URL.
+ * Reached via the data-driven dispatcher path: the theme post page
+ * checks `post.metadata.no_layout` and redirects to `/raw/<slug>` when
+ * set. Posts without that flag never hit this route in practice; the
+ * handler additionally enforces the same check here so a direct
+ * `/raw/<slug>` request can't bypass the theme for a post that wasn't
+ * marked no-layout (would otherwise surface the body without any
+ * chrome the editor didn't intend).
  *
  * Why this is a route handler (not a page): Next.js's root layout
  * always emits `<html>` / `<head>` / `<body>`, which means a normal
@@ -39,6 +42,9 @@ export function createRawRouteHandler(ampless: Ampless): RawRouteHandler {
     const { siteId, slug } = await params
     const post = await ampless.getPublishedPost(slug, { siteId })
     if (!post) {
+      return new Response('Not Found', { status: 404 })
+    }
+    if (post.metadata?.no_layout !== true) {
       return new Response('Not Found', { status: 404 })
     }
     return new Response(ampless.renderBody(post), {

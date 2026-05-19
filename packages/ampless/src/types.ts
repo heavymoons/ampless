@@ -2,6 +2,26 @@ export type ContentFormat = 'tiptap' | 'markdown' | 'html'
 
 export type PostStatus = 'draft' | 'published'
 
+/**
+ * Free-form per-post metadata. The `metadata` JSON column carries
+ * arbitrary key/value pairs; the runtime / themes / plugins each pick
+ * the keys they care about. A handful of well-known keys are owned by
+ * ampless itself and documented here.
+ *
+ * Well-known keys:
+ *   - `no_layout`: when true, the public page is served as bare HTML
+ *     (no theme chrome). The runtime's post dispatcher checks this
+ *     before rendering and redirects to the raw route handler.
+ *
+ * Additional keys are passed through unchanged — themes and plugins
+ * are free to store their own per-post state here (e.g. SEO overrides,
+ * feature flags, A/B variants).
+ */
+export interface PostMetadata {
+  no_layout?: boolean
+  [key: string]: unknown
+}
+
 export interface Post {
   postId: string
   siteId: string
@@ -13,6 +33,7 @@ export interface Post {
   status: PostStatus
   publishedAt?: string
   tags?: string[]
+  metadata?: PostMetadata
 }
 
 export interface Page {

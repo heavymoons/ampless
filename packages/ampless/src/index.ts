@@ -13,6 +13,7 @@ export {
 export type { ListOptions, CreatePostInput, PostsProvider } from './core.js'
 export type {
   Post,
+  PostMetadata,
   Page,
   Media,
   Config,

@@ -64,14 +64,30 @@ describe('createAmplessMiddleware', () => {
     expect(res.rewrittenTo?.pathname).toBe('/site/default/about')
   })
 
-  it('rewrites /promo.html → /site/default/raw/promo.html', () => {
+  it('rewrites /raw/<slug> → /site/default/raw/<slug>', () => {
+    // Raw bare-HTML routing is data-driven (post.metadata.no_layout
+    // → dispatcher redirects to /raw/<slug>). Middleware just adds
+    // the site prefix, no special slug-suffix matching.
+    const mw = createAmplessMiddleware({
+      cmsConfig: { site: { name: 'X', url: 'https://x' } },
+    })
+    const res = mw(makeReq('x.example.com', '/raw/promo') as never) as unknown as {
+      rewrittenTo?: URL
+    }
+    expect(res.rewrittenTo?.pathname).toBe('/site/default/raw/promo')
+  })
+
+  it('does NOT special-case .html slug suffix', () => {
+    // Regression guard: the legacy `/<slug>.html` → /raw/<slug>.html
+    // rewrite was retired in favour of `metadata.no_layout`. Slugs
+    // ending in .html should now be treated as ordinary post URLs.
     const mw = createAmplessMiddleware({
       cmsConfig: { site: { name: 'X', url: 'https://x' } },
     })
     const res = mw(makeReq('x.example.com', '/promo.html') as never) as unknown as {
       rewrittenTo?: URL
     }
-    expect(res.rewrittenTo?.pathname).toBe('/site/default/raw/promo.html')
+    expect(res.rewrittenTo?.pathname).toBe('/site/default/promo.html')
   })
 
   it('resolves multi-site host to the matching siteId', () => {

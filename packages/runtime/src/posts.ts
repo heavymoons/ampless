@@ -10,7 +10,7 @@
 
 import { cookies } from 'next/headers'
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
-import type { Post } from 'ampless'
+import type { Post, PostMetadata } from 'ampless'
 import type { AmplessOutputs } from './outputs.js'
 
 // Wire shape of the three queries this module calls. The actual
@@ -31,6 +31,7 @@ export interface PublicPostShape {
   status?: string | null
   publishedAt?: string | null
   tags?: Array<string | null> | null
+  metadata?: unknown
 }
 
 export interface PublicPostConnectionShape {
@@ -104,6 +105,26 @@ function decodeBody(value: unknown): unknown {
   }
 }
 
+// Mirrors the admin posts-provider: AppSync's AWSJSON scalar carries
+// a JSON-encoded string, so metadata gets the same parse treatment as
+// body. Returns undefined for nullish / malformed payloads so callers
+// can rely on `post.metadata?.no_layout`.
+function decodeMetadata(value: unknown): PostMetadata | undefined {
+  if (value === null || value === undefined) return undefined
+  const parsed = typeof value === 'string' ? safeJsonParse(value) : value
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as PostMetadata)
+    : undefined
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 function toCorePost(p: PublicPostShape): Post {
   return {
     postId: p.postId,
@@ -116,6 +137,7 @@ function toCorePost(p: PublicPostShape): Post {
     status: (p.status ?? 'draft') as Post['status'],
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
+    metadata: decodeMetadata(p.metadata),
   }
 }
 

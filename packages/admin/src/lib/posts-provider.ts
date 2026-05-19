@@ -6,6 +6,7 @@ import {
   composeSiteIdStatus,
   composeSiteIdSlug,
   type Post,
+  type PostMetadata,
   type PostsProvider,
   type ListOptions,
   type CreatePostInput,
@@ -34,6 +35,7 @@ interface DataPostRow {
   status?: string | null
   publishedAt?: string | null
   tags?: Array<string | null> | null
+  metadata?: unknown
 }
 
 interface ModelResult<T> {
@@ -96,6 +98,26 @@ function decodeBody(value: unknown): unknown {
   }
 }
 
+// AppSync's AWSJSON scalar carries a JSON-encoded string on the wire,
+// so the metadata column gets the same encode/decode treatment as body.
+// Legacy rows missing metadata return undefined so callers can rely on
+// `post.metadata?.no_layout` without nullish branches.
+function decodeMetadata(value: unknown): PostMetadata | undefined {
+  if (value === null || value === undefined) return undefined
+  const parsed = typeof value === 'string' ? safeJsonParse(value) : value
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as PostMetadata)
+    : undefined
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 function toCorePost(p: DataPostRow): Post {
   return {
     postId: p.postId,
@@ -108,6 +130,7 @@ function toCorePost(p: DataPostRow): Post {
     status: (p.status ?? 'draft') as Post['status'],
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
+    metadata: decodeMetadata(p.metadata),
   }
 }
 
@@ -257,6 +280,7 @@ export function installAdminPostsProvider(): void {
         status: input.status,
         publishedAt: input.publishedAt,
         tags: input.tags,
+        ...(input.metadata !== undefined && { metadata: encodeBody(input.metadata) }),
         // Denormalized GSI keys. Must match every change to slug /
         // status — see the update() branch below.
         siteIdStatus: composeSiteIdStatus(input.siteId, input.status),
@@ -289,6 +313,7 @@ export function installAdminPostsProvider(): void {
         ...(patch.status !== undefined && { status: patch.status }),
         ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
         ...(patch.tags !== undefined && { tags: patch.tags }),
+        ...(patch.metadata !== undefined && { metadata: encodeBody(patch.metadata) }),
         ...(patch.status !== undefined &&
           nextStatus && { siteIdStatus: composeSiteIdStatus(siteId, nextStatus) }),
         ...(patch.slug !== undefined &&
