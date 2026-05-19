@@ -25,8 +25,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const themeCss = renderThemeCss(theme.cssVars)
   const locale = getLocale()
   const dict = getDictionary(locale)
+  // `data-color-scheme` pins the visitor to light or dark regardless
+  // of their system `prefers-color-scheme`. `'auto'` (the default)
+  // means we don't emit the attribute at all, so `globals.css`'s
+  // `:root { color-scheme: light dark }` lets the browser follow the
+  // system setting. Themes use `light-dark()` in their tokens.css so a
+  // single declaration covers both modes; the active `color-scheme`
+  // selects which value is rendered.
+  const htmlProps: { lang: string; 'data-color-scheme'?: 'light' | 'dark' } = { lang: locale }
+  if (theme.colorScheme !== 'auto') {
+    htmlProps['data-color-scheme'] = theme.colorScheme
+  }
   return (
-    <html lang={locale}>
+    <html {...htmlProps}>
       <head>
         {/* Inline `:root` overrides come AFTER globals.css so they win
             against the static defaults. Validated values only — see

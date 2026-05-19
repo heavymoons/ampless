@@ -8,6 +8,29 @@ import {
 import type { StorageApi } from './storage.js'
 import type { ThemeActiveApi } from './theme-active.js'
 
+export type ColorScheme = 'auto' | 'light' | 'dark'
+
+export const DEFAULT_COLOR_SCHEME: ColorScheme = 'auto'
+
+/**
+ * Storage key for the per-site color-scheme override. Lives under the
+ * same `theme.*` namespace as manifest fields so it flows through the
+ * existing KvStore → S3 cache pipeline, but is read separately from
+ * the manifest field set (it's a site-wide concern, not theme-specific).
+ */
+export const COLOR_SCHEME_SETTING_KEY = 'theme.colorScheme'
+
+/**
+ * Narrow an arbitrary stored value to a known `ColorScheme`. Anything
+ * unrecognised (including `undefined`, malformed strings, accidental
+ * objects) falls back to `'auto'` so a typo never strands a site
+ * forced into a mode it can't undo.
+ */
+export function validateColorScheme(raw: unknown): ColorScheme {
+  if (raw === 'light' || raw === 'dark' || raw === 'auto') return raw
+  return DEFAULT_COLOR_SCHEME
+}
+
 export interface EffectiveThemeConfig {
   /** Resolved active theme name (e.g. 'blog'). */
   activeTheme: string
@@ -16,6 +39,16 @@ export interface EffectiveThemeConfig {
   values: Record<string, string>
   /** Subset of `values` for fields that have a `cssVar`. */
   cssVars: Record<string, string>
+  /**
+   * Per-site color-scheme override. `'auto'` (default) lets the
+   * visitor's system `prefers-color-scheme` decide; `'light'` /
+   * `'dark'` pin one mode regardless of system preference.
+   *
+   * Consumed by the root layout to set `<html data-color-scheme>`,
+   * which the theme tokens.css files key off in combination with the
+   * `light-dark()` CSS function.
+   */
+  colorScheme: ColorScheme
 }
 
 export interface ThemeConfigApi {
@@ -65,7 +98,10 @@ export function createThemeConfig(
       }
       const values = resolveThemeValues(manifest, stored)
       const cssVars = collectCssVars(manifest.fields, values)
-      return { activeTheme: active.name, manifest, values, cssVars }
+      // Color-scheme is site-wide, not part of the manifest, so it
+      // reads from the flat map directly under a fixed key.
+      const colorScheme = validateColorScheme(flat?.[COLOR_SCHEME_SETTING_KEY])
+      return { activeTheme: active.name, manifest, values, cssVars, colorScheme }
     },
   }
 }

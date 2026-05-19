@@ -13,55 +13,35 @@
  * enough; we don't hardcode hex values here. The fallbacks after
  * each `var(...)` are the DADS values from version 0.3.4 in case
  * the plugin isn't loaded for some reason.
+ *
+ * Dark mode: DADS doesn't ship an official dark palette as of v0.3.4,
+ * so the D side of `light-dark()` here is an inverted approximation.
+ * When DADS adds a dark variant, bind the D arg to the corresponding
+ * plugin variables (e.g. `var(--color-blue-300)` for primary).
  */
 
 [data-theme='dads'] {
-  --background: #ffffff;
-  --foreground: #1a1a1c;
-  --card: #ffffff;
-  --card-foreground: #1a1a1c;
-  --primary: var(--color-blue-900, #0017c1);
-  --primary-foreground: #ffffff;
-  --secondary: var(--color-blue-50, #e8f1fe);
-  --secondary-foreground: var(--color-blue-900, #0017c1);
-  --muted: #f5f5f5;
-  --muted-foreground: #595959;
-  --accent: var(--color-blue-50, #e8f1fe);
-  --accent-foreground: var(--color-blue-900, #0017c1);
-  --destructive: var(--color-red-900, #ce0000);
-  --destructive-foreground: #ffffff;
-  --border: #d9d9d9;
-  --input: #d9d9d9;
-  --ring: var(--color-blue-900, #0017c1);
+  --background: light-dark(#ffffff, #1a1a1c);
+  --foreground: light-dark(#1a1a1c, #f0f0f0);
+  --card: light-dark(#ffffff, #232327);
+  --card-foreground: light-dark(#1a1a1c, #f0f0f0);
+  --primary: light-dark(var(--color-blue-900, #0017c1), var(--color-blue-300, #9db7f9));
+  --primary-foreground: light-dark(#ffffff, #1a1a1c);
+  --secondary: light-dark(var(--color-blue-50, #e8f1fe), #2c2f3a);
+  --secondary-foreground: light-dark(var(--color-blue-900, #0017c1), #f0f0f0);
+  --muted: light-dark(#f5f5f5, #28282c);
+  --muted-foreground: light-dark(#595959, #b3b3b3);
+  --accent: light-dark(var(--color-blue-50, #e8f1fe), #2c2f3a);
+  --accent-foreground: light-dark(var(--color-blue-900, #0017c1), #f0f0f0);
+  --destructive: light-dark(var(--color-red-900, #ce0000), var(--color-red-700, #fa0000));
+  --destructive-foreground: light-dark(#ffffff, #ffffff);
+  --border: light-dark(#d9d9d9, #3a3a3f);
+  --input: light-dark(#d9d9d9, #3a3a3f);
+  --ring: light-dark(var(--color-blue-900, #0017c1), var(--color-blue-300, #9db7f9));
   --radius: 0.25rem;
   /* DADS recommends Noto Sans JP for body text. The plugin sets
    * fontFamily.sans to it; we surface that through our usual
    * --ampless-body-font hook so SiteHeader / footer / prose pick it
    * up consistently. */
   --ampless-body-font: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme='dads'] {
-    /* DADS doesn't ship an official dark palette as of v0.3.4; this
-     * is an inverted approximation. When DADS adds a dark variant,
-     * bind these to the corresponding plugin variables. */
-    --background: #1a1a1c;
-    --foreground: #f0f0f0;
-    --card: #232327;
-    --card-foreground: #f0f0f0;
-    --primary: var(--color-blue-300, #9db7f9);
-    --primary-foreground: #1a1a1c;
-    --secondary: #2c2f3a;
-    --secondary-foreground: #f0f0f0;
-    --muted: #28282c;
-    --muted-foreground: #b3b3b3;
-    --accent: #2c2f3a;
-    --accent-foreground: #f0f0f0;
-    --destructive: var(--color-red-700, #fa0000);
-    --destructive-foreground: #ffffff;
-    --border: #3a3a3f;
-    --input: #3a3a3f;
-    --ring: var(--color-blue-300, #9db7f9);
-  }
 }

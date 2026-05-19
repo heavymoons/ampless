@@ -50,6 +50,31 @@
 }
 
 /*
+ * Color scheme:
+ *
+ * - `:root { color-scheme: light dark }` opts the page into both modes
+ *   and asks the browser to pick based on the visitor's
+ *   `prefers-color-scheme` setting.
+ * - `html[data-color-scheme='light' | 'dark']` lets the site admin pin
+ *   one mode regardless of system preference. The attribute is written
+ *   by `app/layout.tsx` from the per-site setting
+ *   (`theme.colorScheme`, default `'auto'` = no attribute).
+ * - Token values below (and in each theme's `tokens.css`) use the CSS
+ *   `light-dark(L, D)` function so a single declaration covers both
+ *   modes — the active `color-scheme` selects between L and D at
+ *   paint time.
+ */
+:root {
+  color-scheme: light dark;
+}
+html[data-color-scheme='light'] {
+  color-scheme: light;
+}
+html[data-color-scheme='dark'] {
+  color-scheme: dark;
+}
+
+/*
  * Default tokens — used as fallback when no theme's `[data-theme=...]`
  * selector matches (e.g. body has no data-theme attribute, or admin
  * pages that aren't theme-scoped). Each installed theme ships its own
@@ -58,47 +83,25 @@
  * `<body data-theme="...">` attribute makes the scoped selector match.
  */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+  --foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --card: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+  --card-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+  --primary: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --primary-foreground: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
+  --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --muted-foreground: light-dark(oklch(0.556 0 0), oklch(0.708 0 0));
+  --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+  --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+  --destructive: light-dark(oklch(0.577 0.245 27.325), oklch(0.396 0.141 25.723));
+  --destructive-foreground: light-dark(oklch(0.985 0 0), oklch(0.985 0 0));
+  --border: light-dark(oklch(0.922 0 0), oklch(0.269 0 0));
+  --input: light-dark(oklch(0.922 0 0), oklch(0.269 0 0));
+  --ring: light-dark(oklch(0.708 0 0), oklch(0.439 0 0));
   --radius: 0.5rem;
   --ampless-body-font: system-ui, -apple-system, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.145 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.985 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.396 0.141 25.723);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(0.269 0 0);
-    --input: oklch(0.269 0 0);
-    --ring: oklch(0.439 0 0);
-  }
 }
 
 body {

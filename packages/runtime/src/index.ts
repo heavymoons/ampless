@@ -73,8 +73,14 @@ export type {
 export type {
   ThemeConfigApi,
   EffectiveThemeConfig,
+  ColorScheme,
 } from './theme-config.js'
-export { renderThemeCss } from './theme-config.js'
+export {
+  renderThemeCss,
+  validateColorScheme,
+  DEFAULT_COLOR_SCHEME,
+  COLOR_SCHEME_SETTING_KEY,
+} from './theme-config.js'
 export {
   renderBody,
   tiptapToHtml,

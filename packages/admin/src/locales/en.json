@@ -199,7 +199,14 @@
     "customizationHeading": "{theme} customization",
     "customizationHint": "Empty input resets to the manifest default.",
     "lengthHelp": "CSS length, e.g. 0.5rem, 4px.",
-    "imagePlaceholder": "https://… or /media/…"
+    "imagePlaceholder": "https://… or /media/…",
+    "colorScheme": {
+      "label": "Color scheme",
+      "hint": "How the public site picks between the theme's light and dark token palettes.",
+      "auto": "Auto (follow visitor's system)",
+      "light": "Light only",
+      "dark": "Dark only"
+    }
   },
   "editor": {
     "linkPrompt": "URL",

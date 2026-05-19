@@ -199,7 +199,14 @@
     "customizationHeading": "{theme}のカスタマイズ",
     "customizationHint": "空欄にするとマニフェストのデフォルト値に戻ります。",
     "lengthHelp": "CSSの長さ。例: 0.5rem, 4px。",
-    "imagePlaceholder": "https://… または /media/…"
+    "imagePlaceholder": "https://… または /media/…",
+    "colorScheme": {
+      "label": "カラースキーム",
+      "hint": "公開サイトでテーマのライト/ダーク両パレットのどちらを使うかの選択。",
+      "auto": "自動 (閲覧者のOS設定に追従)",
+      "light": "ライト固定",
+      "dark": "ダーク固定"
+    }
   },
   "editor": {
     "linkPrompt": "URL",

@@ -15,6 +15,12 @@ import {
   type LocalizedString,
   type LinkListItem,
 } from 'ampless'
+import {
+  COLOR_SCHEME_SETTING_KEY,
+  DEFAULT_COLOR_SCHEME,
+  validateColorScheme,
+  type ColorScheme,
+} from '@ampless/runtime'
 import { Button, Input, Label } from '@ampless/runtime/ui'
 import { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 import { useT, useLocale } from './i18n-provider.js'
@@ -39,6 +45,12 @@ interface Props {
   themeOptions: ThemeOption[]
   /** Resolved values currently shown to the user (overrides ?? defaults). */
   initial: Record<string, string>
+  /**
+   * Per-site color-scheme override loaded from the runtime. Independent
+   * of the manifest (it's a site-wide concern, not theme-specific).
+   * Defaults to `'auto'` when not provided.
+   */
+  initialColorScheme?: ColorScheme
 }
 
 interface ChangeState {
@@ -54,6 +66,7 @@ export function ThemeSettingsForm({
   activeTheme,
   themeOptions,
   initial,
+  initialColorScheme,
 }: Props) {
   const router = useRouter()
   const t = useT()
@@ -70,6 +83,14 @@ export function ThemeSettingsForm({
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [invalid, setInvalid] = useState<Record<string, boolean>>({})
+  // Site-wide color-scheme override. Persisted under a fixed KvStore
+  // key (`theme.colorScheme`) independent of the manifest field set —
+  // every theme inherits this setting because both light and dark
+  // palettes ship with the theme's `tokens.css`.
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(
+    initialColorScheme ?? DEFAULT_COLOR_SCHEME
+  )
+  const [colorSchemeTouched, setColorSchemeTouched] = useState(false)
 
   function update(key: string, value: string) {
     setState((prev) => ({
@@ -162,6 +183,17 @@ export function ThemeSettingsForm({
       writes.push(setSiteSetting(siteId, storeKey, validated))
     }
 
+    // Color-scheme is independent of the manifest. Persist under a
+    // fixed key; 'auto' (default) wipes the override so the site falls
+    // back to following the visitor's system `prefers-color-scheme`.
+    if (colorSchemeTouched) {
+      if (colorScheme === DEFAULT_COLOR_SCHEME) {
+        writes.push(deleteSiteSetting(siteId, COLOR_SCHEME_SETTING_KEY))
+      } else {
+        writes.push(setSiteSetting(siteId, COLOR_SCHEME_SETTING_KEY, colorScheme))
+      }
+    }
+
     if (Object.keys(newInvalid).length > 0) {
       setInvalid(newInvalid)
       setSaving(false)
@@ -174,6 +206,7 @@ export function ThemeSettingsForm({
       setInfo(t('theme.saved'))
       // Clear touched flags so the next save round only writes new edits.
       setState((prev) => ({ values: prev.values, touched: {} }))
+      setColorSchemeTouched(false)
       // Invalidate the public-site cache in the background so visitors
       // see the change soon. We intentionally don't reload the admin
       // page here — the form already reflects what the user typed,
@@ -265,6 +298,26 @@ export function ThemeSettingsForm({
             {t('theme.customizationHint')}
           </p>
         </div>
+
+        <fieldset className="space-y-2">
+          <Label htmlFor="color-scheme" className="text-sm font-medium">
+            {t('theme.colorScheme.label')}
+          </Label>
+          <select
+            id="color-scheme"
+            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+            value={colorScheme}
+            onChange={(e) => {
+              setColorScheme(validateColorScheme(e.target.value))
+              setColorSchemeTouched(true)
+            }}
+          >
+            <option value="auto">{t('theme.colorScheme.auto')}</option>
+            <option value="light">{t('theme.colorScheme.light')}</option>
+            <option value="dark">{t('theme.colorScheme.dark')}</option>
+          </select>
+          <p className="text-xs text-muted-foreground">{t('theme.colorScheme.hint')}</p>
+        </fieldset>
 
         {groups.map(({ key, name, fields }) => (
           <fieldset key={key} className="space-y-4">

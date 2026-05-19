@@ -3,45 +3,23 @@
  * templates/blog/tokens.css for the scoped-selector pattern. */
 
 [data-theme='landing'] {
-  --background: oklch(0.99 0.01 60);
-  --foreground: oklch(0.18 0.02 30);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.02 30);
-  --primary: oklch(0.6 0.18 35);
-  --primary-foreground: oklch(0.99 0.005 60);
-  --secondary: oklch(0.96 0.015 50);
-  --secondary-foreground: oklch(0.25 0.04 30);
-  --muted: oklch(0.96 0.015 50);
-  --muted-foreground: oklch(0.5 0.02 40);
-  --accent: oklch(0.95 0.05 35);
-  --accent-foreground: oklch(0.3 0.1 30);
-  --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.92 0.01 60);
-  --input: oklch(0.92 0.01 60);
-  --ring: oklch(0.6 0.18 35);
+  --background: light-dark(oklch(0.99 0.01 60), oklch(0.16 0.02 30));
+  --foreground: light-dark(oklch(0.18 0.02 30), oklch(0.96 0.01 60));
+  --card: light-dark(oklch(1 0 0), oklch(0.22 0.02 30));
+  --card-foreground: light-dark(oklch(0.18 0.02 30), oklch(0.96 0.01 60));
+  --primary: light-dark(oklch(0.6 0.18 35), oklch(0.72 0.16 35));
+  --primary-foreground: light-dark(oklch(0.99 0.005 60), oklch(0.16 0.02 30));
+  --secondary: light-dark(oklch(0.96 0.015 50), oklch(0.28 0.03 30));
+  --secondary-foreground: light-dark(oklch(0.25 0.04 30), oklch(0.96 0.01 60));
+  --muted: light-dark(oklch(0.96 0.015 50), oklch(0.28 0.03 30));
+  --muted-foreground: light-dark(oklch(0.5 0.02 40), oklch(0.7 0.02 40));
+  --accent: light-dark(oklch(0.95 0.05 35), oklch(0.32 0.06 30));
+  --accent-foreground: light-dark(oklch(0.3 0.1 30), oklch(0.96 0.01 60));
+  --destructive: light-dark(oklch(0.55 0.22 25), oklch(0.55 0.22 25));
+  --destructive-foreground: light-dark(oklch(0.99 0 0), oklch(0.99 0 0));
+  --border: light-dark(oklch(0.92 0.01 60), oklch(0.32 0.03 30));
+  --input: light-dark(oklch(0.92 0.01 60), oklch(0.32 0.03 30));
+  --ring: light-dark(oklch(0.6 0.18 35), oklch(0.72 0.16 35));
   --radius: 0.75rem;
   --ampless-body-font: system-ui, -apple-system, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme='landing'] {
-    --background: oklch(0.16 0.02 30);
-    --foreground: oklch(0.96 0.01 60);
-    --card: oklch(0.22 0.02 30);
-    --card-foreground: oklch(0.96 0.01 60);
-    --primary: oklch(0.72 0.16 35);
-    --primary-foreground: oklch(0.16 0.02 30);
-    --secondary: oklch(0.28 0.03 30);
-    --secondary-foreground: oklch(0.96 0.01 60);
-    --muted: oklch(0.28 0.03 30);
-    --muted-foreground: oklch(0.7 0.02 40);
-    --accent: oklch(0.32 0.06 30);
-    --accent-foreground: oklch(0.96 0.01 60);
-    --destructive: oklch(0.55 0.22 25);
-    --destructive-foreground: oklch(0.99 0 0);
-    --border: oklch(0.32 0.03 30);
-    --input: oklch(0.32 0.03 30);
-    --ring: oklch(0.72 0.16 35);
-  }
 }
