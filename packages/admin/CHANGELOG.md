@@ -1,5 +1,32 @@
 # @ampless/admin
 
+## 0.2.0-alpha.7
+
+### Minor Changes
+
+- 0f47d6e: Replace the `.html` slug-suffix convention for bare-HTML rendering with a data-driven `metadata.no_layout` toggle.
+
+  `Post` gains a free-form `metadata` JSON column (DynamoDB `a.json()` + `PublicPost` customType + `PostMetadata` TS interface in `ampless`). The well-known key `no_layout: boolean` tells the runtime to serve the post as bare HTML (no theme chrome, no Next.js root layout). Other keys are passed through unchanged for plugin / app use.
+
+  Behavioural changes:
+  - **Middleware**: the `/(slug).html → /raw/(slug).html` rewrite is gone. Slugs ending in `.html` are now treated as ordinary post URLs. The slug-suffix shortcut never carried real semantics (middleware can't see post fields), so the data column is now the only source of truth.
+  - **Theme post dispatcher**: peeks at `post.metadata.no_layout` before delegating. When true, redirects to `/raw/<slug>` so the raw route handler can emit the body directly (the browser URL settles on `/raw/<slug>`).
+  - **Raw route handler**: also enforces `metadata.no_layout === true` and 404s otherwise. A direct `/raw/<slug>` request for a normal post no longer leaks the body without theme chrome.
+  - **Admin post form**: adds a "no layout" checkbox that writes `metadata.no_layout`. The checkbox merges into existing metadata (plugin state etc. is preserved on save).
+
+  Migration for posts published before this release: rename the slug (drop `.html`) and tick the new "no layout" checkbox in the admin. The old URL `/promo.html` will no longer auto-route to the raw handler — set the metadata flag and the post lives at `/raw/promo` instead.
+
+### Patch Changes
+
+- c5febac: Responsive admin layout: the sidebar collapses into a slide-in drawer below `md` (768px) with a sticky top bar and hamburger toggle, and turns back into a persistent 240px rail on tablets/desktops. The drawer auto-closes on route change and locks page scroll while open.
+
+  Page bodies now use `mx-auto max-w-7xl p-4 md:p-8` so admin content centers on wide screens (previously page bodies stretched edge-to-edge with a fixed `p-8` and no max-width, which left forms anchored to the left of huge empty space and crushed under the sidebar on mobile). Page titles shrink to `text-2xl` below `md` to leave room for the action button next to them, and table containers gain `overflow-x-auto` so the posts / sites tables don't push out the viewport on narrow screens.
+
+- Updated dependencies [1238898]
+- Updated dependencies [0f47d6e]
+  - ampless@0.2.0-alpha.2
+  - @ampless/runtime@0.2.0-alpha.4
+
 ## 0.2.0-alpha.6
 
 ### Patch Changes

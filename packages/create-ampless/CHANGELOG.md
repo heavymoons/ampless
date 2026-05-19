@@ -1,5 +1,64 @@
 # create-ampless
 
+## 0.2.0-alpha.9
+
+### Minor Changes
+
+- 0b90ca8: Three changes to the scaffolding / upgrade story:
+
+  **1. Default themes = all six.** Both the interactive scaffold (`initialValues`) and the non-interactive `--skip-confirm` path now install `blog`, `minimal`, `landing`, `corporate`, `docs`, and `dads` by default. The shared `themes-registry.ts` placeholder already references every shipped theme, so this matches what the runtime expects out of the box and lets users prototype theme switching without re-scaffolding.
+
+  **2. `copy-theme` subcommand for project-owned themes.** `npx create-ampless@alpha copy-theme <source> <target>` (or `npm run copy-theme -- <source> <target>`) clones an installed theme into a new directory under `themes/`, rewriting the internal `name` references in `index.ts` / `manifest.ts` plus the `[data-theme='…']` scope in `tokens.css`. The target name must use the `my-` prefix — this is the convention that flags a theme as user-owned. Ampless-managed default themes (`blog`, `minimal`, …) are now resynced from the latest template on every `upgrade`; `my-*` themes are never touched.
+
+  **3. `themes-registry.ts` is now auto-managed.** Both `scaffold` and `upgrade` regenerate it from the directories actually present under `themes/`. Custom themes get registered automatically (no more "I added a directory but the build doesn't see it"); removed themes vanish. Hyphenated names like `my-blog` import under a camelCase alias (`myBlog`) and index the exported map with the kebab-case string literal, so `theme.active = 'my-blog'` resolves to the right module at runtime.
+
+  **Upgrade additions:**
+  - Theme sync replaces every shipped theme dir (preserving `README.md` and `.gitignore` so user docs / vcs hints survive) and preserves `my-*` themes intact.
+  - `package.json` script merging is generalised: ampless owns an allowlist (`sandbox`, `sandbox:dev`, `update-ampless`, `copy-theme`) and the user's other scripts (`dev`, `build`, …) survive every upgrade.
+
+  **Template package.json additions:**
+  - `sandbox:dev`: `ampx sandbox --once && next dev` — one-shot sandbox deploy followed by the dev server. Convenient for local verification when you don't need the watch-mode sandbox.
+  - `copy-theme`: ergonomic alias for `npx create-ampless@alpha copy-theme`.
+
+### Patch Changes
+
+- 1238898: `create-ampless --deploy --domain <X>` now rewrites the scaffolded
+  `cms.config.ts` so the admin sites list reflects the deployed domain
+  from the very first build, instead of carrying the local-dev defaults
+  into production:
+  - `site.url` is rewritten from `'http://localhost:3000'` to
+    `'https://<fullDomain>'`.
+  - A `sites: { default: { domains: ['<fullDomain>'] } }` block is
+    injected so the domain shows up in the admin sites list.
+
+  Both rewrites are idempotent and only fire when the scaffold
+  placeholders are still in place, so `--mount` mode against a project
+  where the user already customized `cms.config.ts` is a no-op.
+
+  To support the seeded single-entry `sites:` block without breaking
+  local development (where `localhost` is not a registered domain),
+  `ampless.resolveSiteId` now treats a single declared site as a
+  catch-all for any host — matching what `isMultiSite` already considered
+  "single-site mode". Multi-site behavior (strict host → site lookup, 404
+  on unknown host) is unchanged for configurations with 2+ sites.
+
+  Also: `create-ampless` now writes a canonical `.gitignore` into every
+  scaffolded project (`node_modules/`, `.next/`, `next-env.d.ts`,
+  `.amplify/`, `amplify_outputs.json`, `*.tsbuildinfo`, `.env*`,
+  `.DS_Store`, editor dirs, log files). Previously the scaffold shipped
+  no `.gitignore` at all, leaving fresh projects vulnerable to committing
+  `node_modules` or leaking `amplify_outputs.json` (which contains live
+  Cognito identity pool ids). The constant is now shared between scaffold
+  and `--mount` so they can't drift; `MOUNT_DEFAULT_GITIGNORE` continues
+  to re-export the same value for backward compatibility.
+
+- 0b90ca8: Add `upgrade` subcommand for syncing ampless template files and dependencies in existing projects.
+- 31925fd: Add `.custom.ts` extension points (`amplify/backend.custom.ts`,
+  `amplify/data/resource.custom.ts`) for user customizations. These
+  files are never overwritten by `create-ampless upgrade`, so ampless
+  can safely refresh `backend.ts` / `data/resource.ts` while preserving
+  project-specific extensions.
+
 ## 0.2.0-alpha.8
 
 ### Patch Changes
