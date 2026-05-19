@@ -27,7 +27,7 @@
     "@ampless/plugin-rss": "^0.2.0-alpha.3",
     "@ampless/plugin-seo": "^0.2.0-alpha.3",
     "@ampless/plugin-webhook": "^0.2.0-alpha.3",
-    "@ampless/admin": "^0.2.0-alpha.9",
+    "@ampless/admin": "^0.2.0-alpha.10",
     "@ampless/backend": "^0.2.0-alpha.4",
     "@ampless/runtime": "^0.2.0-alpha.5",
     "@digital-go-jp/tailwind-theme-plugin": "^0.3.4",

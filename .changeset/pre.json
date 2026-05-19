@@ -18,6 +18,7 @@
     "admin-providers-sync-install",
     "admin-responsive-layout",
     "admin-users-list-view-barrel",
+    "admin-userslistview-private-entry",
     "at-latest-and-alpha-dist-tag-sync",
     "auth-storage-config-helpers",
     "body-always-json-encode",
