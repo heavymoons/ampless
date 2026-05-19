@@ -9,13 +9,15 @@ import { processorTrusted } from './events/processor-trusted/resource.js'
 import { processorUntrusted } from './events/processor-untrusted/resource.js'
 import { apiKeyRenewer } from './functions/api-key-renewer/resource.js'
 import { userAdmin } from './functions/user-admin/resource.js'
+import { customizeBackend } from './backend.custom.js'
 
 // `defineAmplessBackend` provisions auth, data, storage, the event
 // system (DynamoDB Streams → SQS-trusted / SQS-untrusted → trust_level
 // Lambdas), the AppSync API key renewer, and every IAM / CORS /
 // password policy override. Add custom CDK constructs / IAM policies
-// below by mutating the returned `backend` — `defineAmplessBackend`
-// returns the same object Amplify Gen 2's `defineBackend` does.
+// in `amplify/backend.custom.ts` by mutating the `backend` instance —
+// `defineAmplessBackend` returns the same object Amplify Gen 2's
+// `defineBackend` does.
 const backend = defineAmplessBackend({
   auth,
   data,
@@ -27,5 +29,9 @@ const backend = defineAmplessBackend({
   apiKeyRenewer,
   userAdmin,
 })
+
+// Run user-defined customizations after baseline wiring. `backend.custom.ts`
+// is never overwritten by `create-ampless upgrade`.
+customizeBackend(backend)
 
 export default backend
