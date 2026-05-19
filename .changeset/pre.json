@@ -47,6 +47,7 @@
     "scaffold-all-themes-and-copy-theme",
     "shim-tdz-fix",
     "skip-confirm-noninteractive",
-    "static-content-format"
+    "static-content-format",
+    "tailwind-source-admin-dist"
   ]
 }
