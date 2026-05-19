@@ -228,6 +228,17 @@ export default defineConfig({
     // this entry's output through the shared internal-chunk
     // optimization that tsup performs across entries.
     'src/lib/theme-actions.ts',
+    // Private entry for the admin-only Users management view. It's
+    // imported solely by `src/pages/users-list.tsx`; without its own
+    // entry esbuild inlines it into `dist/pages/index.js`, which
+    // then triggers the preserveDirectives plugin to mark that
+    // server-side entry as `'use client'` (because users-list-view
+    // is a client component). Listing it here gives esbuild a
+    // reason to emit a separate chunk that `dist/pages/index.js`
+    // imports across the server/client boundary cleanly — without
+    // widening the public `@ampless/admin/components` barrel with
+    // an admin-only view.
+    'src/components/users-list-view.tsx',
   ],
   format: ['esm'],
   dts: true,
