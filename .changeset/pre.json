@@ -25,6 +25,7 @@
     "at-latest-and-alpha-dist-tag-sync",
     "auth-storage-config-helpers",
     "body-always-json-encode",
+    "consolidate-sandbox-scripts",
     "create-ampless-deploy-flag",
     "create-ampless-mount-mode",
     "create-ampless-preflight",
