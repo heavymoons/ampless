@@ -30,6 +30,5 @@ In `/admin/sites/<siteId>/theme`:
 
 ```bash
 npm install
-npx ampx sandbox
-npm run dev
+npm run sandbox
 ```

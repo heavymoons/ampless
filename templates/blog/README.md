@@ -10,14 +10,11 @@ This project uses Amplify Gen 2 for the backend (Cognito, DynamoDB, S3) and Next
 # 1. Install dependencies
 npm install
 
-# 2. Start a personal AWS sandbox (terminal 1)
+# 2. Deploy a personal AWS sandbox + start the Next.js dev server.
 #    Requires AWS credentials configured (`aws configure`).
-#    First run takes ~5–10 min to provision resources.
-#    Generates amplify_outputs.json when ready.
-npx ampx sandbox
-
-# 3. Start the Next.js dev server (terminal 2)
-npm run dev
+#    First run takes ~5–10 min to provision resources;
+#    amplify_outputs.json is regenerated each time before dev starts.
+npm run sandbox
 ```
 
 Then open [http://localhost:3000](http://localhost:3000).

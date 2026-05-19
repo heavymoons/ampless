@@ -22,6 +22,5 @@ Tag a post `guide` (in the post editor) and add a sidebar row with URL `tag:guid
 
 ```bash
 npm install
-npx ampx sandbox
-npm run dev
+npm run sandbox
 ```

@@ -18,8 +18,7 @@ Empty hero fields fall back to the site name / description from `/admin/sites/<s
 
 ```bash
 npm install
-npx ampx sandbox       # provision the AWS backend
-npm run dev            # start Next.js
+npm run sandbox        # provision the AWS backend + start Next.js
 ```
 
 See the project README for full setup.
