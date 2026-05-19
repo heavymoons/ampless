@@ -19,7 +19,6 @@ export { NewPostPage } from './new-post-view.js'
 export { EditPostPage } from './edit-post-view.js'
 export { MediaPage } from './media-view.js'
 export { LoginPage } from './login-view.js'
-export { UsersListView } from './users-list-view.js'
 export {
   ADMIN_SITE_COOKIE,
   readAdminSiteIdFromCookie,
