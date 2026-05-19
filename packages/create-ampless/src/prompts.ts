@@ -35,7 +35,10 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
       // Multiple themes can ship side-by-side. The first selected is the
       // default active theme; admins can switch per-site at runtime. Add
       // / remove themes later by editing themes-registry.ts and
-      // themes/<name>/.
+      // themes/<name>/. Initial values pick every shipped theme so the
+      // shared `themes-registry.ts` placeholder (which imports all of
+      // them) compiles out of the box; deselect any the project won't
+      // need before confirming.
       themes: () =>
         p.multiselect({
           message: 'Themes to install (space to toggle)',
@@ -47,7 +50,7 @@ export async function runPrompts(argProjectName?: string): Promise<ProjectOption
             { value: 'docs', label: 'Docs — sidebar-led docs (tag-driven sections)' },
             { value: 'dads', label: 'DADS — Digital Agency Design System (Japanese government style)' },
           ],
-          initialValues: ['blog'],
+          initialValues: ['blog', 'minimal', 'landing', 'corporate', 'docs', 'dads'],
           required: true,
         }),
 

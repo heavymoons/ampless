@@ -4,11 +4,19 @@ import { basename, resolve } from 'path'
 import { runPrompts, type ProjectOptions } from './prompts.js'
 import { scaffold } from './scaffold.js'
 import { sharedTemplateDir, templatesDir } from './templates.js'
-import { parseDeployArgs, HELP_TEXT, type ParsedArgs } from './args.js'
+import { parseDeployArgs, HELP_TEXT, VALID_THEMES, type ParsedArgs } from './args.js'
 import { gatherDeployOptions } from './deploy-prompts.js'
 import { runDeploy, PreflightError } from './deploy.js'
 import { validateMountableProject } from './mount.js'
+import { runUpgrade } from './upgrade.js'
+import { runCopyTheme } from './copy-theme.js'
 import pc from 'picocolors'
+
+// Default scaffolds install every shipped theme so the
+// themes-registry.ts placeholder compiles without manual fixup, and
+// projects can prototype theme switching from day one. Users who want
+// a leaner install run with --themes=<comma-separated>.
+const DEFAULT_THEMES: readonly string[] = VALID_THEMES
 
 function buildNonInteractiveOpts(args: ReturnType<typeof parseDeployArgs>): ProjectOptions {
   // Resolve project name: CLI positional → directory basename → fallback
@@ -20,7 +28,7 @@ function buildNonInteractiveOpts(args: ReturnType<typeof parseDeployArgs>): Proj
     })()
 
   const siteName = args.siteName ?? 'My Blog'
-  const themes = args.themes ?? ['blog']
+  const themes = args.themes ?? [...DEFAULT_THEMES]
   const plugins = args.plugins ?? ['seo']
 
   return {
@@ -107,6 +115,16 @@ async function main() {
   }
   for (const flag of args.unknown) {
     log.warn(`Unknown argument ignored: ${flag}`)
+  }
+
+  if (args.upgrade) {
+    await runUpgrade(args)
+    return
+  }
+
+  if (args.copyTheme) {
+    await runCopyTheme(args)
+    return
   }
 
   if (args.mount) {

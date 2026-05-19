@@ -20,6 +20,12 @@ export interface ParsedArgs {
   plugins?: string[]
   deploy: boolean
   mount: boolean
+  upgrade: boolean
+  copyTheme: boolean
+  copyThemeSource?: string
+  copyThemeTarget?: string
+  dryRun: boolean
+  noInstall: boolean
   githubOwner?: string
   githubPrivate: boolean
   githubToken?: string
@@ -53,6 +59,9 @@ const STRING_FLAGS = new Set([
 const BOOLEAN_FLAGS = new Set([
   '--deploy',
   '--mount',
+  '--upgrade',
+  '--dry-run',
+  '--no-install',
   '--github-private',
   '--create-iam-role',
   '--skip-confirm',
@@ -64,6 +73,10 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = {
     deploy: false,
     mount: false,
+    upgrade: false,
+    copyTheme: false,
+    dryRun: false,
+    noInstall: false,
     githubPrivate: false,
     createIamRole: false,
     skipConfirm: false,
@@ -89,6 +102,15 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
           break
         case '--mount':
           out.mount = true
+          break
+        case '--upgrade':
+          out.upgrade = true
+          break
+        case '--dry-run':
+          out.dryRun = true
+          break
+        case '--no-install':
+          out.noInstall = true
           break
         case '--github-private':
           out.githubPrivate = true
@@ -168,6 +190,28 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
       continue
     }
 
+    // `upgrade` as first positional arg activates upgrade mode.
+    if (raw === 'upgrade' && out.projectName === undefined) {
+      out.upgrade = true
+      continue
+    }
+
+    // `copy-theme <source> <target>` as first positional triggers the
+    // theme-copy mode. The next two non-flag positionals are consumed
+    // as source / target; anything beyond that falls through to unknown.
+    if (raw === 'copy-theme' && out.projectName === undefined && !out.copyTheme) {
+      out.copyTheme = true
+      continue
+    }
+    if (out.copyTheme && out.copyThemeSource === undefined) {
+      out.copyThemeSource = raw
+      continue
+    }
+    if (out.copyTheme && out.copyThemeTarget === undefined) {
+      out.copyThemeTarget = raw
+      continue
+    }
+
     // First non-flag positional → project name; further positionals are unknown.
     if (out.projectName === undefined) {
       out.projectName = raw
@@ -184,6 +228,7 @@ export const HELP_TEXT = `create-ampless — scaffold an ampless project
 Usage:
   npx create-ampless@alpha <project-name> [options]
   npx create-ampless@alpha --mount [options]    # in an existing project dir
+  npx create-ampless@alpha upgrade [options]    # in an existing project dir
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -219,4 +264,19 @@ Options:
   --skip-confirm              Skip all interactive prompts and use defaults /
                               flag values (for CI / automation)
   -h, --help                  Show this message
+
+upgrade  Sync ampless package files / deps to latest alpha.
+         Run inside an existing ampless project.
+
+  --dry-run                   Show what would change without writing any files
+  --no-install                Skip running pnpm/npm install after updating
+                              package.json
+
+copy-theme <source> <target>
+         Copy a theme so the original stays managed by ampless and
+         customisations live in the copy. Target must start with "my-"
+         (the convention that flags it as user-owned, so upgrade leaves
+         it alone). Run inside an existing ampless project.
+
+         Example: npx create-ampless@alpha copy-theme blog my-blog
 `

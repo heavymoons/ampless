@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "sandbox": "ampx sandbox"
+    "sandbox": "ampx sandbox",
+    "sandbox:dev": "ampx sandbox --once && next dev",
+    "update-ampless": "npx create-ampless@alpha upgrade",
+    "copy-theme": "npx create-ampless@alpha copy-theme"
   },
   "dependencies": {
     "@aws-amplify/adapter-nextjs": "^1.6.0",
