@@ -70,6 +70,15 @@ jobs:
       # bring it back in sync.
       - name: Sync alpha dist-tag
         if: always()
-        run: node scripts/sync-alpha-dist-tag.mjs
+        # Re-write ~/.npmrc explicitly. After `changesets/action` runs,
+        # the .npmrc written by `setup-node` (which references
+        # `${NODE_AUTH_TOKEN}`) can be in a state where subsequent
+        # `npm` calls hit E401 — symptom: this step fails for
+        # newly-published versions while pre-check succeeds for ones
+        # already at target. Writing a fresh `_authToken=<value>` line
+        # restores auth deterministically.
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          node scripts/sync-alpha-dist-tag.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
