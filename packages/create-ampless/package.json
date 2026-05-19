@@ -1,6 +1,6 @@
 {
   "name": "create-ampless",
-  "version": "0.2.0-alpha.9",
+  "version": "0.2.0-alpha.10",
   "description": "Create a new ampless project",
   "license": "MIT",
   "type": "module",
