@@ -7,18 +7,14 @@
 
 export { I18nProvider, useT, useLocale } from './i18n-provider.js'
 export { AdminProviders } from './admin-providers.js'
-// Admin page view components — re-exported here both as an opt-in
-// escape hatch for projects that want to embed admin views outside
-// the bundled `@ampless/admin/pages` factories, AND so tsup splits
-// them into a shared chunk (instead of inlining them into
-// `dist/pages/index.js` and pulling the `'use client'` directive
-// across that server-side entry).
-export { AdminDashboard } from './admin-dashboard.js'
-export { PostsList } from './posts-list-view.js'
-export { NewPostPage } from './new-post-view.js'
-export { EditPostPage } from './edit-post-view.js'
-export { MediaPage } from './media-view.js'
-export { LoginPage } from './login-view.js'
+// Admin-only `*-view` page bodies (`AdminDashboard`, `LoginPage`,
+// `PostsList`, etc.) intentionally stay OUT of this barrel. They are
+// internal to `@ampless/admin/pages`'s page factories and are split
+// into their own dist chunks via private `tsup.config.ts` entries —
+// see the `Private chunks for admin-only views` block there. This
+// keeps the public escape hatch surface focused on reusable
+// widgets / utilities (forms, providers, media helpers) instead of
+// opinionated admin pages.
 export {
   ADMIN_SITE_COOKIE,
   readAdminSiteIdFromCookie,

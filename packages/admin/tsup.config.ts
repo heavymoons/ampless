@@ -228,16 +228,23 @@ export default defineConfig({
     // this entry's output through the shared internal-chunk
     // optimization that tsup performs across entries.
     'src/lib/theme-actions.ts',
-    // Private entry for the admin-only Users management view. It's
-    // imported solely by `src/pages/users-list.tsx`; without its own
-    // entry esbuild inlines it into `dist/pages/index.js`, which
-    // then triggers the preserveDirectives plugin to mark that
-    // server-side entry as `'use client'` (because users-list-view
-    // is a client component). Listing it here gives esbuild a
-    // reason to emit a separate chunk that `dist/pages/index.js`
-    // imports across the server/client boundary cleanly — without
-    // widening the public `@ampless/admin/components` barrel with
-    // an admin-only view.
+    // Private chunks for admin-only views (`*-view.tsx` +
+    // `admin-dashboard.tsx`). They are imported solely by the
+    // corresponding `src/pages/*.tsx` factory; without an entry
+    // each esbuild would inline them into `dist/pages/index.js`,
+    // and `preserveDirectives` would (correctly) mark that
+    // server-side entry as `'use client'` because the view files
+    // are client components. Listing them here makes esbuild emit
+    // separate chunks that `dist/pages/index.js` imports across
+    // the server/client boundary cleanly — without widening the
+    // public `@ampless/admin/components` barrel with admin-only
+    // opinionated page bodies.
+    'src/components/admin-dashboard.tsx',
+    'src/components/login-view.tsx',
+    'src/components/media-view.tsx',
+    'src/components/edit-post-view.tsx',
+    'src/components/new-post-view.tsx',
+    'src/components/posts-list-view.tsx',
     'src/components/users-list-view.tsx',
   ],
   format: ['esm'],
