@@ -1,5 +1,13 @@
 # @ampless/mcp-server
 
+## 0.2.0-alpha.2
+
+### Patch Changes
+
+- Updated dependencies [1238898]
+- Updated dependencies [0f47d6e]
+  - ampless@0.2.0-alpha.2
+
 ## 0.2.0-alpha.1
 
 ### Patch Changes

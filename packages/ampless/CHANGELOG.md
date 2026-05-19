@@ -1,5 +1,53 @@
 # ampless
 
+## 0.2.0-alpha.2
+
+### Minor Changes
+
+- 0f47d6e: Replace the `.html` slug-suffix convention for bare-HTML rendering with a data-driven `metadata.no_layout` toggle.
+
+  `Post` gains a free-form `metadata` JSON column (DynamoDB `a.json()` + `PublicPost` customType + `PostMetadata` TS interface in `ampless`). The well-known key `no_layout: boolean` tells the runtime to serve the post as bare HTML (no theme chrome, no Next.js root layout). Other keys are passed through unchanged for plugin / app use.
+
+  Behavioural changes:
+  - **Middleware**: the `/(slug).html → /raw/(slug).html` rewrite is gone. Slugs ending in `.html` are now treated as ordinary post URLs. The slug-suffix shortcut never carried real semantics (middleware can't see post fields), so the data column is now the only source of truth.
+  - **Theme post dispatcher**: peeks at `post.metadata.no_layout` before delegating. When true, redirects to `/raw/<slug>` so the raw route handler can emit the body directly (the browser URL settles on `/raw/<slug>`).
+  - **Raw route handler**: also enforces `metadata.no_layout === true` and 404s otherwise. A direct `/raw/<slug>` request for a normal post no longer leaks the body without theme chrome.
+  - **Admin post form**: adds a "no layout" checkbox that writes `metadata.no_layout`. The checkbox merges into existing metadata (plugin state etc. is preserved on save).
+
+  Migration for posts published before this release: rename the slug (drop `.html`) and tick the new "no layout" checkbox in the admin. The old URL `/promo.html` will no longer auto-route to the raw handler — set the metadata flag and the post lives at `/raw/promo` instead.
+
+### Patch Changes
+
+- 1238898: `create-ampless --deploy --domain <X>` now rewrites the scaffolded
+  `cms.config.ts` so the admin sites list reflects the deployed domain
+  from the very first build, instead of carrying the local-dev defaults
+  into production:
+  - `site.url` is rewritten from `'http://localhost:3000'` to
+    `'https://<fullDomain>'`.
+  - A `sites: { default: { domains: ['<fullDomain>'] } }` block is
+    injected so the domain shows up in the admin sites list.
+
+  Both rewrites are idempotent and only fire when the scaffold
+  placeholders are still in place, so `--mount` mode against a project
+  where the user already customized `cms.config.ts` is a no-op.
+
+  To support the seeded single-entry `sites:` block without breaking
+  local development (where `localhost` is not a registered domain),
+  `ampless.resolveSiteId` now treats a single declared site as a
+  catch-all for any host — matching what `isMultiSite` already considered
+  "single-site mode". Multi-site behavior (strict host → site lookup, 404
+  on unknown host) is unchanged for configurations with 2+ sites.
+
+  Also: `create-ampless` now writes a canonical `.gitignore` into every
+  scaffolded project (`node_modules/`, `.next/`, `next-env.d.ts`,
+  `.amplify/`, `amplify_outputs.json`, `*.tsbuildinfo`, `.env*`,
+  `.DS_Store`, editor dirs, log files). Previously the scaffold shipped
+  no `.gitignore` at all, leaving fresh projects vulnerable to committing
+  `node_modules` or leaking `amplify_outputs.json` (which contains live
+  Cognito identity pool ids). The constant is now shared between scaffold
+  and `--mount` so they can't drift; `MOUNT_DEFAULT_GITIGNORE` continues
+  to re-export the same value for backward compatibility.
+
 ## 0.2.0-alpha.1
 
 ### Patch Changes
