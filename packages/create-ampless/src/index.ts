@@ -61,7 +61,7 @@ async function runMount(args: ParsedArgs): Promise<void> {
   if (problem) {
     log.error(problem)
     log.info(
-      'Run `npx create-ampless@alpha <name>` first to scaffold, or `cd` into a scaffolded project before passing --mount.'
+      'Run `npx create-ampless@latest <name>` first to scaffold, or `cd` into a scaffolded project before passing --mount.'
     )
     process.exit(1)
   }
