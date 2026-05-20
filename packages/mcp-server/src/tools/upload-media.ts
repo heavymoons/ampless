@@ -1,6 +1,5 @@
-import type { GraphqlClient } from '../appsync.js'
-import type { StorageClient } from '../s3.js'
-import { buildMediaKey } from '../s3.js'
+import type { GraphqlClient, StorageClient } from './types.js'
+import { buildMediaKey } from './media-key.js'
 
 const MUTATION = /* GraphQL */ `
   mutation CreateMedia($input: CreateMediaInput!) {

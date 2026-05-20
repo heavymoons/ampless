@@ -1,5 +1,5 @@
 import { composeSiteIdStatus, composeSiteIdSlug, type Post } from 'ampless'
-import type { GraphqlClient } from '../appsync.js'
+import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, encodeBody, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
 import { getPost } from './get-post.js'

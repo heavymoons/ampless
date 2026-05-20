@@ -46,6 +46,16 @@ function requireStore(): KvStore {
   return store
 }
 
+/**
+ * Access the injected `KvStore` directly. Use the site-setting helpers
+ * (`getSiteSetting` etc.) when storing per-site configuration; reach
+ * for this lower-level handle only when you need a different PK
+ * namespace (e.g. `mcp-tokens`).
+ */
+export function getKvStore(): KvStore {
+  return requireStore()
+}
+
 // --- Site settings high-level helpers ---
 //
 // Settings are stored under PK = `siteconfig:{siteId}`, SK = the dotted

@@ -1,4 +1,4 @@
-import type { GraphqlClient } from '../appsync.js'
+import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 
 const GET_BY_ID = /* GraphQL */ `

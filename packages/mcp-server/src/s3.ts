@@ -2,26 +2,10 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { formatPublicAssetUrl } from 'ampless'
 import type { AmplifyOutputs } from './types.js'
 
-// Preserve Unicode (Japanese, emoji, etc.) — strip control chars and S3-
-// hostile characters. Mirrors templates/blog/lib/upload.ts:sanitizeName.
-export function sanitizeName(name: string): string {
-  return (
-    name
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\x00-\x1f\x7f]/g, '')
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/^\.+/, '_')
-      .slice(0, 200) || 'upload'
-  )
-}
-
-export function buildMediaKey(filename: string, now: Date = new Date()): string {
-  const safe = sanitizeName(filename)
-  const yyyy = now.getFullYear()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  return `public/media/${yyyy}/${mm}/${now.getTime()}-${safe}`
-}
+// `sanitizeName` / `buildMediaKey` moved to `./tools/media-key.ts` so
+// the tools sub-export doesn't transitively pull `@aws-sdk/client-s3`
+// into consumers. Re-exported here for source-compatible callers.
+export { sanitizeName, buildMediaKey } from './tools/media-key.js'
 
 export class StorageClient {
   private readonly client: S3Client
