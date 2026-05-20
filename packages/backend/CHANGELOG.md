@@ -1,5 +1,12 @@
 # @ampless/backend
 
+## 0.2.0-alpha.6
+
+### Patch Changes
+
+- Updated dependencies [bb6c2ae]
+  - ampless@0.2.0-alpha.4
+
 ## 0.2.0-alpha.5
 
 ### Patch Changes

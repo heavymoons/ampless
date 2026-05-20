@@ -51,6 +51,7 @@
     "skip-confirm-noninteractive",
     "static-content-format",
     "tailwind-source-admin-dist",
+    "theme-color-pair-and-live-preview",
     "theme-dark-light-color-scheme",
     "user-admin-pipeline-event-shape"
   ]
