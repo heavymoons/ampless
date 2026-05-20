@@ -1,28 +1,30 @@
-## 11. テーマ
+> 日本語版: [11-themes.ja.md](./11-themes.ja.md)
+> 
+## 11. Themes
 
-### 設計思想
+### Design Philosophy
 
-テーマはプラグインと同じ枠組みで扱う。
-管理画面からのインストール・切り替え・プレビューに対応し、npm や git push を不要にする。
+Themes are handled within the same framework as plugins.
+Installation, switching, and preview from the admin UI are supported — no npm or git push required.
 
-テーマ = レイアウト（テンプレート構造）+ スタイル（CSS）+ カスタマイズスキーマ。
+Theme = layout (template structure) + style (CSS) + customization schema.
 
-### テーマの構成要素
+### Theme Components
 
 ```typescript
 // @ampless/theme-blog
 export default defineTheme({
   apiVersion: 1,
   name: 'Blog',
-  description: 'シンプルなブログテーマ',
+  description: 'A simple blog theme',
   thumbnail: '/themes/blog/thumbnail.png',
 
-  // カスタマイズ可能な項目を宣言 → 管理画面が UI を自動生成
+  // Declare customizable fields → admin UI auto-generates the UI
   configSchema: {
-    primaryColor: { type: 'color', default: '#3b82f6', label: 'メインカラー' },
-    fontFamily: { type: 'select', options: ['sans', 'serif', 'mono'], default: 'sans', label: 'フォント' },
-    logo: { type: 'image', label: 'ロゴ' },
-    showSidebar: { type: 'boolean', default: true, label: 'サイドバー表示' },
+    primaryColor: { type: 'color', default: '#3b82f6', label: 'Primary color' },
+    fontFamily: { type: 'select', options: ['sans', 'serif', 'mono'], default: 'sans', label: 'Font' },
+    logo: { type: 'image', label: 'Logo' },
+    showSidebar: { type: 'boolean', default: true, label: 'Show sidebar' },
   },
 
   layouts: { default, post, list },
@@ -30,53 +32,53 @@ export default defineTheme({
 })
 ```
 
-### テーマの配布とインストール
+### Theme Distribution and Installation
 
-プラグインの配布方式（§9）と同じ仕組みに乗る。
+Uses the same mechanism as plugin distribution (§9).
 
-| 方式 | ユーザー | 操作 |
-|------|---------|------|
-| **管理画面から** | 非開発者 | テーマ一覧から選んで「適用」。npm/git 不要 |
-| **npm install** | 開発者 | `npm install @ampless/theme-docs` → git push |
-| **eject** | 上級者 | `npx ampless eject-theme` でローカルコピーに切り替え |
+| Method | User | Operation |
+|--------|------|-----------|
+| **From admin UI** | Non-developers | Select from theme list and click "Apply". No npm or git required |
+| **npm install** | Developers | `npm install @ampless/theme-docs` → git push |
+| **eject** | Advanced users | `npx ampless eject-theme` to switch to a local copy |
 
-管理画面からのインストール:
+Installing from the admin UI:
 
 ```
-管理画面「テーマ変更」
-  → テーマ一覧（サムネイルプレビュー付き）
-  → テーマパッケージを S3 にダウンロード
-  → DynamoDB にテーマ設定を保存
-  → 次のリクエストから新テーマで描画
+Admin UI "Change Theme"
+  → Theme list (with thumbnail previews)
+  → Download theme package to S3
+  → Save theme configuration to DynamoDB
+  → New theme renders from the next request
 ```
 
-テーマは管理者のみがインストール可能（role: admin）。
-信頼済みコードとして扱い、プラグインの trust_level によるサンドボックスは適用しない。
+Only administrators can install themes (role: admin).
+Themes are treated as trusted code; the trust_level plugin sandbox does not apply.
 
-### テーマの切り替えとプレビュー
+### Theme Switching and Preview
 
-実際のコンテンツを使って、複数テーマを見比べてから適用できる。
+Users can compare multiple themes using real content before applying.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ テーマ設定                                    │
+│ Theme Settings                               │
 ├──────────┬──────────────────────────────────┤
 │          │                                    │
-│ テーマ選択 │   ┌────────────────────────┐     │
+│ Theme    │   ┌────────────────────────┐     │
 │ ● Blog   │   │                          │     │
-│ ○ Docs   │   │    iframe プレビュー       │     │
-│ ○ Corp   │   │  （実際のコンテンツ表示）   │     │
+│ ○ Docs   │   │    iframe preview         │     │
+│ ○ Corp   │   │  (shows real content)    │     │
 │          │   │                          │     │
-│ カスタマイズ│   └────────────────────────┘     │
-│ 色: [■]  │                                    │
-│ フォント   │              [テーマを適用]        │
-│ ロゴ      │                                    │
+│ Customize│   └────────────────────────┘     │
+│ Color: [■]│                                    │
+│ Font     │              [Apply Theme]         │
+│ Logo     │                                    │
 └──────────┴──────────────────────────────────┘
 ```
 
-- プレビューは iframe + URL パラメータでテーマを指定（管理者セッションのみ）
-- カスタマイズ項目を変えるたびに iframe がリアルタイム更新
-- 「テーマを適用」を押すまで公開サイトには反映されない
+- Preview uses an iframe + URL parameter to specify the theme (admin session only)
+- The iframe updates in real time as customization options are changed
+- Changes do not appear on the public site until "Apply Theme" is clicked
 
 ```typescript
 // middleware.ts
@@ -90,32 +92,32 @@ export function middleware(request: NextRequest) {
 }
 ```
 
-### キャッシュ戦略
+### Caching Strategy
 
-テーマの描画結果は Next.js ISR でキャッシュし、テーマ Lambda の呼び出しを最小化する。
+Theme render output is cached by Next.js ISR to minimize theme Lambda invocations.
 
 ```
-初回アクセス → テーマで描画 → HTML キャッシュ（ISR）
-以降のアクセス → キャッシュから配信
-コンテンツ更新 → DynamoDB Stream → SQS → キャッシュ再生成
-テーマ変更   → 全ページのキャッシュを無効化 → 順次再生成
+First request → render with theme → cache HTML (ISR)
+Subsequent requests → serve from cache
+Content update → DynamoDB Stream → SQS → regenerate cache
+Theme change → invalidate all page caches → regenerate incrementally
 ```
 
-### 管理画面の UI
+### Admin UI
 
-管理画面自体はテーマと独立。shadcn/ui + Tailwind で構成。
+The admin UI is independent of themes. Built with shadcn/ui + Tailwind.
 
-| 領域 | 技術 | 理由 |
-|------|------|------|
-| 管理画面 `(admin)/` | shadcn/ui + Tailwind | フォーム・テーブル・ダイアログ等が揃っている |
-| 公開サイト `(public)/` | テーマ依存（Tailwind ベース） | テーマごとにデザインが異なる |
+| Area | Technology | Reason |
+|------|-----------|--------|
+| Admin `(admin)/` | shadcn/ui + Tailwind | Forms, tables, dialogs, and more are available |
+| Public site `(public)/` | Theme-dependent (Tailwind-based) | Design varies per theme |
 
-### スロット（挿入ポイント）
+### Slots (Insertion Points)
 
-テーマはプラグインがコンテンツを差し込める**スロット**を宣言する。
+Themes declare **slots** where plugins can inject content.
 
 ```tsx
-// テーマ側: 記事ページ
+// Theme side: post page
 export default function PostPage({ post }) {
   return (
     <article>
@@ -129,7 +131,7 @@ export default function PostPage({ post }) {
 ```
 
 ```typescript
-// プラグイン側: AdSense
+// Plugin side: AdSense
 export default definePlugin({
   slots: {
     'after-content': (props) => <AdSenseUnit slot="XXXXXXX" />,
@@ -137,22 +139,22 @@ export default definePlugin({
 })
 ```
 
-GA スクリプト、AdSense、関連記事ウィジェット等はすべてスロットの仕組みに乗る。
-`head` スロットは `<head>` へのスクリプト・メタタグ挿入に使用。
+GA scripts, AdSense, related post widgets, etc. all use the slot mechanism.
+The `head` slot is used for injecting scripts and meta tags into `<head>`.
 
-### 用途別テーマ
+### Themes by Use Case
 
-| テーマ | ターゲット | 説明 |
-|--------|-----------|------|
-| `@ampless/theme-blog` | 個人/企業ブログ | テキスト主体。シンプル |
-| `@ampless/theme-docs` | ドキュメントサイト | サイドバーナビ。Nextra/Docusaurus 風 |
-| `@ampless/theme-corporate` | 企業サイト + ブログ | LP + ブログの複合 |
+| Theme | Target | Description |
+|-------|--------|-------------|
+| `@ampless/theme-blog` | Personal/business blog | Text-centric. Simple |
+| `@ampless/theme-docs` | Documentation site | Sidebar navigation. Nextra/Docusaurus-style |
+| `@ampless/theme-corporate` | Corporate site + blog | Landing page + blog combined |
 
-外部のテーマ作者も同じ `defineTheme()` 規約に従えば、管理画面から自動的にインストール・カスタマイズ可能。
+External theme authors can also make their themes installable and customizable from the admin UI by following the same `defineTheme()` contract.
 
-### v1 方針
-- v0.1: `@ampless/theme-blog` のみ。`configSchema` による CSS 変数カスタマイズ
-- v0.2: テーマ切り替え・プレビュー、`@ampless/theme-docs` 追加
-- v1.0: eject 対応、外部テーマ対応
+### v1 Policy
+- v0.1: `@ampless/theme-blog` only. CSS variable customization via `configSchema`
+- v0.2: Theme switching and preview, add `@ampless/theme-docs`
+- v1.0: eject support, third-party theme support
 
 ---

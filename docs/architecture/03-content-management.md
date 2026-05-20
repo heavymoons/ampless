@@ -1,104 +1,106 @@
-## 3. コンテンツ管理
+> 日本語版: [03-content-management.ja.md](./03-content-management.ja.md)
+> 
+## 3. Content Management
 
-### エディタ
+### Editor
 
-リッチテキストエディタには **tiptap (MIT)** を採用。
+**tiptap (MIT)** is the chosen rich text editor.
 
-- ProseMirror ベースのヘッドレスエディタ。フレームワーク非依存
-- Extensions エコシステムが豊富（ドラッグ＆ドロップ、スラッシュコマンド、文字数カウント等）
-- EmDash も同じく tiptap を採用（Portable Text 変換レイヤー付き）
-- tiptap の有料機能（リアルタイム共同編集、AI 等）は不要。MIT 部分で十分
+- Headless editor based on ProseMirror. Framework-agnostic
+- Rich Extensions ecosystem (drag-and-drop, slash commands, character count, etc.)
+- EmDash also uses tiptap (with a Portable Text conversion layer)
+- Paid tiptap features (real-time collaboration, AI, etc.) are not required. The MIT portion is sufficient
 
-#### エディタ選定の経緯
+#### Editor Selection Rationale
 
-| 候補 | 見送り理由 |
-|------|-----------|
-| @portabletext/editor (Sanity) | MIT だが React 専用。Extensions エコシステムが小さい。Sanity 色が強い |
-| Lexical (Meta) | MIT。有力候補だが tiptap より CMS 向け Extensions が少ない |
-| Plate (Slate ベース) | MIT。shadcn/ui 連携は良いが、tiptap ほど成熟していない |
+| Candidate | Reason for rejection |
+|-----------|---------------------|
+| @portabletext/editor (Sanity) | MIT, but React-only. Small Extensions ecosystem. Strong Sanity branding |
+| Lexical (Meta) | MIT. Strong candidate, but fewer CMS-oriented Extensions than tiptap |
+| Plate (Slate-based) | MIT. Good shadcn/ui integration, but less mature than tiptap |
 
-### データモデル: マルチフォーマット保存
+### Data Model: Multi-Format Storage
 
-コンテンツの保存形式をユーザーが選択できる設計とする。
+The system is designed to let users choose their preferred content storage format.
 
-#### canonical（正データ）— DynamoDB に保存
+#### Canonical (source of truth) — stored in DynamoDB
 
-ユーザーが編集に使うフォーマットを canonical（正データ）として DynamoDB に保存する。
-`format` フィールドで形式を明示。
+The format the user edits in is stored as the canonical form in DynamoDB.
+The `format` field declares the format explicitly.
 
 ```json
 {
   "siteId": "default",
   "postId": "post-001",
-  "title": "記事タイトル",
+  "title": "Post title",
   "format": "tiptap",
   "body": { "type": "doc", "content": [...] },
   "updatedAt": "2026-04-04T..."
 }
 ```
 
-| format | body の内容 | 想定ユーザー |
-|--------|-----------|------------|
-| `tiptap` | tiptap JSON | WYSIWYG エディタ派 |
-| `markdown` | Markdown 文字列 | 開発者、git push 運用派 |
-| `html` | HTML 文字列 | WordPress 移行組、レガシー |
+| format | body contents | Intended users |
+|--------|--------------|---------------|
+| `tiptap` | tiptap JSON | WYSIWYG editor users |
+| `markdown` | Markdown string | Developers, git push workflow |
+| `html` | HTML string | WordPress migrants, legacy content |
 
-#### 派生フォーマット — S3 にキャッシュ
+#### Derived formats — cached in S3
 
-公開・配信時に canonical から変換した派生フォーマットを S3 に保存する。
+When publishing, derived formats converted from the canonical form are stored in S3.
 
 ```
-[保存/公開時]
-  canonical (DynamoDB) → HTML → S3 (配信用)
-  canonical (DynamoDB) → Markdown → S3 (エクスポート用、必要時)
+[On save/publish]
+  canonical (DynamoDB) → HTML → S3 (for delivery)
+  canonical (DynamoDB) → Markdown → S3 (for export, when needed)
   canonical (DynamoDB) → RSS XML → S3
 ```
 
-S3 側はいつでも再生成可能なキャッシュとして扱う。
+S3 content is treated as a regenerable cache at all times.
 
-#### フォーマット間変換
+#### Format Conversion
 
-canonical フォーマットの変更（例: tiptap → Markdown への移行）にも対応する。
-変換は損失を伴う場合があり、ユーザーに確認の上で実行する。
+Changing the canonical format (e.g., migrating from tiptap to Markdown) is supported.
+Conversions may be lossy and require user confirmation before proceeding.
 
-| 変換 | ライブラリ | 品質 |
-|------|-----------|------|
-| tiptap JSON ↔ HTML | `@tiptap/html`（公式） | ほぼ無損失 |
-| tiptap JSON ↔ Markdown | `tiptap-markdown`（コミュニティ） | 損失あり（装飾・カスタムブロック） |
-| Markdown → HTML | `markdown-it` 等 | 無損失 |
-| HTML → tiptap JSON | `@tiptap/html` の `generateJSON()` | ほぼ無損失 |
+| Conversion | Library | Quality |
+|-----------|---------|---------|
+| tiptap JSON ↔ HTML | `@tiptap/html` (official) | Near-lossless |
+| tiptap JSON ↔ Markdown | `tiptap-markdown` (community) | Lossy (decorations, custom blocks) |
+| Markdown → HTML | `markdown-it` etc. | Lossless |
+| HTML → tiptap JSON | `@tiptap/html` `generateJSON()` | Near-lossless |
 
-#### 設計方針
-- canonical は常に1つ。複数の canonical を持たない（同期地獄の回避）
-- DynamoDB には canonical + メタデータのみ保存し、軽量に保つ
-- 派生フォーマットは S3 にキャッシュ
-- DynamoDB の 400KB Item サイズ制限を意識し、巨大コンテンツは S3 に逃がす
+#### Design Principles
+- There is always exactly one canonical format. Multiple canonicals are never maintained (avoids sync hell)
+- DynamoDB stores only the canonical form plus metadata, keeping items lightweight
+- Derived formats are cached in S3
+- The DynamoDB 400 KB item size limit is respected; oversized content is offloaded to S3
 
-### マルチサイト
+### Multi-Site
 
-シングルテナント（1 Amplify 環境 = 1 デプロイ）で、複数サイトを運用できる設計とする。
+The system supports running multiple sites within a single-tenant setup (1 Amplify environment = 1 deployment).
 
-#### 概要
+#### Overview
 
 ```
-[管理画面] 1つの管理画面でサイトを切り替え
-  ├── サイトA (blog.example.com)
-  ├── サイトB (docs.example.com)
-  └── サイトC (news.other-domain.com)   ← 別ドメインも可
+[Admin UI] Switch between sites from a single admin panel
+  ├── Site A (blog.example.com)
+  ├── Site B (docs.example.com)
+  └── Site C (news.other-domain.com)   ← separate domains supported
 
-[公開側] Next.js middleware でドメイン/サブドメイン振り分け
+[Public side] Next.js middleware routes by domain/subdomain
 ```
 
-#### データモデル
+#### Data Model
 
-すべてのコンテンツに `siteId` を持たせる。
-ドメインと siteId のマッピングは設定で管理する。
+All content carries a `siteId`.
+The mapping between domains and `siteId` values is managed in configuration.
 
 ```json
 {
   "siteId": "blog",
   "postId": "post-001",
-  "title": "記事タイトル",
+  "title": "Post title",
   ...
 }
 ```
@@ -114,34 +116,33 @@ export default defineConfig({
 })
 ```
 
-v0.1 ではデフォルト値 `"default"` で単一サイト運用。
-マルチサイト機能は後から破壊的変更なしで追加できる。
+In v0.1, a default value of `"default"` supports single-site operation.
+Multi-site support can be added later without breaking changes.
 
-#### ドメインルーティング（Next.js middleware）
+#### Domain Routing (Next.js middleware)
 
 ```typescript
 // middleware.ts
 export function middleware(request: NextRequest) {
   const hostname = request.headers.get('host')
-  const siteId = resolveSiteId(hostname) // ドメインマッピングから解決
+  const siteId = resolveSiteId(hostname) // resolved from domain mapping
   request.headers.set('x-site-id', siteId)
 }
 ```
 
-#### マルチテナントとの違い
+#### Difference from Multi-Tenancy
 
-本格的なマルチテナント（テナント間の認証分離、課金、テナント漏洩対策）は行わない。
-Amplify は 1 リポジトリ = 1 環境が自然であり、完全なテナント分離が必要なら
-別の Amplify 環境をデプロイすればよい。
+Full multi-tenancy (per-tenant auth isolation, billing, tenant leakage prevention) is not implemented.
+Amplify naturally maps 1 repository to 1 environment; if complete tenant isolation is required, deploy a separate Amplify environment.
 
-マルチサイトはあくまで「1 管理者が複数の公開サイトを運営する」ユースケースに対応する。
+Multi-site is strictly for the use case of "one administrator running multiple public sites."
 
-### メディア管理
+### Media Management
 
-#### ストレージ
+#### Storage
 
-アップロードされたメディアファイルは S3 の `public/media/` に保存する。
-DynamoDB には相対パスのみを保存し、配信 URL はレンダリング時に解決する。
+Uploaded media files are stored in S3 under `public/media/`.
+Only relative paths are stored in DynamoDB; delivery URLs are resolved at render time.
 
 ```json
 {
@@ -153,31 +154,31 @@ DynamoDB には相対パスのみを保存し、配信 URL はレンダリング
 }
 ```
 
-#### 配信方式
+#### Delivery
 
-デフォルトは `next/image` 経由のプロキシ配信。`cms.config.ts` で明示的に変更可能。
+The default delivery method is proxying through `next/image`. This can be changed explicitly in `cms.config.ts`.
 
 ```typescript
 // cms.config.ts
 export default defineConfig({
   media: {
-    delivery: 'nextjs',     // デフォルト: next/image 経由（自動最適化）
-    // delivery: 's3-direct', // 直接 S3 URL を使う場合
+    delivery: 'nextjs',     // default: via next/image (auto-optimization)
+    // delivery: 's3-direct', // use direct S3 URLs
   }
 })
 ```
 
-| 方式 | URL 例 | 用途 |
-|------|--------|------|
-| `nextjs`（デフォルト） | `/_next/image?url=...` | 画像（WebP変換・リサイズ・遅延読み込み） |
-| `s3-direct` | `https://{bucket}.s3.amazonaws.com/public/...` | 動画・PDF・大容量ファイル |
+| Method | URL example | Use case |
+|--------|------------|---------|
+| `nextjs` (default) | `/_next/image?url=...` | Images (WebP conversion, resizing, lazy loading) |
+| `s3-direct` | `https://{bucket}.s3.amazonaws.com/public/...` | Videos, PDFs, large files |
 
-動画・PDF など `next/image` が処理できない MIME タイプは、設定に関わらず自動的に `s3-direct` にフォールバックする。
+MIME types that `next/image` cannot process (video, PDF, etc.) automatically fall back to `s3-direct` regardless of the configured setting.
 
-#### URL 解決
+#### URL Resolution
 
-DB には常に相対パスを保存し、表示時に `resolveMediaUrl()` で完全 URL に変換する。
-将来 CloudFront を追加した場合もこの関数を変更するだけで全体に反映される。
+Only relative paths are stored in the database. At render time, `resolveMediaUrl()` converts them to full URLs.
+If CloudFront is added in the future, updating only this function propagates the change everywhere.
 
 ```typescript
 function resolveMediaUrl(src: string, mimeType: string, delivery: 'nextjs' | 's3-direct') {
@@ -189,15 +190,15 @@ function resolveMediaUrl(src: string, mimeType: string, delivery: 'nextjs' | 's3
 }
 ```
 
-### その他
-- カスタムコンテンツタイプは管理画面からスキーマ定義 → DynamoDB テーブルを生成
-- WordPress の「全部を1つの posts テーブルに詰め込む」問題を回避
+### Other
+- Custom content types: define schema in the admin UI → DynamoDB table is generated
+- Avoids the WordPress problem of cramming everything into a single `posts` table
 
-### WordPress からの移行
-- WXR ファイルインポートに対応
-- 投稿、ページ、メディア、タクソノミーの移行をサポート
-- WordPress プラグイン・テーマは移行不可（アーキテクチャが根本的に異なる）
-- カスタム投稿タイプ（CPT）と ACF は手動スキーママッピングが必要
-- インポートした HTML コンテンツは `format: "html"` でそのまま保存可能
+### Migration from WordPress
+- WXR file import is supported
+- Migrates posts, pages, media, and taxonomies
+- WordPress plugins and themes cannot be migrated (fundamentally different architecture)
+- Custom post types (CPT) and ACF require manual schema mapping
+- Imported HTML content can be stored as-is using `format: "html"`
 
 ---

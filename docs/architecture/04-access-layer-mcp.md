@@ -1,19 +1,21 @@
-## 4. アクセス層とMCP
+> 日本語版: [04-access-layer-mcp.ja.md](./04-access-layer-mcp.ja.md)
+> 
+## 4. Access Layer and MCP
 
-### 設計思想
+### Design Philosophy
 
-コンテンツへのアクセス経路は複数あるが、ビジネスロジックは Core ライブラリに集約する。
-各インターフェースは Core を呼ぶだけの薄いアダプタとする。
+Content can be accessed through multiple paths, but all business logic is consolidated in the Core library.
+Each interface is a thin adapter that simply calls Core.
 
 ```
-管理画面 (Next.js)  ─┐
+Admin UI (Next.js)  ─┐
 REST / GraphQL API  ─┤─→  Core (packages/ampless)  ─→  DynamoDB / S3
 MCP Server          ─┘
 ```
 
-### Core ライブラリ (`packages/ampless`)
+### Core Library (`packages/ampless`)
 
-すべての CRUD 操作、権限チェック、フォーマット変換を提供する。
+Provides all CRUD operations, permission checks, and format conversions.
 
 ```typescript
 // packages/ampless/src/core.ts
@@ -23,27 +25,27 @@ interface AuthContext {
   source: 'cognito' | 'api-key' | 'mcp'
 }
 
-// すべての操作が AuthContext を受け取る
+// All operations receive an AuthContext
 function getPost(auth: AuthContext, siteId: string, postId: string) { ... }
 function updatePost(auth: AuthContext, siteId: string, postId: string, data: ...) { ... }
 function listPosts(auth: AuthContext, siteId: string, options?: ListOptions) { ... }
 ```
 
-### 認証
+### Authentication
 
-Cognito のパスワードレス認証をデフォルトとする。
+Passwordless Cognito authentication is the default.
 
-#### ログインフロー
+#### Login Flow
 
 ```
-メールアドレス入力 → Cognito がワンタイムコード送信 → コード入力 → ログイン完了
+Enter email address → Cognito sends a one-time code → Enter code → Login complete
 ```
 
-- パスワード管理不要。セキュリティリスクを下げる
-- Cognito の `CUSTOM_AUTH` フロー + Lambda トリガーで実装
-- 将来的にパスキー対応も検討可能
+- No password management required. Reduces security risk
+- Implemented with Cognito `CUSTOM_AUTH` flow + Lambda trigger
+- Passkey support may be considered in the future
 
-#### Amplify Auth 設定
+#### Amplify Auth Configuration
 
 ```typescript
 // amplify/auth/resource.ts
@@ -56,26 +58,26 @@ export const auth = defineAuth({
 })
 ```
 
-Cognito ユーザーグループは `groups` に定義するだけで自動作成される。
+Cognito user groups are automatically created simply by declaring them in `groups`.
 
-#### 初期セットアップ
+#### Initial Setup
 
 ```
-1. npx create-ampless@latest でプロジェクト生成
-2. デプロイ後、初回アクセス時にセットアップ画面を表示
-3. 管理者のメールアドレスを入力
-4. ワンタイムコードで認証 → 最初のユーザーが自動的に admin グループに所属
-5. 以降のユーザーは admin が招待しない限り管理画面にアクセスできない
+1. Generate project with npx create-ampless@latest
+2. After deployment, a setup screen appears on first access
+3. Enter the administrator's email address
+4. Authenticate with a one-time code → the first user is automatically added to the admin group
+5. Subsequent users cannot access the admin panel unless invited by an admin
 ```
 
-最初のユーザーの admin 自動登録は Post Confirmation Lambda トリガーで実装:
+Automatic admin registration for the first user is implemented via the Post Confirmation Lambda trigger:
 
 ```typescript
 // amplify/auth/post-confirmation.ts
 export async function handler(event) {
   const cognito = new CognitoIdentityProviderClient({})
 
-  // admin グループが空 = 最初のユーザー → admin に追加
+  // admin group is empty = first user → add to admin
   const group = await cognito.send(new ListUsersInGroupCommand({
     UserPoolId: event.userPoolId,
     GroupName: 'ampless-admin',
@@ -93,29 +95,29 @@ export async function handler(event) {
 }
 ```
 
-#### ユーザー管理
+#### User Management
 
-管理画面のユーザー管理ページから Cognito の Admin API を直接操作する。
-自前のユーザーテーブルは持たない。
+The admin panel's user management page calls the Cognito Admin API directly.
+No custom user table is maintained.
 
-| 操作 | 誰ができるか | Cognito API |
-|------|------------|-------------|
-| 初期 admin 登録 | 最初のセットアップ時のみ | Post Confirmation トリガー |
-| ユーザー招待 | admin | `AdminCreateUser`（招待メール自動送信） |
-| role 付与・変更 | admin | `AdminAddUserToGroup` / `AdminRemoveUserFromGroup` |
-| ユーザー一覧 | admin | `ListUsers` |
-| ユーザー削除 | admin | `AdminDeleteUser` |
-| 自分のログイン | 招待済みユーザー | 通常の認証フロー |
+| Operation | Who can perform it | Cognito API |
+|-----------|-------------------|------------|
+| Initial admin registration | First setup only | Post Confirmation trigger |
+| Invite user | admin | `AdminCreateUser` (invitation email sent automatically) |
+| Assign/change role | admin | `AdminAddUserToGroup` / `AdminRemoveUserFromGroup` |
+| List users | admin | `ListUsers` |
+| Delete user | admin | `AdminDeleteUser` |
+| Own login | Invited user | Normal auth flow |
 
-Cognito の Admin API は IAM で保護されており、ブラウザから直接は叩けない。
-Server Actions / API Route 経由でのみアクセスする。
+The Cognito Admin API is protected by IAM and cannot be called directly from a browser.
+Access is only permitted through Server Actions / API Routes.
 
-#### セキュリティ対策
+#### Security Measures
 
-管理画面の全操作（Server Actions / API Route）で認証・認可チェックを必須とする。
+Authentication and authorization checks are required for all admin panel operations (Server Actions / API Routes).
 
 ```typescript
-// 全 Server Action の先頭で実行
+// Executed at the start of every Server Action
 async function requireAdmin() {
   const session = await getServerSession()
   if (!session) throw new Error('Unauthorized')
@@ -124,96 +126,96 @@ async function requireAdmin() {
 }
 ```
 
-| リスク | 対策 |
-|--------|------|
-| 未認証ユーザーがアクセス | 全 Server Action で認証チェック |
-| editor が admin 操作を実行 | role チェック |
-| 自分で自分を admin 昇格 | Cognito グループ変更は admin のみ |
-| 最後の admin を削除 | admin グループが空になる操作をブロック |
+| Risk | Mitigation |
+|------|-----------|
+| Unauthenticated user access | Auth check in every Server Action |
+| editor performing admin operations | Role check |
+| Self-promotion to admin | Cognito group changes restricted to admin only |
+| Deleting the last admin | Block any operation that would leave the admin group empty |
 
-#### Cognito ユーザーグループ
+#### Cognito User Groups
 
-| Cognito グループ | role | 説明 |
-|-----------------|------|------|
-| `ampless-admin` | admin | 全権限。ユーザー管理、サイト設定、プラグイン管理 |
-| `ampless-editor` | editor | コンテンツの作成・編集・削除 |
-| `ampless-reader` | reader | 公開コンテンツの読み取り（API 利用者向け） |
+| Cognito Group | Role | Description |
+|--------------|------|-------------|
+| `ampless-admin` | admin | Full permissions: user management, site settings, plugin management |
+| `ampless-editor` | editor | Create, edit, and delete content |
+| `ampless-reader` | reader | Read published content (for API consumers) |
 
-### 権限モデル
+### Permission Model
 
-| role | できること |
-|------|----------|
-| `reader` | 公開コンテンツの読み取り |
-| `editor` | コンテンツの作成・編集・削除 |
-| `admin` | サイト設定、プラグイン管理、ユーザー管理 |
+| Role | Permitted actions |
+|------|------------------|
+| `reader` | Read published content |
+| `editor` | Create, edit, and delete content |
+| `admin` | Site settings, plugin management, user management |
 
-認証ソースに関わらず、role ベースで統一的に制御する。
+Role-based access control applies uniformly regardless of auth source.
 
-| ソース | 認証方法 | role の決定 |
-|--------|---------|------------|
-| 管理画面 | Cognito ワンタイムコード | Cognito ユーザーグループから |
-| REST API | API キー | キー発行時に設定 |
-| MCP | MCP アクセストークン | トークン発行時に設定 |
+| Source | Auth method | Role determination |
+|--------|------------|-------------------|
+| Admin UI | Cognito one-time code | From Cognito user group |
+| REST API | API key | Set at key issuance |
+| MCP | MCP access token | Set at token issuance |
 
-#### editor の信頼モデル（仕様）
+#### Editor Trust Model (Specification)
 
-ampless では `editor` は **信頼された主体（trusted principal）** として扱う。WordPress の `unfiltered_html` capability と同じ思想で、**editor は記事本文として任意の HTML / JavaScript を保存できる**ことを設計上の仕様とする。
+In ampless, `editor` is treated as a **trusted principal**. Following the same philosophy as WordPress's `unfiltered_html` capability, **editors can save arbitrary HTML / JavaScript as post body content** — this is a deliberate design decision.
 
-具体的には:
+Specifically:
 
-- Post の `body` フィールドはサーバ側でサニタイズしない
-  - `format: 'tiptap' | 'markdown' | 'html'` の全フォーマットでサニタイズなし
-  - tiptap 属性（`href`, `src`, `alt`, `title` 等）の値もサニタイズなし
-  - `<script>` タグや `javascript:` URI、属性ブレイクアウト経由のイベントハンドラ注入を含めて、editor が書いたものはそのまま保存され、公開ページで `dangerouslySetInnerHTML` 経由でレンダリングされる
-- 結果として editor は、公開記事を閲覧する **任意のブラウザ（admin の閲覧を含む）で任意の JavaScript を実行できる**
-- これは editor の権限境界を「コンテンツの CRUD」に閉じない設計判断であり、CMS としての表現自由度（埋め込みウィジェット、独自スクリプトを使うキャンペーンページ、HTML メールテンプレート、等）を優先したトレードオフ
+- The `body` field of a Post is not sanitized server-side
+  - No sanitization for any of the `format: 'tiptap' | 'markdown' | 'html'` formats
+  - tiptap attributes (`href`, `src`, `alt`, `title`, etc.) are also not sanitized
+  - `<script>` tags, `javascript:` URIs, and event handler injection via attribute breakout are all preserved as-is and rendered via `dangerouslySetInnerHTML` on the public page
+- As a result, an editor can **execute arbitrary JavaScript in any browser that views the public post (including admin browsers)**
+- This is an explicit design decision not to constrain editor permissions to "content CRUD only," prioritizing expressive freedom (embedded widgets, campaign pages with custom scripts, HTML email templates, etc.)
 
-**運用上の含意:**
+**Operational implications:**
 
-- **editor 権限を渡す相手は admin と同等に信頼できる人物に限る。** 信頼できないユーザーには editor ではなく `reader` のみを与える、または別 Cognito User Pool（別 Amplify 環境）に分離する。
-- editor が悪意を持った場合に得られる権限の上限は `admin` と等価とみなしてよい（editor は公開記事から admin の Cognito JWT を localStorage 経由で奪取し、AppSync を admin として操作できる）。
-- このトレードオフを変えたい運用者向けに、v0.2 以降で **opt-in のサニタイズプラグイン**（DOMPurify ベース）を提供予定。スキーマ自体は変えず、プラグイン側で `before:content.update` フックを介して body を書き換える形にする。
+- **Grant editor permissions only to individuals trusted at the same level as admins.** For untrusted users, assign only `reader`, or isolate them in a separate Cognito User Pool (separate Amplify environment).
+- If an editor acts maliciously, the upper bound of permissions obtainable is equivalent to `admin` (an editor can steal an admin's Cognito JWT from localStorage via a published post and operate AppSync as admin).
+- For operators who want to change this trade-off, an **opt-in sanitization plugin** (DOMPurify-based) will be provided in v0.2 or later. Rather than changing the schema, the plugin will rewrite the body via a `before:content.update` hook.
 
-**セキュリティレビューでの取り扱い:**
+**Handling in security reviews:**
 
-editor 権限を持つ攻撃者を脅威モデルに含める指摘（editor → admin の権限昇格、stored XSS による JWT 漏洩、`format: 'html'` の任意スクリプト保存など）は、**仕様であって脆弱性ではない**。レビュー時はこれらの経路を仕様として明示的に除外し、以下を脆弱性として扱う:
+Findings that include an editor-privileged attacker in the threat model (editor-to-admin privilege escalation, JWT leakage via stored XSS, arbitrary script storage via `format: 'html'`, etc.) are **by design, not vulnerabilities**. During reviews, explicitly exclude these paths as specified behavior and treat the following as actual vulnerabilities:
 
-- 認証されていない（または `reader` のみの）主体が editor 相当の書き込みを行えてしまう経路
-- editor の操作が他テナント（別 `siteId` の sites — v0.2 マルチサイト時）に波及する経路
-- admin / 運用者を経由しないサーバ側 RCE、シークレット漏洩、IAM 昇格
+- Paths by which an unauthenticated (or `reader`-only) principal can perform editor-level writes
+- Paths by which an editor's actions affect other tenants (sites with different `siteId` — applicable in v0.2 multi-site)
+- Server-side RCE, secret leakage, or IAM privilege escalation that does not go through the admin/operator
 
 ### MCP Server (`packages/mcp-server`)
 
-AI エージェント（Claude 等）からコンテンツを操作するための MCP インターフェース。
+An MCP interface allowing AI agents (e.g., Claude) to manage content.
 
 ```
 packages/
-  ampless/        ← Core（共通ビジネスロジック）
-  mcp-server/     ← MCP アダプタ（Core に依存）
+  ampless/        ← Core (shared business logic)
+  mcp-server/     ← MCP adapter (depends on Core)
 ```
 
-#### MCP Tools（予定）
+#### MCP Tools (planned)
 
-| Tool | role | 説明 |
-|------|------|------|
-| `list_posts` | reader | 記事一覧の取得 |
-| `get_post` | reader | 記事の取得（format 指定可） |
-| `create_post` | editor | 記事の作成 |
-| `update_post` | editor | 記事の更新 |
-| `delete_post` | editor | 記事の削除 |
-| `upload_media` | editor | メディアファイルのアップロード |
-| `get_schema` | reader | コンテンツスキーマの取得 |
-| `manage_site` | admin | サイト設定の変更 |
-| `manage_plugins` | admin | プラグインのインストール・設定 |
+| Tool | Role | Description |
+|------|------|-------------|
+| `list_posts` | reader | Retrieve post list |
+| `get_post` | reader | Retrieve a post (format can be specified) |
+| `create_post` | editor | Create a post |
+| `update_post` | editor | Update a post |
+| `delete_post` | editor | Delete a post |
+| `upload_media` | editor | Upload a media file |
+| `get_schema` | reader | Retrieve content schema |
+| `manage_site` | admin | Change site settings |
+| `manage_plugins` | admin | Install and configure plugins |
 
-#### MCP と trust_level の関係
+#### MCP and trust_level
 
-MCP Server 自体は ampless Core を直接呼ぶため、プラグインの trust_level とは独立。
-MCP のアクセストークンに紐づく role で権限を制御する。
+The MCP Server calls the ampless Core directly, so it is independent of plugin trust_level.
+Permissions are controlled by the role associated with the MCP access token.
 
-### v1 方針
-- 管理画面と MCP Server は同じ Core ライブラリを使う
-- REST API は v0.2 以降で追加
-- MCP Server は v0.1 から提供（AI ファーストの差別化ポイント）
+### v1 Policy
+- The admin UI and MCP Server share the same Core library
+- REST API will be added in v0.2 or later
+- MCP Server is available from v0.1 (a key AI-first differentiator)
 
 ---

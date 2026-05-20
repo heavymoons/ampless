@@ -1,17 +1,19 @@
-## 1. プロジェクト概要
+> 日本語版: [01-overview.ja.md](./01-overview.ja.md)
+> 
+## 1. Project Overview
 
-### コンセプト
-AWS Amplify をネイティブターゲットとしたオープンソースCMS。
-Cloudflare EmDash が Cloudflare Workers 向けに設計されているのと同じ位置づけで、AWS エコシステム向けの「EmDash的なもの」を目指す。
+### Concept
+An open-source CMS natively targeting AWS Amplify.
+Positioned as the "EmDash equivalent for AWS" — the same role that Cloudflare EmDash plays for Cloudflare Workers, but built for the AWS ecosystem.
 
-### 背景
-- EmDash は Cloudflare Workers/D1/R2 にロックインされており、AWS ユーザーにとっては選びにくい
-- AWS Amplify をネイティブターゲットとしたオープンソース CMS は現時点で空白地帯
-- Amplify Gen 2 の TypeScript ファースト設計と相性が良い
+### Background
+- EmDash is locked into Cloudflare Workers/D1/R2, making it a poor fit for AWS users
+- There is currently no open-source CMS that natively targets AWS Amplify
+- Amplify Gen 2's TypeScript-first design makes it a natural fit
 
-### ターゲットユーザー
-- AWS を既に使っている開発者・技術者
-- WordPress のセキュリティ問題に疲弊しているチーム
-- 非開発者の管理は v1 ではスコープ外（git push ベースの運用を前提）
+### Target Users
+- Developers and engineers already using AWS
+- Teams fatigued by WordPress security issues
+- Non-developer administration is out of scope for v1 (git push-based workflow assumed)
 
 ---

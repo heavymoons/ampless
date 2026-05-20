@@ -1,119 +1,121 @@
-## 14. ロードマップ
+> 日本語版: [14-roadmap.ja.md](./14-roadmap.ja.md)
+> 
+## 14. Roadmap
 
-### リリース戦略
+### Release Strategy
 
-ampless は **v1.0 RC に到達するまで非公開で開発する**。
+ampless is developed **in private until it reaches v1.0 RC**.
 
-- 開発判断は「自分が運用したい複数のサイトを ampless で動かせるか」を基準にする（ドッグフード優先）
-- v1.0 RC のトリガーは **(a)** ドッグフード対象サイトの運用に耐える完成度 + **(b)** ampless 自体で構築した紹介ページが用意できている、の両方
-- そのタイミングで GitHub repo を public 化、`pnpm release` で npm publish、紹介ページを同時公開する
-- それまでは外部ユーザー向けの README / Quick Start / マーケティングコピーは投資せず、コア機能 + ドキュメント (設計書) の整備に集中する
-- 内部バージョン番号は changeset で通常通り bump し続ける（公開していないだけで versioning は連続）
+- Development decisions are guided by "can I run my own multiple sites on ampless?" (dogfooding first)
+- v1.0 RC is triggered by meeting **both**: **(a)** production-quality for the dogfood sites, and **(b)** an ampless-built introductory page is ready
+- At that point: make the GitHub repo public, `pnpm release` to npm publish, and launch the introductory page simultaneously
+- Until then: no investment in external-user README / Quick Start / marketing copy; focus on core features + documentation (design docs)
+- Internal version numbers continue to be bumped normally with changesets (versioning is continuous even while unpublished)
 
-WordPress 互換性は **WXR データインポートのみスコープに入れ**、プラグイン / テーマ / Gutenberg ブロックの互換は対象外。
-
----
-
-### v0.1 (済 — 内部リリース)
-
-- [x] CLI ウィザード (`npx create-ampless@latest`)
-- [x] Core ライブラリ（コンテンツ CRUD、プラグインコントラクト、共通ユーティリティ）
-- [x] 管理画面（コンテンツ CRUD、tiptap エディタ、メディアアップロード）
-- [x] ブログテーマ（`templates/blog`）
-- [x] Cognito 認証（email + password、forgot-password フロー）
-- [x] MCP Server（`@ampless/mcp-server`、stdio transport、Cognito SRP authn、7 tools）
-- [x] コアプラグイン: SEO（sitemap.xml + OGP）、RSS（feed.xml）、Webhook（HMAC 署名 POST）
-- [x] trust_level 別 Lambda 基盤（untrusted / trusted、DynamoDB Streams → SQS）
-- [x] AppSync API key 自動更新ジョブ（月次 EventBridge → UpdateApiKey）
-- [x] editor 信頼モデルの仕様化（`unfiltered_html` ライク）
+WordPress compatibility scope is **WXR data import only**; plugin / theme / Gutenberg block compatibility is explicitly out of scope.
 
 ---
 
-### v0.x (進行中 — ドッグフードを通じて積み上げ)
+### v0.1 (done — internal release)
 
-ドッグフード対象サイトを ampless で立てるために必要な機能を優先順に。粒度ごとに changeset を切り、まとまった単位で v0.x → v0.(x+1) に bump する運用。
-
-#### マルチサイト基盤（最優先）
-- [ ] `byStatus` GSI を `siteId+status` 複合キーに改修（v0.1 単一サイト前提を解除）
-- [ ] hostname → `siteId` ルーティング（middleware.ts 本実装、サブドメインも完全別ドメインも同じ仕組みで対応）
-- [ ] cms.config の `sites.{id}.domains[]` を実装に反映（複数サイトの公開設定、1 サイトに複数ドメイン紐付け可）
-- [ ] 管理画面のサイト切り替え UI
-- [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
-
-**SSR キャッシュとマルチドメインのトレードオフ:**
-
-Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユーザーが Cache Policy / Lambda@Edge を触れないため、マルチドメインで SSR レスポンスをキャッシュさせると site1 と site2 の同 path が衝突する。これにより:
-
-- **シングルサイト運用**（`sites` 未設定 or 1 サイト）: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュ活用 → Lambda 起動回数を削減
-- **マルチサイト運用**（`sites` 2 件以上）: middleware が `Cache-Control: private, no-store` を強制してキャッシュを完全 OFF（衝突を避ける代償として PV / Lambda コスト増）
-
-切り替えは `cms.config.sites` の件数で自動判定。両立は v1.0 後に Amplify Hosting を捨てて自前 CDK + CloudFront に移行した時の課題として残す。
-
-#### テーマ / 見た目カスタマイズ
-- [ ] `configSchema` ベースの軽カスタマイズ（primaryColor、フォント、ロゴ、sidebar 切替）
-- [ ] テーマ追加（ランディングページ、ポートフォリオ、ドキュメントサイト）
-- [ ] **`@ampless/theme-dads`** — デジタル庁デザインシステム準拠テーマ。`@digital-go-jp/tailwind-theme-plugin`（MIT、Tailwind v4 公式対応）と React sample components（MIT）を組み合わせて、レイアウト含めて DADS 仕様で配信できるテーマを公式提供。日本語・行政・公共向けサイトでの利用シナリオを意識
-- [ ] テーマ切り替え + iframe プレビュー（管理画面上）
-
-#### MCP / AI 連携の拡張
-- [ ] MCP HTTP transport（`.mcp.json` に PAT を貼って使う一般的な流儀）
-- [ ] MCP アクセストークン発行 UI（管理画面）
-- [ ] AI プロバイダ抽象レイヤー
-- [ ] 校正 / 要約 プラグイン
-
-#### コンテンツ周り
-- [ ] Markdown / HTML canonical 対応（tiptap 以外を編集時の一級扱い）
-- [ ] before-hooks（プラグインによる validation / 書き換え）
-- [ ] メディア系イベント（`media.uploaded` / `media.deleted` の処理経路）
-
-#### 運用品質
-- [ ] CloudWatch ダッシュボード自動生成
-- [ ] DLQ アラーム
-- [ ] Cognito User Pool の本番 SES 設定ガイド + 自動セットアップ
-
-#### 移行ツール（必要になったら）
-- [ ] WXR インポート（WordPress からの記事 / メディア取り込み）
-
-ドッグフード対象に既存 WordPress サイトがあれば優先度が上がる項目。新規サイトばかりなら v1.0 RC 直前の余裕枠で対応すれば足りる。
+- [x] CLI wizard (`npx create-ampless@latest`)
+- [x] Core library (content CRUD, plugin contract, shared utilities)
+- [x] Admin UI (content CRUD, tiptap editor, media upload)
+- [x] Blog theme (`templates/blog`)
+- [x] Cognito auth (email + password, forgot-password flow)
+- [x] MCP Server (`@ampless/mcp-server`, stdio transport, Cognito SRP authn, 7 tools)
+- [x] Core plugins: SEO (sitemap.xml + OGP), RSS (feed.xml), Webhook (HMAC-signed POST)
+- [x] trust_level Lambda infrastructure (untrusted / trusted, DynamoDB Streams → SQS)
+- [x] AppSync API key auto-renewal job (monthly EventBridge → UpdateApiKey)
+- [x] editor trust model specified (`unfiltered_html`-like)
 
 ---
 
-### v1.0 RC（公開トリガー）
+### v0.x (in progress — accumulated through dogfooding)
 
-**v1.0 のスコープ基準:** 「コア + 公式プラグインだけでサイト運営が成立すること」。サードパーティ拡張のための **拡張余地**（プラグイン契約、trust_level、イベント基盤）は v1.0 までに確保するが、配布機構 / マーケットプレイス / 動的プラグインロード自体は v1.0 では実装しない（WordPress 的な「プラグインありきで初めて使える」運用にしない方針）。
+Features needed to run dogfood sites on ampless, in priority order. Each changesets cut at a granular level, bumped from v0.x → v0.(x+1) when a meaningful unit is ready.
 
-到達条件:
-- 自分が運用したい複数のサイトが ampless 上で動いている
-- ampless 自身の紹介ページ（プロダクトページ）が ampless で構築されている
-- 素の `npx create-ampless@latest` + 公式プラグインだけでブログ運営できる動線が一本通っている
+#### Multi-site foundation (top priority)
+- [ ] Refactor `byStatus` GSI to a `siteId+status` composite key (remove v0.1 single-site assumption)
+- [ ] hostname → `siteId` routing (implement `middleware.ts`, handle both subdomains and fully separate domains with the same mechanism)
+- [ ] Reflect `sites.{id}.domains[]` in `cms.config` (configure publication per site, allow multiple domains per site)
+- [ ] Site-switcher UI in admin panel
+- [ ] Amplify Hosting custom domain operations guide (DNS / SSL / adding separate domain procedure)
 
-このタイミングで:
-- GitHub repo を public 化
-- `pnpm release` で全パッケージを npm publish
-- 紹介ページを同時公開
+**SSR cache and multi-domain trade-off:**
+
+Amplify Hosting's internal CloudFront does not include Host in the cache key, and users cannot modify Cache Policy / Lambda@Edge. Caching SSR responses in multi-domain mode causes the same path for site1 and site2 to collide. Therefore:
+
+- **Single-site operation** (`sites` not configured or 1 site): emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations
+- **Multi-site operation** (`sites` 2 or more): middleware forces `Cache-Control: private, no-store` to disable caching entirely (trade-off: increased PV / Lambda cost to avoid collisions)
+
+The switch is automatically determined by the number of entries in `cms.config.sites`. Supporting both simultaneously is deferred until after v1.0, when Amplify Hosting can be replaced with a custom CDK + CloudFront setup.
+
+#### Themes / Visual Customization
+- [ ] Lightweight customization via `configSchema` (primaryColor, font, logo, sidebar toggle)
+- [ ] Additional themes (landing page, portfolio, documentation site)
+- [ ] **`@ampless/theme-dads`** — A theme conforming to the Digital Agency Design System (DADS). Combines `@digital-go-jp/tailwind-theme-plugin` (MIT, officially Tailwind v4 compatible) with MIT React sample components to deliver a theme that serves layout and content in full DADS specification. Intended for Japanese, government, and public-sector site scenarios
+- [ ] Theme switching + iframe preview (in admin UI)
+
+#### MCP / AI Integration
+- [ ] MCP HTTP transport (standard practice of pasting a PAT into `.mcp.json`)
+- [ ] MCP access token issuance UI (admin panel)
+- [ ] AI provider abstraction layer
+- [ ] Proofreading / summarization plugins
+
+#### Content
+- [ ] Markdown / HTML canonical support (first-class treatment of non-tiptap formats in editing)
+- [ ] before hooks (validation / rewriting by plugins)
+- [ ] Media events (`media.uploaded` / `media.deleted` processing path)
+
+#### Operational Quality
+- [ ] CloudWatch dashboard auto-generation
+- [ ] DLQ alarm
+- [ ] Cognito User Pool production SES configuration guide + automated setup
+
+#### Migration Tools (when needed)
+- [ ] WXR import (migrate posts / media from WordPress)
+
+If dogfood targets include existing WordPress sites, the priority of this item increases. For new sites only, it can be addressed in the buffer period just before v1.0 RC.
 
 ---
 
-### v1.0 安定版（公開後）
+### v1.0 RC (public release trigger)
 
-公開後にコア機能としてまだ磨きたい項目:
+**v1.0 scope criterion:** "Core + official plugins are sufficient to operate a site." The **extension surface** (plugin contract, trust_level, event infrastructure) is in place by v1.0, but the distribution mechanism / marketplace / dynamic plugin loading itself is not implemented in v1.0 (to avoid the WordPress dynamic where plugins are required just to get started).
 
-- [ ] 管理画面の完成度向上（ユーザー管理画面、設定画面、メディア管理 UI）
-- [ ] カスタムコンテンツタイプ（`defineSchema` の本格実装）
-- [ ] REST API（外部システムからの読み書き）
-- [ ] eject 対応（テーマをローカルコピーに切り替え）
-- [ ] ドキュメント整備（外部向け Quick Start、Plugin author guide、Theme author guide）
+Completion criteria:
+- Multiple sites I want to operate are running on ampless
+- The ampless introduction page (product page) is built with ampless
+- There is a clear path to running a blog with just `npx create-ampless@latest` + official plugins
+
+At this point:
+- Make the GitHub repo public
+- `pnpm release` to npm publish all packages
+- Launch the introduction page simultaneously
 
 ---
 
-### v2.0 以降（拡張系・将来構想）
+### v1.0 Stable (post-release)
 
-サードパーティ拡張のエコシステム機能はこちら。v1.0 までに **設計上の余地** は仕込んでおくが、実装は v2.0 以降:
+Core features still to be polished after the public release:
 
-- [ ] サードパーティプラグイン（S3 + ランタイムロード）
-- [ ] privileged プラグイン対応（capabilities ベース動的 IAM）
-- [ ] プラグインマーケットプレイス（API + Web UI）
-- [ ] quickjs-emscripten ランタイムサンドボックス
-- [ ] 管理画面からの Git 不要アップデート
-- [ ] マルチ言語コンテンツ
-- [ ] E コマース対応
+- [ ] Admin UI completeness (user management, settings, media management UI)
+- [ ] Custom content types (full implementation of `defineSchema`)
+- [ ] REST API (read/write from external systems)
+- [ ] eject support (switch themes to local copy)
+- [ ] Documentation (external-facing Quick Start, Plugin author guide, Theme author guide)
+
+---
+
+### v2.0+ (extensions and future vision)
+
+Third-party extension ecosystem features. **Design room** is baked in by v1.0, but implementation is deferred to v2.0+:
+
+- [ ] Third-party plugins (S3 + runtime loading)
+- [ ] privileged plugin support (capabilities-based dynamic IAM)
+- [ ] Plugin marketplace (API + Web UI)
+- [ ] quickjs-emscripten runtime sandbox
+- [ ] Git-free CMS updates from admin UI
+- [ ] Multilingual content
+- [ ] E-commerce support

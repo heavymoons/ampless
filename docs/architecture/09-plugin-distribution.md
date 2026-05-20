@@ -1,8 +1,10 @@
-## 9. プラグインの配布とインストール
+> 日本語版: [09-plugin-distribution.ja.md](./09-plugin-distribution.ja.md)
+> 
+## 9. Plugin Distribution and Installation
 
-### A方式: ビルドタイム（コアプラグイン）
+### Method A: Build-time (Core Plugins)
 
-npm パッケージとして配布。ビルド時にバンドルされる。
+Distributed as npm packages. Bundled at build time.
 
 ```bash
 npm install @ampless/plugin-seo
@@ -17,33 +19,33 @@ export const plugins = defineCmsPlugins([
 ]);
 ```
 
-git push → Amplify 自動ビルド・デプロイ。
+git push → Amplify auto-build and deploy.
 
-利点: npm のバージョン管理・lockfile・セキュリティ監査がそのまま使える。
-欠点: 追加のたびにデプロイが走る。非開発者には操作できない。
+Advantages: npm version management, lockfile, and security auditing work as-is.
+Disadvantages: Every addition triggers a deployment. Non-developers cannot operate independently.
 
-### B方式: ランタイム（サードパーティプラグイン）
+### Method B: Runtime (Third-party Plugins)
 
-管理画面からインストール。プラグインコードを S3 に保存し、Lambda 実行時に動的ロード。
+Installed from the admin UI. Plugin code is stored in S3 and loaded dynamically at Lambda execution time.
 
 ```
-管理画面「プラグイン追加」
-  → バンドル済みJSを S3 にアップロード
-  → マニフェストを DynamoDB に登録
-  → Lambda 実行時に S3 からコード取得
-  → new Function() で実行（trust_level に応じた Lambda で）
+Admin UI "Add Plugin"
+  → Upload bundled JS to S3
+  → Register manifest in DynamoDB
+  → At Lambda execution: fetch code from S3
+  → Execute via new Function() (in the appropriate Lambda for the trust_level)
 ```
 
-キャッシュ戦略:
-1. Lambda メモリ内キャッシュ（ウォームスタート間で保持）
-2. /tmp ファイルキャッシュ（コールドスタートでも高速）
-3. S3 から取得（完全初回のみ）
+Caching strategy:
+1. In-memory cache within Lambda (retained across warm starts)
+2. /tmp file cache (fast even on cold starts)
+3. Fetch from S3 (only on a completely fresh first execution)
 
-プラグイン開発者は esbuild 等でバンドル済み単一 JS ファイルとして配布。
+Plugin authors distribute as a single bundled JS file using esbuild or similar.
 
-### v1 方針
-- コアプラグインは A 方式（npm）
-- サードパーティプラグインは B 方式（S3 + ランタイムロード）
-- 両方式を組み合わせたハイブリッド運用
+### v1 Policy
+- Core plugins use Method A (npm)
+- Third-party plugins use Method B (S3 + runtime loading)
+- Hybrid operation combining both methods
 
 ---

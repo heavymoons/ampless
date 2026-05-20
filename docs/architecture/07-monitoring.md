@@ -1,34 +1,36 @@
-## 7. 監視とアラーム
+> 日本語版: [07-monitoring.ja.md](./07-monitoring.ja.md)
+> 
+## 7. Monitoring and Alarms
 
-### 設計思想
+### Design Philosophy
 
-AWS に慣れないユーザーでも CMS の稼働状況を把握できるよう、
-`backend.ts` で CloudWatch ダッシュボードとアラームを自動生成する。
-ユーザーは AWS コンソールを開くだけで運用状態を確認できる。
+To help users unfamiliar with AWS understand the operational status of their CMS,
+`backend.ts` automatically generates CloudWatch dashboards and alarms.
+Users can check the operational state simply by opening the AWS console.
 
-### 自動生成ダッシュボード
+### Auto-Generated Dashboard
 
-`backend.ts` の CDK 定義で以下のメトリクスを含むダッシュボードを作成する。
+The CDK definition in `backend.ts` creates a dashboard including the following metrics.
 
-| カテゴリ | メトリクス | 意味 |
-|---------|-----------|------|
-| コンテンツ API | Lambda エラー率、レイテンシ (p50/p99) | サイトが正常に動いているか |
-| イベント処理 | SQS キュー深度、DLQ メッセージ数 | フック・Webhook が詰まっていないか |
-| ストレージ | DynamoDB 読み書きキャパシティ消費、スロットリング | アクセス増で DB が詰まっていないか |
-| メディア | S3 リクエスト数、バケット容量 | ストレージコスト把握 |
-| 認証 | Cognito サインイン成功/失敗 | 不正ログイン試行の検知 |
+| Category | Metrics | Meaning |
+|----------|---------|---------|
+| Content API | Lambda error rate, latency (p50/p99) | Is the site operating normally? |
+| Event processing | SQS queue depth, DLQ message count | Are hooks and webhooks backed up? |
+| Storage | DynamoDB read/write capacity consumption, throttling | Is the DB backing up under increased load? |
+| Media | S3 request count, bucket size | Track storage costs |
+| Auth | Cognito sign-in success/failure | Detect unauthorized login attempts |
 
-### 自動アラーム
+### Auto-Generated Alarms
 
-最低限のアラームもデフォルトで設定する。
+A minimal set of alarms is configured by default.
 
-| アラーム | 条件 | 通知先 |
-|---------|------|--------|
-| DLQ 滞留 | DLQ にメッセージが 1 件以上 | メール (SNS) |
-| Lambda エラー率 | エラー率 5% 超（5分間） | メール (SNS) |
-| DynamoDB スロットリング | スロットル発生 | メール (SNS) |
+| Alarm | Condition | Notification target |
+|-------|-----------|-------------------|
+| DLQ backlog | 1 or more messages in DLQ | Email (SNS) |
+| Lambda error rate | Error rate > 5% (over 5 minutes) | Email (SNS) |
+| DynamoDB throttling | Throttle event occurs | Email (SNS) |
 
-通知先メールアドレスは `cms.config.ts` で設定:
+The notification email address is configured in `cms.config.ts`:
 
 ```typescript
 // cms.config.ts
@@ -39,13 +41,13 @@ export default defineConfig({
 })
 ```
 
-### カスタマイズ
+### Customization
 
-自動生成されたダッシュボードは AWS コンソール上でユーザーが自由に編集・拡張できる。
-ampless のアップデートで上書きされないよう、ユーザーが変更したダッシュボードは別名で保存を推奨。
+Users are free to edit and extend the auto-generated dashboard in the AWS console.
+To prevent ampless updates from overwriting user modifications, it is recommended to save customized dashboards under a different name.
 
-### v1 方針
-- v0.2: ダッシュボード自動生成 + DLQ アラーム
-- v1.0: 全アラーム対応、管理画面内での簡易ステータス表示
+### v1 Policy
+- v0.2: Auto-generate dashboard + DLQ alarm
+- v1.0: Full alarm coverage, basic status display inside the admin UI
 
 ---

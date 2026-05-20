@@ -1,3 +1,6 @@
+> 日本語版: [CONTRIBUTING.ja.md](./CONTRIBUTING.ja.md)
+> 
+
 # Contributing to ampless
 
 Thanks for your interest in contributing!

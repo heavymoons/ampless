@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # ampless
 
 **Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
