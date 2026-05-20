@@ -113,18 +113,28 @@ export function createMcpRoute(admin: Admin) {
     const auth = req.headers.get('authorization') ?? ''
     const plaintext = /^Bearer\s+(.+)$/.exec(auth.trim())?.[1]?.trim()
     if (!plaintext || !plaintext.startsWith(TOKEN_PREFIX)) {
+      logMcp({ event: 'mcp.auth_failed', reason: 'missing-or-malformed-bearer' })
       return jsonRpcError(null, -32000, 'unauthorized', 401)
     }
     let tokenRecord: McpTokenRecord | null = null
+    let tokenHash: string | undefined
     try {
-      const hash = hashToken(plaintext)
-      const meta = await getKvStore().get<Omit<McpTokenRecord, 'hash'>>('mcp-tokens', hash)
-      if (meta) tokenRecord = { hash, ...meta } as McpTokenRecord
+      tokenHash = hashToken(plaintext)
+      const meta = await getKvStore().get<Omit<McpTokenRecord, 'hash'>>('mcp-tokens', tokenHash)
+      if (meta) tokenRecord = { hash: tokenHash, ...meta } as McpTokenRecord
     } catch (err) {
       console.error('[mcp] token lookup failed', err)
       return jsonRpcError(null, -32000, 'token lookup failed', 500)
     }
     if (!tokenRecord) {
+      // Log the (short) hash of the offending token so attempts using
+      // a revoked or never-issued key are auditable. Plaintext is
+      // never logged.
+      logMcp({
+        event: 'mcp.auth_failed',
+        reason: 'token-not-found',
+        tokenHashPrefix: tokenHash ? tokenHash.slice(0, 12) : undefined,
+      })
       return jsonRpcError(null, -32000, 'unauthorized', 401)
     }
 
@@ -175,7 +185,24 @@ export function createMcpRoute(admin: Admin) {
           if (!name || typeof name !== 'string') {
             return jsonRpcError(reqId, -32602, 'missing tool name', 400)
           }
+          // Per-token / per-tool structured log. We deliberately
+          // record only argument KEYS (not values) — arguments may
+          // contain post bodies, PII, or other sensitive payloads
+          // that don't belong in CloudWatch indefinitely.
+          const tokenContext = {
+            tokenHashPrefix: tokenRecord.hash.slice(0, 12),
+            tokenLabel: tokenRecord.label,
+            tokenRole: tokenRecord.role,
+          }
+          const startedAt = Date.now()
+          logMcp({
+            event: 'mcp.tool_call',
+            ...tokenContext,
+            tool: name,
+            argKeys: Object.keys(params.arguments ?? {}),
+          })
           if (UNSUPPORTED_OVER_HTTP.has(name)) {
+            logMcp({ event: 'mcp.tool_unsupported', ...tokenContext, tool: name })
             return jsonRpcError(
               reqId,
               -32001,
@@ -184,6 +211,7 @@ export function createMcpRoute(admin: Admin) {
             )
           }
           if (ADMIN_ONLY_TOOLS.has(name) && tokenRecord.role !== 'admin') {
+            logMcp({ event: 'mcp.role_denied', ...tokenContext, tool: name })
             return jsonRpcError(reqId, -32003, `${name} requires admin role`, 403)
           }
           const ctx: ToolContext = {
@@ -191,16 +219,39 @@ export function createMcpRoute(admin: Admin) {
             storage: unsupportedStorage,
             defaultSiteId,
           }
-          const result = await dispatchToolCall(name, params.arguments ?? {}, ctx)
-          if (result === null) {
-            return jsonRpcError(reqId, -32601, `unknown tool: ${name}`, 404)
+          try {
+            const result = await dispatchToolCall(name, params.arguments ?? {}, ctx)
+            if (result === null) {
+              logMcp({
+                event: 'mcp.tool_unknown',
+                ...tokenContext,
+                tool: name,
+                durationMs: Date.now() - startedAt,
+              })
+              return jsonRpcError(reqId, -32601, `unknown tool: ${name}`, 404)
+            }
+            logMcp({
+              event: 'mcp.tool_ok',
+              ...tokenContext,
+              tool: name,
+              durationMs: Date.now() - startedAt,
+            })
+            // Best-effort lastUsedAt update — fire and forget so the
+            // tool response isn't delayed by the Kv write.
+            void markTokenUsed(tokenRecord.hash)
+            return jsonRpcOk(reqId, {
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            })
+          } catch (err) {
+            logMcp({
+              event: 'mcp.tool_failed',
+              ...tokenContext,
+              tool: name,
+              durationMs: Date.now() - startedAt,
+              error: err instanceof Error ? err.message : String(err),
+            })
+            throw err
           }
-          // Best-effort lastUsedAt update — fire and forget so the
-          // tool response isn't delayed by the Kv write.
-          void markTokenUsed(tokenRecord.hash)
-          return jsonRpcOk(reqId, {
-            content: [{ type: 'text', text: JSON.stringify(result) }],
-          })
         }
         default:
           return jsonRpcError(reqId, -32601, `method not found: ${body.method}`, 404)
@@ -220,6 +271,31 @@ function jsonRpcOk(id: unknown, result: unknown): Response {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+/**
+ * Emit a single-line JSON log so CloudWatch Logs Insights can index
+ * MCP traffic by token / tool / outcome. AppSync and S3 audit logs
+ * show every MCP-driven call as the shared service user — this
+ * structured Lambda log is the only place per-token attribution
+ * survives.
+ *
+ * Fields ampless callers reliably emit:
+ *   - `event` — one of `mcp.auth_failed | mcp.tool_call | mcp.tool_ok |
+ *     mcp.tool_failed | mcp.tool_unsupported | mcp.role_denied |
+ *     mcp.tool_unknown`
+ *   - `tokenHashPrefix` (12 hex chars) — short hash identifier; safe
+ *     to share / search in logs. Plaintext tokens are NEVER logged.
+ *   - `tokenLabel`, `tokenRole`
+ *   - `tool`, `argKeys`, `durationMs`, `error` (when applicable)
+ *
+ * Insights example:
+ *   fields @timestamp, event, tokenLabel, tool, durationMs
+ *   | filter event like /mcp\\./
+ *   | sort @timestamp desc
+ */
+function logMcp(record: Record<string, unknown>): void {
+  console.log(JSON.stringify({ ...record, ts: new Date().toISOString() }))
 }
 
 function jsonRpcError(id: unknown, code: number, message: string, status: number): Response {
