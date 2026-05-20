@@ -1,3 +1,6 @@
+> 日本語版: [mcp-http-setup.ja.md](./mcp-http-setup.ja.md)
+> 
+
 # MCP HTTP setup
 
 Set up the HTTP MCP endpoint so AI clients (Claude Desktop, Cursor,
@@ -102,6 +105,35 @@ this release — the SSR Lambda doesn't have direct `s3:PutObject`
 permission on the media bucket, and granting it across Amplify
 Hosting's managed compute model is left to a follow-up release.
 Upload media via the admin UI for now.
+
+## Audit log
+
+AppSync and S3 audit logs (CloudTrail) show every MCP-driven call as
+the shared service Cognito user — the AWS layer can't distinguish
+tokens. Per-token attribution survives in the SSR Lambda's own
+CloudWatch Logs as one-line JSON events emitted from `/api/mcp`:
+
+```
+{ "event": "mcp.tool_call", "tokenLabel": "Claude Desktop", "tokenRole": "admin",
+  "tool": "create_post", "argKeys": ["title", "slug", "body"], "ts": "..." }
+{ "event": "mcp.tool_ok", "tokenLabel": "Claude Desktop",
+  "tool": "create_post", "durationMs": 234, "ts": "..." }
+```
+
+The event vocabulary: `mcp.auth_failed | mcp.tool_call | mcp.tool_ok |
+mcp.tool_failed | mcp.tool_unsupported | mcp.role_denied |
+mcp.tool_unknown`. Token plaintexts are NEVER logged — only a
+12-character `tokenHashPrefix` for forensic search.
+
+CloudWatch Logs Insights query (replace the log group with your app's
+SSR Lambda):
+
+```
+fields @timestamp, event, tokenLabel, tool, durationMs, error
+| filter event like /mcp\./
+| sort @timestamp desc
+| limit 200
+```
 
 ## Troubleshooting
 
