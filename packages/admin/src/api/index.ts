@@ -11,3 +11,5 @@
 //     export const runtime = 'nodejs'
 
 export { createMediaProxyRoute } from './media-proxy.js'
+export { createMcpRoute } from './mcp.js'
+export { createMcpTokensRoute } from './mcp-tokens.js'

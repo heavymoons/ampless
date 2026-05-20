@@ -246,6 +246,7 @@ export default defineConfig({
     'src/components/new-post-view.tsx',
     'src/components/posts-list-view.tsx',
     'src/components/users-list-view.tsx',
+    'src/components/mcp-tokens-view.tsx',
   ],
   format: ['esm'],
   dts: true,

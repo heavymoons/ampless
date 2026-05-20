@@ -38,6 +38,7 @@ export {
 export {
   setKvStore,
   hasKvStore,
+  getKvStore,
   getSiteSetting,
   setSiteSetting,
   deleteSiteSetting,

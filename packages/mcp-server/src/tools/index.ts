@@ -1,5 +1,4 @@
-import type { GraphqlClient } from '../appsync.js'
-import type { StorageClient } from '../s3.js'
+import type { ToolContext } from './types.js'
 
 import { listPosts, listPostsSchema } from './list-posts.js'
 import { getPost, getPostSchema } from './get-post.js'
@@ -9,11 +8,7 @@ import { deletePost, deletePostSchema } from './delete-post.js'
 import { uploadMedia, uploadMediaSchema } from './upload-media.js'
 import { getSchema, getSchemaSchema } from './get-schema.js'
 
-export interface ToolContext {
-  graphql: GraphqlClient
-  storage: () => StorageClient
-  defaultSiteId: string
-}
+export type { GraphqlClient, StorageClient, ToolContext } from './types.js'
 
 export interface ToolDefinition {
   name: string
@@ -77,3 +72,31 @@ export const tools: ToolDefinition[] = [
     handler: async () => getSchema(),
   },
 ]
+
+/**
+ * Look up a tool definition by name and invoke its handler. Returns
+ * `null` when no tool with that name is registered — callers should
+ * surface that as a JSON-RPC "method not found" error.
+ *
+ * Shared between the stdio CLI (`src/index.ts`) and the HTTP transport
+ * factory (`@ampless/admin/api/mcp` → `createMcpRoute`) so both routes
+ * dispatch through the same code path.
+ */
+export async function dispatchToolCall(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<unknown> {
+  const tool = tools.find((t) => t.name === name)
+  if (!tool) return null
+  return tool.handler(args, ctx)
+}
+
+/**
+ * `tools` is the canonical registry; `getTools()` returns it for
+ * callers that prefer a function over a top-level constant (admin's
+ * HTTP factory exposes this through its options shape).
+ */
+export function getTools(): readonly ToolDefinition[] {
+  return tools
+}

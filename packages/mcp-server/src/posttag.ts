@@ -6,7 +6,7 @@
 // so the public listPostsByTag resolver can do a single Query.
 
 import type { Post } from 'ampless'
-import type { GraphqlClient } from './appsync.js'
+import type { GraphqlClient } from './tools/types.js'
 
 interface PostTagEntry {
   siteIdTag: string
