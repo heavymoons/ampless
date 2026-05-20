@@ -136,6 +136,16 @@ describe('createAmplessMiddleware', () => {
     expect(res.requestHeaders?.get('x-preview-theme')).toBe('docs')
   })
 
+  it('forwards ?previewColorScheme=<mode> to x-preview-color-scheme header', () => {
+    const mw = createAmplessMiddleware({
+      cmsConfig: { site: { name: 'X', url: 'https://x' } },
+    })
+    const res = mw(
+      makeReq('x.example.com', '/', '?previewColorScheme=dark') as never
+    ) as unknown as { requestHeaders?: Headers }
+    expect(res.requestHeaders?.get('x-preview-color-scheme')).toBe('dark')
+  })
+
   it('exports a sensible default matcher config', () => {
     expect(defaultMatcherConfig.matcher).toHaveLength(1)
     // The matcher pattern itself is a valid JS regex — Next.js uses

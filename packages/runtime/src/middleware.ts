@@ -56,14 +56,17 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
     }
 
     // Theme preview override. The admin's iframe-based preview hits
-    // `/?previewTheme=<name>` to show a different theme without
-    // committing the switch. We forward the query param into a request
-    // header so server components / `resolveActiveTheme` can pick it
-    // up via `headers()` regardless of which page handles the request.
+    // `/?previewTheme=<name>&previewColorScheme=<auto|light|dark>` to
+    // show an unsaved theme + color-scheme combination. Both query
+    // params get forwarded into request headers so server components
+    // (`resolveActiveTheme`, the root layout) can read them via
+    // `headers()` regardless of which page handles the request.
     const previewTheme = url.searchParams.get('previewTheme')
+    const previewColorScheme = url.searchParams.get('previewColorScheme')
     const requestHeaders = new Headers(request.headers)
     requestHeaders.set('x-site-id', siteId)
     if (previewTheme) requestHeaders.set('x-preview-theme', previewTheme)
+    if (previewColorScheme) requestHeaders.set('x-preview-color-scheme', previewColorScheme)
 
     const response = NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     response.headers.set('x-site-id', siteId)

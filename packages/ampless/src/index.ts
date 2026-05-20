@@ -85,6 +85,8 @@ export {
   resolveLocalized,
   parseLinkList,
   stringifyLinkList,
+  parseColorPair,
+  formatColorPair,
   isTagListUrl,
 } from './theme.js'
 export type {

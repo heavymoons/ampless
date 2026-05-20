@@ -234,14 +234,74 @@ const DANGEROUS_IMAGE_URL_RE = /^\s*(javascript|vbscript):/i
  *
  * Returns the normalized value, or null if the input is rejected.
  */
+/**
+ * Split a stored color value into its light / dark components.
+ *
+ * Accepts two storage forms:
+ *   - Single value: `oklch(...)` / `#abcdef` / etc. → `{ light: value, dark: null }`
+ *   - Pair: `light-dark(L, D)` → `{ light: L, dark: D }`
+ *
+ * Splits on the top-level comma (depth-aware) so nested commas inside
+ * `rgb(...)` / `hsl(...)` don't trip the parser.
+ */
+export function parseColorPair(value: string): { light: string; dark: string | null } {
+  const v = value.trim()
+  const prefix = 'light-dark('
+  if (!v.startsWith(prefix) || !v.endsWith(')')) {
+    return { light: value, dark: null }
+  }
+  const inner = v.slice(prefix.length, -1)
+  let depth = 0
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    else if (ch === ',' && depth === 0) {
+      return {
+        light: inner.slice(0, i).trim(),
+        dark: inner.slice(i + 1).trim(),
+      }
+    }
+  }
+  // Malformed: no top-level comma. Treat the whole thing as single.
+  return { light: value, dark: null }
+}
+
+/**
+ * Build the storage string for a color field. When `dark` is non-empty
+ * and differs from `light`, returns `light-dark(light, dark)`; otherwise
+ * returns the bare `light` value. The runtime emits the result verbatim
+ * into the inline `:root { --foo: <value> }` override; `light-dark()`
+ * is a Baseline-2024 CSS function so the browser picks per mode.
+ */
+export function formatColorPair(light: string, dark?: string | null): string {
+  const l = light.trim()
+  const d = (dark ?? '').trim()
+  if (!d || d === l) return l
+  return `light-dark(${l}, ${d})`
+}
+
 export function validateThemeValue(field: ThemeField, raw: unknown): string | null {
   if (field.type === 'linkList') return validateLinkListValue(field, raw)
   if (typeof raw !== 'string') return null
   const v = raw.trim()
   if (!v) return null
   switch (field.type) {
-    case 'color':
+    case 'color': {
+      // Color fields accept either a single CSS color or a
+      // `light-dark(L, D)` pair where each component is itself a valid
+      // CSS color. The renderer pastes the result verbatim into a
+      // `:root { --foo: <value> }` override, so any malformed input
+      // (including nested `light-dark()` or non-color args) must be
+      // rejected up front.
+      if (v.startsWith('light-dark(')) {
+        const { light, dark } = parseColorPair(v)
+        if (dark === null) return null
+        if (!COLOR_RE.test(light) || !COLOR_RE.test(dark)) return null
+        return formatColorPair(light, dark)
+      }
       return COLOR_RE.test(v) ? v : null
+    }
     case 'length':
       return LENGTH_RE.test(v) ? v : null
     case 'image':

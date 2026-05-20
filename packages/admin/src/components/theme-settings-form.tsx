@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   setSiteSetting,
@@ -10,6 +10,8 @@ import {
   resolveLocalized,
   parseLinkList,
   stringifyLinkList,
+  parseColorPair,
+  formatColorPair,
   type ThemeManifest,
   type ThemeField,
   type LocalizedString,
@@ -266,15 +268,18 @@ export function ThemeSettingsForm({
       </form>
 
       {/* Live iframe preview. Hits the public home with
-          `?previewTheme=<pendingTheme>` so the user sees the chosen
-          theme without committing the switch. Reflects whatever
-          values are currently saved in S3 — unsaved manifest edits
-          require Save before showing here. */}
+          `?previewTheme=<pendingTheme>&previewColorScheme=<mode>` so
+          the user sees the unsaved theme + color-scheme combination
+          without committing. Reflects whatever values are currently
+          saved in S3 — unsaved manifest edits still require Save
+          before showing here.
+          The iframe `key` includes both pending selections so React
+          remounts (and the iframe reloads) whenever either changes. */}
       <div className="space-y-2">
         <Label className="text-sm font-medium">{t('theme.previewLabel')}</Label>
         <iframe
-          key={pendingTheme}
-          src={`/?previewTheme=${encodeURIComponent(pendingTheme)}`}
+          key={`${pendingTheme}-${colorScheme}`}
+          src={`/?previewTheme=${encodeURIComponent(pendingTheme)}&previewColorScheme=${encodeURIComponent(colorScheme)}`}
           title={t('theme.previewLabel')}
           className="h-[600px] w-full rounded-md border bg-[var(--background)]"
         />
@@ -612,16 +617,24 @@ interface ColorFieldProps {
 }
 
 /**
- * Color picker with two layers:
- *   1. Native `<input type="color">` swatch (a no-dep, no-popup,
- *      browser-rendered picker).
- *   2. A text Input for advanced syntax (`oklch(...)`, `hsl(...)`).
+ * Color field with optional light / dark pair input.
  *
- * The picker only natively understands `#rrggbb`, but a canvas trick
- * lets the browser parse any CSS color and round-trip it to hex —
- * including `oklch()` (Chromium 111+, Firefox 113+, Safari 16.4+).
- * When the user picks via the swatch, we write hex; when they type
- * `oklch(...)` in the text field, we keep it verbatim.
+ * Single color (the common case) is rendered as one row of
+ * [swatch + text input]. Toggling "Add dark variant" expands a second
+ * row for the dark-mode value; when filled, the stored value becomes
+ * `light-dark(L, D)` (a Baseline-2024 CSS function that the runtime
+ * pastes verbatim into `:root { --foo: <value> }` — the browser
+ * selects between the two per active `color-scheme`).
+ *
+ * Storage form:
+ *   - No dark variant → `value` is a bare CSS color
+ *   - Dark variant set → `value` is `light-dark(L, D)`
+ *
+ * The swatch is a native `<input type="color">`. It only understands
+ * `#rrggbb`, so the picker's `value` is computed from the typed CSS
+ * color (oklch / hsl / named / …) via the browser's CSS engine in a
+ * `useEffect` — that way hydration starts with a stable default and
+ * the picker updates to the actual color once the DOM is ready.
  */
 function ColorField({
   field,
@@ -632,24 +645,118 @@ function ColorField({
   invalid,
   onChange,
 }: ColorFieldProps) {
-  const effective = value || field.default
-  const hex = useColorAsHex(effective)
+  // Decode the stored value into separate light / dark components so
+  // the form can edit them independently. Empty `value` means "use the
+  // manifest default" — we leave both inputs blank but show the
+  // default in the placeholder.
+  const parsed = parseColorPair(value)
+  const lightInput = parsed.dark !== null ? parsed.light : value
+  const darkInput = parsed.dark ?? ''
+  const [showDark, setShowDark] = useState(parsed.dark !== null)
+
+  function emit(nextLight: string, nextDark: string) {
+    if (!nextDark.trim()) {
+      onChange(nextLight)
+      return
+    }
+    onChange(formatColorPair(nextLight || field.default, nextDark))
+  }
+
+  const lightEffective = lightInput || field.default
+  // Resolve the dark side too so the dark swatch shows the right color
+  // even when the user is editing the dark input first. Empty dark
+  // input → show the light value so the swatch isn't black.
+  const darkEffective = darkInput || lightEffective
+
   return (
     <div className="space-y-2">
       {labelEl}
       {description}
+      <ColorRow
+        id={id}
+        label={showDark ? 'Light' : undefined}
+        value={lightInput}
+        effective={lightEffective}
+        placeholder={field.default}
+        ariaLabel={`${typeof field.label === 'string' ? field.label : id} (light)`}
+        invalid={invalid}
+        onChange={(v) => emit(v, darkInput)}
+      />
+      {showDark ? (
+        <ColorRow
+          id={`${id}-dark`}
+          label="Dark"
+          value={darkInput}
+          effective={darkEffective}
+          placeholder={lightEffective}
+          ariaLabel={`${typeof field.label === 'string' ? field.label : id} (dark)`}
+          invalid={invalid}
+          onChange={(v) => emit(lightInput, v)}
+        />
+      ) : null}
+      <div className="flex items-center gap-3 text-xs">
+        <button
+          type="button"
+          className="text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => {
+            if (showDark) {
+              // Collapsing the dark row clears the dark variant so the
+              // stored value falls back to single-form on next save.
+              setShowDark(false)
+              emit(lightInput, '')
+            } else {
+              setShowDark(true)
+            }
+          }}
+        >
+          {showDark ? '− Remove dark variant' : '+ Add dark variant (optional)'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface ColorRowProps {
+  id: string
+  label?: string
+  value: string
+  effective: string
+  placeholder: string
+  ariaLabel: string
+  invalid: boolean
+  onChange: (v: string) => void
+}
+
+function ColorRow({
+  id,
+  label,
+  value,
+  effective,
+  placeholder,
+  ariaLabel,
+  invalid,
+  onChange,
+}: ColorRowProps) {
+  const hex = useColorAsHex(effective)
+  return (
+    <div className="space-y-1">
+      {label ? (
+        <Label htmlFor={id} className="text-xs uppercase tracking-wide text-muted-foreground">
+          {label}
+        </Label>
+      ) : null}
       <div className="flex items-center gap-2">
         <input
           type="color"
           value={hex}
           onChange={(e) => onChange(e.target.value)}
           className="h-9 w-12 cursor-pointer rounded border border-input bg-background p-0"
-          aria-label={`${field.label} swatch`}
+          aria-label={`${ariaLabel} swatch`}
         />
         <Input
           id={id}
           value={value}
-          placeholder={field.default}
+          placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={invalid}
           className="font-mono text-xs"
@@ -669,24 +776,63 @@ function ColorField({
 
 /**
  * Resolve any CSS color string (hex / rgb / hsl / oklch / named) to
- * `#rrggbb` for the native color picker. Uses canvas color parsing,
- * which round-trips any color the browser can render. Falls back to
- * black when parsing fails or on the server (SSR).
+ * `#rrggbb` for the native color picker.
+ *
+ * Uses `getComputedStyle` round-tripping via a hidden DOM element —
+ * works for every color form the browser can render (broader than the
+ * canvas fillStyle approach we used before, and survives SSR
+ * hydration because we initialise in `useState` then update in
+ * `useEffect`).
+ *
+ * The hidden element is appended to `<body>` only after mount; on the
+ * server (and during initial render before hydration completes) we
+ * return a hex fallback parsed from the literal `#rrggbb` form when
+ * possible, else `#000000`. The picker then updates once the effect
+ * runs.
  */
 function useColorAsHex(value: string): string {
-  if (typeof document === 'undefined') return '#000000'
-  const m = /^#([0-9a-fA-F]{6})$/.exec(value)
-  if (m) return value.toLowerCase()
-  try {
-    const ctx = document.createElement('canvas').getContext('2d')
-    if (!ctx) return '#000000'
-    // Reset to a known value; if the next assignment is invalid the
-    // previous fillStyle survives, which we don't want.
-    ctx.fillStyle = '#000000'
-    ctx.fillStyle = value
-    const out = ctx.fillStyle as string
-    return /^#[0-9a-fA-F]{6}$/.test(out) ? out : '#000000'
-  } catch {
-    return '#000000'
-  }
+  const [hex, setHex] = useState<string>(() => directHex(value) ?? '#000000')
+  useEffect(() => {
+    const direct = directHex(value)
+    if (direct) {
+      setHex(direct)
+      return
+    }
+    if (typeof document === 'undefined') return
+    try {
+      const el = document.createElement('span')
+      el.style.color = value
+      el.style.display = 'none'
+      document.body.appendChild(el)
+      const computed = getComputedStyle(el).color
+      document.body.removeChild(el)
+      const next = rgbStringToHex(computed)
+      if (next) setHex(next)
+    } catch {
+      // leave hex unchanged
+    }
+  }, [value])
+  return hex
+}
+
+function directHex(value: string): string | null {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(value.trim())
+  return m ? value.trim().toLowerCase() : null
+}
+
+function rgbStringToHex(rgb: string): string | null {
+  // Accept `rgb(r, g, b)` and `rgba(r, g, b, a)` — modern browsers may
+  // also emit `rgb(r g b)` (space-separated, no commas) for some
+  // colour spaces, so allow either separator.
+  const m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(rgb)
+  if (!m) return null
+  const r = clampToHex(m[1]!)
+  const g = clampToHex(m[2]!)
+  const b = clampToHex(m[3]!)
+  return `#${r}${g}${b}`
+}
+
+function clampToHex(s: string): string {
+  const n = Math.max(0, Math.min(255, parseInt(s, 10)))
+  return n.toString(16).padStart(2, '0')
 }
