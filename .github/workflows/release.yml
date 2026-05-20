@@ -63,13 +63,14 @@ jobs:
       # for every public workspace package so `npx <pkg>@alpha` keeps
       # resolving to the current pre-release.
       #
-      # Runs as its own step (rather than chained into `pnpm release`)
-      # so the alpha tag gets reasserted on every main-branch push, not
-      # only when there was something new to publish — handy when the
-      # tag has drifted from latest and we need a no-op publish to
-      # bring it back in sync.
+      # Gated on `changesets/action`'s `published` output so the sync
+      # only fires when this run actually published something. Every
+      # other main-branch push (feature merges where the action just
+      # opens/updates the Version Packages PR) skips this step — keeps
+      # the workflow quiet on non-release pushes and avoids touching
+      # the npm dist-tag from runs that haven't bumped any version.
       - name: Sync alpha dist-tag
-        if: always()
+        if: steps.changesets.outputs.published == 'true'
         # Re-write ~/.npmrc explicitly. After `changesets/action` runs,
         # the .npmrc written by `setup-node` (which references
         # `${NODE_AUTH_TOKEN}`) can be in a state where subsequent
