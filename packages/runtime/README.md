@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/runtime
 
 Public-side runtime for [ampless](https://github.com/heavymoons/ampless). Bundles the post-fetching client, site settings, theme resolution, SEO metadata aggregation, middleware, and public route handlers behind a single `createAmpless()` factory.

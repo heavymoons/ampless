@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 Corporate / company-site theme: navy on near-white, hero + news layout, header + footer navigation.

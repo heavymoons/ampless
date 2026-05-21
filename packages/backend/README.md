@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/backend
 
 Amplify Gen 2 backend factories for [ampless](https://github.com/heavymoons/ampless). Bundles the IAM / SQS / DynamoDB-stream wiring, the auth / data / storage definitions, and every event-processing Lambda behind one `defineAmplessBackend(...)` factory.

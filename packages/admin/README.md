@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/admin
 
 Admin UI library for [ampless](https://github.com/heavymoons/ampless): post

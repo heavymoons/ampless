@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/plugin-rss
 
 RSS 2.0 feed plugin for [ampless](https://github.com/heavymoons/ampless).

@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # create-ampless
 
 CLI scaffolding tool for [ampless](https://github.com/heavymoons/ampless) projects.

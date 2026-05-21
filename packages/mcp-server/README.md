@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/mcp-server
 
 MCP (Model Context Protocol) server for [ampless](https://github.com/heavymoons/ampless). Lets AI agents — Claude Desktop, Cursor, Claude Code, and anything else that speaks MCP — read and write posts and upload media on your CMS instance.

@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/plugin-og-image
 
 Dynamic Open Graph image generation for [ampless](https://github.com/heavymoons/ampless). SNS crawlers hit `https://<your-site>/og/<slug>`, the Next.js route renders a JSX card containing the post title + excerpt + site name + an optional image (theme banner or the first image in the post body), and Next.js `ImageResponse` returns a PNG. WebP / AVIF source images are decoded to PNG on the fly via [@jsquash](https://github.com/jamsinclair/jSquash) so Satori can paint them.

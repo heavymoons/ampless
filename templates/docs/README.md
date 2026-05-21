@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 Docs theme: sidebar-led documentation layout. The sidebar combines plain links with **tag-driven sections** — entering a URL like `tag:guide` in the sidebar nav field auto-expands to a list of every published post tagged "guide". Lets writers organize content by tag and have it appear in nav automatically.
