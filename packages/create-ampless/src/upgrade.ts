@@ -439,23 +439,23 @@ export async function runUpgradeIn(
   const obsoleteFiles = await findObsoleteAppFiles(destDir, sharedDir)
 
   log.info(
-    `replace: ${pc.green(`追加 ${replaceNew.length}`)} / ${pc.yellow(`更新 ${replaceUpdate.length}`)}`
+    `replace: ${pc.green(`${replaceNew.length} added`)} / ${pc.yellow(`${replaceUpdate.length} updated`)}`
   )
-  log.info(`merge:   ${pc.cyan('package.json: ampless deps / managed scripts をテンプレ側に合わせる')}`)
+  log.info(`merge:   ${pc.cyan('package.json: sync ampless deps and managed scripts with the template')}`)
   if (classification.seed.length > 0) {
     log.info(
-      `seed:    ${pc.green(`追加 ${seedNew.length}`)} / ${pc.dim(`既存ファイルは上書きしない: ${seedSkipped.length}`)} (*.custom.ts)`
+      `seed:    ${pc.green(`${seedNew.length} added`)} / ${pc.dim(`${seedSkipped.length} kept (existing *.custom.ts left untouched)`)}`
     )
   }
   if (themeSyncEnabled) {
     log.info(
-      `themes:  ${pc.cyan(`デフォルトテーマを同期: ${shippedThemes.length}`)} / ${pc.dim(`カスタムテーマ (my-*) を保持: ${preservedThemes.length}`)}`
+      `themes:  ${pc.cyan(`${shippedThemes.length} default themes synced`)} / ${pc.dim(`${preservedThemes.length} custom (my-*) themes preserved`)}`
     )
   }
   if (obsoleteFiles.length > 0) {
-    log.info(`cleanup: ${pc.yellow(`削除 ${obsoleteFiles.length}`)} (ampless-managed app/ 配下でテンプレに無いファイル)`)
+    log.info(`cleanup: ${pc.yellow(`${obsoleteFiles.length} removed`)} (files under ampless-managed app/ paths that no longer exist in the template)`)
   }
-  log.info(`protected: ${pc.dim(`テンプレに存在するが触らない: ${classification.protected.length} 個`)}`)
+  log.info(`protected: ${pc.dim(`${classification.protected.length} template files left untouched`)}`)
 
   // 5. dry-run exit
   if (opts.dryRun) {
