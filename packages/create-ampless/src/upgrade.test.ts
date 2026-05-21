@@ -275,3 +275,95 @@ export {}
     expect(content).toBe('export const name = "my-test-site"')
   })
 })
+
+describe('runUpgradeIn — obsolete file cleanup', () => {
+  let projectDir: string
+  let templateDir: string
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+  })
+
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  // 1. Template no longer has a file → user copy is deleted
+  it('deletes a file in a managed path that no longer exists in the template', async () => {
+    // Scaffold an old route shell in the user's project
+    mkdirSync(join(projectDir, 'app', 'api', 'mcp'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'), '// old mcp route')
+
+    // Template does NOT have app/api/mcp/
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'))).toBe(false)
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp'))).toBe(false)
+    expect(result.obsoleteRemoved).toContain('app/api/mcp/route.ts')
+  })
+
+  // 2. dry-run: obsolete file is reported but NOT deleted
+  it('dry-run: reports obsolete files but does not delete them', async () => {
+    mkdirSync(join(projectDir, 'app', 'api', 'mcp'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'), '// old mcp route')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { dryRun: true, noInstall: true })
+
+    // File survives dry-run
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'))).toBe(true)
+    // But it's still listed in the result
+    expect(result.obsoleteRemoved).toContain('app/api/mcp/route.ts')
+  })
+
+  // 3. Files outside managed paths are never touched
+  it('does not touch user-owned files outside managed paths', async () => {
+    mkdirSync(join(projectDir, 'app', 'blog'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', 'blog', 'page.tsx'), '// user blog page')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(existsSync(join(projectDir, 'app', 'blog', 'page.tsx'))).toBe(true)
+    expect(result.obsoleteRemoved).not.toContain('app/blog/page.tsx')
+  })
+
+  // 4. Files that exist in both user and template are preserved
+  it('does not delete a managed-path file that still exists in the template', async () => {
+    // User already has admin page (template also ships it via makeTemplateDir)
+    mkdirSync(join(projectDir, 'app', '(admin)', 'admin'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'), '// user admin page')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    // File is overwritten by the replace logic, but not removed by the cleanup
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(true)
+    expect(result.obsoleteRemoved).not.toContain('app/(admin)/admin/page.tsx')
+  })
+
+  // 5. Directory-level retire: multiple orphan files + empty dir pruned
+  it('removes all files when the entire managed directory is retired', async () => {
+    mkdirSync(join(projectDir, 'app', 'api', 'mcp'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'), '// route')
+    writeFileSync(join(projectDir, 'app', 'api', 'mcp', 'utils.ts'), '// utils')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp', 'route.ts'))).toBe(false)
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp', 'utils.ts'))).toBe(false)
+    expect(existsSync(join(projectDir, 'app', 'api', 'mcp'))).toBe(false)
+    expect(result.obsoleteRemoved).toContain('app/api/mcp/route.ts')
+    expect(result.obsoleteRemoved).toContain('app/api/mcp/utils.ts')
+  })
+
+  // 6. Whitelist boundary: app/api/posts is not managed even though app/api/admin is
+  it('does not treat app/api/posts as managed just because app/api/admin is listed', async () => {
+    mkdirSync(join(projectDir, 'app', 'api', 'posts'), { recursive: true })
+    writeFileSync(join(projectDir, 'app', 'api', 'posts', 'route.ts'), '// user posts api')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(existsSync(join(projectDir, 'app', 'api', 'posts', 'route.ts'))).toBe(true)
+    expect(result.obsoleteRemoved).not.toContain('app/api/posts/route.ts')
+  })
+})
