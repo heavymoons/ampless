@@ -38,6 +38,7 @@
     "dep-major-bumps",
     "dispatcher-reactnode-return",
     "docs-bilingual-readmes",
+    "fix-mcp-function-url-cors",
     "i18n-provider-shim-use-client",
     "initial-alpha",
     "lib-admin-no-ampless",
