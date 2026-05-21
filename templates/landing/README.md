@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 A site powered by [ampless](https://github.com/heavymoons/ampless), using the **Landing** theme — hero-led single-page layout with optional "Latest" post grid, configurable header / footer nav, and a warm-coral accent palette.

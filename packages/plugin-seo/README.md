@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/plugin-seo
 
 SEO plugin for [ampless](https://github.com/heavymoons/ampless). Generates per-post and per-site metadata (Open Graph, Twitter card, canonical) and keeps a `sitemap.xml` regenerated to S3 whenever the post set changes.

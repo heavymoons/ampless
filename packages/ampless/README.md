@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # ampless
 
 CMS core library for AWS Amplify.

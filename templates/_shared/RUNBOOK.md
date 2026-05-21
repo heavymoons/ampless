@@ -1,3 +1,6 @@
+> 日本語版: [RUNBOOK.ja.md](./RUNBOOK.ja.md)
+> 
+
 # Runbook
 
 Operational tasks for an ampless-powered site.

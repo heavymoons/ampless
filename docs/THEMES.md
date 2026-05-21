@@ -1,3 +1,6 @@
+> 日本語版: [THEMES.ja.md](./THEMES.ja.md)
+> 
+
 # Authoring Themes for ampless
 
 A theme in ampless is a self-contained module that ships under

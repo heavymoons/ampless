@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 A blog site powered by [ampless](https://github.com/heavymoons/ampless), using the **Minimal** theme — a soft blue accent on a warm-neutral background, derived from shadcn/ui's color tokens.

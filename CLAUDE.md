@@ -1,3 +1,5 @@
+> 日本語版: [CLAUDE.ja.md](./CLAUDE.ja.md)
+> 
 # ampless — Claude Code Project Guide
 
 ## Project Overview
@@ -47,6 +49,17 @@ pnpm changeset        # Create a changeset for versioning
 - Use `@clack/prompts` for CLI interactive prompts (not inquirer)
 - Content is stored as Portable Text (structured JSON)
 - Plugin trust levels: untrusted / trusted / privileged (see ARCHITECTURE.md §4)
+
+## Documentation Language Policy
+
+- **Primary language for `*.md` is English.** New documentation should be authored in English at `name.md`.
+- **Japanese translation lives at `name.ja.md`** alongside the English file (e.g. `README.md` ↔ `README.ja.md`, `docs/architecture/01-overview.md` ↔ `docs/architecture/01-overview.ja.md`).
+- Each file should link to the other language at the top, e.g.:
+  - English: `> 日本語版: [README.ja.md](./README.ja.md)`
+  - Japanese: `> English: [README.md](./README.md)`
+- When updating documentation, update **both** language versions in the same change. If only one side is updated, note in the PR that the other side is pending.
+- Auto-generated files (`CHANGELOG.md`, `.changeset/*.md`) are exempt — they stay single-language (English).
+- Package/template `README.md` files follow the same rule when translations exist; otherwise English-only is acceptable.
 
 ## AWS / Amplify Specifics
 

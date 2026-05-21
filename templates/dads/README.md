@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 DADS theme — built on the official **[Digital Agency Design System Tailwind plugin](https://github.com/digital-go-jp/tailwind-theme-plugin)** (`@digital-go-jp/tailwind-theme-plugin`, MIT). Color palette and typography conform to DADS specifications, suitable for Japanese government / public-sector / institutional sites.

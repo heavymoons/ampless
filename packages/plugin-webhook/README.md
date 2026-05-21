@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # @ampless/plugin-webhook
 
 POST ampless events to one or more external URLs.

@@ -1,23 +1,25 @@
-## 8. プラグインアーキテクチャ
+> 日本語版: [08-plugin-architecture.ja.md](./08-plugin-architecture.ja.md)
+> 
+## 8. Plugin Architecture
 
-### 設計思想
-EmDash が V8 isolate でプラグインをサンドボックス化しているのに対し、
-本 CMS は **AWS IAM をサンドボックスとして活用**する。
-Lambda 関数レベルの分離 + IAM ポリシーによる権限制御で、
-isolated-vm 等のランタイムサンドボックスを不要にする。
+### Design Philosophy
+While EmDash sandboxes plugins using V8 isolates,
+this CMS **leverages AWS IAM as the sandbox**.
+Lambda function-level isolation combined with IAM policy-based permission control
+eliminates the need for runtime sandboxes such as isolated-vm.
 
-### trust_level 別 Lambda 構成
+### Lambda Configuration by trust_level
 
-3 段階の信頼レベルごとに専用の Lambda 関数を用意する。
+A dedicated Lambda function is provisioned for each of the three trust levels.
 
-#### untrusted（信用できないプラグイン）
+#### untrusted (untrusted plugins)
 
-- **IAM 権限**: なし（ゼロ）
-- **できること**: 純粋な JS 実行のみ。入力テキストの変換・加工
-- **できないこと**: AWS リソースへのアクセス全般
-- **用途**: Markdown 装飾、文字数カウント、OGP テキスト生成
-- **メモリ**: 128-256MB
-- **防御**: new Function() でグローバルオブジェクト（process, require 等）を隠蔽
+- **IAM permissions**: None (zero)
+- **Can do**: Pure JavaScript execution only. Input text transformation and processing
+- **Cannot do**: Access any AWS resources
+- **Use cases**: Markdown decoration, character counting, OGP text generation
+- **Memory**: 128–256 MB
+- **Defense**: Hide global objects (`process`, `require`, etc.) using `new Function()`
 
 ```javascript
 function executePlugin(code, cmsApi) {
@@ -36,21 +38,21 @@ function executePlugin(code, cmsApi) {
 }
 ```
 
-#### trusted（まあまあ信用できるプラグイン）
+#### trusted (reasonably trusted plugins)
 
-- **IAM 権限**: content テーブル読み取り、S3 public 読み取り、plugin-data 自分の PK 読み取り
-- **できること**: 公開コンテンツの参照、メディアファイルの読み取り、自分のプラグインデータ読み取り
-- **できないこと**: 書き込み、S3 private アクセス、外部サービス連携
-- **用途**: SEO メタタグ生成、関連記事表示、サイトマップ生成、RSS
-- **メモリ**: 256-512MB
+- **IAM permissions**: Read content table, read S3 public, read own PK in plugin-data
+- **Can do**: Access public content, read media files, read own plugin data
+- **Cannot do**: Write, access S3 private, integrate with external services
+- **Use cases**: SEO meta tag generation, related posts display, sitemap generation, RSS
+- **Memory**: 256–512 MB
 
-#### privileged（すごく信用できるプラグイン）
+#### privileged (highly trusted plugins)
 
-- **IAM 権限**: capabilities 宣言に基づく動的生成ポリシー
-- **できること**: メール送信、フォームデータ保存、外部 API 連携等
-- **できないこと**: 宣言していない capability の操作
-- **用途**: お問い合わせフォーム、メール通知、Analytics 連携、決済
-- **メモリ**: 512MB
+- **IAM permissions**: Dynamically generated policy based on capability declarations
+- **Can do**: Send email, save form data, call external APIs, etc.
+- **Cannot do**: Access resources beyond declared capabilities
+- **Use cases**: Contact forms, email notifications, Analytics integration, payments
+- **Memory**: 512 MB
 
 ```json
 {
@@ -61,7 +63,7 @@ function executePlugin(code, cmsApi) {
 }
 ```
 
-capabilities からIAMポリシーを動的に組み立てる:
+IAM policies are dynamically assembled from capabilities:
 
 ```typescript
 function buildPluginPolicy(pluginName: string, capabilities: string[]) {
@@ -95,21 +97,21 @@ function buildPluginPolicy(pluginName: string, capabilities: string[]) {
 }
 ```
 
-### API 仕様バージョン
+### API Spec Versioning
 
-プラグインとテーマの仕様（definePlugin / defineTheme の API）にはバージョンを付与する。
-ampless コアが仕様を破壊的変更する際にインクリメントする。
+The plugin and theme specifications (`definePlugin` / `defineTheme` API) are versioned.
+The version is incremented when the ampless core makes breaking changes.
 
 ```typescript
-// ampless コアが現在サポートする仕様バージョン
+// Spec versions currently supported by the ampless core
 const SUPPORTED_PLUGIN_API_VERSIONS = [1]
 const SUPPORTED_THEME_API_VERSIONS = [1]
 ```
 
-プラグイン・テーマ側は `apiVersion` を宣言する:
+Plugins and themes declare their `apiVersion`:
 
 ```typescript
-// プラグイン
+// Plugin
 export default definePlugin({
   apiVersion: 1,
   name: 'seo-plugin',
@@ -117,7 +119,7 @@ export default definePlugin({
   ...
 })
 
-// テーマ
+// Theme
 export default defineTheme({
   apiVersion: 1,
   name: 'Blog',
@@ -125,8 +127,8 @@ export default defineTheme({
 })
 ```
 
-コアは `apiVersion` を見てロード方法を分岐する。
-古い仕様も一定期間サポートし、非対応の場合は明確なエラーを出す。
+The core branches its loading logic based on `apiVersion`.
+Older specs are supported for a period; unsupported versions produce a clear error.
 
 ```typescript
 function loadPlugin(manifest) {
@@ -136,63 +138,63 @@ function loadPlugin(manifest) {
       `but this version of ampless supports: ${SUPPORTED_PLUGIN_API_VERSIONS.join(', ')}`
     )
   }
-  // apiVersion に応じたロード処理
+  // Load according to apiVersion
 }
 ```
 
-### プラグインマニフェスト
+### Plugin Manifest
 
 ```json
 {
   "apiVersion": 1,
   "name": "seo-plugin",
   "trust_level": "trusted",
-  "description": "メタタグと OGP を自動生成",
+  "description": "Auto-generate meta tags and OGP",
   "entry": "bundle.js"
 }
 ```
 
-### Lambda メモリ設定の方針
-- 128MB は AWS が最低限の処理にしか推奨しておらず、CPU が極端に少ない
-- 128MB と 512MB でコストが同じ（実行時間短縮で GB-seconds が相殺）ケースが多い
-- untrusted: 256MB / trusted: 256-512MB / privileged: 512MB を基本とする
-- コールドスタートは Node.js で 200-400ms 程度。CMSプラグイン用途では問題にならない
-  - アクセスが多い → Lambda がウォーム状態を維持（コールドスタート発生率 1% 未満）
-  - アクセスが少ない → 数百 ms の遅延は許容範囲
+### Lambda Memory Configuration Policy
+- 128 MB is only AWS-recommended for minimal processing and provides extremely limited CPU
+- 128 MB and 512 MB often have the same cost (shorter execution time reduces GB-seconds proportionally)
+- Baseline: untrusted: 256 MB / trusted: 256–512 MB / privileged: 512 MB
+- Cold start is approximately 200–400 ms for Node.js. Not an issue for CMS plugin workloads
+  - High traffic → Lambda stays warm (cold start rate under 1%)
+  - Low traffic → a few hundred ms of latency is acceptable
 
-### ランタイムサンドボックスについて（v1 では不採用）
-- isolated-vm は Node.js 20+ で `--no-node-snapshot` フラグが必要
-  → Lambda マネージドランタイムでは起動フラグを制御できず、コンテナイメージ Lambda 必須
-  → コールドスタート悪化、メンテナンスモード、ネイティブバイナリビルドの問題
-- v1 では IAM による分離で十分と判断
-- v2 以降でマーケットプレイス公開時に quickjs-emscripten 等を検討
+### On Runtime Sandboxes (not adopted for v1)
+- isolated-vm requires the `--no-node-snapshot` flag on Node.js 20+
+  → Cannot control startup flags on Lambda managed runtime; requires container image Lambda
+  → Worse cold starts, maintenance mode, native binary build complexity
+- IAM-based isolation is judged sufficient for v1
+- quickjs-emscripten etc. will be considered in v2+ when a marketplace is launched
 
-### プラグインのデータストレージ
+### Plugin Data Storage
 
-プラグインが独自のデータを保存する仕組みを提供する。
-プラグインごとに新しい DynamoDB テーブルを作成するのではなく、
-共用テーブルと S3 パス分離で対応する。
+A mechanism is provided for plugins to store their own data.
+Rather than creating a new DynamoDB table per plugin,
+a shared table + S3 path separation is used.
 
-#### S3 バケット設計
+#### S3 Bucket Layout
 
 ```
 s3://ampless-bucket/
-  public/                         ← パブリックアクセス可（バケットポリシーで公開）
-    media/                        ← メディアファイル（画像・動画）
-    plugins/{pluginName}/         ← プラグインの公開ファイル
-  private/                        ← Lambda からのみアクセス可
-    plugins/{pluginName}/         ← プラグインの非公開データ
+  public/                         ← Publicly accessible (via bucket policy)
+    media/                        ← Media files (images, video)
+    plugins/{pluginName}/         ← Plugin public files
+  private/                        ← Accessible only from Lambda
+    plugins/{pluginName}/         ← Plugin private data
 ```
 
-| パス | アクセス | 用途例 |
-|------|---------|--------|
-| `public/media/` | next/image 経由（デフォルト）または直接 S3 URL | アップロード画像（next/image）、動画・PDF（S3直接） |
-| `public/plugins/{name}/` | 直接 S3 URL | OGP 画像、サイトマップ、RSS、CSS/JS ウィジェット |
-| `private/plugins/{name}/` | Lambda のみ | フォーム送信データ、API キー、設定ファイル |
+| Path | Access | Example use cases |
+|------|--------|------------------|
+| `public/media/` | Via next/image (default) or direct S3 URL | Uploaded images (next/image), video/PDF (S3 direct) |
+| `public/plugins/{name}/` | Direct S3 URL | OGP images, sitemap, RSS, CSS/JS widgets |
+| `private/plugins/{name}/` | Lambda only | Form submissions, API keys, config files |
 
-`public/` 以下はバケットポリシーで公開する。
-メディアの配信方式は `cms.config.ts` の `media.delivery` で切り替え可能（詳細は §3 メディア管理を参照）。
-動画・PDF など大容量ファイルは Lambda の 6MB 制限を避けるため常に直接 S3 URL で配信する。
+Everything under `public/` is made public via bucket policy.
+The media delivery method is configurable via `media.delivery` in `cms.config.ts` (see §3 Media Management for details).
+Large files such as video and PDF are always delivered via direct S3 URL to avoid the Lambda 6 MB response limit.
 
 ```json
 {
@@ -203,30 +205,29 @@ s3://ampless-bucket/
 }
 ```
 
-将来 CloudFront を S3 の前に追加する場合も、パス構造を変えずに対応できる。
+If CloudFront is added in front of S3 in the future, this path structure requires no changes.
 
-注: Amplify Storage はデフォルトで pre-signed URL（署名付き一時 URL）を使うが、
-CMS のメディア配信には永続的な URL が必要なため、`public/` パスは明示的にパブリック化する。
+Note: Amplify Storage uses pre-signed (temporary) URLs by default, but CMS media delivery requires permanent URLs, so the `public/` path is explicitly made public.
 
-#### DynamoDB 共用テーブル（plugin-data）
+#### DynamoDB Shared Table (plugin-data)
 
-プラグイン固有のデータは共用テーブルに保存する。
-PK にプラグイン名を含め、IAM の条件キーで行レベルのアクセス制御を行う。
+Plugin-specific data is stored in a shared table.
+The plugin name is included in the PK, and IAM condition keys enforce row-level access control.
 
 ```
-ampless-plugin-data テーブル
+ampless-plugin-data table
   PK: "plugin#{pluginName}"
-  SK: プラグインが自由に決める
+  SK: freely determined by the plugin
   data: JSON
 ```
 
 ```json
-{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#001", "data": {"name": "田中", "email": "..."}}
-{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#002", "data": {"name": "鈴木", "email": "..."}}
+{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#001", "data": {"name": "Tanaka", "email": "..."}}
+{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#002", "data": {"name": "Suzuki", "email": "..."}}
 {"PK": "plugin#analytics",    "SK": "pageview#2026-04-04",       "data": {"count": 1234}}
 ```
 
-IAM ポリシーで自分の PK のみアクセス可能に制限:
+IAM policy restricts each plugin to its own PK only:
 
 ```json
 {
@@ -241,27 +242,27 @@ IAM ポリシーで自分の PK のみアクセス可能に制限:
 }
 ```
 
-#### 専用テーブル作成を避ける理由
-- テーブル作成は CDK デプロイ（= git push）が必要で、管理画面からのインストール（B 方式）と相性が悪い
-- AWS アカウントあたりのテーブル数にソフトリミットがある（デフォルト 2,500）
-- プラグイン削除時の cleanup が複雑になる
-- 共用テーブルの Single Table Design は DynamoDB のベストプラクティス
+#### Why Dedicated Tables Are Avoided
+- Table creation requires a CDK deployment (= git push), which conflicts with admin UI-based installation (Method B)
+- There is a soft limit on the number of tables per AWS account (default 2,500)
+- Cleanup on plugin removal becomes complex
+- Shared table Single Table Design is DynamoDB best practice
 
-#### trust_level 別アクセス権限
+#### Access Permissions by trust_level
 
 | trust_level | DynamoDB (plugin-data) | S3 public/ | S3 private/ |
 |-------------|----------------------|------------|-------------|
-| untrusted | 不可 | 不可 | 不可 |
-| trusted | 読み取り（自分の PK） | 読み取り（自分のパス） | 不可 |
-| privileged | 読み書き（自分の PK） | 読み書き（自分のパス） | 読み書き（自分のパス） |
+| untrusted | None | None | None |
+| trusted | Read (own PK) | Read (own path) | None |
+| privileged | Read/write (own PK) | Read/write (own path) | Read/write (own path) |
 
-trusted が S3 public を読めるのは、そもそも HTTP で公開されているデータだから。
-private はセンシティブなデータを含むため privileged のみ。
+trusted can read S3 public because that data is already publicly accessible via HTTP.
+private is restricted to privileged only because it may contain sensitive data.
 
-### 外部通信の制御
-- untrusted/trusted Lambda はデフォルトでインターネットアクセス可能
-- 対策案: VPC プライベートサブネットに配置（NAT なし）→ 完全遮断
-- 現実的判断: プラグインが読めるのは公開コンテンツのみであり、漏洩の実害が小さい
-  → v1 では VPC 制限なし。privileged のみ必要に応じて VPC 配置を検討
+### External Network Control
+- untrusted/trusted Lambdas have internet access enabled by default
+- Mitigation option: place in VPC private subnet (no NAT) → complete isolation
+- Practical decision: plugins can only read publicly available content, so leakage impact is low
+  → No VPC restrictions in v1. VPC placement is considered for privileged Lambda on a case-by-case basis
 
 ---

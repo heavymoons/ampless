@@ -1,50 +1,52 @@
-## 12. セットアップ体験
+> 日本語版: [12-setup-experience.ja.md](./12-setup-experience.ja.md)
+> 
+## 12. Setup Experience
 
-### ユーザーの操作フロー
+### User Flow
 
 ```bash
 $ npx create-ampless@latest
 
-? サイト名: my-blog
-? テーマ: ブログ / ランディングページ / ポートフォリオ
-? 認証方法: パスキー / メールリンク / Cognito 標準
-? プラグイン: [x] SEO  [x] お問い合わせフォーム  [ ] Analytics
-? デプロイ先: ローカル開発 / Amplify (AWS)
+? Site name: my-blog
+? Theme: Blog / Landing Page / Portfolio
+? Auth method: Passkey / Email link / Cognito standard
+? Plugins: [x] SEO  [x] Contact Form  [ ] Analytics
+? Deployment: Local development / Amplify (AWS)
 
-✅ プロジェクトを生成しました
-次のステップ:
+✅ Project generated
+Next steps:
   cd my-blog
-  npx ampx sandbox    # ローカル開発用バックエンド起動
-  npm run dev          # フロントエンド起動
+  npx ampx sandbox    # Start local development backend
+  npm run dev          # Start frontend
 ```
 
-CLI ウィザードが amplify/ 配下のリソース定義を動的に生成。
-ユーザーは裏で CDK が動いていることを意識しなくてよい。
+The CLI wizard dynamically generates resource definitions under `amplify/`.
+Users do not need to be aware of CDK running in the background.
 
-### 本番デプロイ
+### Production Deployment
 
 ```bash
 git init && git add . && git commit -m "init"
 git remote add origin <your-repo>
 git push
-# → Amplify コンソールで Git リポジトリを接続
-# → 自動ビルド・デプロイ
+# → Connect git repository in the Amplify console
+# → Auto-build and deploy
 ```
 
-### EmDash との比較
+### Comparison with EmDash
 
-| ステップ | EmDash (Cloudflare) | 本 CMS (Amplify) |
-|---------|--------------------|--------------------|
-| 初期化 | `npm create emdash@latest` | `npx create-ampless@latest` |
-| ローカル開発 | `npx wrangler dev` | `npx ampx sandbox` + `npm run dev` |
-| 本番デプロイ | `npx wrangler deploy` | Amplify コンソールで git 接続 |
-| 要アカウント | Cloudflare（無料） | AWS（無料枠あり） |
-| 最大のハードル | wrangler 設定 | AWS アカウント + IAM 初期設定 |
+| Step | EmDash (Cloudflare) | This CMS (Amplify) |
+|------|--------------------|--------------------|
+| Initialize | `npm create emdash@latest` | `npx create-ampless@latest` |
+| Local development | `npx wrangler dev` | `npx ampx sandbox` + `npm run dev` |
+| Production deploy | `npx wrangler deploy` | Connect git in Amplify console |
+| Account required | Cloudflare (free) | AWS (free tier available) |
+| Biggest hurdle | wrangler configuration | AWS account + initial IAM setup |
 
-### 配布方法
+### Distribution Methods
 
-1. **npm create テンプレート**（メイン）: CLI ウィザードでプロジェクト生成
-2. **GitHub Template Repository**: 「Use this template」ボタンでフォーク
-3. **CDK コンストラクト**（上級者向け）: 既存 Amplify プロジェクトへの追加
+1. **npm create template** (primary): CLI wizard generates the project
+2. **GitHub Template Repository**: Fork with the "Use this template" button
+3. **CDK construct** (advanced): Add to an existing Amplify project
 
 ---

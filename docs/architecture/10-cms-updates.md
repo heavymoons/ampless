@@ -1,39 +1,40 @@
-## 10. CMS 本体のアップデート
+> 日本語版: [10-cms-updates.ja.md](./10-cms-updates.ja.md)
+> 
+## 10. CMS Core Updates
 
-### コア更新
+### Core Updates
 
-CMS コアは npm パッケージとして配布。
+The CMS core is distributed as an npm package.
 
 ```bash
 npm update ampless
-git push  # → Amplify 自動デプロイ
+git push  # → Amplify auto-deploys
 ```
 
-プロジェクト構造でコアとユーザーカスタマイズを分離:
+Project structure separates the core from user customizations:
 
 ```
-├── node_modules/ampless/   ← npm 管理。ユーザーは触らない
+├── node_modules/ampless/   ← Managed by npm. Users do not touch this
 ├── amplify/
-│   ├── backend.ts           ← CMS テンプレート + ユーザーカスタム
-│   ├── data/resource.ts     ← スキーマ定義
-│   └── functions/           ← プラグイン Lambda
-├── themes/my-theme/         ← ユーザーが自由に編集
-└── cms.config.ts            ← ユーザー設定ファイル
+│   ├── backend.ts           ← CMS template + user customizations
+│   ├── data/resource.ts     ← Schema definitions
+│   └── functions/           ← Plugin Lambdas
+├── themes/my-theme/         ← Free for users to edit
+└── cms.config.ts            ← User configuration file
 ```
 
-### DB マイグレーション
+### DB Migrations
 
 ```bash
 npx ampless migrate
 ```
 
-DynamoDB は RDB と異なり破壊的変更が少ない。
-GSI 追加やアトリビュート追加は既存データに影響しない。
+Unlike relational databases, DynamoDB has few breaking changes.
+Adding GSIs or attributes does not affect existing data.
 
-### CDK リソース更新
+### CDK Resource Updates
 
-npm update → git push で Amplify ビルドパイプラインが
-amplify/backend.ts の変更を検知して CDK デプロイを実行。
-ユーザーが意識する必要はない。
+Running `npm update` → `git push` causes the Amplify build pipeline to detect changes in `amplify/backend.ts` and execute a CDK deployment automatically.
+Users do not need to be aware of this process.
 
 ---

@@ -1,3 +1,6 @@
+> 日本語版: [README.ja.md](./README.ja.md)
+> 
+
 # {{siteName}}
 
 A blog site powered by [ampless](https://github.com/heavymoons/ampless).

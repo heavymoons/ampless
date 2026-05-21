@@ -1,84 +1,85 @@
-## 5. イベントシステム
+> 日本語版: [05-event-system.ja.md](./05-event-system.ja.md)
+> 
+## 5. Event System
 
-### 設計思想
+### Design Philosophy
 
-CMS のライフサイクルイベントにフックを提供し、プラグインや外部サービスとの連携口とする。
-SNS 連携等の具体的な機能はコアに持たず、フック + Webhook で外部に委譲する。
+Provide hooks on CMS lifecycle events as integration points for plugins and external services.
+Concrete functionality such as social media posting is not built into the core; instead, hooks + webhooks delegate to external systems.
 
-after フックは DynamoDB Streams + SQS を使い、
-どの経路（管理画面 / MCP / REST API）からの変更でも確実にイベントを捕捉する。
+`after` hooks use DynamoDB Streams + SQS to reliably capture events regardless of which path triggered the change (admin UI / MCP / REST API).
 
-### アーキテクチャ
+### Architecture
 
 ```
-[同期: before フック]
-  Core ライブラリ内で実行。処理をブロック可能。
+[Synchronous: before hooks]
+  Executed inside the Core library. Can block processing.
 
   API Route / MCP / REST API
-    → Core: before フック実行（バリデーション等）
-    → Core: DynamoDB 書き込み
+    → Core: execute before hook (validation, etc.)
+    → Core: write to DynamoDB
 
-[非同期: after フック]
-  DynamoDB Streams → SQS 経由で非同期実行。
+[Asynchronous: after hooks]
+  Executed asynchronously via DynamoDB Streams → SQS.
 
   DynamoDB Stream
-    → event-dispatcher Lambda（イベント判定、SQS に投入）
+    → event-dispatcher Lambda (determine event type, enqueue to SQS)
       → SQS: ampless-events
         → event-processor Lambda
-            ├── after フック実行
-            ├── Webhook 送信
-            ├── S3 キャッシュ再生成 / RSS 再生成
-            └── 失敗 → DLQ (ampless-events-dlq)
+            ├── Execute after hooks
+            ├── Send webhooks
+            ├── Regenerate S3 cache / RSS
+            └── On failure → DLQ (ampless-events-dlq)
 ```
 
-### SQS を挟む理由
+### Why SQS Is Used as an Intermediary
 
-| 観点 | Stream → 直接実行 | Stream → SQS → 実行 |
-|------|------------------|---------------------|
-| リトライ制御 | 全レコード再処理 | メッセージ単位でリトライ |
-| 失敗処理 | Stream DLQ は制限あり | SQS DLQ で簡単に失敗メッセージを退避 |
-| 流量制御 | バッチサイズだけ | 並行数・visibility timeout で細かく制御 |
-| 処理の独立性 | 1件の失敗でバッチ全体がリトライ | 失敗したメッセージだけリトライ |
+| Consideration | Stream → direct execution | Stream → SQS → execution |
+|--------------|--------------------------|--------------------------|
+| Retry control | All records reprocessed | Retry per message |
+| Failure handling | Stream DLQ has limitations | Easily quarantine failed messages in SQS DLQ |
+| Throughput control | Batch size only | Fine-grained control via concurrency and visibility timeout |
+| Failure isolation | One failure retries the entire batch | Only the failed message is retried |
 
-### イベント一覧
+### Event List
 
-#### コンテンツ系
+#### Content Events
 
-| イベント | タイミング |
-|---------|-----------|
-| `content.created` | 記事作成時 |
-| `content.updated` | 記事更新時 |
-| `content.published` | 下書き → 公開時 |
-| `content.unpublished` | 公開 → 非公開時 |
-| `content.deleted` | 記事削除時 |
-| `content.scheduled` | 予約公開セット時 |
+| Event | Trigger |
+|-------|---------|
+| `content.created` | Post created |
+| `content.updated` | Post updated |
+| `content.published` | Draft → published |
+| `content.unpublished` | Published → unpublished |
+| `content.deleted` | Post deleted |
+| `content.scheduled` | Scheduled publish set |
 
-#### メディア系
+#### Media Events
 
-| イベント | タイミング |
-|---------|-----------|
-| `media.uploaded` | メディアアップロード時 |
-| `media.deleted` | メディア削除時 |
+| Event | Trigger |
+|-------|---------|
+| `media.uploaded` | Media uploaded |
+| `media.deleted` | Media deleted |
 
-#### サイト / ユーザー系
+#### Site / User Events
 
-| イベント | タイミング |
-|---------|-----------|
-| `site.deployed` | デプロイ完了時 |
-| `site.settings.updated` | サイト設定変更時 |
-| `user.login` | ログイン時 |
-| `user.created` | ユーザー作成時 |
+| Event | Trigger |
+|-------|---------|
+| `site.deployed` | Deployment complete |
+| `site.settings.updated` | Site settings changed |
+| `user.login` | User login |
+| `user.created` | User created |
 
-### フックの種類
+### Hook Types
 
-| フック | 実行方式 | 実行場所 | 用途 |
-|--------|---------|---------|------|
-| `before:*` | 同期。false を返すと処理をブロック | Core ライブラリ内 | バリデーション、承認フロー、禁止語チェック |
-| `after:*` | 非同期。失敗しても元の処理は取り消さない | event-processor Lambda (SQS 経由) | Webhook、SNS 投稿、RSS 再生成、キャッシュパージ |
+| Hook | Execution | Location | Use cases |
+|------|-----------|----------|-----------|
+| `before:*` | Synchronous. Returning `false` blocks processing | Inside Core library | Validation, approval workflows, banned word checks |
+| `after:*` | Asynchronous. Failure does not roll back the original operation | event-processor Lambda (via SQS) | Webhooks, social media posts, RSS regeneration, cache purge |
 
 ### event-dispatcher Lambda
 
-DynamoDB Stream から呼ばれ、イベントを判定して SQS に投入する。軽量に保つ。
+Called from the DynamoDB Stream; determines the event type and enqueues it to SQS. Kept lightweight.
 
 ```typescript
 export async function handler(event: DynamoDBStreamEvent) {
@@ -119,31 +120,31 @@ function detectEventType(eventName: string, oldItem: any, newItem: any): string 
 }
 ```
 
-### Core ライブラリでの before フック
+### before Hooks in the Core Library
 
 ```typescript
 // packages/ampless/src/core.ts
 async function publishPost(auth: AuthContext, siteId: string, postId: string) {
-  // 1. before フック（同期、ブロック可能）
+  // 1. before hook (synchronous, can block)
   const result = await runBeforeHooks('content.published', post)
   if (!result.ok) throw new Error(result.reason)
 
-  // 2. DynamoDB 書き込み
+  // 2. Write to DynamoDB
   await dynamodb.update({ status: 'published', ... })
 
-  // 3. after フックは書かない — DynamoDB Streams → SQS が拾う
+  // 3. No after hook here — DynamoDB Streams → SQS picks it up
 }
 ```
 
-### Webhook 設定
+### Webhook Configuration
 
 ```typescript
 // cms.config.ts
 export default defineConfig({
   hooks: {
     'before:content.published': async (event) => {
-      if (event.content.title.includes('禁止語')) {
-        return { ok: false, reason: 'タイトルに禁止語が含まれています' }
+      if (event.content.title.includes('banned-word')) {
+        return { ok: false, reason: 'Title contains a banned word' }
       }
       return { ok: true }
     }
@@ -157,31 +158,31 @@ export default defineConfig({
 })
 ```
 
-Webhook は event-processor Lambda が SQS メッセージを受け取った際に送信する。
+The event-processor Lambda sends webhooks when it receives SQS messages.
 
 ```
-記事公開 → DynamoDB Stream → SQS → event-processor
-  → Webhook POST → Zapier → X に投稿
-                  → n8n → Bluesky に投稿
-                  → Lambda → LINE 通知
+Post published → DynamoDB Stream → SQS → event-processor
+  → Webhook POST → Zapier → post to X
+                  → n8n → post to Bluesky
+                  → Lambda → LINE notification
 ```
 
-### 将来拡張
+### Future Extensions
 
-SNS トピックを event-dispatcher と SQS の間に挟めば、複数キューへの配信が可能:
+Inserting an SNS topic between event-dispatcher and SQS enables delivery to multiple queues:
 
 ```
 event-dispatcher → SNS (ampless-events topic)
-  ├── SQS: hooks-queue     → フック/Webhook 処理
-  ├── SQS: cache-queue     → S3 キャッシュ再生成
-  └── SQS: analytics-queue → 分析用（プラグイン）
+  ├── SQS: hooks-queue     → hook/webhook processing
+  ├── SQS: cache-queue     → S3 cache regeneration
+  └── SQS: analytics-queue → analytics (plugin)
 ```
 
-v0.1 では SQS 1 本で十分。SNS は必要になってから追加する。
+A single SQS queue is sufficient for v0.1. SNS can be added when needed.
 
-### v1 方針
-- v0.1: DynamoDB Streams + SQS + `content.published` の after フック + Webhook
-- v0.2: before フック、メディア系イベント
-- v1.0: 全イベント対応、SNS によるキュー分岐
+### v1 Policy
+- v0.1: DynamoDB Streams + SQS + `content.published` after hook + webhook
+- v0.2: before hooks, media events
+- v1.0: Full event coverage, SQS fan-out via SNS
 
 ---
