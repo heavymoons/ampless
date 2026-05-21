@@ -50,6 +50,15 @@ pnpm changeset        # バージョニング用 changeset を作成
 - コンテンツは Portable Text (構造化 JSON) で保存
 - プラグインの信頼レベル: untrusted / trusted / privileged (ARCHITECTURE.ja.md §4 参照)
 
+## Changeset ポリシー
+
+- **公開パッケージに触る PR は必ず `.changeset/` に changeset を入れる**。README のような doc-only 編集も対象（README は npm tarball に同梱されて配布されるので、再公開しないとユーザーに届かない）。
+- `pnpm changeset` でスキャフォールドするか、`.changeset/<slug>.md` に手書きする。frontmatter は `"<package>": patch | minor | major` の形式。
+- バンプの目安: ドキュメント / バグ修正は `patch`、機能追加は `minor`、破壊的変更は `major`。1.0 前は破壊的でも `minor` に留め、本文で明示する。
+- 複数パッケージにまたがる PR は changeset の frontmatter に全パッケージを並べる。
+- リポジトリ全体だけに関わる変更（ルートの `README.md`、CI 設定、`CLAUDE.md`、トップレベルの `docs/`）は tarball に同梱されないので changeset 不要。
+- Version Packages bot が溜まった changeset からリリース PR を起こす。それを merge すると npm publish ワークフローが走る。changeset を入れ忘れると修正がユーザーに届かない。
+
 ## ドキュメント言語ポリシー
 
 - **`*.md` の主言語は英語。** 新規ドキュメントは `name.md` に英語で記述する。
