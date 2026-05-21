@@ -356,11 +356,19 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // Function URL: auth NONE because the handler does its own Bearer
   // validation. CORS open because MCP clients connect from arbitrary
   // origins (stdio clients ignore CORS but browser-based ones honour it).
+  //
+  // Don't list OPTIONS in allowedMethods even though the CDK
+  // `HttpMethod` enum exposes it — the Lambda Function URL CFN
+  // resource only accepts `* | GET | PUT | HEAD | POST | PATCH | DELETE`
+  // and rejects OPTIONS at deploy time with a properties validation
+  // error. Preflight is handled automatically by the Function URL
+  // CORS layer; we just need to declare which "real" methods are
+  // allowed.
   const mcpFunctionUrl = mcpHandlerFn.addFunctionUrl({
     authType: FunctionUrlAuthType.NONE,
     cors: {
       allowedOrigins: ['*'],
-      allowedMethods: [HttpMethod.POST, HttpMethod.OPTIONS],
+      allowedMethods: [HttpMethod.POST],
       allowedHeaders: ['*'],
       maxAge: Duration.hours(1),
     },
