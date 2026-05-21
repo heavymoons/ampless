@@ -2,20 +2,31 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
+import { dispatchToolCall, tools, type ToolContext } from '@ampless/mcp-server/tools'
+import { createMcpGraphqlClient } from './mcp-graphql-client.js'
+
 /**
- * MCP HTTP endpoint Lambda. Phase 3: Bearer token validation only.
+ * MCP HTTP endpoint Lambda. Phase 4: Bearer validation + JSON-RPC 2.0
+ * tool dispatch over AppSync IAM auth.
  *
- * Reads the KvStore table directly (PK = 'mcp-tokens', SK = SHA-256
- * hash of the plaintext token) instead of going through AppSync — the
- * Lambda IAM role only needs `dynamodb:GetItem` on that one table,
- * which is much narrower than `appsync:GraphQL` and avoids the
- * IAM-auth-mode complexity of letting Lambdas call AppSync as
- * privileged identity. Phase 4 will add AppSync IAM auth when tool
- * dispatch actually needs schema-aware access.
+ *   1. Reads KvStore directly (PK = 'mcp-tokens', SK = SHA-256 hex)
+ *      to validate `Authorization: Bearer amk_...`. Same narrow IAM
+ *      grant as Phase 3 (`dynamodb:GetItem` on the KvStore table).
+ *   2. Parses the incoming JSON-RPC envelope by hand (no MCP SDK
+ *      stdio transport in a Lambda runtime — overkill for the three
+ *      verbs we actually need).
+ *   3. Dispatches `tools/call` through the shared `@ampless/mcp-server/tools`
+ *      registry. The GraphqlClient implementation hits AppSync with
+ *      SigV4 (`AWS_IAM` auth mode), gated by `allow.resource(mcpHandler)
+ *      .to(['query', 'mutate'])` on Post / PostTag in the schema.
  *
  * Function URL event format: Lambda Function URLs emit API Gateway
  * HTTP v2 events (https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html#urls-payloads).
  * Headers arrive lowercased.
+ *
+ * Note: `upload_media` is filtered out — the StorageClient flow needs
+ * presigned S3 PUT URLs (the Lambda doesn't accept the binary body
+ * itself), which lands in Phase 5.
  */
 
 interface FunctionUrlEvent {
@@ -50,7 +61,36 @@ interface McpTokenMeta {
   revokedAt: string | null
 }
 
+interface JsonRpcRequest {
+  jsonrpc: '2.0'
+  id: number | string | null
+  method: string
+  params?: Record<string, unknown>
+}
+
+interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: number | string | null
+  result?: unknown
+  error?: { code: number; message: string; data?: unknown }
+}
+
 const TOKENS_PK = 'mcp-tokens'
+
+// Standard JSON-RPC 2.0 error codes
+// https://www.jsonrpc.org/specification#error_object
+const JSON_RPC_PARSE_ERROR = -32700
+const JSON_RPC_INVALID_REQUEST = -32600
+const JSON_RPC_METHOD_NOT_FOUND = -32601
+const JSON_RPC_INVALID_PARAMS = -32602
+const JSON_RPC_INTERNAL_ERROR = -32603
+
+// Protocol version we advertise on `initialize`. Picked from
+// SUPPORTED_PROTOCOL_VERSIONS in @modelcontextprotocol/sdk — sticking
+// to a stable older value (2024-11-05) keeps the surface small and
+// avoids tracking spec churn until a tool actually needs a newer
+// capability.
+const MCP_PROTOCOL_VERSION = '2024-11-05'
 
 function requireEnv(name: string): string {
   const v = process.env[name]
@@ -59,7 +99,14 @@ function requireEnv(name: string): string {
 }
 
 const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
+const APPSYNC_URL = requireEnv('AMPLESS_APPSYNC_URL')
+const AWS_REGION = process.env['AWS_REGION'] ?? 'us-east-1'
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
+
+// HTTP transport doesn't carry the binary body for `upload_media` —
+// that needs the presigned-PUT flow planned for Phase 5. Drop it from
+// the advertised registry so MCP clients don't see a verb they can't call.
+const HTTP_TOOLS = tools.filter((t) => t.name !== 'upload_media')
 
 function hashToken(plain: string): string {
   return createHash('sha256').update(plain).digest('hex')
@@ -71,6 +118,21 @@ function jsonResponse(statusCode: number, body: unknown): FunctionUrlResult {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }
+}
+
+function jsonRpcResult(id: JsonRpcRequest['id'], result: unknown): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, result }
+}
+
+function jsonRpcError(
+  id: JsonRpcRequest['id'],
+  code: number,
+  message: string,
+  data?: unknown
+): JsonRpcResponse {
+  const error: JsonRpcResponse['error'] = { code, message }
+  if (data !== undefined) error.data = data
+  return { jsonrpc: '2.0', id, error }
 }
 
 /**
@@ -104,6 +166,89 @@ async function validateBearer(plaintext: string): Promise<McpTokenMeta | null> {
   return meta
 }
 
+// Lazy graphql client: instantiated on first tools/call request so
+// `initialize` / `tools/list` (which never touch AppSync) don't pay
+// the credential-chain lookup. Cached for the warm-Lambda lifetime.
+let cachedCtx: ToolContext | null = null
+function makeContext(meta: McpTokenMeta): ToolContext {
+  if (cachedCtx && cachedCtx.defaultSiteId === (meta.scope.siteId ?? 'default')) {
+    return cachedCtx
+  }
+  const ctx: ToolContext = {
+    graphql: createMcpGraphqlClient({ endpoint: APPSYNC_URL, region: AWS_REGION }),
+    storage: () => {
+      throw new Error(
+        'upload_media is not available on the HTTP MCP transport in v0.2 Phase 4 — use the stdio CLI or wait for Phase 5'
+      )
+    },
+    defaultSiteId: meta.scope.siteId ?? 'default',
+  }
+  cachedCtx = ctx
+  return ctx
+}
+
+async function dispatchJsonRpc(
+  req: JsonRpcRequest,
+  meta: McpTokenMeta
+): Promise<JsonRpcResponse> {
+  switch (req.method) {
+    case 'initialize':
+      return jsonRpcResult(req.id, {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'ampless-mcp', version: '0.2' },
+      })
+
+    case 'notifications/initialized':
+      // MCP clients fire this after `initialize` succeeds. It's a
+      // one-way notification; spec says respond with no result.
+      return jsonRpcResult(req.id, null)
+
+    case 'tools/list':
+      return jsonRpcResult(req.id, {
+        tools: HTTP_TOOLS.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      })
+
+    case 'tools/call': {
+      const params = req.params as { name?: string; arguments?: Record<string, unknown> } | undefined
+      if (!params?.name || typeof params.name !== 'string') {
+        return jsonRpcError(req.id, JSON_RPC_INVALID_PARAMS, 'tools/call requires a `name` parameter')
+      }
+      const tool = HTTP_TOOLS.find((t) => t.name === params.name)
+      if (!tool) {
+        return jsonRpcError(req.id, JSON_RPC_METHOD_NOT_FOUND, `unknown tool: ${params.name}`)
+      }
+      const ctx = makeContext(meta)
+      try {
+        const result = await dispatchToolCall(params.name, params.arguments ?? {}, ctx)
+        // Match the stdio server's response shape: { content: [{ type: 'text', text: ... }] }.
+        return jsonRpcResult(req.id, {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        })
+      } catch (err) {
+        // Tool errors are reported via isError + content (per MCP),
+        // not as JSON-RPC errors. The stdio server uses the same shape.
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[mcp-handler] tool dispatch failed', {
+          tool: params.name,
+          message,
+        })
+        return jsonRpcResult(req.id, {
+          isError: true,
+          content: [{ type: 'text', text: message }],
+        })
+      }
+    }
+
+    default:
+      return jsonRpcError(req.id, JSON_RPC_METHOD_NOT_FOUND, `Method not found: ${req.method}`)
+  }
+}
+
 export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResult> => {
   // CORS preflight — Function URL CORS config handles most headers, but
   // OPTIONS needs an explicit 204.
@@ -126,11 +271,40 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
     return jsonResponse(401, { error: 'invalid_token' })
   }
 
-  // Phase 3 stub. Phase 4 will dispatch the actual MCP JSON-RPC call.
-  return jsonResponse(200, {
-    ok: true,
-    tokenPrefix: meta.prefix,
-    scope: meta.scope,
-    note: 'Phase 3 stub. JSON-RPC tool dispatch lands in Phase 4.',
-  })
+  // Parse JSON-RPC body.
+  let req: JsonRpcRequest
+  try {
+    const body = event.isBase64Encoded
+      ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
+      : event.body ?? ''
+    if (!body) {
+      return jsonResponse(400, jsonRpcError(null, JSON_RPC_INVALID_REQUEST, 'Empty body'))
+    }
+    req = JSON.parse(body) as JsonRpcRequest
+  } catch {
+    return jsonResponse(400, jsonRpcError(null, JSON_RPC_PARSE_ERROR, 'Parse error'))
+  }
+
+  if (req.jsonrpc !== '2.0' || typeof req.method !== 'string') {
+    return jsonResponse(
+      400,
+      jsonRpcError((req as { id?: JsonRpcRequest['id'] })?.id ?? null, JSON_RPC_INVALID_REQUEST, 'Invalid Request')
+    )
+  }
+
+  try {
+    const response = await dispatchJsonRpc(req, meta)
+    return jsonResponse(200, response)
+  } catch (err) {
+    // Last-ditch catch: dispatchJsonRpc shouldn't throw for normal
+    // tool errors (those are returned as JSON-RPC results with
+    // isError: true), but a bug in the dispatcher or a credential
+    // failure could land here. Log loudly so CloudWatch sees it.
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[mcp-handler] dispatch threw', { method: req.method, message })
+    return jsonResponse(
+      500,
+      jsonRpcError(req.id ?? null, JSON_RPC_INTERNAL_ERROR, message)
+    )
+  }
 }

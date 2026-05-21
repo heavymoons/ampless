@@ -54,6 +54,22 @@ export interface AmplessSchemaModelsOpts {
    * pattern as `AmplessAuthConfigOpts.postConfirmation`.
    */
   userAdminFunction?: unknown
+  /**
+   * Optional Amplify `defineFunction` ref backing the MCP HTTP Lambda.
+   * When supplied, the Post and PostTag models gain an `allow.resource(...)`
+   * authorization clause granting the Lambda `query` + `mutate` access
+   * via AppSync IAM auth. The existing group-based clauses stay intact —
+   * this just adds a second principal so the Lambda can dispatch tool
+   * calls under its own scoped role, with no Cognito identity or
+   * shared API key involved.
+   *
+   * Phase 4 covers Post + PostTag only (the read/write surface for the
+   * post CRUD tools). Media gets the same treatment in Phase 5 once
+   * the presigned-PUT upload flow lands.
+   *
+   * Typed as `unknown` for the same reason as `userAdminFunction`.
+   */
+  mcpHandlerFunction?: unknown
 }
 
 /**
@@ -125,9 +141,17 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       // deliberate design choice — see docs/architecture/04-access-layer-mcp.md
       // §"editor の信頼モデル". Do not grant editor to anyone you wouldn't
       // also trust as admin.
+      //
+      // When opts.mcpHandlerFunction is supplied, the MCP HTTP Lambda
+      // also gets query + mutate access via IAM (AppSync `AWS_IAM`
+      // auth mode). The grant is per-Lambda — only this specific
+      // function ref can sign requests AppSync will accept.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
+        ...(opts.mcpHandlerFunction
+          ? [allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate'])]
+          : []),
       ]),
 
     Page: a
@@ -199,9 +223,15 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         tags: a.string().array(),
       })
       .identifier(['siteIdTag', 'publishedAtPostId'])
+      // Same MCP-handler IAM grant as Post — create / update / delete
+      // post tools maintain the PostTag denormalization, so the Lambda
+      // needs query + mutate here too.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
+        ...(opts.mcpHandlerFunction
+          ? [allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate'])]
+          : []),
       ]),
 
     // Generic key/value store. Two roles in one table:

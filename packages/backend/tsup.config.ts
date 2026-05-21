@@ -49,5 +49,21 @@ export default defineConfig({
     '@aws-sdk/client-sqs',
     '@aws-sdk/lib-dynamodb',
     '@aws-sdk/util-dynamodb',
+    // Phase 4 MCP handler relies on @smithy SigV4 + credential provider.
+    // Leaving them external because the Lambda runtime bundles AWS SDK v3
+    // (which transitively includes @smithy/*) and Amplify's downstream
+    // esbuild step will resolve them from node_modules at deploy time.
+    '@aws-sdk/credential-provider-node',
+    '@aws-crypto/sha256-js',
+    '@smithy/protocol-http',
+    '@smithy/signature-v4',
+    // `@ampless/mcp-server` is intentionally NOT external — see
+    // noExternal below; tsup inlines the tools registry so consumer
+    // templates don't need to add it to their own package.json.
   ],
+  // tsup defaults to "all bare imports are external". Force-include
+  // the shared tool registry so the mcp-handler dist carries the tool
+  // dispatch logic without a runtime resolve against the consumer's
+  // node_modules (which may not have `@ampless/mcp-server` at all).
+  noExternal: ['@ampless/mcp-server'],
 })
