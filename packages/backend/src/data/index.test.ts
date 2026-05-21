@@ -14,6 +14,12 @@ import {
 // `.model(...).identifier(...).secondaryIndexes(...).authorization(...)`
 // without blowing up.
 
+// Marker symbol so the proxy can recognise its own callable nodes and
+// avoid re-invoking them when they get passed back through as args
+// (which would cause infinite recursion when modeling chains like
+// `.authorization((allow) => [allow.x()])`).
+const PROXY_MARKER = Symbol('proxy-fn')
+
 function makeFakeBuilder() {
   const calls: Array<{ method: string; args: unknown[] }> = []
   // Each proxy is both callable (records the call) AND has every
@@ -21,14 +27,36 @@ function makeFakeBuilder() {
   // ... })` and `a.model({...}).identifier(...).authorization(...)` all
   // record cleanly. Property reads themselves aren't recorded; only
   // the eventual function calls are.
+  //
+  // When a real (non-proxy) function is passed as an argument — e.g.
+  // `.authorization((allow) => [allow.groups(...)])` — invoke it with
+  // a fresh proxy so the auth rule expressions inside also get
+  // recorded. Proxy-wrapped functions get re-invoked through normal
+  // call dispatch and skip this step.
   function makeProxy(path: string): unknown {
     const fn = (...args: unknown[]) => {
       calls.push({ method: path, args })
+      for (const arg of args) {
+        if (
+          typeof arg === 'function' &&
+          !(arg as unknown as Record<symbol, unknown>)[PROXY_MARKER]
+        ) {
+          try {
+            ;(arg as (allow: unknown) => unknown)(makeProxy('allow'))
+          } catch {
+            // ignore: caller's lambda might throw on a proxy method,
+            // we only care about the calls it managed to make
+          }
+        }
+      }
       return makeProxy('result')
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(fn as any)[PROXY_MARKER] = true
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new Proxy(fn as any, {
-      get(_t, prop) {
+      get(target, prop) {
+        if (prop === PROXY_MARKER) return target[PROXY_MARKER]
         if (prop === 'then') return undefined // not a thenable
         if (typeof prop === 'symbol') return undefined
         return makeProxy(String(prop))
@@ -88,6 +116,38 @@ describe('amplessSchemaModels', () => {
     expect(entries).toContain('./resolvers/lp.js')
     // unspecified resolvers fall back to defaults
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.getPublishedPost)
+  })
+
+  it('does not wire allow.resource by default', () => {
+    const { a, calls } = makeFakeBuilder()
+    amplessSchemaModels(a)
+    const resourceCalls = calls.filter((c) => c.method === 'resource')
+    expect(resourceCalls).toHaveLength(0)
+  })
+
+  it('wires allow.resource on Post + PostTag when mcpHandlerFunction is supplied', () => {
+    const { a, calls } = makeFakeBuilder()
+    const fakeFn = { __fakeFn: true }
+    amplessSchemaModels(a, { mcpHandlerFunction: fakeFn })
+    // Each allow.resource(fn).to(['query', 'mutate']) chain records two
+    // calls: `resource(fn)` and `to(['query','mutate'])`. We expect two
+    // resource calls — one for Post, one for PostTag.
+    const resourceCalls = calls.filter((c) => c.method === 'resource')
+    expect(resourceCalls).toHaveLength(2)
+    for (const call of resourceCalls) {
+      expect(call.args[0]).toBe(fakeFn)
+    }
+    const toCalls = calls.filter(
+      (c) => c.method === 'to' && Array.isArray(c.args[0]) && (c.args[0] as string[]).includes('query')
+    )
+    // We can't easily distinguish the resource-bound `to` from the
+    // public-resolver `to`, but at minimum the [query, mutate] tuple
+    // should show up twice for the two resource grants.
+    const queryMutateTos = toCalls.filter((c) => {
+      const ops = c.args[0] as string[]
+      return ops.length === 2 && ops.includes('query') && ops.includes('mutate')
+    })
+    expect(queryMutateTos.length).toBeGreaterThanOrEqual(2)
   })
 })
 

@@ -334,16 +334,20 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
 
   // --- MCP HTTP endpoint ---
   //
-  // Phase 3: just authentication. The handler reads the KvStore table
-  // directly to validate `Authorization: Bearer amk_...` tokens (PK
-  // 'mcp-tokens', SK = SHA-256 hash of plaintext) and returns a stub
-  // 200/401. Phase 4 will dispatch real MCP tool calls over AppSync
-  // IAM auth from this same function.
+  // Phase 4: Bearer auth + JSON-RPC tool dispatch. The handler reads
+  // KvStore directly to validate `Authorization: Bearer amk_...` tokens
+  // (PK 'mcp-tokens', SK = SHA-256 hash of plaintext) and dispatches
+  // `tools/call` through the shared `@ampless/mcp-server/tools` registry.
+  //
+  // AppSync IAM auth: the `allow.resource(mcpHandler)` clause in the
+  // schema (Post + PostTag, via `mcpHandlerFunction: mcpHandler` in the
+  // template's data/resource.ts) auto-grants this Lambda's role
+  // `appsync:GraphQL` on the relevant types. No manual policy attach
+  // needed — Amplify wires the IAM permissions when it sees a resource
+  // grant on a model.
   const mcpHandlerFn = backend.mcpHandler.resources.lambda
 
-  // IAM: read the single row that backs each Bearer token. No write
-  // needed yet (touchLastUsed lands in Phase 4 alongside the JSON-RPC
-  // dispatcher); no other table access until the tool layer needs it.
+  // KvStore: read the single row that backs each Bearer token.
   mcpHandlerFn.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
@@ -352,6 +356,11 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     })
   )
   mcpHandlerFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
+  // AppSync endpoint for the SigV4-signed GraphQL client.
+  mcpHandlerFn.addEnvironment(
+    'AMPLESS_APPSYNC_URL',
+    backend.data.resources.cfnResources.cfnGraphqlApi.attrGraphQlUrl
+  )
 
   // Function URL: auth NONE because the handler does its own Bearer
   // validation. CORS open because MCP clients connect from arbitrary

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { a, defineData, type ClientSchema } from '@aws-amplify/backend'
 import { amplessSchemaModels, defaultAuthorizationModes } from '@ampless/backend'
 import { userAdmin } from '../functions/user-admin/resource.js'
+import { mcpHandler } from '../functions/mcp-handler/resource.js'
 import { customSchemaModels } from './resource.custom.js'
 
 // AppSync's `a.handler.custom({ entry })` paths are resolved by CDK
@@ -27,7 +28,15 @@ const resolverPaths = {
 }
 
 const schema = a.schema({
-  ...amplessSchemaModels(a, { resolverPaths, userAdminFunction: userAdmin }),
+  ...amplessSchemaModels(a, {
+    resolverPaths,
+    userAdminFunction: userAdmin,
+    // Grants the MCP Lambda IAM auth on Post / PostTag so the HTTP
+    // transport can dispatch the post CRUD tools without sharing a
+    // Cognito identity or API key. See `@ampless/backend` data/index.ts
+    // for the exact authorization clause.
+    mcpHandlerFunction: mcpHandler,
+  }),
   ...customSchemaModels(a),
 })
 

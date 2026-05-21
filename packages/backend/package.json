@@ -54,13 +54,18 @@
   "bugs": "https://github.com/heavymoons/ampless/issues",
   "dependencies": {
     "ampless": "workspace:*",
+    "@ampless/mcp-server": "workspace:*",
+    "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/client-appsync": "^3.717.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.717.0",
     "@aws-sdk/client-dynamodb": "^3.717.0",
     "@aws-sdk/client-s3": "^3.1048.0",
     "@aws-sdk/client-sqs": "^3.717.0",
+    "@aws-sdk/credential-provider-node": "^3.717.0",
     "@aws-sdk/lib-dynamodb": "^3.717.0",
-    "@aws-sdk/util-dynamodb": "^3.717.0"
+    "@aws-sdk/util-dynamodb": "^3.717.0",
+    "@smithy/protocol-http": "^5.3.0",
+    "@smithy/signature-v4": "^5.4.0"
   },
   "peerDependencies": {
     "@aws-amplify/backend": "^1",

@@ -126,6 +126,12 @@ importers:
 
   packages/backend:
     dependencies:
+      '@ampless/mcp-server':
+        specifier: workspace:*
+        version: link:../mcp-server
+      '@aws-crypto/sha256-js':
+        specifier: ^5.2.0
+        version: 5.2.0
       '@aws-sdk/client-appsync':
         specifier: ^3.717.0
         version: 3.1048.0
@@ -141,12 +147,21 @@ importers:
       '@aws-sdk/client-sqs':
         specifier: ^3.717.0
         version: 3.1048.0
+      '@aws-sdk/credential-provider-node':
+        specifier: ^3.717.0
+        version: 3.972.42
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.717.0
         version: 3.1048.0(@aws-sdk/client-dynamodb@3.1048.0)
       '@aws-sdk/util-dynamodb':
         specifier: ^3.717.0
         version: 3.996.2(@aws-sdk/client-dynamodb@3.1048.0)
+      '@smithy/protocol-http':
+        specifier: ^5.3.0
+        version: 5.3.14
+      '@smithy/signature-v4':
+        specifier: ^5.4.0
+        version: 5.4.3
       ampless:
         specifier: workspace:*
         version: link:../ampless
@@ -6803,7 +6818,7 @@ snapshots:
       '@aws-sdk/types': 3.973.8
       '@smithy/core': 3.24.3
       '@smithy/credential-provider-imds': 4.3.3
-      '@smithy/types': 4.14.1
+      '@smithy/types': 4.14.2
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-process@3.972.37':

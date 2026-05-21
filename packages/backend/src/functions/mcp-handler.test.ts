@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Set env before importing handler (top-level requireEnv throws otherwise).
 process.env['AMPLESS_KV_TABLE'] = 'KvStore-test'
+process.env['AMPLESS_APPSYNC_URL'] = 'https://example.appsync-api.us-east-1.amazonaws.com/graphql'
+process.env['AWS_REGION'] = 'us-east-1'
 
 // Mock the DynamoDB Document client so tests never hit real AWS.
 const mockSend = vi.fn()
@@ -28,18 +30,45 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
   }
 })
 
+// Mock the AppSync GraphQL client so tools/call doesn't try to hit
+// AppSync (and doesn't load the SigV4 / credential machinery, which
+// the test environment doesn't need to validate).
+const mockGraphqlQuery = vi.fn()
+vi.mock('./mcp-graphql-client.js', () => {
+  return {
+    createMcpGraphqlClient: () => ({
+      query: (op: string, vars?: Record<string, unknown>) => mockGraphqlQuery(op, vars),
+    }),
+  }
+})
+
 // Dynamic import so the module-level DDB client construction picks up
 // the mocks registered above.
 const { handler } = await import('./mcp-handler.js')
 
 // --- helpers ---
 
-function makeEvent(opts: {
+interface EventOpts {
   method?: string
   authorization?: string
-}): Parameters<typeof handler>[0] {
+  body?: unknown
+  rawBody?: string
+}
+
+function makeEvent(opts: EventOpts): Parameters<typeof handler>[0] {
+  const headers: Record<string, string> = {}
+  if (opts.authorization) headers['authorization'] = opts.authorization
+
+  let body: string | undefined
+  if (opts.rawBody !== undefined) {
+    body = opts.rawBody
+  } else if (opts.body !== undefined) {
+    body = JSON.stringify(opts.body)
+  }
+
   return {
-    headers: opts.authorization ? { authorization: opts.authorization } : {},
+    headers,
+    body,
     requestContext: { http: { method: opts.method ?? 'POST' } },
   }
 }
@@ -59,11 +88,22 @@ function makeValidTokenMeta(overrides: Record<string, unknown> = {}) {
   }
 }
 
+const VALID_TOKEN = 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+
+function mockValidTokenLookup(overrides: Record<string, unknown> = {}) {
+  const meta = makeValidTokenMeta(overrides)
+  mockSend.mockResolvedValueOnce({
+    Item: { pk: 'mcp-tokens', sk: 'hash', value: JSON.stringify(meta) },
+  })
+  return meta
+}
+
 // --- tests ---
 
 describe('mcp-handler', () => {
   beforeEach(() => {
     mockSend.mockReset()
+    mockGraphqlQuery.mockReset()
   })
 
   it('OPTIONS preflight returns 204', async () => {
@@ -91,35 +131,183 @@ describe('mcp-handler', () => {
 
   it('Bearer with valid format but DDB returns nothing → 401 invalid_token', async () => {
     mockSend.mockResolvedValueOnce({ Item: undefined })
-    const res = await handler(makeEvent({ authorization: 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }))
+    const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
   })
 
   it('Bearer matches a revoked token → 401 invalid_token', async () => {
-    const meta = makeValidTokenMeta({ revokedAt: new Date().toISOString() })
-    mockSend.mockResolvedValueOnce({ Item: { pk: 'mcp-tokens', sk: 'hash', value: JSON.stringify(meta) } })
-    const res = await handler(makeEvent({ authorization: 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }))
+    mockValidTokenLookup({ revokedAt: new Date().toISOString() })
+    const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
   })
 
   it('Bearer matches an expired token → 401 invalid_token', async () => {
-    const meta = makeValidTokenMeta({ expiresAt: new Date(Date.now() - 1000).toISOString() })
-    mockSend.mockResolvedValueOnce({ Item: { pk: 'mcp-tokens', sk: 'hash', value: JSON.stringify(meta) } })
-    const res = await handler(makeEvent({ authorization: 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }))
+    mockValidTokenLookup({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+    const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
   })
 
-  it('Bearer matches a valid active token → 200 with ok/tokenPrefix/scope', async () => {
-    const meta = makeValidTokenMeta()
-    mockSend.mockResolvedValueOnce({ Item: { pk: 'mcp-tokens', sk: 'hash', value: JSON.stringify(meta) } })
-    const res = await handler(makeEvent({ authorization: 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }))
+  // --- Phase 4: JSON-RPC dispatch ---
+
+  it('initialize returns 200 with protocolVersion + tools capability', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.ok).toBe(true)
-    expect(body.tokenPrefix).toBe('amk_AbCd')
-    expect(body.scope).toEqual({ siteId: null })
+    expect(body.jsonrpc).toBe('2.0')
+    expect(body.id).toBe(1)
+    expect(body.result.protocolVersion).toBe('2024-11-05')
+    expect(body.result.capabilities).toEqual({ tools: {} })
+    expect(body.result.serverInfo).toMatchObject({ name: 'ampless-mcp' })
+  })
+
+  it('tools/list returns the HTTP tool registry excluding upload_media', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const names = (body.result.tools as { name: string }[]).map((t) => t.name)
+    expect(names).toContain('list_posts')
+    expect(names).toContain('get_post')
+    expect(names).toContain('create_post')
+    expect(names).toContain('update_post')
+    expect(names).toContain('delete_post')
+    expect(names).toContain('get_schema')
+    expect(names).not.toContain('upload_media')
+  })
+
+  it('tools/call list_posts dispatches via the mocked graphql client', async () => {
+    mockValidTokenLookup()
+    mockGraphqlQuery.mockResolvedValueOnce({
+      listPosts: { items: [], nextToken: null },
+    })
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: { name: 'list_posts', arguments: { status: 'all' } },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.id).toBe(3)
+    expect(body.result.content[0].type).toBe('text')
+    // The graphql client mock returned an empty list; the tool wraps
+    // it as `{ posts: [], nextToken: null }`.
+    const payload = JSON.parse(body.result.content[0].text)
+    expect(payload).toEqual({ posts: [], nextToken: null })
+    expect(mockGraphqlQuery).toHaveBeenCalledOnce()
+  })
+
+  it('tools/call upload_media (filtered) returns JSON-RPC method-not-found result', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 4,
+          method: 'tools/call',
+          params: { name: 'upload_media', arguments: {} },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeDefined()
+    expect(body.error.code).toBe(-32601)
+    expect(body.error.message).toContain('upload_media')
+  })
+
+  it('tools/call without a name parameter returns invalid-params', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 5, method: 'tools/call', params: {} },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32602)
+  })
+
+  it('unknown JSON-RPC method returns method-not-found', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 6, method: 'mystery/probe' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32601)
+  })
+
+  it('invalid JSON body returns 400 with parse-error code', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({ authorization: VALID_TOKEN, rawBody: '{not-json}' })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32700)
+  })
+
+  it('JSON-RPC envelope missing required fields returns invalid-request', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({ authorization: VALID_TOKEN, body: { foo: 'bar' } })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+  })
+
+  it('empty body returns invalid-request (not parse error)', async () => {
+    mockValidTokenLookup()
+    const res = await handler(makeEvent({ authorization: VALID_TOKEN, rawBody: '' }))
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+  })
+
+  it('tool error surfaces as isError content (not a JSON-RPC error)', async () => {
+    mockValidTokenLookup()
+    mockGraphqlQuery.mockRejectedValueOnce(new Error('AppSync exploded'))
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'tools/call',
+          params: { name: 'list_posts', arguments: {} },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(body.result.isError).toBe(true)
+    expect(body.result.content[0].text).toContain('AppSync exploded')
   })
 })
