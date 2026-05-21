@@ -99,7 +99,11 @@ export function Sidebar({
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r bg-muted/30 transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0',
+          // Mobile drawer overlays page content (`fixed` + `z-50`), so
+          // it must be fully opaque to stay readable. The desktop rail
+          // (`md:sticky`) sits in its own column with nothing behind it,
+          // so the original subtle muted tint is fine there.
+          'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r bg-background transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0 md:bg-muted/30',
           open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         )}
         aria-label={t('sidebar.brand')}
