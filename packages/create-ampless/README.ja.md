@@ -18,7 +18,7 @@ npx create-ampless@alpha
 3. テーマ — v0.1 では `blog`
 4. プラグイン — `seo`、`rss`、`webhook`
 
-出力は AWS Amplify Gen 2 バックエンド定義を含む Next.js 15（App Router）プロジェクトです。`/admin` に管理パネル、`/` にパブリックブログが設置され、選択したプラグインが `cms.config.ts` にあらかじめ設定されます。また運用メモ用の `RUNBOOK.md` も生成されます。
+出力は AWS Amplify Gen 2 バックエンド定義を含む Next.js 16（App Router）プロジェクトです。`/admin` に管理パネル、`/` にパブリックブログが設置され、選択したプラグインが `cms.config.ts` にあらかじめ設定されます。また運用メモ用の `RUNBOOK.md` も生成されます。
 
 ## 生成されたプロジェクトでの次のステップ
 
