@@ -1,5 +1,106 @@
 # @ampless/admin
 
+## 0.2.0-alpha.19
+
+### Minor Changes
+
+- c389330: v0.2 MCP HTTP transport — Phase 1 (storage layer).
+
+  Add the foundation for the replacement HTTP MCP transport that the
+  previous PR removed: API key generation, hashing, and KvStore-backed
+  CRUD for token metadata.
+
+  New exports from `@ampless/admin/lib`:
+  - `mcp-token-format.ts` — `generateToken()` produces an `amk_<32-bytes-base64url>`
+    plaintext token plus its SHA-256 hash for storage. `hashToken(plain)`
+    validates incoming Bearer tokens against the stored hash.
+  - `mcp-token-storage.ts` — `listTokens`, `findByHash`, `createToken`,
+    `revokeToken`, `touchLastUsed` over `getKvStore()` with PK
+    `mcp-tokens`. Revocation is a soft delete (`revokedAt` timestamp)
+    for audit.
+
+  No routes / UI / Lambda yet — those come in Phase 2 (dedicated
+  `mcp-handler` Lambda Function with IAM-scoped AppSync access, admin
+  UI for token CRUD via the Lambda). Phase 1 is storage-agnostic on
+  purpose so it can be reused from both the SSR route (when a server
+  KvStore provider is available) and the Lambda data path (where the
+  provider authenticates via IAM/SigV4).
+
+- 0a68c2e: feat(admin): MCP token management UI (Phase 2 — client-side only)
+
+  Add `createMcpTokensPage` page factory and `McpTokensView` component for
+  issuing and revoking MCP API tokens directly from the admin UI.
+
+  The view is fully client-side: it calls the Phase 1 `listTokens`,
+  `createToken`, and `revokeToken` storage functions via the existing
+  `installAdminKvProvider` (user-pool-auth AppSync path). No server routes,
+  no service Cognito user, no new env vars required.
+
+  The create modal lets the admin choose a site scope and optional
+  expiration (never / 30 days / 90 days / custom date). On success a
+  one-time token reveal modal is shown; the plain token is never persisted.
+
+  A yellow banner reminds admins that tokens are inert until the v0.2 HTTP
+  MCP transport ships (Phase 3).
+
+  Changes:
+  - `packages/admin/src/components/mcp-tokens-view.tsx` — UI component
+  - `packages/admin/src/pages/mcp-tokens.tsx` — page factory
+  - `packages/admin/src/pages/index.ts` — export `createMcpTokensPage`
+  - `packages/admin/src/components/sidebar.tsx` — add MCP tokens nav item
+  - `packages/admin/src/locales/{en,ja}.json` — i18n strings
+  - `templates/_shared/app/(admin)/admin/mcp-tokens/page.tsx` — scaffold shell
+
+- 6b83143: Remove the unreleased HTTP MCP transport.
+
+  The previous design required setting `AMPLESS_MCP_SERVICE_EMAIL` /
+  `AMPLESS_MCP_SERVICE_PASSWORD` as Amplify Hosting environment
+  variables and provisioning a dedicated Cognito user via the admin
+  UI — unusable for non-technical operators. The original
+  `mcp-http-transport` changeset was still pending and never shipped
+  to a normal release, so we're taking it down cleanly before any
+  non-alpha release picks it up.
+
+  Removed exports from `@ampless/admin`:
+  - `createMcpRoute` (`/api/mcp` handler factory)
+  - `createMcpTokensRoute` (`/api/admin/mcp-tokens` CRUD handler factory)
+  - `createMcpTokensPage` (`/admin/mcp-tokens` page factory)
+  - `installServerKvProvider` (server-side KvStore provider that wrapped
+    the now-removed Cognito-service-user auth)
+
+  A replacement using API keys + a dedicated Lambda function with
+  proper IAM scoping is planned for v0.2.
+
+  The local stdio MCP (`@ampless/mcp-server` with
+  `AMPLESS_MCP_EMAIL` / `AMPLESS_MCP_PASSWORD`) is unaffected and
+  remains the recommended path for individual developers.
+
+### Patch Changes
+
+- 5b4a6a8: v0.2 MCP HTTP transport — Phase 3 (Lambda + Bearer validation).
+
+  Add a dedicated `mcp-handler` Lambda exposed via a Function URL. The
+  handler validates the `Authorization: Bearer amk_...` token against
+  the KvStore table directly (PK `mcp-tokens`, SK SHA-256 hash) using
+  its own IAM-scoped role — no Cognito identity involved.
+
+  Phase 3 only handles authentication. The body is a stub (200 OK with
+  `{ ok, tokenPrefix, scope }` on valid auth, 401 with a discriminated
+  error code on missing/invalid/revoked/expired token). The MCP
+  JSON-RPC envelope and tool dispatch land in Phase 4, when AppSync
+  IAM auth gets wired up so the handler can read posts / write media.
+
+  The Function URL is published as a backend output (`custom.mcp.endpoint`
+  in `amplify_outputs.json`) so the admin UI and external MCP clients
+  can discover the endpoint. The `/admin/mcp-tokens` page now surfaces
+  the URL with a copy-to-clipboard button alongside the issued tokens;
+  the inert banner has been updated to describe the new state (tokens
+  validate, but tool dispatch is still Phase 4).
+
+  Template scaffolding adds the new function shell at
+  `amplify/functions/mcp-handler/`. Existing projects pick it up via
+  `npm run update-ampless`.
+
 ## 0.2.0-alpha.18
 
 ### Patch Changes
