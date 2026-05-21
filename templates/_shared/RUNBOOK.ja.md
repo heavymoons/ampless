@@ -3,7 +3,22 @@
 
 # ランブック
 
-ampless で構築したサイトの運用手順書です。
+ampless で構築したサイトで、ときどき必要になる運用作業の手順集です。毎日やるわけではないけれど、いざ必要になったときに迷わずに進めるためのものです。
+
+日常的な使い方（コマンド、管理画面、テーマ、プラグイン、デプロイなど）は [README.ja.md](./README.ja.md) を参照してください。
+
+## 目次
+
+- [AppSync API キー（自動更新）](#appsync-api-キー自動更新)
+- [よくある運用](#よくある運用)
+  - [ユーザーの昇格 / 降格](#promote--demote-a-user)
+  - [パスワードリセット（管理者上書き）](#reset-a-users-password-admin-override)
+  - [Post テーブルのバックアップから復元](#restore-from-a-post-table-backup)
+  - [失敗したプラグインイベントを確認する](#inspect-failed-plugin-events)
+- [マルチサイト / カスタムドメイン](#multi-site--custom-domains)
+  - [シングルドメイン運用](#single-domain-operation)
+  - [マルチサイト時の注意：SSR キャッシュは強制無効化](#multi-site-mode-caveat-ssr-caching-is-force-disabled)
+  - [カスタムドメインを Amplify Hosting に追加する](#adding-a-custom-domain-to-amplify-hosting)
 
 ## AppSync API キー（自動更新）
 

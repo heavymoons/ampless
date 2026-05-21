@@ -3,7 +3,22 @@
 
 # Runbook
 
-Operational tasks for an ampless-powered site.
+Step-by-step recipes for occasional operations on an ampless-powered site — the things you don't do every day but want a reliable procedure for when you do.
+
+For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), start with [README.md](./README.md).
+
+## Contents
+
+- [AppSync API key (auto-renewed)](#appsync-api-key-auto-renewed)
+- [Common operations](#common-operations)
+  - [Promote / demote a user](#promote--demote-a-user)
+  - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
+  - [Restore from a Post-table backup](#restore-from-a-post-table-backup)
+  - [Inspect failed plugin events](#inspect-failed-plugin-events)
+- [Multi-site / custom domains](#multi-site--custom-domains)
+  - [Single domain operation](#single-domain-operation)
+  - [Multi-site mode caveat: SSR caching is force-disabled](#multi-site-mode-caveat-ssr-caching-is-force-disabled)
+  - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
 
 ## AppSync API key (auto-renewed)
 
