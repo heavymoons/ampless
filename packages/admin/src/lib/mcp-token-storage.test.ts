@@ -62,6 +62,18 @@ describe('generateToken', () => {
     expect(unique.size).toBe(10)
   })
 
+  it('produces URL-safe characters only — guards against base64url polyfill regression', () => {
+    // The browser admin UI runs this on Next.js's `node:crypto` polyfill,
+    // which throws on `Buffer.toString('base64url')` but accepts plain
+    // `base64`. The format helper translates base64 → URL-safe by hand;
+    // this test ensures none of `+`, `/`, or `=` slip through into a
+    // shareable token (which would also break URL embedding / .env files).
+    for (let i = 0; i < 50; i++) {
+      const { plain } = generateToken()
+      expect(plain).toMatch(/^amk_[A-Za-z0-9_-]+$/)
+    }
+  })
+
   it('hash is deterministic for the same input', () => {
     const a = hashToken('amk_test')
     const b = hashToken('amk_test')
