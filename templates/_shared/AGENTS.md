@@ -60,9 +60,7 @@ This file is written for AI coding agents (Claude Code, Cursor, Codex, etc.). Fo
 
 Lets agents query and modify post content directly. Tools exposed: `list_posts`, `get_post`, `create_post`, `update_post`, `delete_post`, `upload_media`, `get_schema`.
 
-Two registration options:
-
-**Local stdio (recommended for Claude Code / Cursor):**
+Registration:
 
 Add to `.mcp.json` at the project root:
 ```json
@@ -79,8 +77,6 @@ Add to `.mcp.json` at the project root:
   }
 }
 ```
-
-**HTTP via admin-issued token** (for hosted agents): issue a Bearer token at `/admin/mcp-tokens` and point the agent client at the public MCP HTTP endpoint. See the admin UI for the exact endpoint URL.
 
 Post bodies accept three formats: `markdown`, `html`, or `tiptap` (JSON document).
 

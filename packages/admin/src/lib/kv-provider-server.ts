@@ -2,28 +2,24 @@
  * Server-side KvStore provider for SSR Lambda routes.
  *
  * The client-side `kv-provider.ts` calls `setKvStore()` from a `'use
- * client'` module, so it never runs in the SSR Lambda. API routes
- * (`/api/mcp`, `/api/admin/mcp-tokens`) that need KvStore access
- * therefore see the "No KvStore configured" error until this server
- * variant is installed.
+ * client'` module, so it never runs in the SSR Lambda. Server-side
+ * routes that need KvStore access therefore see the "No KvStore
+ * configured" error until this server variant is installed at the
+ * route factory level.
  *
- * This implementation skips Amplify SSR cookies entirely and talks
- * straight to AppSync over HTTPS using the MCP service user's Cognito
- * id token — the same identity the MCP HTTP transport already uses.
- * That means:
- *   - the SSR Lambda needs the `AMPLESS_MCP_SERVICE_*` env vars set,
- *     same as for `/api/mcp`
- *   - the service user must be in `ampless-admin` so AppSync grants it
- *     read/write on the KvStore model
+ * This implementation talks straight to AppSync over HTTPS using a
+ * Cognito id token supplied by the caller. Install this provider in any
+ * SSR route handler that needs KvStore access before performing KvStore
+ * operations.
  *
- * Route-level guards (`requireAdminSession` in `mcp-tokens.ts`, Bearer
- * token validation in `mcp.ts`) gate WHO can issue Kv operations.
- * Identity for the DynamoDB write is always the service user.
+ * NOTE: The `getIdToken` callback will be wired to a concrete auth
+ * mechanism when the HTTP transport feature lands in v0.2 (API keys +
+ * dedicated Lambda with IAM scoping). For now the provider is kept as
+ * scaffolding so the export surface of `@ampless/admin/lib` stays stable.
  */
 
 import { setKvStore, type KvItem, type KvStore } from 'ampless'
 import type { AmplessOutputs } from '@ampless/runtime'
-import { getMcpServiceAuth } from './mcp-service-auth.js'
 
 const installed = new WeakSet<AmplessOutputs>()
 
@@ -32,16 +28,18 @@ const installed = new WeakSet<AmplessOutputs>()
  * registry. Idempotent per outputs instance — first call wires it,
  * subsequent calls no-op. Safe to call at route-factory time even
  * though the global is shared across requests, because the
- * implementation reads outputs / serviceAuth lazily inside each call.
+ * implementation reads outputs / getIdToken lazily inside each call.
+ *
+ * @param outputs  Parsed `amplify_outputs.json` for this deployment.
+ * @param getIdToken  Async function that returns a fresh Cognito id token
+ *   with at least `ampless-admin` group membership.
  */
-export function installServerKvProvider(outputs: AmplessOutputs): void {
+export function installServerKvProvider(
+  outputs: AmplessOutputs,
+  getIdToken: () => Promise<string>
+): void {
   if (installed.has(outputs)) return
   installed.add(outputs)
-
-  // Resolve lazily so a missing `data.url` only fails the FIRST Kv op
-  // (clear runtime error in the route response) instead of crashing the
-  // whole route module at import time.
-  const serviceAuth = getMcpServiceAuth(outputs)
 
   async function gql<T>(operation: string, variables: Record<string, unknown>): Promise<T> {
     if (!outputs.data?.url) {
@@ -50,7 +48,7 @@ export function installServerKvProvider(outputs: AmplessOutputs): void {
       )
     }
     const appsyncUrl = outputs.data.url
-    const idToken = await serviceAuth.getIdToken()
+    const idToken = await getIdToken()
     const res = await fetch(appsyncUrl, {
       method: 'POST',
       headers: {
