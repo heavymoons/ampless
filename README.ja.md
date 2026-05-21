@@ -20,7 +20,7 @@
 npx create-ampless@alpha my-site
 ```
 
-CLI が Next.js 15（App Router）プロジェクトを生成します。その後：
+CLI が Next.js 16（App Router）プロジェクトを生成します。その後：
 
 ```bash
 cd my-site
@@ -37,7 +37,7 @@ npm run dev           # http://localhost:3000
 
 | レイヤー | 技術 |
 |---|---|
-| フロントエンド | Next.js 15 App Router |
+| フロントエンド | Next.js 16 App Router |
 | UI | shadcn/ui + Tailwind v4 |
 | エディタ | tiptap（画像・リンク拡張あり） |
 | バックエンド | AWS Amplify Gen 2（CDK ベース） |

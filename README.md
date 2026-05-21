@@ -20,7 +20,7 @@
 npx create-ampless@alpha my-site
 ```
 
-The CLI scaffolds a Next.js 15 (App Router) project. Then:
+The CLI scaffolds a Next.js 16 (App Router) project. Then:
 
 ```bash
 cd my-site
@@ -37,7 +37,7 @@ Sign up at `/login` — the first registered user is automatically promoted to t
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 15 App Router |
+| Frontend | Next.js 16 App Router |
 | UI | shadcn/ui + Tailwind v4 |
 | Editor | tiptap (with image/link extensions) |
 | Backend | AWS Amplify Gen 2 (CDK-based) |
