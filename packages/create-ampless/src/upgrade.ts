@@ -13,6 +13,33 @@ import type { ParsedArgs } from './args.js'
 // Constants
 // ----------------------------------------------------------------------------
 
+/**
+ * Directories under `app/` that ampless owns wholesale. Anything
+ * present in the user's project at one of these paths but absent from
+ * the current `_shared/app/` gets deleted on upgrade — this is how
+ * route shells dropped between alpha versions (e.g. the alpha.17
+ * `/api/mcp` route after PR #57 retired Cognito-service-user HTTP MCP)
+ * get cleaned out so they don't linger and break type-checking against
+ * newer `@ampless/admin` exports.
+ *
+ * Add a path here the first time ampless scaffolds anything inside
+ * it; never remove. The list is the source of truth for "where ampless
+ * might have once put files" — entries whose directory no longer
+ * exists in the current template trigger a wholesale removal of the
+ * user copy on the next upgrade.
+ *
+ * Files outside these paths are NEVER touched, so user-owned top-level
+ * routes (`app/page.tsx`, custom `app/blog/` dirs, etc.) are safe.
+ */
+const AMPLESS_MANAGED_APP_PATHS: readonly string[] = [
+  'app/(admin)/admin',
+  'app/api/admin',
+  'app/api/media',
+  'app/api/mcp',
+  'app/login',
+  'app/site',
+] as const
+
 const AMPLESS_PACKAGES = new Set([
   'ampless',
   '@ampless/admin',
@@ -86,6 +113,8 @@ export interface UpgradeResult {
   themesSynced: string[]
   themesPreserved: string[]
   packageJsonMerged: boolean
+  /** Obsolete files removed from ampless-managed app/ subtrees. */
+  obsoleteRemoved: string[]
 }
 
 interface FileClassification {
@@ -226,6 +255,88 @@ async function walkDir(dir: string, base: string, out: string[]): Promise<void> 
   }
 }
 
+/**
+ * Walk a directory recursively, returning file paths relative to the
+ * given root. Directories themselves aren't returned; only files.
+ */
+async function listFilesRecursive(root: string): Promise<string[]> {
+  const out: string[] = []
+  async function walk(current: string, relPrefix: string): Promise<void> {
+    const entries = await readdir(current, { withFileTypes: true })
+    for (const entry of entries) {
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        await walk(join(current, entry.name), rel)
+      } else if (entry.isFile()) {
+        out.push(rel)
+      }
+    }
+  }
+  if (!existsSync(root)) return out
+  await walk(root, '')
+  return out
+}
+
+/**
+ * Bottom-up empty-directory pruning. After deleting orphan files, the
+ * surrounding directory tree may be empty — clean it up so the user's
+ * project tree doesn't accumulate dead dirs.
+ */
+async function pruneEmptyDirs(root: string): Promise<void> {
+  if (!existsSync(root)) return
+  const entries = await readdir(root, { withFileTypes: true })
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      await pruneEmptyDirs(join(root, entry.name))
+    }
+  }
+  const remaining = await readdir(root)
+  if (remaining.length === 0) {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Compute the list of files under ampless-managed app/ paths that
+ * exist in the user's project but not in the current template. Returns
+ * project-relative paths. Used in both the dry-run summary and the
+ * execute phase so the plan == the action.
+ */
+async function findObsoleteAppFiles(destDir: string, sharedDir: string): Promise<string[]> {
+  const obsolete: string[] = []
+  for (const managedPath of AMPLESS_MANAGED_APP_PATHS) {
+    const userPath = join(destDir, managedPath)
+    if (!existsSync(userPath)) continue
+    const templatePath = join(sharedDir, managedPath)
+    const templateFiles = new Set(await listFilesRecursive(templatePath))
+    const userFiles = await listFilesRecursive(userPath)
+    for (const f of userFiles) {
+      if (!templateFiles.has(f)) {
+        obsolete.push(`${managedPath}/${f}`)
+      }
+    }
+  }
+  return obsolete
+}
+
+/**
+ * Execute the deletions identified by `findObsoleteAppFiles`. After
+ * the unlinks, walk each managed path and remove now-empty subdirs
+ * (bottom-up) so the user's project tree stays clean.
+ */
+async function removeObsoleteAppFiles(destDir: string, paths: string[]): Promise<void> {
+  for (const rel of paths) {
+    const abs = join(destDir, rel)
+    if (existsSync(abs)) {
+      await rm(abs, { force: true })
+    }
+  }
+  // Prune empty managed dirs (and only those — never touch the project root).
+  for (const managedPath of AMPLESS_MANAGED_APP_PATHS) {
+    await pruneEmptyDirs(join(destDir, managedPath))
+  }
+}
+
 function substituteVars(content: string, vars: Record<string, string>): string {
   return content.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
 }
@@ -325,6 +436,8 @@ export async function runUpgradeIn(
   const existingThemes = themeSyncEnabled ? await discoverInstalledThemes(destDir) : []
   const preservedThemes = existingThemes.filter((t) => !shippedThemes.includes(t))
 
+  const obsoleteFiles = await findObsoleteAppFiles(destDir, sharedDir)
+
   log.info(
     `replace: ${pc.green(`追加 ${replaceNew.length}`)} / ${pc.yellow(`更新 ${replaceUpdate.length}`)}`
   )
@@ -339,6 +452,9 @@ export async function runUpgradeIn(
       `themes:  ${pc.cyan(`デフォルトテーマを同期: ${shippedThemes.length}`)} / ${pc.dim(`カスタムテーマ (my-*) を保持: ${preservedThemes.length}`)}`
     )
   }
+  if (obsoleteFiles.length > 0) {
+    log.info(`cleanup: ${pc.yellow(`削除 ${obsoleteFiles.length}`)} (ampless-managed app/ 配下でテンプレに無いファイル)`)
+  }
   log.info(`protected: ${pc.dim(`テンプレに存在するが触らない: ${classification.protected.length} 個`)}`)
 
   // 5. dry-run exit
@@ -351,6 +467,7 @@ export async function runUpgradeIn(
       themesSynced: shippedThemes,
       themesPreserved: preservedThemes,
       packageJsonMerged: false,
+      obsoleteRemoved: obsoleteFiles,
     }
   }
 
@@ -375,6 +492,12 @@ export async function runUpgradeIn(
   const themeResult: ThemeSyncResult = themeSyncEnabled
     ? await syncThemes(destDir, templatesRoot)
     : { synced: [], preserved: [] }
+
+  // 6d. Remove app/ files that are no longer in the template. See
+  // `AMPLESS_MANAGED_APP_PATHS` — entries get added on first scaffold
+  // and never removed, so this loop catches alpha-to-alpha cleanups
+  // like the PR #57 HTTP MCP route removal.
+  await removeObsoleteAppFiles(destDir, obsoleteFiles)
 
   // 7. execute merge package.json
   const templatePkgRaw = await readFile(join(sharedDir, 'package.json'), 'utf-8')
@@ -436,6 +559,7 @@ export async function runUpgradeIn(
     themesSynced: themeResult.synced,
     themesPreserved: themeResult.preserved,
     packageJsonMerged: true,
+    obsoleteRemoved: obsoleteFiles,
   }
 }
 
