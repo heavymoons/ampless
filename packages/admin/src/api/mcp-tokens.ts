@@ -11,6 +11,7 @@
  */
 
 import type { Admin } from '../index.js'
+import { installServerKvProvider } from '../lib/kv-provider-server.js'
 import {
   generateToken,
   hashToken,
@@ -31,6 +32,12 @@ function isRole(value: unknown): value is McpTokenRole {
 }
 
 export function createMcpTokensRoute(admin: Admin) {
+  // Same KvStore-on-server install as `/api/mcp` — admin-cookie auth at
+  // the route boundary, but the actual DynamoDB write goes through the
+  // MCP service user (the only Cognito identity the SSR Lambda has
+  // creds for).
+  installServerKvProvider(admin.outputs)
+
   async function requireAdminSession(): Promise<{ userId: string } | Response> {
     const session = await admin.getServerSession()
     if (!session || !admin.isAdmin(session)) {
