@@ -31,6 +31,7 @@ import {
 } from '@ampless/mcp-server/tools'
 import type { Admin } from '../index.js'
 import { getMcpServiceAuth } from '../lib/mcp-service-auth.js'
+import { installServerKvProvider } from '../lib/kv-provider-server.js'
 import {
   hashToken,
   markTokenUsed,
@@ -64,6 +65,10 @@ export function createMcpRoute(admin: Admin) {
   }
   const appsyncUrl = outputs.data.url
   const serviceAuth = getMcpServiceAuth(outputs)
+  // Make `getKvStore()` resolvable on the server side. The client-side
+  // `installAdminKvProvider` only runs in browsers, so without this the
+  // first MCP request errors out at token lookup.
+  installServerKvProvider(outputs)
 
   // Build a GraphqlClient adapter on demand (per request). It re-uses
   // the cached service id token, so the per-request cost is just a
