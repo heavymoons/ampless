@@ -1,52 +1,22 @@
 > 日本語版: [README.ja.md](./README.ja.md)
 > 
+# Blog theme
 
-# {{siteName}}
+Neutral monochrome with shadcn/ui defaults. Chronological post feed, single-post page, and tag listing.
 
-A blog site powered by [ampless](https://github.com/heavymoons/ampless).
+## Customizing
 
-## Getting Started
+In `/admin/sites/<siteId>/theme`:
 
-This project uses Amplify Gen 2 for the backend (Cognito, DynamoDB, S3) and Next.js for the frontend.
+- **Primary color** — buttons, links, accent fills
+- **Accent color**
+- **Focus ring**
+- **Destructive** — color used for destructive actions
+- **Corner radius**
+- **Body font** — System sans / Serif (Georgia) / Serif (Iowan) / Monospace
+- **Featured post slug** — pin one published post to the top of the home page
+- **Logo image URL**
+- **Header navigation** — label + URL pairs
+- **Footer links** — label + URL pairs
 
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Deploy a personal AWS sandbox + start the Next.js dev server.
-#    Requires AWS credentials configured (`aws configure`).
-#    First run takes ~5–10 min to provision resources;
-#    amplify_outputs.json is regenerated each time before dev starts.
-npm run sandbox
-```
-
-Then open [http://localhost:3000](http://localhost:3000).
-
-## First admin user
-
-Open [http://localhost:3000/login](http://localhost:3000/login) and click **Create admin account**. The first user to register is automatically added to the `ampless-admin` Cognito group.
-
-After that, manage content from `/admin`:
-
-- `/admin` — dashboard
-- `/admin/posts` — list / create / edit posts (tiptap editor)
-- `/admin/media` — upload images to S3
-
-## Production deploy
-
-```bash
-git init && git add . && git commit -m "init"
-git remote add origin <your-repo>
-git push
-# Then connect the repo to AWS Amplify Hosting in the AWS console.
-```
-
-## Customize
-
-- `cms.config.ts` — site name, media delivery mode, plugins
-- `app/` — Next.js App Router pages (`(public)/` for the blog, `(admin)/` for the CMS)
-- `amplify/` — Amplify Gen 2 backend definitions (auth / data / storage)
-
-## Plugins
-
-Enabled: {{plugins}}
+Per-site light/dark color scheme is honored through the standard ampless theme tokens.

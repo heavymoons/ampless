@@ -1,22 +1,18 @@
 > 日本語版: [README.ja.md](./README.ja.md)
 > 
+# Corporate theme
 
-# {{siteName}}
-
-Corporate / company-site theme: navy on near-white, hero + news layout, header + footer navigation.
+Conservative business / company-site layout with hero and news section. Navy on near-white, header + footer navigation.
 
 ## Customizing
 
 In `/admin/sites/<siteId>/theme`:
 
-- Tagline (small line above the site name in the hero)
-- Header navigation (label + URL pairs)
-- Footer links + legend (address / company info / extra small print)
-- Primary color, corner radius
-
-## Getting started
-
-```bash
-npm install
-npm run sandbox
-```
+- **Tagline** — short phrase shown above the site name in the hero
+- **Primary color**
+- **Corner radius**
+- **Top story slug** — feature one published post between the hero and the news section
+- **Logo image URL**
+- **Header navigation** — label + URL pairs
+- **Footer links** — label + URL pairs
+- **Footer legend** — address / company info / extra small print

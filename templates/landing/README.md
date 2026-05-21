@@ -1,27 +1,20 @@
 > 日本語版: [README.ja.md](./README.ja.md)
 > 
+# Landing theme
 
-# {{siteName}}
-
-A site powered by [ampless](https://github.com/heavymoons/ampless), using the **Landing** theme — hero-led single-page layout with optional "Latest" post grid, configurable header / footer nav, and a warm-coral accent palette.
+Single-page hero focus with optional "Latest" post grid. Hero-led layout with configurable header / footer nav and a warm-coral accent palette.
 
 ## Customizing
 
 In `/admin/sites/<siteId>/theme`:
 
-- Hero headline / subheadline / CTA button text + URL
-- Header navigation (label + URL pairs)
-- Footer links
-- Primary color
-- Corner radius
-
-Empty hero fields fall back to the site name / description from `/admin/sites/<siteId>`.
-
-## Getting started
-
-```bash
-npm install
-npm run sandbox        # provision the AWS backend + start Next.js
-```
-
-See the project README for full setup.
+- **Hero headline** — empty falls back to the site name
+- **Hero subheadline** — empty falls back to the site description
+- **CTA button text**
+- **CTA URL**
+- **Primary color**
+- **Corner radius**
+- **Featured post slug** — pin one published post to the home page
+- **Logo image URL**
+- **Header navigation** — label + URL pairs
+- **Footer links** — label + URL pairs
