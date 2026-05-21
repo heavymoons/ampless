@@ -1,5 +1,57 @@
 # create-ampless
 
+## 0.2.0-alpha.21
+
+### Patch Changes
+
+- 5b4a6a8: v0.2 MCP HTTP transport — Phase 3 (Lambda + Bearer validation).
+
+  Add a dedicated `mcp-handler` Lambda exposed via a Function URL. The
+  handler validates the `Authorization: Bearer amk_...` token against
+  the KvStore table directly (PK `mcp-tokens`, SK SHA-256 hash) using
+  its own IAM-scoped role — no Cognito identity involved.
+
+  Phase 3 only handles authentication. The body is a stub (200 OK with
+  `{ ok, tokenPrefix, scope }` on valid auth, 401 with a discriminated
+  error code on missing/invalid/revoked/expired token). The MCP
+  JSON-RPC envelope and tool dispatch land in Phase 4, when AppSync
+  IAM auth gets wired up so the handler can read posts / write media.
+
+  The Function URL is published as a backend output (`custom.mcp.endpoint`
+  in `amplify_outputs.json`) so the admin UI and external MCP clients
+  can discover the endpoint. The `/admin/mcp-tokens` page now surfaces
+  the URL with a copy-to-clipboard button alongside the issued tokens;
+  the inert banner has been updated to describe the new state (tokens
+  validate, but tool dispatch is still Phase 4).
+
+  Template scaffolding adds the new function shell at
+  `amplify/functions/mcp-handler/`. Existing projects pick it up via
+  `npm run update-ampless`.
+
+- 6b83143: Remove the unreleased HTTP MCP transport.
+
+  The previous design required setting `AMPLESS_MCP_SERVICE_EMAIL` /
+  `AMPLESS_MCP_SERVICE_PASSWORD` as Amplify Hosting environment
+  variables and provisioning a dedicated Cognito user via the admin
+  UI — unusable for non-technical operators. The original
+  `mcp-http-transport` changeset was still pending and never shipped
+  to a normal release, so we're taking it down cleanly before any
+  non-alpha release picks it up.
+
+  Removed exports from `@ampless/admin`:
+  - `createMcpRoute` (`/api/mcp` handler factory)
+  - `createMcpTokensRoute` (`/api/admin/mcp-tokens` CRUD handler factory)
+  - `createMcpTokensPage` (`/admin/mcp-tokens` page factory)
+  - `installServerKvProvider` (server-side KvStore provider that wrapped
+    the now-removed Cognito-service-user auth)
+
+  A replacement using API keys + a dedicated Lambda function with
+  proper IAM scoping is planned for v0.2.
+
+  The local stdio MCP (`@ampless/mcp-server` with
+  `AMPLESS_MCP_EMAIL` / `AMPLESS_MCP_PASSWORD`) is unaffected and
+  remains the recommended path for individual developers.
+
 ## 0.2.0-alpha.20
 
 ### Minor Changes
