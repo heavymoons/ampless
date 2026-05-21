@@ -3,7 +3,7 @@ import { Effect, PolicyStatement, AnyPrincipal } from 'aws-cdk-lib/aws-iam'
 import type { CfnBucket } from 'aws-cdk-lib/aws-s3'
 import { Duration, Stack } from 'aws-cdk-lib'
 import { Queue } from 'aws-cdk-lib/aws-sqs'
-import { StartingPosition } from 'aws-cdk-lib/aws-lambda'
+import { FunctionUrlAuthType, HttpMethod, StartingPosition } from 'aws-cdk-lib/aws-lambda'
 import { DynamoEventSource, SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Rule, Schedule } from 'aws-cdk-lib/aws-events'
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets'
@@ -34,6 +34,7 @@ export interface DefineAmplessBackendOpts {
   processorUntrusted: FunctionResource
   apiKeyRenewer: FunctionResource
   userAdmin: FunctionResource
+  mcpHandler: FunctionResource
 }
 
 // The return type of `defineBackend` is parameterised on the input
@@ -84,6 +85,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     processorUntrusted: opts.processorUntrusted,
     apiKeyRenewer: opts.apiKeyRenewer,
     userAdmin: opts.userAdmin,
+    mcpHandler: opts.mcpHandler,
   })
 
   // --- Storage: make `public/*` directly fetchable from the browser ---
@@ -328,6 +330,51 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   new Rule(Stack.of(apiKeyRenewerFn), 'ApiKeyRenewerSchedule', {
     schedule: Schedule.cron({ minute: '0', hour: '3', day: '1', month: '*', year: '*' }),
     targets: [new LambdaFunction(apiKeyRenewerFn)],
+  })
+
+  // --- MCP HTTP endpoint ---
+  //
+  // Phase 3: just authentication. The handler reads the KvStore table
+  // directly to validate `Authorization: Bearer amk_...` tokens (PK
+  // 'mcp-tokens', SK = SHA-256 hash of plaintext) and returns a stub
+  // 200/401. Phase 4 will dispatch real MCP tool calls over AppSync
+  // IAM auth from this same function.
+  const mcpHandlerFn = backend.mcpHandler.resources.lambda
+
+  // IAM: read the single row that backs each Bearer token. No write
+  // needed yet (touchLastUsed lands in Phase 4 alongside the JSON-RPC
+  // dispatcher); no other table access until the tool layer needs it.
+  mcpHandlerFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['dynamodb:GetItem'],
+      resources: [kvTable.tableArn],
+    })
+  )
+  mcpHandlerFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
+
+  // Function URL: auth NONE because the handler does its own Bearer
+  // validation. CORS open because MCP clients connect from arbitrary
+  // origins (stdio clients ignore CORS but browser-based ones honour it).
+  const mcpFunctionUrl = mcpHandlerFn.addFunctionUrl({
+    authType: FunctionUrlAuthType.NONE,
+    cors: {
+      allowedOrigins: ['*'],
+      allowedMethods: [HttpMethod.POST, HttpMethod.OPTIONS],
+      allowedHeaders: ['*'],
+      maxAge: Duration.hours(1),
+    },
+  })
+
+  // Surface the endpoint URL in amplify_outputs.json under `custom.mcp`
+  // so the admin UI can display "your MCP endpoint is X" and external
+  // docs can pin it.
+  backend.addOutput({
+    custom: {
+      mcp: {
+        endpoint: mcpFunctionUrl.url,
+      },
+    },
   })
 
   return backend

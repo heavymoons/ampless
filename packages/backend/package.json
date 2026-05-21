@@ -32,6 +32,10 @@
     "./functions/api-key-renewer": {
       "import": "./dist/functions/api-key-renewer.js",
       "types": "./dist/functions/api-key-renewer.d.ts"
+    },
+    "./functions/mcp-handler": {
+      "import": "./dist/functions/mcp-handler.js",
+      "types": "./dist/functions/mcp-handler.d.ts"
     }
   },
   "files": [
