@@ -62,6 +62,7 @@
     "template-user-readme",
     "theme-color-pair-and-live-preview",
     "theme-dark-light-color-scheme",
+    "upgrade-deletes-obsolete-files",
     "user-admin-pipeline-event-shape"
   ]
 }
