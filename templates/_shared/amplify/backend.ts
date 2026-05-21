@@ -8,6 +8,7 @@ import { eventDispatcher } from './events/dispatcher/resource.js'
 import { processorTrusted } from './events/processor-trusted/resource.js'
 import { processorUntrusted } from './events/processor-untrusted/resource.js'
 import { apiKeyRenewer } from './functions/api-key-renewer/resource.js'
+import { mcpHandler } from './functions/mcp-handler/resource.js'
 import { userAdmin } from './functions/user-admin/resource.js'
 import { customizeBackend } from './backend.custom.js'
 
@@ -27,6 +28,7 @@ const backend = defineAmplessBackend({
   processorTrusted,
   processorUntrusted,
   apiKeyRenewer,
+  mcpHandler,
   userAdmin,
 })
 
