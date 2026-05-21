@@ -60,9 +60,7 @@
 
 エージェントが投稿コンテンツを直接クエリ・編集できる。公開ツール: `list_posts`、`get_post`、`create_post`、`update_post`、`delete_post`、`upload_media`、`get_schema`。
 
-登録方法は 2 つ:
-
-**ローカル stdio（Claude Code / Cursor 向け、推奨）:**
+登録方法:
 
 プロジェクトルートの `.mcp.json` に追加する:
 ```json
@@ -79,8 +77,6 @@
   }
 }
 ```
-
-**管理者発行トークンによる HTTP**（ホスト型エージェント向け）: `/admin/mcp-tokens` で Bearer トークンを発行し、エージェントクライアントを公開 MCP HTTP エンドポイントに向ける。エンドポイント URL は管理 UI で確認できる。
 
 投稿本文は `markdown`、`html`、`tiptap`（JSON ドキュメント）の 3 フォーマットに対応している。
 

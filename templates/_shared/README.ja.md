@@ -137,8 +137,6 @@ export default defineConfig({
 | 変数 | 利用箇所 |
 | --- | --- |
 | `WEBHOOK_SECRET` | `@ampless/plugin-webhook` の HMAC 署名 |
-| `AMPLESS_MCP_SERVICE_EMAIL` | HTTP MCP サービスユーザーのメール — `/api/mcp` を有効化するのに必須 |
-| `AMPLESS_MCP_SERVICE_PASSWORD` | HTTP MCP サービスユーザーのパスワード |
 
 env 変数追加 / 変更後は再デプロイをトリガーしてください。
 
@@ -157,7 +155,6 @@ ampless は 1 つの Amplify Hosting デプロイで複数のサイトを配信�
 ampless は MCP（Model Context Protocol）サーバーを同梱しているので、Claude Desktop / Cursor / Claude Code など MCP に対応した AI クライアントから投稿の読み書きができます。
 
 - **ローカル / sandbox** — グローバルに 1 度入れる: `npx -y @ampless/mcp-server@alpha` に `amplify_outputs.json` のパスを渡す
-- **本番（HTTP）** — `/admin/mcp-tokens` で Bearer トークンを発行し、MCP クライアントを `https://<your-domain>/api/mcp` に向ける。フルセットアップ: [docs/mcp-http-setup.ja.md](https://github.com/heavymoons/ampless/blob/main/docs/mcp-http-setup.ja.md) ([English](https://github.com/heavymoons/ampless/blob/main/docs/mcp-http-setup.md))
 
 ## ampless の更新
 

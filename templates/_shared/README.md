@@ -137,8 +137,6 @@ Set per-environment values in **Amplify Hosting console → Hosting → Environm
 | Variable | Used by |
 | --- | --- |
 | `WEBHOOK_SECRET` | `@ampless/plugin-webhook` HMAC signing |
-| `AMPLESS_MCP_SERVICE_EMAIL` | HTTP MCP service-user email — required to enable `/api/mcp` |
-| `AMPLESS_MCP_SERVICE_PASSWORD` | HTTP MCP service-user password |
 
 Trigger a redeploy after adding/changing env vars.
 
@@ -157,7 +155,6 @@ There's a caching trade-off in multi-site mode; details in [RUNBOOK.md → Multi
 ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor / Claude Code / anything that speaks MCP can read and write your posts.
 
 - **Local / sandbox** — install once globally: `npx -y @ampless/mcp-server@alpha` with the path to your `amplify_outputs.json`.
-- **Production (HTTP)** — issue a Bearer token at `/admin/mcp-tokens` and point your MCP client at `https://<your-domain>/api/mcp`. Full setup: [docs/mcp-http-setup.md](https://github.com/heavymoons/ampless/blob/main/docs/mcp-http-setup.md) ([日本語](https://github.com/heavymoons/ampless/blob/main/docs/mcp-http-setup.ja.md)).
 
 ## Updating ampless
 

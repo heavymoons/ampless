@@ -77,10 +77,6 @@ export const tools: ToolDefinition[] = [
  * Look up a tool definition by name and invoke its handler. Returns
  * `null` when no tool with that name is registered — callers should
  * surface that as a JSON-RPC "method not found" error.
- *
- * Shared between the stdio CLI (`src/index.ts`) and the HTTP transport
- * factory (`@ampless/admin/api/mcp` → `createMcpRoute`) so both routes
- * dispatch through the same code path.
  */
 export async function dispatchToolCall(
   name: string,

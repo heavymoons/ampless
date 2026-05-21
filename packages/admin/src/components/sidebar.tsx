@@ -10,7 +10,6 @@ import {
   Image,
   Globe,
   Users,
-  Key,
   LogOut,
   ExternalLink,
   Menu,
@@ -33,7 +32,6 @@ const navItems: readonly NavItem[] = [
   { href: '/admin/media', key: 'sidebar.media', icon: Image },
   { href: '/admin/sites', key: 'sidebar.sites', icon: Globe },
   { href: '/admin/users', key: 'sidebar.users', icon: Users, adminOnly: true },
-  { href: '/admin/mcp-tokens', key: 'sidebar.mcpTokens', icon: Key, adminOnly: true },
 ] as const
 
 export function Sidebar({
