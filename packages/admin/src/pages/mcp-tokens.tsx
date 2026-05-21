@@ -12,6 +12,11 @@ import { McpTokensView } from '../components/mcp-tokens-view.js'
  *
  * Sites are also pre-resolved here from `admin.adminSiteOptions()` so the
  * scope selector is populated without any extra client-side fetch.
+ *
+ * The MCP endpoint URL is pulled from `amplify_outputs.json` under
+ * `custom.mcp.endpoint` — the `mcp-handler` Lambda Function URL that
+ * `defineAmplessBackend` published via `backend.addOutput`. Missing on
+ * fresh templates that haven't been deployed yet.
  */
 export function createMcpTokensPage(admin: Admin) {
   async function McpTokensPage() {
@@ -20,13 +25,20 @@ export function createMcpTokensPage(admin: Admin) {
       redirect('/admin')
     }
     const sites = admin.adminSiteOptions()
+    const mcpEndpoint = extractMcpEndpoint(admin.outputs)
     return (
       <McpTokensView
         currentUserId={session!.userId}
         currentUserEmail={session!.email}
         sites={sites}
+        mcpEndpoint={mcpEndpoint}
       />
     )
   }
   return McpTokensPage
+}
+
+function extractMcpEndpoint(outputs: Admin['outputs']): string | null {
+  const custom = outputs.custom as { mcp?: { endpoint?: string } } | undefined
+  return custom?.mcp?.endpoint ?? null
 }

@@ -30,6 +30,12 @@ interface Props {
   currentUserEmail: string
   /** Site list for the scope selector. Empty = single-site mode. */
   sites: SiteOption[]
+  /**
+   * MCP HTTP endpoint URL (the `mcp-handler` Lambda Function URL).
+   * `null` when the project hasn't been deployed yet, so
+   * `amplify_outputs.json` doesn't have `custom.mcp.endpoint` populated.
+   */
+  mcpEndpoint: string | null
 }
 
 type ExpirationPreset = 'never' | '30days' | '90days' | 'custom'
@@ -53,8 +59,21 @@ function relativeTime(iso: string | null): string {
   return `${d}d ago`
 }
 
-export function McpTokensView({ currentUserId, currentUserEmail, sites }: Props) {
+export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpoint }: Props) {
   const t = useT()
+
+  const [endpointCopied, setEndpointCopied] = useState(false)
+
+  async function copyEndpoint() {
+    if (!mcpEndpoint) return
+    try {
+      await navigator.clipboard.writeText(mcpEndpoint)
+      setEndpointCopied(true)
+      setTimeout(() => setEndpointCopied(false), 2000)
+    } catch (err) {
+      console.error('[mcp-tokens-view] copy endpoint failed', err)
+    }
+  }
 
   const [tokens, setTokens] = useState<McpTokenMeta[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -181,6 +200,23 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites }: Props)
         <Button type="button" onClick={openCreateModal}>
           {t('mcpTokens.createButton')}
         </Button>
+      </div>
+
+      {/* Endpoint card */}
+      <div className="rounded-md border bg-card px-4 py-3 text-sm">
+        <p className="font-medium">{t('mcpTokens.endpointTitle')}</p>
+        {mcpEndpoint ? (
+          <div className="mt-2 flex items-center gap-2">
+            <code className="flex-1 overflow-x-auto rounded border bg-muted px-2 py-1 font-mono text-xs">
+              {mcpEndpoint}
+            </code>
+            <Button type="button" variant="outline" size="sm" onClick={copyEndpoint}>
+              {endpointCopied ? t('mcpTokens.endpointCopied') : t('mcpTokens.endpointCopy')}
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-1 text-muted-foreground">{t('mcpTokens.endpointMissing')}</p>
+        )}
       </div>
 
       {/* Inert banner */}
