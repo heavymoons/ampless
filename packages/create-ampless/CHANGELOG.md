@@ -1,5 +1,15 @@
 # create-ampless
 
+## 0.2.0-alpha.20
+
+### Minor Changes
+
+- be19cc2: Ship `AGENTS.md` (+ Japanese translation) in the shared project template. AI coding agents read this file at the project root to learn which paths they can edit, how to copy and customise a theme, how to register the ampless MCP server, and which constraints (ephemeral sandbox data, multi-site cache disablement, etc.) to be aware of. Existing `README.md` gets a one-line pointer to it.
+
+### Patch Changes
+
+- 3c1de9c: Republish `create-ampless` so the npm tarball picks up the Next.js 16 README bump from #53 (the PR merged without a changeset, so the doc fix never reached npm).
+
 ## 0.2.0-alpha.19
 
 ### Patch Changes
