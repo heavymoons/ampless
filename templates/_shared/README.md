@@ -6,6 +6,8 @@ Your site is built with [ampless](https://github.com/heavymoons/ampless) — a s
 
 This README covers what you, the site owner, need to know day-to-day. Operational recipes (rotating keys, restoring backups, etc.) live in [RUNBOOK.md](./RUNBOOK.md). Per-theme customization details live in `themes/<name>/README.md`.
 
+If you use an AI coding agent (Claude Code, Cursor, Codex, etc.) on this project, point it at [AGENTS.md](./AGENTS.md) — that file tells the agent what it can and can't touch.
+
 ## Requirements
 
 - **Node.js 20+** and **npm**
