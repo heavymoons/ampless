@@ -70,6 +70,7 @@
     "theme-color-pair-and-live-preview",
     "theme-dark-light-color-scheme",
     "upgrade-deletes-obsolete-files",
+    "upgrade-output-english",
     "user-admin-pipeline-event-shape"
   ]
 }
