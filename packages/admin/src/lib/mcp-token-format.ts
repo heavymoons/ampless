@@ -5,6 +5,14 @@
  * time. Storage holds only the SHA-256 hash, so revealing the hash
  * doesn't compromise the live token (the prefix is shown to help the
  * user identify which token is which in the listing).
+ *
+ * Runs on both Node (Lambda data path) and the browser (admin UI
+ * issuance). Avoid `Buffer.toString('base64url')` — Node supports it
+ * natively but Next.js's `node:crypto` browser polyfill throws
+ * `Unknown encoding: base64url` because its Buffer shim doesn't
+ * recognise the encoding name. Encode as plain base64 then translate
+ * to the URL-safe alphabet by hand; the result is byte-identical to
+ * a Node base64url string.
  */
 import { randomBytes, createHash } from 'node:crypto'
 
@@ -18,9 +26,8 @@ export interface GeneratedToken {
 }
 
 export function generateToken(): GeneratedToken {
-  // 32 bytes → 43-character base64url string (no padding).
-  const bytes = randomBytes(32)
-  const random = bytes.toString('base64url')
+  // 32 bytes → 43 chars of URL-safe base64 (no padding).
+  const random = toBase64Url(randomBytes(32))
   const plain = `amk_${random}`
   return {
     plain,
@@ -31,4 +38,12 @@ export function generateToken(): GeneratedToken {
 
 export function hashToken(plain: string): string {
   return createHash('sha256').update(plain).digest('hex')
+}
+
+function toBase64Url(bytes: Buffer): string {
+  return bytes
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
 }
