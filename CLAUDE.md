@@ -50,6 +50,15 @@ pnpm changeset        # Create a changeset for versioning
 - Content is stored as Portable Text (structured JSON)
 - Plugin trust levels: untrusted / trusted / privileged (see ARCHITECTURE.md §4)
 
+## Changeset Policy
+
+- **Every PR that touches a published package needs a changeset** in `.changeset/`, including doc-only edits to that package's README (the README ships in the npm tarball, so a republish is needed for users to see the update).
+- Use `pnpm changeset` to scaffold one, or hand-write a file like `.changeset/<slug>.md` with the frontmatter `"<package>": patch | minor | major`.
+- Bump rule of thumb: `patch` for docs / bug fixes, `minor` for additive features, `major` for breaking API changes (pre-1.0 we still bump `minor` for breakage but call it out in the body).
+- Multi-package PRs list every affected package in the same changeset frontmatter.
+- Pure repo-level changes (root `README.md`, CI config, `CLAUDE.md`, top-level `docs/`) don't need a changeset — they don't ship in any tarball.
+- The Version Packages bot opens the release PR from accumulated changesets; merging it triggers the npm publish workflow. Forgetting a changeset means the fix never reaches users.
+
 ## Documentation Language Policy
 
 - **Primary language for `*.md` is English.** New documentation should be authored in English at `name.md`.
