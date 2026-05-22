@@ -1,7 +1,11 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { a, defineData, type ClientSchema } from '@aws-amplify/backend'
-import { amplessSchemaModels, defaultAuthorizationModes } from '@ampless/backend'
+import {
+  amplessSchemaModels,
+  amplessSchemaAuthorization,
+  defaultAuthorizationModes,
+} from '@ampless/backend'
 import { userAdmin } from '../functions/user-admin/resource.js'
 import { mcpHandler } from '../functions/mcp-handler/resource.js'
 import { customSchemaModels } from './resource.custom.js'
@@ -27,18 +31,22 @@ const resolverPaths = {
   listPostsByTag: resolve(__dirname, 'list-posts-by-tag.js'),
 }
 
-const schema = a.schema({
-  ...amplessSchemaModels(a, {
-    resolverPaths,
-    userAdminFunction: userAdmin,
-    // Grants the MCP Lambda IAM auth on Post / PostTag so the HTTP
-    // transport can dispatch the post CRUD tools without sharing a
-    // Cognito identity or API key. See `@ampless/backend` data/index.ts
-    // for the exact authorization clause.
+const schema = a
+  .schema({
+    ...amplessSchemaModels(a, {
+      resolverPaths,
+      userAdminFunction: userAdmin,
+    }),
+    ...customSchemaModels(a),
+  })
+  // Schema-level `.authorization()` is the only place resource auth is
+  // honoured in `@aws-amplify/data-schema` — model-level callbacks have
+  // `resource` destructured out of `allow`. The helper returns an empty
+  // array when no Lambda refs are supplied, so the schema stays
+  // unaffected if MCP is later removed.
+  .authorization((allow) => amplessSchemaAuthorization(allow, {
     mcpHandlerFunction: mcpHandler,
-  }),
-  ...customSchemaModels(a),
-})
+  }))
 
 export type Schema = ClientSchema<typeof schema>
 export const data = defineData({

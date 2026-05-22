@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   amplessSchemaModels,
+  amplessSchemaAuthorization,
   defaultAuthorizationModes,
   DEFAULT_RESOLVER_PATHS,
 } from './index.js'
@@ -118,36 +119,43 @@ describe('amplessSchemaModels', () => {
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.getPublishedPost)
   })
 
-  it('does not wire allow.resource by default', () => {
+  it('never calls allow.resource at the model level (resource auth lives at schema scope)', () => {
     const { a, calls } = makeFakeBuilder()
     amplessSchemaModels(a)
     const resourceCalls = calls.filter((c) => c.method === 'resource')
     expect(resourceCalls).toHaveLength(0)
   })
+})
 
-  it('wires allow.resource on Post + PostTag when mcpHandlerFunction is supplied', () => {
-    const { a, calls } = makeFakeBuilder()
-    const fakeFn = { __fakeFn: true }
-    amplessSchemaModels(a, { mcpHandlerFunction: fakeFn })
-    // Each allow.resource(fn).to(['query', 'mutate']) chain records two
-    // calls: `resource(fn)` and `to(['query','mutate'])`. We expect two
-    // resource calls — one for Post, one for PostTag.
-    const resourceCalls = calls.filter((c) => c.method === 'resource')
-    expect(resourceCalls).toHaveLength(2)
-    for (const call of resourceCalls) {
-      expect(call.args[0]).toBe(fakeFn)
+describe('amplessSchemaAuthorization', () => {
+  it('returns an empty array when no Lambda function refs are supplied', () => {
+    const allow = {
+      resource: () => ({ to: () => 'unused' }),
     }
-    const toCalls = calls.filter(
-      (c) => c.method === 'to' && Array.isArray(c.args[0]) && (c.args[0] as string[]).includes('query')
-    )
-    // We can't easily distinguish the resource-bound `to` from the
-    // public-resolver `to`, but at minimum the [query, mutate] tuple
-    // should show up twice for the two resource grants.
-    const queryMutateTos = toCalls.filter((c) => {
-      const ops = c.args[0] as string[]
-      return ops.length === 2 && ops.includes('query') && ops.includes('mutate')
-    })
-    expect(queryMutateTos.length).toBeGreaterThanOrEqual(2)
+    expect(amplessSchemaAuthorization(allow, {})).toEqual([])
+    expect(amplessSchemaAuthorization(allow)).toEqual([])
+  })
+
+  it('produces allow.resource(fn).to(["query", "mutate"]) when mcpHandlerFunction is supplied', () => {
+    const fakeFn = { __fakeFn: true }
+    const seen: { resourceArg: unknown; toArg: unknown }[] = []
+    const allow = {
+      resource(arg: unknown) {
+        const entry = { resourceArg: arg, toArg: undefined as unknown }
+        seen.push(entry)
+        return {
+          to(ops: unknown) {
+            entry.toArg = ops
+            return 'rule'
+          },
+        }
+      },
+    }
+    const rules = amplessSchemaAuthorization(allow, { mcpHandlerFunction: fakeFn })
+    expect(rules).toEqual(['rule'])
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.resourceArg).toBe(fakeFn)
+    expect(seen[0]!.toArg).toEqual(['query', 'mutate'])
   })
 })
 

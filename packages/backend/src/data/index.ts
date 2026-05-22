@@ -54,22 +54,6 @@ export interface AmplessSchemaModelsOpts {
    * pattern as `AmplessAuthConfigOpts.postConfirmation`.
    */
   userAdminFunction?: unknown
-  /**
-   * Optional Amplify `defineFunction` ref backing the MCP HTTP Lambda.
-   * When supplied, the Post and PostTag models gain an `allow.resource(...)`
-   * authorization clause granting the Lambda `query` + `mutate` access
-   * via AppSync IAM auth. The existing group-based clauses stay intact —
-   * this just adds a second principal so the Lambda can dispatch tool
-   * calls under its own scoped role, with no Cognito identity or
-   * shared API key involved.
-   *
-   * Phase 4 covers Post + PostTag only (the read/write surface for the
-   * post CRUD tools). Media gets the same treatment in Phase 5 once
-   * the presigned-PUT upload flow lands.
-   *
-   * Typed as `unknown` for the same reason as `userAdminFunction`.
-   */
-  mcpHandlerFunction?: unknown
 }
 
 /**
@@ -142,16 +126,17 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       // §"editor の信頼モデル". Do not grant editor to anyone you wouldn't
       // also trust as admin.
       //
-      // When opts.mcpHandlerFunction is supplied, the MCP HTTP Lambda
-      // also gets query + mutate access via IAM (AppSync `AWS_IAM`
-      // auth mode). The grant is per-Lambda — only this specific
-      // function ref can sign requests AppSync will accept.
+      // Lambda resource auth (e.g. the MCP HTTP handler) is granted at
+      // the schema level in the user's `amplify/data/resource.ts` via
+      // `amplessSchemaAuthorization(allow, { mcpHandlerFunction })`.
+      // Resource auth is currently only supported at schema scope in
+      // `@aws-amplify/data-schema` (see `accessSchemaData` /
+      // `extractFunctionSchemaAccess` in SchemaProcessor) — model-level
+      // `.authorization` callbacks have `resource` destructured out of
+      // their `allow` parameter, so this clause stays group-only.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
-        ...(opts.mcpHandlerFunction
-          ? [allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate'])]
-          : []),
       ]),
 
     Page: a
@@ -223,15 +208,11 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         tags: a.string().array(),
       })
       .identifier(['siteIdTag', 'publishedAtPostId'])
-      // Same MCP-handler IAM grant as Post — create / update / delete
-      // post tools maintain the PostTag denormalization, so the Lambda
-      // needs query + mutate here too.
+      // Lambda resource auth covered at schema scope — see Post for the
+      // explanation.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
-        ...(opts.mcpHandlerFunction
-          ? [allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate'])]
-          : []),
       ]),
 
     // Generic key/value store. Two roles in one table:
@@ -406,6 +387,53 @@ export function extendAmplessSchema(a: any, custom?: Record<string, any>, opts?:
     ...amplessSchemaModels(a, opts),
     ...(custom ?? {}),
   })
+}
+
+export interface AmplessSchemaAuthorizationOpts {
+  /**
+   * Optional Amplify `defineFunction` ref for the MCP HTTP handler.
+   * When supplied, the schema gains `allow.resource(fn).to(['query',
+   * 'mutate'])` so the Lambda can sign AppSync requests with SigV4
+   * under its own IAM role (no Cognito identity / shared API key).
+   *
+   * Resource auth is currently only honoured at schema scope by
+   * `@aws-amplify/data-schema` (model-level `.authorization` callbacks
+   * destructure `resource` out of their `allow` parameter), so this
+   * grant applies broadly — every model the Lambda calls is reachable.
+   * That's wider than strictly necessary; the MCP tools' GraphQL
+   * operations narrow the effective surface to Post / PostTag in
+   * Phase 4 and Media in Phase 5.
+   *
+   * Typed as `unknown` for the same reason `userAdminFunction` /
+   * `mcpHandlerFunction` are in other helpers — `defineFunction`'s
+   * return type carries internal pnpm paths that don't survive
+   * declaration emit.
+   */
+  mcpHandlerFunction?: unknown
+}
+
+/**
+ * Schema-level authorization rules for ampless. Pass the result into
+ * `a.schema({...}).authorization((allow) => [...])` in the user's
+ * `amplify/data/resource.ts`. When no Lambda function refs are
+ * supplied the function returns `[]`, so the schema stays unaffected.
+ *
+ * Usage:
+ *
+ *     const schema = a.schema({
+ *       ...amplessSchemaModels(a, { resolverPaths, userAdminFunction }),
+ *       ...customSchemaModels(a),
+ *     }).authorization((allow) => amplessSchemaAuthorization(allow, {
+ *       mcpHandlerFunction: mcpHandler,
+ *     }))
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function amplessSchemaAuthorization(allow: any, opts: AmplessSchemaAuthorizationOpts = {}): unknown[] {
+  const rules: unknown[] = []
+  if (opts.mcpHandlerFunction) {
+    rules.push(allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate']))
+  }
+  return rules
 }
 
 /**

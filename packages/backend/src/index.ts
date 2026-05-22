@@ -48,11 +48,13 @@ export { amplessStorageConfig } from './storage/index.js'
 
 export {
   amplessSchemaModels,
+  amplessSchemaAuthorization,
   extendAmplessSchema,
   defaultAuthorizationModes,
   DEFAULT_RESOLVER_PATHS,
 } from './data/index.js'
 export type {
   AmplessSchemaModelsOpts,
+  AmplessSchemaAuthorizationOpts,
   AmplessResolverPaths,
 } from './data/index.js'
