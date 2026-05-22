@@ -219,6 +219,18 @@
       "lightboxTitle": "強制的にクリックで拡大",
       "alt": "代替",
       "delete": "削除"
+    },
+    "table": {
+      "title": "テーブル",
+      "insert": "テーブルを挿入 (3×3)",
+      "addRowBefore": "上に行を追加",
+      "addRowAfter": "下に行を追加",
+      "addColumnBefore": "左に列を追加",
+      "addColumnAfter": "右に列を追加",
+      "deleteRow": "行を削除",
+      "deleteColumn": "列を削除",
+      "toggleHeaderRow": "ヘッダー行を切替",
+      "deleteTable": "テーブルを削除"
     }
   },
   "auth": {
