@@ -1,5 +1,117 @@
 # ampless
 
+## 1.0.0-alpha.9
+
+### Major Changes
+
+- af1f9b0: Remove `siteId` from the AppSync data schema entirely.
+
+  The previous multi-site drop kept the column as `'default'` for
+  forward-compat. With this change, the field, identifier composite,
+  GSI key composition (siteIdStatus, siteIdSlug, siteIdTag), and
+  every consumer-side reference are gone.
+
+  **Breaking — destructive for existing deployments.** Amplify will
+  recreate the affected DynamoDB tables (Post, Page, Media, Taxonomy,
+  PostTag) on next sandbox / production deploy because the identifier
+  schema changes. **Existing post / media / page data will be lost.**
+  This is acceptable in v0.2 alpha (no production users yet).
+
+  What changed in the schema:
+  - Post: identifier `[postId]`, GSI `byStatus` (status, publishedAt)
+    and `bySlug` (slug)
+  - Page / Media / Taxonomy: identifier dropped to just the resource
+    id (`pageId` / `mediaId` / `termId`)
+  - PostTag: identifier `[tag, publishedAtPostId]`
+  - Custom queries (`listPublishedPosts`, `getPublishedPost`,
+    `listPostsByTag`) lose their `siteId` argument
+  - JS resolvers in `templates/_shared/amplify/data/*.js` rewritten to
+    query without the site partition prefix
+
+  Code-side changes:
+  - `ampless` no longer exports `DEFAULT_SITE_ID`,
+    `composeSiteIdStatus`, `composeSiteIdSlug` (file `sites.ts`
+    removed)
+  - `Post`, `Page`, `Media` types no longer carry `siteId`
+  - `ToolContext.defaultSiteId` removed from the MCP tool registry —
+    tools' args no longer thread a site id at all
+  - `loadSiteSettings()` / `loadThemeConfig()` lose the (already
+    optional) `siteId` parameter
+  - Admin page factories drop the `defaultSiteId` plumbing
+  - `processor-trusted` partition keys simplify from
+    `${siteId}#published` to a single `published` query
+  - KvStore `siteconfig` PK is now a constant (no `:siteId` suffix);
+    the S3 site-settings cache moves to `public/site-settings.json`
+
+  Migration:
+  1. On the next deploy (sandbox or production), Amplify will detect
+     the identifier change and recreate the tables. **Back up
+     anything you care about first.** For sandbox-only data, just let
+     it rebuild.
+  2. Re-create your initial admin account after the redeploy if
+     Cognito user data was tied to the wiped tables.
+
+  The retained `siteId` schema column is the last piece of the
+  multi-site removal that started in the previous commit on this
+  branch.
+
+### Minor Changes
+
+- af1f9b0: Drop in-deploy multi-site support. Single Amplify deployment = single site.
+
+  Why: Amplify Hosting's CloudFront cache key doesn't include Host, so
+  multi-site mode had to force `Cache-Control: private, no-store`,
+  killing edge caching for the most common (read) path. The
+  operator-facing cost (deploy separately per site, which everyone was
+  already doing) was lower than the perf cost. Single-site lets
+  CloudFront cache work out of the box.
+
+  Schema retains the `siteId` column on Post / Media / etc. as
+  `'default'`-only — no data migration needed for existing deployments.
+  A future re-introduction of multi-site (if ever) would be opt-in and
+  require explicit CloudFront cache-key configuration.
+
+  What's removed (consumer-visible):
+  - `cms.config.sites: {...}` map → gone. Only `cms.config.site: {...}`
+    (singular) is supported. Existing projects: remove the `sites:` block
+    from `cms.config.ts`; the `site:` block is unchanged.
+  - `Config.sites` and `SiteConfig` types removed from `ampless`. So are
+    the `resolveSiteId`, `isMultiSite`, `siteFor` helpers.
+  - `<SiteSelector>` admin UI component, `/admin/sites/` list page,
+    `admin-site-client.ts` cookie helpers (`ADMIN_SITE_COOKIE`,
+    `readAdminSiteIdFromCookie`, `setAdminCmsConfig`).
+  - `admin.currentAdminSiteId()` / `admin.adminSiteOptions()` removed
+    from the `Admin` shape.
+  - `loadSiteSettings(siteId)` / `loadThemeConfig(siteId)` — `siteId` arg
+    is still accepted for API stability but ignored (always `'default'`).
+  - `createAmplessMiddleware` no longer reads `cmsConfig.sites` for
+    host routing and no longer forces `Cache-Control: private, no-store`.
+  - MCP tools: the `siteId` argument is no longer advertised in tool
+    schemas (LLM clients pass post args directly). Internal default-fallback
+    is retained so older clients passing `siteId` still work.
+
+  What's NOT changing yet (deferred to follow-up PRs):
+  - URL structure — internal `/site/[siteId]/` (always `default`) is
+    still in the routing tree. A follow-up flattens this to `/`-rooted
+    paths.
+  - Cache-Control strategy — current responses are still mostly uncached.
+    A follow-up introduces a cooldown-based CloudFront cache policy.
+
+  Migration for existing deployments:
+  1. Run `npm run update-ampless` to pull the new templates / `cms.config.ts`.
+  2. Edit `cms.config.ts`: remove any `sites: { ... }` block. Keep
+     `site: { name, url, description }` as-is.
+  3. Delete obsolete shim files if present: `lib/admin-site.ts`,
+     `lib/admin-site-client.ts`. The `update-ampless` cleanup pass
+     removes the retired admin route at `app/(admin)/admin/sites/page.tsx`
+     automatically; the `lib/` shims live outside the managed path so
+     they need to be deleted by hand.
+  4. `git commit && git push` to redeploy.
+
+  Existing data (Post / Media / etc.) is unaffected — the rows already
+  all have `siteId: 'default'`. The `siteId` column stays in the schema
+  as a forward-compat hook.
+
 ## 0.2.0-alpha.8
 
 ### Minor Changes
