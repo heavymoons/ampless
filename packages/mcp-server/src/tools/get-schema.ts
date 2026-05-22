@@ -27,6 +27,11 @@ export function getSchema() {
           status: { type: 'enum', values: ['draft', 'published'], default: 'draft' },
           publishedAt: { type: 'datetime', description: 'ISO 8601' },
           tags: { type: 'string[]' },
+          metadata: {
+            type: 'json',
+            description:
+              'Free-form per-post key/value bag. Reserved well-known keys (owned by ampless): `no_layout` (boolean). Other keys pass through unchanged for themes/plugins.',
+          },
         },
       },
       {
@@ -62,6 +67,10 @@ export function getSchema() {
         'editor stores arbitrary HTML/JS verbatim — same trust shape as WordPress unfiltered_html capability. See docs/architecture/04-access-layer-mcp.md §"editor の信頼モデル".',
       tiptapBody:
         'When format=tiptap, body is the tiptap document JSON: { type: "doc", content: [...] }. The renderer expects this shape.',
+      noLayout:
+        'metadata.no_layout=true serves the post as bare HTML with no theme chrome — the public route at /<slug> 302-redirects to /raw/<slug>, and that route renders the body verbatim with no wrapping <html>/<head>/layout. Use this for landing pages, embeds, or any post whose body is a full HTML document. Only meaningful with format=html (the other formats need the theme renderer).',
+      staticFormat:
+        'A fourth format value `static` exists on the underlying data model for posts whose body is a JSON manifest pointing to a pre-uploaded HTML/CSS/JS bundle in S3 at public/static/<siteId>/<slug>/. Static uploads currently only flow through the admin UI; the MCP `upload_media` tool writes to public/media/ and does not handle static bundles. Use the admin StaticUploader for now.',
     },
   }
 }
