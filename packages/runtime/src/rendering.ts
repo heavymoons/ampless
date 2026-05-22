@@ -1,4 +1,5 @@
 import type { Post } from 'ampless'
+import { marked } from 'marked'
 
 // NOTE: editor は信頼された主体として扱う設計のため、本ファイルでは
 // 投稿本文に含まれる HTML / JavaScript を**意図的にサニタイズしない**。
@@ -23,6 +24,16 @@ interface TiptapNode {
   attrs?: Record<string, unknown>
 }
 
+// textAlign の正当値だけ通すホワイトリスト。任意の attr 値を style に
+// そのまま流すと壊れた CSS が混入しうるため。
+function textAlignStyle(attrs: Record<string, unknown> | undefined): string {
+  const v = attrs?.textAlign
+  if (v === 'left' || v === 'center' || v === 'right' || v === 'justify') {
+    return ` style="text-align: ${v}"`
+  }
+  return ''
+}
+
 function renderTiptap(node: TiptapNode): string {
   if (node.type === 'text') {
     let html = escape(node.text ?? '')
@@ -31,6 +42,8 @@ function renderTiptap(node: TiptapNode): string {
       else if (mark.type === 'italic') html = `<em>${html}</em>`
       else if (mark.type === 'code') html = `<code>${html}</code>`
       else if (mark.type === 'strike') html = `<s>${html}</s>`
+      else if (mark.type === 'underline') html = `<u>${html}</u>`
+      else if (mark.type === 'highlight') html = `<mark>${html}</mark>`
       else if (mark.type === 'link') {
         const href = escape(String(mark.attrs?.href ?? '#'))
         html = `<a href="${href}" target="_blank" rel="noopener">${html}</a>`
@@ -45,10 +58,10 @@ function renderTiptap(node: TiptapNode): string {
     case 'doc':
       return children
     case 'paragraph':
-      return `<p>${children}</p>`
+      return `<p${textAlignStyle(node.attrs)}>${children}</p>`
     case 'heading': {
       const level = Number(node.attrs?.level ?? 1)
-      return `<h${level}>${children}</h${level}>`
+      return `<h${level}${textAlignStyle(node.attrs)}>${children}</h${level}>`
     }
     case 'bulletList':
       return `<ul>${children}</ul>`
@@ -75,58 +88,44 @@ function renderTiptap(node: TiptapNode): string {
         : ''
       return `<img src="${src}" alt="${alt}"${title}${display} loading="lazy" />`
     }
+    case 'table':
+      return `<table class="tiptap-table"><tbody>${children}</tbody></table>`
+    case 'tableRow':
+      return `<tr>${children}</tr>`
+    case 'tableHeader':
+      return `<th${tableCellAttrs(node.attrs)}>${children}</th>`
+    case 'tableCell':
+      return `<td${tableCellAttrs(node.attrs)}>${children}</td>`
+    case 'taskList':
+      return `<ul data-type="taskList">${children}</ul>`
+    case 'taskItem': {
+      const checked = node.attrs?.checked === true ? 'true' : 'false'
+      return `<li data-type="taskItem" data-checked="${checked}">${children}</li>`
+    }
     default:
       return children
   }
 }
 
-function renderMarkdown(md: string): string {
-  const lines = md.split('\n')
-  const out: string[] = []
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i] ?? ''
-    if (line.startsWith('# ')) {
-      out.push(`<h1>${escape(line.slice(2))}</h1>`)
-      i++
-    } else if (line.startsWith('## ')) {
-      out.push(`<h2>${escape(line.slice(3))}</h2>`)
-      i++
-    } else if (line.startsWith('```')) {
-      const lang = line.slice(3).trim()
-      const code: string[] = []
-      i++
-      while (i < lines.length && !(lines[i] ?? '').startsWith('```')) {
-        code.push(lines[i] ?? '')
-        i++
-      }
-      i++
-      out.push(
-        `<pre><code${lang ? ` class="language-${escape(lang)}"` : ''}>${escape(code.join('\n'))}</code></pre>`
-      )
-    } else if (line.startsWith('- ')) {
-      const items: string[] = []
-      while (i < lines.length && (lines[i] ?? '').startsWith('- ')) {
-        items.push(`<li>${renderInlineMarkdown((lines[i] ?? '').slice(2))}</li>`)
-        i++
-      }
-      out.push(`<ul>${items.join('')}</ul>`)
-    } else if (line.trim() === '') {
-      i++
-    } else {
-      out.push(`<p>${renderInlineMarkdown(line)}</p>`)
-      i++
-    }
+function tableCellAttrs(attrs: Record<string, unknown> | undefined): string {
+  let out = ''
+  const colspan = Number(attrs?.colspan ?? 1)
+  if (colspan > 1) out += ` colspan="${colspan}"`
+  const rowspan = Number(attrs?.rowspan ?? 1)
+  if (rowspan > 1) out += ` rowspan="${rowspan}"`
+  const colwidth = attrs?.colwidth
+  if (Array.isArray(colwidth) && colwidth.length > 0) {
+    const w = Number(colwidth[0])
+    if (Number.isFinite(w) && w > 0) out += ` style="width: ${w}px"`
   }
-  return out.join('\n')
+  return out
 }
 
-function renderInlineMarkdown(text: string): string {
-  return text
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+function renderMarkdown(md: string): string {
+  // marked v14: parse は async: false で同期実行できるが、型は
+  // `string | Promise<string>` を返すため as string でキャストする。
+  // sanitize は v14 で廃止。出力は信頼境界として扱う既存方針を維持。
+  return marked.parse(md, { gfm: true, breaks: false, async: false }) as string
 }
 
 export function renderBody(post: Post): string {
@@ -138,7 +137,7 @@ export function renderBody(post: Post): string {
   if (post.format === 'tiptap') {
     // Defensive: a tiptap-formatted post may have its body persisted
     // as a raw HTML string if the admin saved straight after a
-    // format-switch sequence (markdown → tiptap → save without
+    // format-switch sequence (markdown -> tiptap -> save without
     // editing). Treat string bodies as already-rendered HTML rather
     // than crashing into empty output.
     if (typeof post.body === 'string') return post.body
@@ -150,7 +149,7 @@ export function renderBody(post: Post): string {
 // --- Format converters ---
 //
 // Used by the admin post form to preserve the user's work when they
-// switch format mid-edit. Round-trips are best-effort: tiptap → html
+// switch format mid-edit. Round-trips are best-effort: tiptap -> html
 // is exact, the others approximate. Tables, complex inline marks,
 // and tiptap-specific attributes (image display modes etc.) may not
 // survive a markdown trip.
@@ -159,7 +158,7 @@ export function renderBody(post: Post): string {
  * Convert a tiptap doc to its HTML form. Same renderer the public
  * site uses. Defensive: tiptap accepts an HTML string as initial
  * content and parses it on mount, but won't fire onUpdate until the
- * user edits — so a format-switch chain (e.g. markdown → tiptap →
+ * user edits, so a format-switch chain (e.g. markdown -> tiptap ->
  * markdown without editing) can still hand us a raw HTML string
  * here. In that case, return it as-is rather than walking it as a
  * malformed tiptap node and producing empty output.
@@ -169,7 +168,7 @@ export function tiptapToHtml(doc: unknown): string {
   return renderTiptap(doc as TiptapNode)
 }
 
-/** Convert markdown to HTML using the built-in minimal renderer. */
+/** Convert markdown to HTML using marked + GFM. */
 export function markdownToHtml(md: string): string {
   return renderMarkdown(md)
 }
@@ -178,6 +177,12 @@ export function markdownToHtml(md: string): string {
  * Walk a tiptap doc and emit Markdown. Mirrors `renderTiptap` in
  * shape but produces markdown syntax. Loses anything markdown can't
  * express (data attributes, image display modes, custom marks).
+ *
+ * Notes on info loss:
+ * - underline / highlight are not in GFM, so they fall back to the
+ *   literal `<u>` / `<mark>` HTML tags (preserved as-is across round trips).
+ * - paragraph / heading textAlign cannot be expressed in markdown and
+ *   is therefore lost on conversion.
  *
  * Same defensive path as tiptapToHtml: a string input means tiptap
  * hasn't emitted JSON yet (the body is still the HTML we handed it).
@@ -197,6 +202,8 @@ function tiptapNodeToMarkdown(node: TiptapNode): string {
       else if (mark.type === 'italic') txt = `*${txt}*`
       else if (mark.type === 'code') txt = `\`${txt}\``
       else if (mark.type === 'strike') txt = `~~${txt}~~`
+      else if (mark.type === 'underline') txt = `<u>${txt}</u>`
+      else if (mark.type === 'highlight') txt = `<mark>${txt}</mark>`
       else if (mark.type === 'link') txt = `[${txt}](${String(mark.attrs?.href ?? '#')})`
     }
     return txt
@@ -240,25 +247,75 @@ function tiptapNodeToMarkdown(node: TiptapNode): string {
       const alt = String(node.attrs?.alt ?? '')
       return `![${alt}](${src})`
     }
+    case 'table':
+      return tiptapTableToMarkdown(node)
+    case 'taskList':
+      return children + '\n'
+    case 'taskItem': {
+      const checked = node.attrs?.checked === true ? 'x' : ' '
+      // child は通常 paragraph 等を含むので末尾改行を落とし、複数行は2スペースインデント。
+      const inner = children.replace(/\n+$/, '')
+      const [first, ...rest] = inner.split('\n')
+      const cont = rest.map((l) => (l ? '  ' + l : l)).join('\n')
+      return `- [${checked}] ${first ?? ''}${cont ? '\n' + cont : ''}\n`
+    }
     default:
       return children
   }
 }
 
+function tiptapTableToMarkdown(node: TiptapNode): string {
+  const rows = node.content ?? []
+  if (rows.length === 0) return ''
+  const renderedRows: string[][] = []
+  let headerIdx = -1
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!
+    const cells = row.content ?? []
+    const cellTexts = cells.map((c) => {
+      const inner = (c.content ?? []).map(tiptapNodeToMarkdown).join('')
+      // セル内の改行は GFM 慣行に従い <br> に置換、パイプはエスケープ。
+      return inner.replace(/\n+$/, '').replace(/\n/g, '<br>').replace(/\|/g, '\\|')
+    })
+    renderedRows.push(cellTexts)
+    if (headerIdx === -1 && cells.some((c) => c.type === 'tableHeader')) headerIdx = i
+  }
+  // GFM はヘッダー行必須。tableHeader を含む行がなければ最初の行をヘッダー扱い。
+  if (headerIdx === -1) headerIdx = 0
+  const header = renderedRows[headerIdx] ?? []
+  const body = renderedRows.filter((_, i) => i !== headerIdx)
+  const cols = header.length
+  const headerLine = '| ' + header.join(' | ') + ' |'
+  const sepLine = '| ' + Array.from({ length: cols }, () => '---').join(' | ') + ' |'
+  const bodyLines = body.map((r) => {
+    const cells = Array.from({ length: cols }, (_, i) => r[i] ?? '')
+    return '| ' + cells.join(' | ') + ' |'
+  })
+  return '\n' + [headerLine, sepLine, ...bodyLines].join('\n') + '\n\n'
+}
+
 /**
- * Regex-based HTML → Markdown converter. Handles the tag set the
+ * Regex-based HTML -> Markdown converter. Handles the tag set the
  * editor produces (`<p>` `<h1>`-`<h6>` `<strong>` `<em>` `<a>`
  * `<img>` `<ul>` `<ol>` `<li>` `<code>` `<pre>` `<blockquote>` `<hr>`
- * `<br>`). Anything else (tables, sections, divs) keeps its content
- * but loses structural meaning.
+ * `<br>` `<u>` `<mark>` `<table>` task-list `<ul data-type="taskList">`).
+ * Decorative containers like `<div style="text-align:...">` are dropped.
  *
- * Not a full library — there are known limits like nested formatting
+ * Tables are reduced to GFM pipe syntax via convertHtmlTable. Complex
+ * nested content inside cells (lists, other tables) is flattened to
+ * plain text.
+ *
+ * Not a full library, there are known limits like nested formatting
  * inside list items potentially merging. Acceptable for a v0.x
  * format-switch convenience; complex HTML round-trips shouldn't be
  * relied on.
  */
 export function htmlToMarkdown(html: string): string {
   let md = html
+  // table は他の置換より先に処理する（中に <tr> <td> 等を含むため）。
+  md = md.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_, inner) => {
+    return '\n' + convertHtmlTable(String(inner)) + '\n'
+  })
   md = md.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, text) => {
     return '\n' + '#'.repeat(Number(level)) + ' ' + String(text).trim() + '\n\n'
   })
@@ -278,6 +335,10 @@ export function htmlToMarkdown(html: string): string {
         .join('\n') +
       '\n\n'
     )
+  })
+  // taskList (data-type="taskList" を持つ ul) を先に処理して通常 ul と区別する。
+  md = md.replace(/<ul[^>]*data-type="taskList"[^>]*>([\s\S]*?)<\/ul>/gi, (_, items) => {
+    return '\n' + convertHtmlTaskList(String(items)) + '\n'
   })
   md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, items) => {
     return '\n' + String(items).replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n') + '\n'
@@ -301,7 +362,21 @@ export function htmlToMarkdown(html: string): string {
   md = md.replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, '*$2*')
   md = md.replace(/<s>([\s\S]*?)<\/s>/gi, '~~$1~~')
   md = md.replace(/<code>([\s\S]*?)<\/code>/gi, '`$1`')
+  // u / mark は GFM 非対応のため HTML タグのまま残す（フォールバック）。
+  // 後段の `<\/?[^>]+>` 一掃で消えないよう、衝突しにくいプレースホルダに
+  // 一旦置換してから復元する。
+  const PH_U_OPEN = 'AMP_U_OPEN'
+  const PH_U_CLOSE = 'AMP_U_CLOSE'
+  const PH_MARK_OPEN = 'AMP_MARK_OPEN'
+  const PH_MARK_CLOSE = 'AMP_MARK_CLOSE'
+  md = md.replace(/<u>([\s\S]*?)<\/u>/gi, `${PH_U_OPEN}$1${PH_U_CLOSE}`)
+  md = md.replace(/<mark>([\s\S]*?)<\/mark>/gi, `${PH_MARK_OPEN}$1${PH_MARK_CLOSE}`)
   md = md.replace(/<\/?[^>]+>/g, '')
+  md = md
+    .split(PH_U_OPEN).join('<u>')
+    .split(PH_U_CLOSE).join('</u>')
+    .split(PH_MARK_OPEN).join('<mark>')
+    .split(PH_MARK_CLOSE).join('</mark>')
   md = md
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -311,4 +386,64 @@ export function htmlToMarkdown(html: string): string {
     .replace(/&nbsp;/g, ' ')
   md = md.replace(/\n{3,}/g, '\n\n')
   return md.trim() + '\n'
+}
+
+function convertHtmlTable(inner: string): string {
+  // thead / tbody は剥がすだけ。
+  const stripped = inner.replace(/<\/?(thead|tbody)[^>]*>/gi, '')
+  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+  const rows: { isHeader: boolean; cells: string[] }[] = []
+  let m: RegExpExecArray | null
+  while ((m = rowRe.exec(stripped)) !== null) {
+    const rowHtml = m[1] ?? ''
+    const cellRe = /<(th|td)[^>]*>([\s\S]*?)<\/\1>/gi
+    const cells: string[] = []
+    let isHeader = false
+    let cm: RegExpExecArray | null
+    while ((cm = cellRe.exec(rowHtml)) !== null) {
+      if ((cm[1] ?? '').toLowerCase() === 'th') isHeader = true
+      cells.push(normalizeTableCell(cm[2] ?? ''))
+    }
+    if (cells.length > 0) rows.push({ isHeader, cells })
+  }
+  if (rows.length === 0) return ''
+  let headerIdx = rows.findIndex((r) => r.isHeader)
+  if (headerIdx === -1) headerIdx = 0
+  const header = rows[headerIdx]!.cells
+  const body = rows.filter((_, i) => i !== headerIdx).map((r) => r.cells)
+  const cols = header.length
+  const headerLine = '| ' + header.join(' | ') + ' |'
+  const sepLine = '| ' + Array.from({ length: cols }, () => '---').join(' | ') + ' |'
+  const bodyLines = body.map((cells) => {
+    const padded = Array.from({ length: cols }, (_, i) => cells[i] ?? '')
+    return '| ' + padded.join(' | ') + ' |'
+  })
+  return [headerLine, sepLine, ...bodyLines].join('\n') + '\n'
+}
+
+function normalizeTableCell(html: string): string {
+  // セル内の <br> は半角スペース、その他のタグは除去して平文化する。
+  // 複雑なネスト（セル内のリスト・別テーブル等）は未対応。
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/?[^>]+>/g, '')
+    .replace(/\|/g, '\\|')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function convertHtmlTaskList(items: string): string {
+  // <ul data-type="taskList"> 配下の <li data-type="taskItem" data-checked="...">
+  // を `- [x]` / `- [ ]` に変換。
+  const liRe = /<li[^>]*data-checked="(true|false)"[^>]*>([\s\S]*?)<\/li>/gi
+  const out: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = liRe.exec(items)) !== null) {
+    const checked = m[1] === 'true' ? 'x' : ' '
+    // li の中身は通常 <p>...</p> でラップされる。p タグを剥がし、残り HTML は
+    // 呼び出し元（htmlToMarkdown）の後段で素朴な置換に任せる。
+    const inner = String(m[2] ?? '').replace(/<\/?p[^>]*>/gi, '').trim()
+    out.push(`- [${checked}] ${inner}`)
+  }
+  return out.join('\n')
 }

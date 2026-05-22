@@ -219,6 +219,18 @@
       "lightboxTitle": "Force click-to-enlarge",
       "alt": "Alt",
       "delete": "Delete"
+    },
+    "table": {
+      "title": "Table",
+      "insert": "Insert table (3×3)",
+      "addRowBefore": "Add row above",
+      "addRowAfter": "Add row below",
+      "addColumnBefore": "Add column before",
+      "addColumnAfter": "Add column after",
+      "deleteRow": "Delete row",
+      "deleteColumn": "Delete column",
+      "toggleHeaderRow": "Toggle header row",
+      "deleteTable": "Delete table"
     }
   },
   "auth": {
