@@ -36,15 +36,14 @@ function makeGraphql(getResult: unknown, mutateResult: unknown): {
 describe('commit_static_post', () => {
   it('rebuilds the manifest from the current S3 prefix and creates a new post', async () => {
     const storage = makeStorage([
-      { key: 'public/static/default/lp/index.html', size: 100 },
-      { key: 'public/static/default/lp/style.css', size: 20 },
-      { key: 'public/static/default/lp/img/photo.png', size: 5000 },
+      { key: 'public/static/lp/index.html', size: 100 },
+      { key: 'public/static/lp/style.css', size: 20 },
+      { key: 'public/static/lp/img/photo.png', size: 5000 },
     ])
     const { graphql, calls } = makeGraphql(
       { listPosts: { items: [] } },
       {
         createPost: {
-          siteId: 'default',
           postId: 'post-1',
           slug: 'lp',
           title: 'LP',
@@ -55,7 +54,7 @@ describe('commit_static_post', () => {
       },
     )
 
-    const result = await commitStaticPost(graphql, storage, 'default', {
+    const result = await commitStaticPost(graphql, storage, {
       slug: 'lp',
       title: 'LP',
     })
@@ -71,31 +70,30 @@ describe('commit_static_post', () => {
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      commitStaticPost(graphql, storage, 'default', { slug: 'lp', title: 'x' }),
+      commitStaticPost(graphql, storage, { slug: 'lp', title: 'x' }),
     ).rejects.toThrow(/no files/i)
   })
 
   it('refuses to create a brand-new post without a title', async () => {
     const storage = makeStorage([
-      { key: 'public/static/default/lp/index.html', size: 100 },
+      { key: 'public/static/lp/index.html', size: 100 },
     ])
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      commitStaticPost(graphql, storage, 'default', { slug: 'lp' }),
+      commitStaticPost(graphql, storage, { slug: 'lp' }),
     ).rejects.toThrow(/title/i)
   })
 
   it('updates an existing post and preserves its title when none is passed', async () => {
     const storage = makeStorage([
-      { key: 'public/static/default/lp/index.html', size: 100 },
+      { key: 'public/static/lp/index.html', size: 100 },
     ])
     const { graphql, calls } = makeGraphql(
       {
         listPosts: {
           items: [
             {
-              siteId: 'default',
               postId: 'post-existing',
               slug: 'lp',
               title: 'Existing',
@@ -108,7 +106,6 @@ describe('commit_static_post', () => {
       },
       {
         updatePost: {
-          siteId: 'default',
           postId: 'post-existing',
           slug: 'lp',
           title: 'Existing',
@@ -119,7 +116,7 @@ describe('commit_static_post', () => {
       },
     )
 
-    const result = await commitStaticPost(graphql, storage, 'default', {
+    const result = await commitStaticPost(graphql, storage, {
       slug: 'lp',
     })
 
@@ -130,12 +127,12 @@ describe('commit_static_post', () => {
 
   it('rejects an entrypoint that is not in the prefix', async () => {
     const storage = makeStorage([
-      { key: 'public/static/default/lp/index.html', size: 100 },
+      { key: 'public/static/lp/index.html', size: 100 },
     ])
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      commitStaticPost(graphql, storage, 'default', {
+      commitStaticPost(graphql, storage, {
         slug: 'lp',
         title: 'x',
         entrypoint: 'no-such-file.html',

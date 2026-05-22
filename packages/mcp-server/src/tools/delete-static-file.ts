@@ -2,7 +2,6 @@ import { bundlePrefix, validateBundlePath } from 'ampless'
 import type { StorageClient } from './types.js'
 
 export interface DeleteStaticFileArgs {
-  siteId?: string
   slug: string
   filename: string
 }
@@ -33,17 +32,14 @@ export const deleteStaticFileSchema = {
  */
 export async function deleteStaticFile(
   storage: StorageClient,
-  defaultSiteId: string,
   args: DeleteStaticFileArgs,
 ) {
-  const siteId = args.siteId ?? defaultSiteId
-
   const reason = validateBundlePath(args.filename)
   if (reason) {
     throw new Error(`delete_static_file: invalid filename "${args.filename}" (${reason})`)
   }
 
-  const prefix = bundlePrefix(siteId, args.slug)
+  const prefix = bundlePrefix(args.slug)
   const key = `${prefix}${args.filename}`
 
   // Probe existence so we can report `deleted: true / false` instead

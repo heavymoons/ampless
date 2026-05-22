@@ -11,18 +11,15 @@ import { SiteFooter } from '@/components/site-chrome/site-footer'
 // formal news list with prominent dates. Layout deliberately
 // understated — DADS leans on hierarchy and whitespace, not
 // decoration.
-export default async function DadsHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
+export default async function DadsHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
-    listPublishedPosts({ siteId, limit: 10 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
+    listPublishedPosts({ limit: 10 }),
   ])
 
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug
-    ? await getPublishedPost(featuredSlug, { siteId })
-    : null
+  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items

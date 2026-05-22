@@ -27,14 +27,14 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
 
-    const result = await uploadStaticFile(storage, 'default', {
+    const result = await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'img/logo.png',
       base64Data: data,
     })
 
     expect(puts).toHaveLength(1)
-    expect(puts[0]!.key).toBe('public/static/default/lp/img/logo.png')
+    expect(puts[0]!.key).toBe('public/static/lp/img/logo.png')
     expect(puts[0]!.contentType).toBe('image/png')
     expect(result.size).toBe(4)
   })
@@ -43,7 +43,7 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const data = Buffer.from('hello').toString('base64')
 
-    await uploadStaticFile(storage, 'default', {
+    await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'note.unknown',
       contentType: 'application/x-custom',
@@ -56,14 +56,14 @@ describe('upload_static_file', () => {
   it('rejects bad filenames (parent traversal, absolute paths)', async () => {
     const { storage } = makeStorage()
     await expect(
-      uploadStaticFile(storage, 'default', {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: '../etc/passwd',
         base64Data: Buffer.from('x').toString('base64'),
       }),
     ).rejects.toThrow(/parent-directory/i)
     await expect(
-      uploadStaticFile(storage, 'default', {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: '/abs',
         base64Data: Buffer.from('x').toString('base64'),
@@ -76,7 +76,7 @@ describe('upload_static_file', () => {
     const html = '<img src="/abs.png">'
 
     await expect(
-      uploadStaticFile(storage, 'default', {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: 'index.html',
         base64Data: Buffer.from(html).toString('base64'),
@@ -87,7 +87,7 @@ describe('upload_static_file', () => {
   it('rejects zero-byte uploads', async () => {
     const { storage } = makeStorage()
     await expect(
-      uploadStaticFile(storage, 'default', {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: 'index.html',
         base64Data: '',
@@ -99,7 +99,7 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const html = '<a href="other.html">x</a>'
 
-    const result = await uploadStaticFile(storage, 'default', {
+    const result = await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'about.html',
       base64Data: Buffer.from(html).toString('base64'),
@@ -107,6 +107,6 @@ describe('upload_static_file', () => {
 
     expect(puts).toHaveLength(1)
     expect(puts[0]!.contentType).toBe('text/html; charset=utf-8')
-    expect(result.key).toBe('public/static/default/lp/about.html')
+    expect(result.key).toBe('public/static/lp/about.html')
   })
 })

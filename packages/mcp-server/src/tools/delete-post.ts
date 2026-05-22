@@ -5,7 +5,6 @@ import { getPost } from './get-post.js'
 const MUTATION = /* GraphQL */ `
   mutation DeletePost($input: DeletePostInput!) {
     deletePost(input: $input) {
-      siteId
       postId
     }
   }
@@ -13,7 +12,6 @@ const MUTATION = /* GraphQL */ `
 
 export interface DeletePostArgs {
   postId: string
-  siteId?: string
 }
 
 export const deletePostSchema = {
@@ -26,20 +24,17 @@ export const deletePostSchema = {
 
 export async function deletePost(
   client: GraphqlClient,
-  defaultSiteId: string,
   args: DeletePostArgs
-): Promise<{ deleted: { siteId: string; postId: string } }> {
-  const siteId = args.siteId ?? defaultSiteId
-
-  const oldPost = await getPost(client, defaultSiteId, { postId: args.postId, siteId })
+): Promise<{ deleted: { postId: string } }> {
+  const oldPost = await getPost(client, { postId: args.postId })
   if (oldPost) {
     // Drop PostTag entries before the post itself disappears.
     await syncPostTags(client, { ...oldPost, status: 'draft' }, oldPost)
   }
 
   const data = await client.query<{
-    deletePost: { siteId: string; postId: string }
-  }>(MUTATION, { input: { siteId, postId: args.postId } })
+    deletePost: { postId: string }
+  }>(MUTATION, { input: { postId: args.postId } })
 
   return { deleted: data.deletePost }
 }

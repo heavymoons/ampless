@@ -17,21 +17,21 @@ import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
 export async function generatePostMetadata({ params }: PostCtx): Promise<Metadata> {
-  const { siteId, slug } = await params
-  const post = await getPublishedPost(slug, { siteId })
+  const { slug } = await params
+  const post = await getPublishedPost(slug)
   if (!post) return {}
-  return postMetadata(post, siteId)
+  return postMetadata(post)
 }
 
 // Docs post page: sidebar always visible while reading. The sidebar
 // re-uses theme.sidebarNav, so navigation context stays consistent
 // across the home page and individual articles.
 export default async function DocsPost({ params }: PostCtx) {
-  const { siteId, slug } = await params
+  const { slug } = await params
   const [post, settings, theme] = await Promise.all([
-    getPublishedPost(slug, { siteId }),
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
+    getPublishedPost(slug),
+    loadSiteSettings(),
+    loadThemeConfig(),
   ])
   if (!post) notFound()
 
@@ -52,7 +52,7 @@ export default async function DocsPost({ params }: PostCtx) {
 
       <div className="mx-auto grid max-w-6xl gap-6 px-6 py-10 lg:grid-cols-[15rem_1fr] lg:gap-10">
         <CollapsibleSidebar className="lg:sticky lg:top-6 lg:self-start">
-          <SiteSidebar links={theme.values.sidebarNav} siteId={siteId} />
+          <SiteSidebar links={theme.values.sidebarNav} />
         </CollapsibleSidebar>
 
         <main className="min-w-0">

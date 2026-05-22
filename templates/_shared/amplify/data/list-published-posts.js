@@ -1,23 +1,22 @@
 import { util } from '@aws-appsync/utils'
 
-// AppSync JS resolver: list a site's published posts, newest first.
+// AppSync JS resolver: list published posts, newest first.
 //
-// Reads the `bySiteIdStatus` GSI:
-//   PK = `${siteId}#${status}`   (denormalized field set by writers)
+// Reads the `byStatus` GSI:
+//   PK = status   (denormalized field set by writers)
 //   SK = publishedAt
-// so a single Query reads only one site's published partition. Drafts
-// never appear because the PK condition pins status='published'.
+// so a single Query reads only the `published` partition. Drafts never
+// appear because the PK condition pins status='published'.
 //
 // Date-range filtering (`from`, `to`) is pushed into the SK condition,
 // so DynamoDB only reads the matching range. `nextToken` paginates
 // without re-issuing a fresh query.
 export function request(ctx) {
-  const { siteId = 'default', from, to, limit, nextToken } = ctx.args
+  const { from, to, limit, nextToken } = ctx.args
 
-  const partition = `${siteId}#published`
-  let keyExpression = '#siteIdStatus = :siteIdStatus'
-  const expressionNames = { '#siteIdStatus': 'siteIdStatus' }
-  const expressionValueMap = { ':siteIdStatus': partition }
+  let keyExpression = '#status = :status'
+  const expressionNames = { '#status': 'status' }
+  const expressionValueMap = { ':status': 'published' }
 
   if (from && to) {
     keyExpression += ' AND #publishedAt BETWEEN :from AND :to'
@@ -36,7 +35,7 @@ export function request(ctx) {
 
   return {
     operation: 'Query',
-    index: 'bySiteIdStatus',
+    index: 'byStatus',
     query: {
       expression: keyExpression,
       expressionNames,

@@ -42,9 +42,8 @@ export function createProcessorUntrustedHandler(
 
   // Untrusted plugins get a runtime context with NO AWS-touching capabilities.
   // They can only read the event payload, run pure JS, and return.
-  function makeContext(siteId: string): PluginRuntimeContext {
+  function makeContext(): PluginRuntimeContext {
     return {
-      siteId,
       site: opts.site,
       async listPublishedPosts() {
         throw new Error('untrusted plugins cannot list posts')
@@ -66,12 +65,11 @@ export function createProcessorUntrustedHandler(
         console.error('[untrusted-processor] bad message', record.body, err)
         continue
       }
-      const siteId = (parsed.payload as { siteId?: string }).siteId ?? 'default'
       for (const plugin of untrustedPlugins) {
         const hook = plugin.hooks?.[parsed.type]
         if (!hook) continue
         try {
-          await hook(parsed as never, makeContext(siteId))
+          await hook(parsed as never, makeContext())
         } catch (err) {
           console.error(`[untrusted-processor] ${plugin.name}.${parsed.type} failed`, err)
           throw err

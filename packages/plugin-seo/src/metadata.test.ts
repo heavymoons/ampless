@@ -9,7 +9,6 @@ const site: Config['site'] = {
 }
 
 const post: Post = {
-  siteId: 'default',
   postId: 'p1',
   slug: 'hello',
   title: 'Hello',

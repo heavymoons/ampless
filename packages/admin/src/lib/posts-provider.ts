@@ -3,8 +3,6 @@
 import { generateClient } from 'aws-amplify/api'
 import {
   setPostsProvider,
-  composeSiteIdStatus,
-  composeSiteIdSlug,
   decodeAwsJson,
   encodeAwsJson,
   type Post,
@@ -28,7 +26,6 @@ import {
 
 interface DataPostRow {
   postId: string
-  siteId: string
   slug: string
   title: string
   excerpt?: string | null
@@ -55,17 +52,17 @@ interface PostModel {
     filter?: Record<string, unknown>
     limit?: number
   }): Promise<ListResult<DataPostRow>>
-  get(args: { siteId: string; postId: string }): Promise<ModelResult<DataPostRow>>
+  get(args: { postId: string }): Promise<ModelResult<DataPostRow>>
   create(args: Record<string, unknown>): Promise<ModelResult<DataPostRow>>
   update(args: Record<string, unknown>): Promise<ModelResult<DataPostRow>>
-  delete(args: { siteId: string; postId: string }): Promise<ModelResult<DataPostRow>>
+  delete(args: { postId: string }): Promise<ModelResult<DataPostRow>>
 }
 
 interface PostTagModel {
   create(args: Record<string, unknown>): Promise<ModelResult<unknown>>
   update(args: Record<string, unknown>): Promise<ModelResult<unknown>>
   delete(args: {
-    siteIdTag: string
+    tag: string
     publishedAtPostId: string
   }): Promise<ModelResult<unknown>>
 }
@@ -92,7 +89,6 @@ function decodeMetadata(value: unknown): PostMetadata | undefined {
 function toCorePost(p: DataPostRow): Post {
   return {
     postId: p.postId,
-    siteId: p.siteId,
     slug: p.slug,
     title: p.title,
     excerpt: p.excerpt ?? undefined,
@@ -106,20 +102,20 @@ function toCorePost(p: DataPostRow): Post {
 }
 
 interface PostTagEntry {
-  siteIdTag: string
+  tag: string
   publishedAtPostId: string
 }
 
 function postTagEntries(post: Post): PostTagEntry[] {
   if (post.status !== 'published' || !post.publishedAt || !post.tags?.length) return []
   return post.tags.map((tag) => ({
-    siteIdTag: `${post.siteId}#${tag}`,
+    tag,
     publishedAtPostId: `${post.publishedAt}#${post.postId}`,
   }))
 }
 
 function entryKey(e: PostTagEntry): string {
-  return `${e.siteIdTag}|${e.publishedAtPostId}`
+  return `${e.tag}|${e.publishedAtPostId}`
 }
 
 let installed = false
@@ -145,10 +141,8 @@ export function installAdminPostsProvider(): void {
 
     function fullRow(e: PostTagEntry) {
       return {
-        siteIdTag: e.siteIdTag,
+        tag: e.tag,
         publishedAtPostId: e.publishedAtPostId,
-        siteId: post.siteId,
-        tag: e.siteIdTag.slice(post.siteId.length + 1),
         postId: post.postId,
         publishedAt: post.publishedAt!,
         slug: post.slug,
@@ -214,26 +208,27 @@ export function installAdminPostsProvider(): void {
 
   const provider: PostsProvider = {
     async list(opts: ListOptions = {}) {
-      const siteId = opts.siteId ?? 'default'
       const status = opts.status ?? 'published'
-      const filter: Record<string, unknown> = { siteId: { eq: siteId } }
+      const filter: Record<string, unknown> = {}
       if (status !== 'all') filter.status = { eq: status }
-      const { data } = await client.models.Post.list({ filter, limit: opts.limit ?? 100 })
+      const hasFilter = Object.keys(filter).length > 0
+      const { data } = await client.models.Post.list({
+        filter: hasFilter ? filter : undefined,
+        limit: opts.limit ?? 100,
+      })
       return data.map(toCorePost)
     },
 
-    async get(slug, opts = {}) {
-      const siteId = opts.siteId ?? 'default'
+    async get(slug) {
       const { data } = await client.models.Post.list({
-        filter: { siteId: { eq: siteId }, slug: { eq: slug } },
+        filter: { slug: { eq: slug } },
         limit: 1,
       })
       return data[0] ? toCorePost(data[0]) : null
     },
 
-    async getById(postId, opts = {}) {
-      const siteId = opts.siteId ?? 'default'
-      const { data } = await client.models.Post.get({ siteId, postId })
+    async getById(postId) {
+      const { data } = await client.models.Post.get({ postId })
       return data ? toCorePost(data) : null
     },
 
@@ -241,7 +236,6 @@ export function installAdminPostsProvider(): void {
       const postId =
         input.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const { data, errors } = await client.models.Post.create({
-        siteId: input.siteId,
         postId,
         slug: input.slug,
         title: input.title,
@@ -252,10 +246,6 @@ export function installAdminPostsProvider(): void {
         publishedAt: input.publishedAt,
         tags: input.tags,
         ...(input.metadata !== undefined && { metadata: encodeAwsJson(input.metadata) }),
-        // Denormalized GSI keys. Must match every change to slug /
-        // status — see the update() branch below.
-        siteIdStatus: composeSiteIdStatus(input.siteId, input.status),
-        siteIdSlug: composeSiteIdSlug(input.siteId, input.slug),
       })
       if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to create post')
       const created = toCorePost(data)
@@ -263,18 +253,11 @@ export function installAdminPostsProvider(): void {
       return created
     },
 
-    async update(postId, patch, opts = {}) {
-      const siteId = opts.siteId ?? 'default'
+    async update(postId, patch) {
       // Need the previous post snapshot to diff PostTag entries correctly.
-      const oldPost = await this.getById(postId, { siteId })
+      const oldPost = await this.getById(postId)
 
-      // Whenever status / slug (or, theoretically, siteId — but
-      // identifier is immutable so it can't actually change) is
-      // patched, recompute the denormalized GSI keys.
-      const nextStatus = patch.status ?? oldPost?.status
-      const nextSlug = patch.slug ?? oldPost?.slug
       const { data, errors } = await client.models.Post.update({
-        siteId,
         postId,
         ...(patch.slug !== undefined && { slug: patch.slug }),
         ...(patch.title !== undefined && { title: patch.title }),
@@ -285,10 +268,6 @@ export function installAdminPostsProvider(): void {
         ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
         ...(patch.tags !== undefined && { tags: patch.tags }),
         ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
-        ...(patch.status !== undefined &&
-          nextStatus && { siteIdStatus: composeSiteIdStatus(siteId, nextStatus) }),
-        ...(patch.slug !== undefined &&
-          nextSlug && { siteIdSlug: composeSiteIdSlug(siteId, nextSlug) }),
       })
       if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
       const updated = toCorePost(data)
@@ -296,14 +275,13 @@ export function installAdminPostsProvider(): void {
       return updated
     },
 
-    async remove(postId, opts = {}) {
-      const siteId = opts.siteId ?? 'default'
+    async remove(postId) {
       // Drop PostTag entries before the post itself disappears.
-      const oldPost = await this.getById(postId, { siteId })
+      const oldPost = await this.getById(postId)
       if (oldPost) {
         await syncPostTags({ ...oldPost, status: 'draft' }, oldPost)
       }
-      const { errors } = await client.models.Post.delete({ siteId, postId })
+      const { errors } = await client.models.Post.delete({ postId })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to delete post')
     },
   }

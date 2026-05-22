@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from 'react'
 import { notFound } from 'next/navigation'
-import { DEFAULT_SITE_ID, getPostById, type Post } from 'ampless'
+import { getPostById, type Post } from 'ampless'
 import { PostForm } from './post-form.js'
 import { useT } from './i18n-provider.js'
 
@@ -14,7 +14,7 @@ export function EditPostPage({ params }: { params: Promise<{ postId: string }> }
   const [missing, setMissing] = useState(false)
 
   useEffect(() => {
-    getPostById(postId, { siteId: DEFAULT_SITE_ID })
+    getPostById(postId)
       .then((p) => {
         if (!p) setMissing(true)
         else setPost(p)

@@ -4,7 +4,6 @@ import type { AmplifyOutputs, ResolvedConfig } from './types.js'
 
 interface ParsedArgs {
   outputs?: string
-  defaultSiteId?: string
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -15,10 +14,6 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.outputs = argv[++i]
     } else if (arg.startsWith('--outputs=')) {
       out.outputs = arg.slice('--outputs='.length)
-    } else if (arg === '--site-id') {
-      out.defaultSiteId = argv[++i]
-    } else if (arg.startsWith('--site-id=')) {
-      out.defaultSiteId = arg.slice('--site-id='.length)
     }
   }
   return out
@@ -65,6 +60,5 @@ export async function loadConfig(argv: string[] = process.argv.slice(2)): Promis
     outputs,
     email: requireEnv('AMPLESS_MCP_EMAIL'),
     password: requireEnv('AMPLESS_MCP_PASSWORD'),
-    defaultSiteId: args.defaultSiteId ?? process.env.AMPLESS_MCP_SITE_ID ?? 'default',
   }
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { DEFAULT_SITE_ID, listPosts, type Post } from 'ampless'
+import { listPosts, type Post } from 'ampless'
 import {
   Button,
   Table,
@@ -20,7 +20,7 @@ export function PostsList() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    listPosts({ status: 'all', siteId: DEFAULT_SITE_ID })
+    listPosts({ status: 'all' })
       .then(setPosts)
       .finally(() => setLoading(false))
   }, [])

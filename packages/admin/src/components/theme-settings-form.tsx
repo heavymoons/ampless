@@ -29,9 +29,9 @@ import { useT, useLocale } from './i18n-provider.js'
 
 // How long to wait after a switch / save before forcing a hard reload
 // to pick up the rebuilt S3 cache. The trusted processor typically
-// finishes rebuilding `public/site-settings/{siteId}.json` within
-// 5-10 seconds of the KvStore write; this gives that pipeline some
-// slack before we re-fetch.
+// finishes rebuilding `public/site-settings.json` within 5-10 seconds
+// of the KvStore write; this gives that pipeline some slack before we
+// re-fetch.
 const CACHE_REBUILD_DELAY_MS = 8000
 
 interface ThemeOption {
@@ -41,14 +41,13 @@ interface ThemeOption {
 }
 
 interface Props {
-  siteId: string
   manifest: ThemeManifest
   activeTheme: string
   themeOptions: ThemeOption[]
   /** Resolved values currently shown to the user (overrides ?? defaults). */
   initial: Record<string, string>
   /**
-   * Per-site color-scheme override loaded from the runtime. Independent
+   * Site-wide color-scheme override loaded from the runtime. Independent
    * of the manifest (it's a site-wide concern, not theme-specific).
    * Defaults to `'auto'` when not provided.
    */
@@ -63,7 +62,6 @@ interface ChangeState {
 }
 
 export function ThemeSettingsForm({
-  siteId,
   manifest,
   activeTheme,
   themeOptions,
@@ -114,7 +112,7 @@ export function ThemeSettingsForm({
   function scheduleCacheInvalidation() {
     setTimeout(async () => {
       try {
-        await invalidateSiteSettingsCache(siteId)
+        await invalidateSiteSettingsCache()
       } catch (err) {
         console.warn('[theme] cache invalidation failed', err)
       }
@@ -124,7 +122,7 @@ export function ThemeSettingsForm({
   function scheduleHardReload() {
     setTimeout(async () => {
       try {
-        await invalidateSiteSettingsCache(siteId)
+        await invalidateSiteSettingsCache()
       } catch (err) {
         console.warn('[theme] cache invalidation failed', err)
       }
@@ -139,7 +137,7 @@ export function ThemeSettingsForm({
     setError(null)
     setInfo(null)
     try {
-      await setSiteSetting(siteId, 'theme.active', pendingTheme)
+      await setSiteSetting('theme.active', pendingTheme)
       setOptimisticActive(pendingTheme)
       setInfo(t('theme.switched', { theme: pendingTheme }))
       scheduleHardReload()
@@ -173,7 +171,7 @@ export function ThemeSettingsForm({
 
       if (raw === '') {
         // Empty input means "reset to default" — drop the override.
-        writes.push(deleteSiteSetting(siteId, storeKey))
+        writes.push(deleteSiteSetting(storeKey))
         continue
       }
 
@@ -182,7 +180,7 @@ export function ThemeSettingsForm({
         newInvalid[field.key] = true
         continue
       }
-      writes.push(setSiteSetting(siteId, storeKey, validated))
+      writes.push(setSiteSetting(storeKey, validated))
     }
 
     // Color-scheme is independent of the manifest. Persist under a
@@ -190,9 +188,9 @@ export function ThemeSettingsForm({
     // back to following the visitor's system `prefers-color-scheme`.
     if (colorSchemeTouched) {
       if (colorScheme === DEFAULT_COLOR_SCHEME) {
-        writes.push(deleteSiteSetting(siteId, COLOR_SCHEME_SETTING_KEY))
+        writes.push(deleteSiteSetting(COLOR_SCHEME_SETTING_KEY))
       } else {
-        writes.push(setSiteSetting(siteId, COLOR_SCHEME_SETTING_KEY, colorScheme))
+        writes.push(setSiteSetting(COLOR_SCHEME_SETTING_KEY, colorScheme))
       }
     }
 

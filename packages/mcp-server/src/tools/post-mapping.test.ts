@@ -8,7 +8,6 @@ import { toCorePost } from './post-mapping.js'
 describe('toCorePost', () => {
   it('maps a fully populated row', () => {
     const row = {
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -20,7 +19,6 @@ describe('toCorePost', () => {
       tags: ['intro', 'meta'],
     }
     expect(toCorePost(row)).toEqual({
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -35,7 +33,6 @@ describe('toCorePost', () => {
 
   it('coerces missing format / status with safe defaults', () => {
     const row = {
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -49,7 +46,6 @@ describe('toCorePost', () => {
 
   it('strips null / non-string entries from tags', () => {
     const row = {
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -60,7 +56,6 @@ describe('toCorePost', () => {
 
   it('decodes metadata as AWSJSON (string round-trip)', () => {
     const row = {
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -75,7 +70,6 @@ describe('toCorePost', () => {
     // DDB types, so the read-back is already an object. The decoder
     // should pass it through without re-parsing.
     const row = {
-      siteId: 'default',
       postId: 'p1',
       slug: 'hello',
       title: 'Hello',
@@ -86,10 +80,10 @@ describe('toCorePost', () => {
 
   it('returns undefined when metadata is missing or null', () => {
     expect(
-      toCorePost({ siteId: 'd', postId: 'p', slug: 's', title: 't' }).metadata
+      toCorePost({ postId: 'p', slug: 's', title: 't' }).metadata
     ).toBeUndefined()
     expect(
-      toCorePost({ siteId: 'd', postId: 'p', slug: 's', title: 't', metadata: null }).metadata
+      toCorePost({ postId: 'p', slug: 's', title: 't', metadata: null }).metadata
     ).toBeUndefined()
   })
 })

@@ -158,7 +158,7 @@ export async function runCopyTheme(args: ParsedArgs): Promise<void> {
         result.filesRewritten.map((f) => `    ${pc.dim(f)}`).join('\n') +
         `\n\n  themes-registry.ts updated. Next:\n` +
         `    ${pc.cyan(`Open themes/${result.target}/ and start customising`)}\n` +
-        `    ${pc.cyan(`Activate via /admin/sites/<siteId>/theme`)}`,
+        `    ${pc.cyan(`Activate via /admin/sites/default/theme`)}`,
     )
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err))

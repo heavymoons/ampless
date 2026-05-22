@@ -5,7 +5,6 @@ import webhookPlugin from './index.js'
 const SAMPLE_EVENT: AmplessEvent<'content.published'> = {
   type: 'content.published',
   payload: {
-    siteId: 'default',
     postId: 'p1',
     slug: 'hello',
     title: 'Hello',
@@ -15,7 +14,6 @@ const SAMPLE_EVENT: AmplessEvent<'content.published'> = {
 }
 
 const PLUGIN_CTX = {
-  siteId: 'default',
   site: { name: 'Test', url: 'https://example.com' },
   listPublishedPosts: async () => {
     throw new Error('unused')

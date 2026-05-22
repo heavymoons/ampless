@@ -1,12 +1,11 @@
 import { publicAssetUrl } from '@/lib/storage'
 
 interface Ctx {
-  siteId: string
   request: Request
 }
 
-export async function dadsSitemapHandler({ siteId }: Ctx): Promise<Response> {
-  const url = publicAssetUrl(`public/plugins/seo/${siteId}/sitemap.xml`)
+export async function dadsSitemapHandler(_ctx: Ctx): Promise<Response> {
+  const url = publicAssetUrl('public/plugins/seo/sitemap.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

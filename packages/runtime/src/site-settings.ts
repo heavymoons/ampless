@@ -1,4 +1,4 @@
-import { DEFAULT_SITE_ID, unflattenSettings, type Config } from 'ampless'
+import { unflattenSettings, type Config } from 'ampless'
 import type { StorageApi } from './storage.js'
 
 // Merged effective settings for the site. Shape mirrors `cms.config.ts`
@@ -27,12 +27,7 @@ interface RemoteSettings {
 }
 
 export interface SiteSettingsApi {
-  /**
-   * `siteId` is accepted for API compatibility but ignored — ampless
-   * runs one site per Amplify deployment, so settings always resolve
-   * against the single `DEFAULT_SITE_ID` partition.
-   */
-  loadSiteSettings(siteId?: string): Promise<EffectiveSiteSettings>
+  loadSiteSettings(): Promise<EffectiveSiteSettings>
 }
 
 export function createSiteSettings(
@@ -43,7 +38,7 @@ export function createSiteSettings(
     if (!storage.isStorageConfigured()) return null
     let url: string
     try {
-      url = storage.publicAssetUrl(`public/site-settings/${DEFAULT_SITE_ID}.json`)
+      url = storage.publicAssetUrl('public/site-settings.json')
     } catch {
       return null
     }
@@ -51,7 +46,7 @@ export function createSiteSettings(
     // is set. 60s matches the S3 cache header from the trusted processor,
     // so admin edits propagate within ~1 minute on cold pages.
     const res = await fetch(url, {
-      next: { revalidate: 60, tags: [`site-settings:${DEFAULT_SITE_ID}`] },
+      next: { revalidate: 60, tags: ['site-settings'] },
     })
     if (!res.ok) return null
     const flat = (await res.json()) as Record<string, unknown>

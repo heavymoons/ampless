@@ -4,7 +4,7 @@
 //
 // New code should import from `@/lib/ampless` directly:
 //   import { ampless } from '@/lib/ampless'
-//   const posts = await ampless.listPublishedPosts({ siteId })
+//   const posts = await ampless.listPublishedPosts()
 
 import { ampless } from './ampless'
 

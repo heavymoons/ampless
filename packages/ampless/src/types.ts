@@ -2,9 +2,9 @@ export type ContentFormat = 'tiptap' | 'markdown' | 'html' | 'static'
 
 /**
  * Body shape for `format: 'static'` posts. The actual asset bytes
- * live under S3 at `public/static/<siteId>/<slug>/<files...>` — the
- * body here is the manifest describing which entrypoint to serve and
- * which files are part of the bundle.
+ * live under S3 at `public/static/<slug>/<files...>` — the body here
+ * is the manifest describing which entrypoint to serve and which files
+ * are part of the bundle.
  *
  * Stored as JSON in the `body` column (same encoding pattern as the
  * tiptap doc / html string / markdown string for the other formats).
@@ -50,7 +50,6 @@ export interface PostMetadata {
 
 export interface Post {
   postId: string
-  siteId: string
   slug: string
   title: string
   excerpt?: string
@@ -64,7 +63,6 @@ export interface Post {
 
 export interface Page {
   pageId: string
-  siteId: string
   slug: string
   title: string
   format: ContentFormat
@@ -75,7 +73,6 @@ export interface Page {
 
 export interface Media {
   mediaId: string
-  siteId: string
   src: string
   mimeType: string
   size: number

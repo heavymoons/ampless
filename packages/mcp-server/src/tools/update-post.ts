@@ -1,6 +1,4 @@
 import {
-  composeSiteIdStatus,
-  composeSiteIdSlug,
   encodeAwsJson,
   type Post,
   type PostMetadata,
@@ -21,7 +19,6 @@ const MUTATION = /* GraphQL */ `
 
 export interface UpdatePostArgs {
   postId: string
-  siteId?: string
   slug?: string
   title?: string
   excerpt?: string
@@ -69,15 +66,12 @@ export const updatePostSchema = {
 
 export async function updatePost(
   client: GraphqlClient,
-  defaultSiteId: string,
   args: UpdatePostArgs
 ): Promise<Post> {
-  const siteId = args.siteId ?? defaultSiteId
-
   // Snapshot the old post so PostTag diff is correct.
-  const oldPost = await getPost(client, defaultSiteId, { postId: args.postId, siteId })
+  const oldPost = await getPost(client, { postId: args.postId })
 
-  const input: Record<string, unknown> = { siteId, postId: args.postId }
+  const input: Record<string, unknown> = { postId: args.postId }
   if (args.slug !== undefined) input.slug = args.slug
   if (args.title !== undefined) input.title = args.title
   if (args.excerpt !== undefined) input.excerpt = args.excerpt
@@ -87,13 +81,6 @@ export async function updatePost(
   if (args.publishedAt !== undefined) input.publishedAt = args.publishedAt
   if (args.tags !== undefined) input.tags = args.tags
   if (args.metadata !== undefined) input.metadata = encodeAwsJson(args.metadata)
-  // Recompute the denormalized GSI keys whenever status / slug changes.
-  if (args.status !== undefined) {
-    input.siteIdStatus = composeSiteIdStatus(siteId, args.status)
-  }
-  if (args.slug !== undefined) {
-    input.siteIdSlug = composeSiteIdSlug(siteId, args.slug)
-  }
 
   const data = await client.query<{
     updatePost: Parameters<typeof toCorePost>[0]

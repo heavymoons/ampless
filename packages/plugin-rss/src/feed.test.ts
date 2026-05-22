@@ -10,7 +10,6 @@ const site: Config['site'] = {
 
 const posts: Post[] = [
   {
-    siteId: 'default',
     postId: 'p1',
     slug: 'hello',
     title: 'Hello & welcome',
@@ -22,7 +21,6 @@ const posts: Post[] = [
     tags: ['intro', 'meta'],
   },
   {
-    siteId: 'default',
     postId: 'p2',
     slug: 'draft',
     title: 'Draft',

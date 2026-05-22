@@ -73,10 +73,8 @@ export interface Admin {
   readonly amplifyServer: AmplifyServer
 
   // settings / theme passthroughs (require `ampless` opt; throw otherwise).
-  // `siteId` is accepted for API compatibility but ignored — single site
-  // per deployment.
-  loadSiteSettings(siteId?: string): Promise<EffectiveSiteSettings>
-  loadThemeConfig(siteId?: string): Promise<EffectiveThemeConfig>
+  loadSiteSettings(): Promise<EffectiveSiteSettings>
+  loadThemeConfig(): Promise<EffectiveThemeConfig>
 
   // media
   publicMediaUrl(input: string): string
@@ -149,8 +147,8 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     isEditor: auth.isEditor,
     amplifyServer,
 
-    loadSiteSettings: async (siteId) => (await resolveAmpless()).loadSiteSettings(siteId),
-    loadThemeConfig: async (siteId) => (await resolveAmpless()).loadThemeConfig(siteId),
+    loadSiteSettings: async () => (await resolveAmpless()).loadSiteSettings(),
+    loadThemeConfig: async () => (await resolveAmpless()).loadThemeConfig(),
 
     publicMediaUrl: media.publicMediaUrl,
 

@@ -5,10 +5,9 @@ import { loadSiteSettings } from '@/lib/site-settings'
 import { TagList } from '@/components/tag-list'
 import { t } from '@/lib/i18n'
 
-export default async function MinimalHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
-  const settings = await loadSiteSettings(siteId)
-  const { items: posts } = await listPublishedPosts({ siteId })
+export default async function MinimalHome(_: ThemeRouteContext) {
+  const settings = await loadSiteSettings()
+  const { items: posts } = await listPublishedPosts()
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">

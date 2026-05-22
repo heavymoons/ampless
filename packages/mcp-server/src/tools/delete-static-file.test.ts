@@ -28,22 +28,22 @@ function makeStorage(initial: StorageObject[] = []): {
 describe('delete_static_file', () => {
   it('deletes an existing file', async () => {
     const { storage, deletes } = makeStorage([
-      { key: 'public/static/default/lp/index.html', size: 100 },
+      { key: 'public/static/lp/index.html', size: 100 },
     ])
 
-    const result = await deleteStaticFile(storage, 'default', {
+    const result = await deleteStaticFile(storage, {
       slug: 'lp',
       filename: 'index.html',
     })
 
     expect(result.deleted).toBe(true)
-    expect(deletes).toEqual(['public/static/default/lp/index.html'])
+    expect(deletes).toEqual(['public/static/lp/index.html'])
   })
 
   it('returns deleted: false (and skips deleteObject) when the file is missing', async () => {
     const { storage, deletes } = makeStorage([])
 
-    const result = await deleteStaticFile(storage, 'default', {
+    const result = await deleteStaticFile(storage, {
       slug: 'lp',
       filename: 'missing.html',
     })
@@ -55,7 +55,7 @@ describe('delete_static_file', () => {
   it('rejects bad filenames', async () => {
     const { storage } = makeStorage()
     await expect(
-      deleteStaticFile(storage, 'default', {
+      deleteStaticFile(storage, {
         slug: 'lp',
         filename: '../escape',
       }),

@@ -84,14 +84,13 @@ describe('upload_static_bundle', () => {
     })
 
     const { storage, puts, deletes } = makeStorage([
-      { key: 'public/static/default/my-lp/old.html', size: 10 },
+      { key: 'public/static/my-lp/old.html', size: 10 },
     ])
 
     const { graphql, calls } = makeGraphql(
       { listPosts: { items: [] } },
       {
         createPost: {
-          siteId: 'default',
           postId: 'post-1',
           slug: 'my-lp',
           title: 'My LP',
@@ -102,21 +101,21 @@ describe('upload_static_bundle', () => {
       },
     )
 
-    const result = await uploadStaticBundle(graphql, storage, 'default', {
+    const result = await uploadStaticBundle(graphql, storage, {
       slug: 'my-lp',
       title: 'My LP',
       zipBase64: zip.toString('base64'),
     })
 
     // Existing prefix object is wiped first.
-    expect(deletes).toEqual(['public/static/default/my-lp/old.html'])
+    expect(deletes).toEqual(['public/static/my-lp/old.html'])
 
     // All three files uploaded.
     const keys = puts.map((p) => p.key).sort()
     expect(keys).toEqual([
-      'public/static/default/my-lp/img/x.png',
-      'public/static/default/my-lp/index.html',
-      'public/static/default/my-lp/style.css',
+      'public/static/my-lp/img/x.png',
+      'public/static/my-lp/index.html',
+      'public/static/my-lp/style.css',
     ])
 
     // index.html got the right content-type.
@@ -139,7 +138,7 @@ describe('upload_static_bundle', () => {
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      uploadStaticBundle(graphql, storage, 'default', {
+      uploadStaticBundle(graphql, storage, {
         slug: 'bad',
         title: 'x',
         zipBase64: zip.toString('base64'),
@@ -153,7 +152,7 @@ describe('upload_static_bundle', () => {
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      uploadStaticBundle(graphql, storage, 'default', {
+      uploadStaticBundle(graphql, storage, {
         slug: 'no-entry',
         title: 'x',
         zipBase64: zip.toString('base64'),
@@ -170,7 +169,6 @@ describe('upload_static_bundle', () => {
         listPosts: {
           items: [
             {
-              siteId: 'default',
               postId: 'post-existing',
               slug: 'my-lp',
               title: 'Existing',
@@ -183,7 +181,6 @@ describe('upload_static_bundle', () => {
       },
       {
         updatePost: {
-          siteId: 'default',
           postId: 'post-existing',
           slug: 'my-lp',
           title: 'My LP',
@@ -194,7 +191,7 @@ describe('upload_static_bundle', () => {
       },
     )
 
-    const result = await uploadStaticBundle(graphql, storage, 'default', {
+    const result = await uploadStaticBundle(graphql, storage, {
       slug: 'my-lp',
       title: 'My LP',
       zipBase64: zip.toString('base64'),
@@ -210,7 +207,7 @@ describe('upload_static_bundle', () => {
     const { graphql } = makeGraphql({ listPosts: { items: [] } }, {})
 
     await expect(
-      uploadStaticBundle(graphql, storage, 'default', {
+      uploadStaticBundle(graphql, storage, {
         slug: 'empty',
         title: 'x',
         zipBase64: '',

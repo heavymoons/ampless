@@ -16,7 +16,6 @@ function makeClient() {
 }
 
 const basePost: Post = {
-  siteId: 'default',
   postId: 'p1',
   slug: 'hello',
   title: 'Hello',

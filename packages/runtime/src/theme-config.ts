@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SITE_ID,
   resolveThemeValues,
   themeSettingKey,
   type ThemeManifest,
@@ -52,29 +51,29 @@ export interface EffectiveThemeConfig {
 }
 
 export interface ThemeConfigApi {
-  loadThemeConfig(siteId?: string): Promise<EffectiveThemeConfig>
+  loadThemeConfig(): Promise<EffectiveThemeConfig>
 }
 
 export function createThemeConfig(
   themeActive: ThemeActiveApi,
   storage: StorageApi
 ): ThemeConfigApi {
-  async function fetchRemote(siteId: string): Promise<Record<string, unknown> | null> {
+  async function fetchRemote(): Promise<Record<string, unknown> | null> {
     if (!storage.isStorageConfigured()) return null
     let url: string
     try {
-      url = storage.publicAssetUrl(`public/site-settings/${siteId}.json`)
+      url = storage.publicAssetUrl('public/site-settings.json')
     } catch {
       return null
     }
-    const res = await fetch(url, { next: { revalidate: 60, tags: [`site-settings:${siteId}`] } })
+    const res = await fetch(url, { next: { revalidate: 60, tags: ['site-settings'] } })
     if (!res.ok) return null
     return (await res.json()) as Record<string, unknown>
   }
 
   /**
-   * Resolve effective theme config for a site:
-   *   1. Active theme = `theme.active` setting (per-site) ?? defaultTheme
+   * Resolve effective theme config:
+   *   1. Active theme = `theme.active` setting ?? defaultTheme
    *   2. Manifest = the active theme's manifest
    *   3. Values = stored `theme.<key>` overrides merged onto manifest defaults
    *
@@ -83,10 +82,10 @@ export function createThemeConfig(
    * the manifest default — keeping a typo from breaking the public site.
    */
   return {
-    async loadThemeConfig(siteId: string = DEFAULT_SITE_ID): Promise<EffectiveThemeConfig> {
+    async loadThemeConfig(): Promise<EffectiveThemeConfig> {
       const [active, flat] = await Promise.all([
-        themeActive.resolveActiveTheme(siteId),
-        fetchRemote(siteId).catch(() => null),
+        themeActive.resolveActiveTheme(),
+        fetchRemote().catch(() => null),
       ])
       const manifest = active.module.manifest
       const stored: Record<string, unknown> = {}

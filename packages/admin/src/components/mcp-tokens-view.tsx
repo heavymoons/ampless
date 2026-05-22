@@ -134,9 +134,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
       const meta = await createToken({
         hash,
         prefix,
-        // Single-site deployment: tokens always cover the whole site.
-        // Storage retains the field for forward-compat.
-        scope: { siteId: null },
         createdBy: currentUserId,
         createdByEmail: currentUserEmail,
         createdAt: new Date().toISOString(),

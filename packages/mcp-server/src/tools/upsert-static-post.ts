@@ -1,6 +1,4 @@
 import {
-  composeSiteIdStatus,
-  composeSiteIdSlug,
   encodeAwsJson,
   type Post,
   type PostMetadata,
@@ -16,8 +14,7 @@ import { syncPostTags } from '../posttag.js'
  * helper for the static-bundle tools. Both `upload_static_bundle` and
  * `commit_static_post` need to coordinate a Post row with a freshly
  * written S3 manifest, and duplicating the create-vs-update branching
- * in each handler ended up with subtle drift (denormalized GSI keys,
- * PostTag sync timing). Centralised here.
+ * in each handler ended up with subtle drift. Centralised here.
  *
  * For new posts a `title` is required (Post schema enforces it). For
  * existing posts every field is optional — the helper merges only the
@@ -62,27 +59,22 @@ export interface UpsertStaticPostResult {
 
 export async function upsertStaticPost(
   graphql: GraphqlClient,
-  siteId: string,
   slug: string,
   body: StaticPostBody,
   fields: UpsertStaticPostFields,
 ): Promise<UpsertStaticPostResult> {
-  const existing = await getPost(graphql, siteId, { siteId, slug })
+  const existing = await getPost(graphql, { slug })
 
   if (existing) {
     // UPDATE path — only apply fields the caller passed.
     const input: Record<string, unknown> = {
-      siteId,
       postId: existing.postId,
       format: 'static',
       body: encodeAwsJson(body),
     }
     if (fields.title !== undefined) input.title = fields.title
     if (fields.excerpt !== undefined) input.excerpt = fields.excerpt
-    if (fields.status !== undefined) {
-      input.status = fields.status
-      input.siteIdStatus = composeSiteIdStatus(siteId, fields.status)
-    }
+    if (fields.status !== undefined) input.status = fields.status
     if (fields.publishedAt !== undefined) input.publishedAt = fields.publishedAt
     if (fields.tags !== undefined) input.tags = fields.tags
     if (fields.metadata !== undefined) {
@@ -114,15 +106,12 @@ export async function upsertStaticPost(
     fields.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
   const input: Record<string, unknown> = {
-    siteId,
     postId,
     slug,
     title: fields.title,
     format: 'static',
     body: encodeAwsJson(body),
     status,
-    siteIdStatus: composeSiteIdStatus(siteId, status),
-    siteIdSlug: composeSiteIdSlug(siteId, slug),
   }
   if (fields.excerpt !== undefined) input.excerpt = fields.excerpt
   if (publishedAt !== undefined) input.publishedAt = publishedAt

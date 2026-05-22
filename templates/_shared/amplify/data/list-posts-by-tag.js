@@ -2,23 +2,21 @@ import { util } from '@aws-appsync/utils'
 
 // AppSync JS resolver: list published posts for a given tag, newest first.
 // Reads the denormalized PostTag table where:
-//   PK = `${siteId}#${tag}`
+//   PK = tag
 //   SK = `${publishedAt}#${postId}` (so descending SK = newest first)
 //
 // Authorization is enforced by AppSync; the resolver itself only encodes
-// the tag/site partition condition. Drafts never appear here because the
+// the tag partition condition. Drafts never appear here because the
 // admin client only writes PostTag rows for posts whose status is
 // 'published'.
 export function request(ctx) {
-  const { siteId = 'default', tag, limit, nextToken } = ctx.args
+  const { tag, limit, nextToken } = ctx.args
   return {
     operation: 'Query',
     query: {
-      expression: '#siteIdTag = :siteIdTag',
-      expressionNames: { '#siteIdTag': 'siteIdTag' },
-      expressionValues: util.dynamodb.toMapValues({
-        ':siteIdTag': `${siteId}#${tag}`,
-      }),
+      expression: '#tag = :tag',
+      expressionNames: { '#tag': 'tag' },
+      expressionValues: util.dynamodb.toMapValues({ ':tag': tag }),
     },
     scanIndexForward: false, // newest first (SK descends)
     limit: limit ?? 20,
@@ -33,7 +31,6 @@ export function response(ctx) {
   // PublicPost shape `listPublishedPosts` returns; the detail view should
   // call `getPublishedPost(slug)` for the full body.
   const items = (ctx.result.items ?? []).map((row) => ({
-    siteId: row.siteId,
     postId: row.postId,
     slug: row.slug,
     title: row.title,

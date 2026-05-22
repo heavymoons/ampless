@@ -9,12 +9,12 @@ import { SiteFooter } from '@/components/site-chrome/site-footer'
 import { t } from '@/lib/i18n'
 
 export default async function BlogTag({ params }: ThemeRouteContext<{ tag: string }>) {
-  const { siteId, tag } = await params
+  const { tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings, theme] = await Promise.all([
-    listPostsByTag(decodedTag, { siteId, limit: 50 }),
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
+    listPostsByTag(decodedTag, { limit: 50 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
   ])
 
   if (posts.length === 0) notFound()

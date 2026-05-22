@@ -13,24 +13,24 @@ interface ThemeListEntry {
 }
 
 /**
- * Theme admin: pick which installed theme is active for the site, plus
- * edit the active theme's customizable manifest fields. Reads through
- * the S3 site-settings cache (same path the public site uses) so the
- * admin sees the same effective state visitors see.
+ * Theme admin: pick which installed theme is active, plus edit the
+ * active theme's customizable manifest fields. Reads through the S3
+ * site-settings cache (same path the public site uses) so the admin
+ * sees the same effective state visitors see.
  *
  * The full `themeList` (one entry per installed theme manifest) is
  * passed in because the registry lives in the user's project — admin
  * stays agnostic of which themes a project happens to install.
  *
- * ampless runs one site per Amplify deployment; the `siteId` param is
- * always `'default'` in practice.
+ * The `[siteId]` param is retained on the route signature for the
+ * existing internal URL structure; its value isn't used.
  */
 export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<ThemeListEntry>) {
   const { cmsConfig, t, locale, loadThemeConfig } = admin
 
   async function ThemePage({ params }: Props) {
     const { siteId } = await params
-    const theme = await loadThemeConfig(siteId)
+    const theme = await loadThemeConfig()
 
     const themeOptions = themeList.map((m) => ({
       value: m.name,
@@ -55,7 +55,6 @@ export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<Theme
         </div>
 
         <ThemeSettingsForm
-          siteId={siteId}
           manifest={theme.manifest}
           activeTheme={theme.activeTheme}
           themeOptions={themeOptions}

@@ -51,5 +51,4 @@ export interface StorageClient {
 export interface ToolContext {
   graphql: GraphqlClient
   storage: () => StorageClient
-  defaultSiteId: string
 }

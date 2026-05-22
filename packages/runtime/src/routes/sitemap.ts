@@ -7,18 +7,17 @@ interface Ctx {
 export type SitemapRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
 
 /**
- * Sitemap route delegate. Looks up the active theme for the request's
- * siteId and forwards to whichever `routes.sitemap` handler the theme
- * provides. Themes without a sitemap handler return 404.
+ * Sitemap route delegate. Looks up the active theme and forwards to
+ * whichever `routes.sitemap` handler the theme provides. Themes
+ * without a sitemap handler return 404.
  */
 export function createSitemapRouteHandler(ampless: Ampless): SitemapRouteHandler {
-  return async function GET(request: Request, { params }: Ctx): Promise<Response> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+  return async function GET(request: Request): Promise<Response> {
+    const { module } = await ampless.resolveActiveTheme()
     const handler = module.routes?.sitemap
     if (!handler) {
       return new Response('sitemap not implemented for this theme', { status: 404 })
     }
-    return handler({ siteId, request })
+    return handler({ request })
   }
 }

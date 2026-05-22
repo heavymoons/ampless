@@ -1,11 +1,11 @@
 import { headers } from 'next/headers'
-import { DEFAULT_SITE_ID, type ThemeModule } from 'ampless'
+import { type ThemeModule } from 'ampless'
 import type { StorageApi } from './storage.js'
 
 export interface ThemesRegistry {
   /** Map of theme name → loaded theme module. */
   themes: Record<string, ThemeModule>
-  /** Name used when no `theme.active` override is stored for the site. */
+  /** Name used when no `theme.active` override is stored. */
   defaultTheme: string
 }
 
@@ -15,12 +15,7 @@ export interface ResolvedTheme {
 }
 
 export interface ThemeActiveApi {
-  /**
-   * `siteId` is accepted for API compatibility but ignored — ampless
-   * runs one site per Amplify deployment, so the active theme is a
-   * single global value keyed by `DEFAULT_SITE_ID`.
-   */
-  resolveActiveTheme(siteId?: string): Promise<ResolvedTheme>
+  resolveActiveTheme(): Promise<ResolvedTheme>
 }
 
 export function createThemeActive(
@@ -31,12 +26,12 @@ export function createThemeActive(
     if (!storage.isStorageConfigured()) return null
     let url: string
     try {
-      url = storage.publicAssetUrl(`public/site-settings/${DEFAULT_SITE_ID}.json`)
+      url = storage.publicAssetUrl('public/site-settings.json')
     } catch {
       return null
     }
     const res = await fetch(url, {
-      next: { revalidate: 60, tags: [`site-settings:${DEFAULT_SITE_ID}`] },
+      next: { revalidate: 60, tags: ['site-settings'] },
     })
     if (!res.ok) return null
     const flat = (await res.json()) as Record<string, unknown>

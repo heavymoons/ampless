@@ -42,13 +42,12 @@ export type PluginEventHandler<T extends EventType = EventType> = (
  * (sandbox, tests) without touching plugin code.
  */
 export interface PluginRuntimeContext {
-  siteId: string
   /** Read-only view of the cms.config site block (name, url, description). */
   site: Config['site']
-  /** Read all published posts for the site (used by sitemap/RSS). */
+  /** Read all published posts (used by sitemap/RSS). */
   listPublishedPosts(): Promise<Post[]>
   /**
-   * Persist a file under `public/plugins/{pluginName}/{key}` in the site's
+   * Persist a file under `public/plugins/{pluginName}/{key}` in the
    * S3 bucket. Returns the public URL.
    */
   writePublicAsset(key: string, body: string | Uint8Array, contentType: string): Promise<string>
@@ -111,9 +110,9 @@ export interface AmplessPlugin {
   siteMetadata?(site: Config['site']): PluginMetadata
   /**
    * Dynamic OG image renderer. The dispatcher route (e.g.
-   * `app/site/[siteId]/og/[slug]/route.ts`) reads this and feeds the
-   * element into Next.js `ImageResponse`. Only one plugin should set this
-   * — the route resolves the first plugin in `cms.config.plugins` that
+   * `app/og/[slug]/route.ts`) reads this and feeds the element into
+   * Next.js `ImageResponse`. Only one plugin should set this — the
+   * route resolves the first plugin in `cms.config.plugins` that
    * declares `ogImage`.
    */
   ogImage?: OgImageConfig

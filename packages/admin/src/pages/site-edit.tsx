@@ -16,15 +16,14 @@ interface Props {
  *
  * ampless runs one site per Amplify deployment. The route still takes a
  * `[siteId]` param for forward-compat with the existing URL structure,
- * but it's always `'default'` in practice. A follow-up PR flattens the
- * URL.
+ * but the value isn't used — a follow-up PR flattens the URL.
  */
 export function createSiteEditPage(admin: Admin) {
   const { cmsConfig, t, loadSiteSettings } = admin
 
   async function EditSitePage({ params }: Props) {
     const { siteId } = await params
-    const settings = await loadSiteSettings(siteId)
+    const settings = await loadSiteSettings()
 
     const fallback: SiteSettingsFormValues = {
       'site.name': cmsConfig.site.name,
@@ -60,7 +59,7 @@ export function createSiteEditPage(admin: Admin) {
           </div>
         </div>
 
-        <SiteSettingsForm siteId={siteId} initial={initial} fallback={fallback} />
+        <SiteSettingsForm initial={initial} fallback={fallback} />
       </div>
     )
   }

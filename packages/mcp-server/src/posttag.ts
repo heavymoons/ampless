@@ -1,7 +1,7 @@
 // PostTag denormalized index sync — mirrors templates/blog/lib/posts-provider.ts
 // (Phase 4) but talks to AppSync via raw GraphQL instead of generateClient.
-// Each (siteId, tag, post) combination becomes one PostTag row keyed by:
-//   PK: `${siteId}#${tag}`
+// Each (tag, post) combination becomes one PostTag row keyed by:
+//   PK: tag
 //   SK: `${publishedAt}#${postId}`
 // so the public listPostsByTag resolver can do a single Query.
 
@@ -9,26 +9,26 @@ import type { Post } from 'ampless'
 import type { GraphqlClient } from './tools/types.js'
 
 interface PostTagEntry {
-  siteIdTag: string
+  tag: string
   publishedAtPostId: string
 }
 
 function entries(post: Post): PostTagEntry[] {
   if (post.status !== 'published' || !post.publishedAt || !post.tags?.length) return []
   return post.tags.map((tag) => ({
-    siteIdTag: `${post.siteId}#${tag}`,
+    tag,
     publishedAtPostId: `${post.publishedAt}#${post.postId}`,
   }))
 }
 
 function entryKey(e: PostTagEntry): string {
-  return `${e.siteIdTag}|${e.publishedAtPostId}`
+  return `${e.tag}|${e.publishedAtPostId}`
 }
 
 const CREATE_POST_TAG = /* GraphQL */ `
   mutation CreatePostTag($input: CreatePostTagInput!) {
     createPostTag(input: $input) {
-      siteIdTag
+      tag
       publishedAtPostId
     }
   }
@@ -37,7 +37,7 @@ const CREATE_POST_TAG = /* GraphQL */ `
 const UPDATE_POST_TAG = /* GraphQL */ `
   mutation UpdatePostTag($input: UpdatePostTagInput!) {
     updatePostTag(input: $input) {
-      siteIdTag
+      tag
       publishedAtPostId
     }
   }
@@ -46,7 +46,7 @@ const UPDATE_POST_TAG = /* GraphQL */ `
 const DELETE_POST_TAG = /* GraphQL */ `
   mutation DeletePostTag($input: DeletePostTagInput!) {
     deletePostTag(input: $input) {
-      siteIdTag
+      tag
       publishedAtPostId
     }
   }
@@ -69,7 +69,7 @@ export async function syncPostTags(
       .filter((e) => !newKeys.has(entryKey(e)))
       .map((e) =>
         client.query(DELETE_POST_TAG, {
-          input: { siteIdTag: e.siteIdTag, publishedAtPostId: e.publishedAtPostId },
+          input: { tag: e.tag, publishedAtPostId: e.publishedAtPostId },
         })
       )
   )
@@ -81,10 +81,8 @@ export async function syncPostTags(
       .map((e) =>
         client.query(CREATE_POST_TAG, {
           input: {
-            siteIdTag: e.siteIdTag,
+            tag: e.tag,
             publishedAtPostId: e.publishedAtPostId,
-            siteId: post.siteId,
-            tag: e.siteIdTag.slice(post.siteId.length + 1),
             postId: post.postId,
             publishedAt: post.publishedAt,
             slug: post.slug,
@@ -103,7 +101,7 @@ export async function syncPostTags(
       .map((e) =>
         client.query(UPDATE_POST_TAG, {
           input: {
-            siteIdTag: e.siteIdTag,
+            tag: e.tag,
             publishedAtPostId: e.publishedAtPostId,
             slug: post.slug,
             title: post.title,

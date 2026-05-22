@@ -1,11 +1,18 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { DEFAULT_SITE_ID, type Config } from 'ampless'
+import { type Config } from 'ampless'
 
 export interface CreateMiddlewareOpts {
   cmsConfig: Config
 }
 
 export type MiddlewareFn = (request: NextRequest) => NextResponse
+
+// Internal rewrite target. The `/site/[siteId]/` dispatcher tree is
+// retained as an implementation detail of the public route layout;
+// a follow-up PR flattens it. Pinned to `'default'` since the
+// schema's `siteId` column no longer exists — there is only one site
+// per Amplify deployment.
+const INTERNAL_SITE_SEGMENT = 'default'
 
 /**
  * Build the ampless public-site middleware. Performs:
@@ -25,9 +32,9 @@ export type MiddlewareFn = (request: NextRequest) => NextResponse
  * `/_/<slug>(/...)`; only the rewrite target uses `r/`.
  *
  * Single site per Amplify deployment: the rewritten internal path uses
- * the fixed `default` siteId. The internal `/site/[siteId]/` routing
- * tree is retained as a forward-compat hook; a follow-up PR flattens
- * the URL structure further.
+ * the fixed `default` segment. The internal `/site/[siteId]/` routing
+ * tree is retained as an implementation detail; a follow-up PR
+ * flattens the URL structure further.
  */
 // `cmsConfig` is reserved for future middleware behaviour (redirect
 // tables, A/B routing) — keep the signature stable across that
@@ -42,8 +49,6 @@ export function createAmplessMiddleware(_opts: CreateMiddlewareOpts): Middleware
   // even via middleware rewrites. The unified `_` route gets the same
   // treatment via the `_ → r` translation below.)
   return function middleware(request: NextRequest): NextResponse {
-    const siteId = DEFAULT_SITE_ID
-
     const url = request.nextUrl.clone()
     if (!url.pathname.startsWith('/site/')) {
       let tail = url.pathname === '/' ? '' : url.pathname
@@ -55,7 +60,7 @@ export function createAmplessMiddleware(_opts: CreateMiddlewareOpts): Middleware
       if (tail === '/_' || tail.startsWith('/_/')) {
         tail = `/r${tail.slice(2)}`
       }
-      url.pathname = `/site/${siteId}${tail}`
+      url.pathname = `/site/${INTERNAL_SITE_SEGMENT}${tail}`
     }
 
     // Theme preview override. The admin's iframe-based preview hits
@@ -67,13 +72,10 @@ export function createAmplessMiddleware(_opts: CreateMiddlewareOpts): Middleware
     const previewTheme = url.searchParams.get('previewTheme')
     const previewColorScheme = url.searchParams.get('previewColorScheme')
     const requestHeaders = new Headers(request.headers)
-    requestHeaders.set('x-site-id', siteId)
     if (previewTheme) requestHeaders.set('x-preview-theme', previewTheme)
     if (previewColorScheme) requestHeaders.set('x-preview-color-scheme', previewColorScheme)
 
-    const response = NextResponse.rewrite(url, { request: { headers: requestHeaders } })
-    response.headers.set('x-site-id', siteId)
-    return response
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
   }
 }
 

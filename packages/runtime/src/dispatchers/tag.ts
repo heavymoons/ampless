@@ -19,8 +19,7 @@ export type ThemeTagMetadata = (props: Props) => Promise<Metadata>
  */
 export function createThemeTagDispatcher(ampless: Ampless): ThemeTagDispatcher {
   return async function SiteTagDispatcher({ params }: Props): Promise<ReactNode> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const Tag = module.components.Tag
     if (!Tag) notFound()
     return (await Tag({ params })) as ReactNode
@@ -30,8 +29,7 @@ export function createThemeTagDispatcher(ampless: Ampless): ThemeTagDispatcher {
 /** generateMetadata factory for the tag dispatcher. */
 export function createThemeTagMetadata(ampless: Ampless): ThemeTagMetadata {
   return async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const fn = module.metadata?.Tag
     return fn ? ((await fn({ params })) as Metadata) : {}
   }

@@ -27,11 +27,6 @@ export type {
   DateFormat,
 } from './types.js'
 export {
-  DEFAULT_SITE_ID,
-  composeSiteIdStatus,
-  composeSiteIdSlug,
-} from './sites.js'
-export {
   setKvStore,
   hasKvStore,
   getKvStore,

@@ -60,7 +60,6 @@ function makeTokenMeta(
   return {
     hash,
     prefix,
-    scope: { siteId: null },
     createdBy: 'user-sub-abc',
     createdByEmail: 'admin@example.com',
     createdAt: new Date().toISOString(),
@@ -102,7 +101,7 @@ describe('empty state', () => {
 describe('token list', () => {
   it('returns all stored tokens', async () => {
     const meta1 = makeTokenMeta()
-    const meta2 = makeTokenMeta({ scope: { siteId: 'site-a' } })
+    const meta2 = makeTokenMeta()
     await createToken(meta1)
     await createToken(meta2)
 
@@ -112,13 +111,12 @@ describe('token list', () => {
     expect(tokens.map((t) => t.hash)).toContain(meta2.hash)
   })
 
-  it('persists prefix and scope for display', async () => {
-    const meta = makeTokenMeta({ scope: { siteId: 'site-blog' } })
+  it('persists prefix for display', async () => {
+    const meta = makeTokenMeta()
     await createToken(meta)
 
     const [stored] = await listTokens()
     expect(stored!.prefix).toBe(meta.prefix)
-    expect(stored!.scope.siteId).toBe('site-blog')
   })
 
   it('stores createdBy and createdByEmail', async () => {
@@ -168,13 +166,6 @@ describe('create token flow', () => {
     expect(stored!.expiresAt).toBe(expiresAt)
   })
 
-  it('createToken with scope.siteId = null represents all-sites', async () => {
-    const meta = makeTokenMeta({ scope: { siteId: null } })
-    await createToken(meta)
-
-    const [stored] = await listTokens()
-    expect(stored!.scope.siteId).toBeNull()
-  })
 })
 
 // ---------------------------------------------------------------------------

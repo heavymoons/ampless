@@ -1,7 +1,7 @@
 import { defineTheme } from 'ampless'
 
 // Customizable fields for the Blog theme. Edit values in
-// `/admin/sites/<siteId>/theme` — they're stored in KvStore and applied
+// `/admin/sites/default/theme` — they're stored in KvStore and applied
 // at render time as CSS variables on every public page.
 //
 // Labels / descriptions / groups accept either a plain string (works in

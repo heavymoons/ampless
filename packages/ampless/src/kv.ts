@@ -1,5 +1,5 @@
 // Generic key/value store interface, used as both:
-//  - the persistence layer for site settings (`siteconfig:{siteId}` PK)
+//  - the persistence layer for site settings (`siteconfig` PK)
 //  - a TTL-backed cache for plugins / internal Lambdas (`cache:{ns}` PK)
 //
 // Items with `ttlSeconds` set are deleted automatically by DynamoDB's
@@ -11,8 +11,6 @@
 // the templates/blog Next.js side wires an AppSync-backed implementation,
 // processor Lambdas wire a DynamoDB-direct one. Without an injected
 // store, calls throw — there is no in-memory fallback.
-
-import { DEFAULT_SITE_ID } from './sites.js'
 
 export interface KvItem<T = unknown> {
   pk: string
@@ -58,38 +56,29 @@ export function getKvStore(): KvStore {
 
 // --- Site settings high-level helpers ---
 //
-// Settings are stored under PK = `siteconfig:{siteId}`, SK = the dotted
-// key (`site.name`, `media.imageDisplay`, ...). Persistent (no TTL).
+// Settings are stored under PK = `siteconfig`, SK = the dotted key
+// (`site.name`, `media.imageDisplay`, ...). Persistent (no TTL).
 
-export const SITE_CONFIG_PK = (siteId: string): string => `siteconfig:${siteId}`
+export const SITE_CONFIG_PK = 'siteconfig'
 
-export async function getSiteSetting<T = unknown>(
-  siteId: string,
-  key: string
-): Promise<T | null> {
-  return requireStore().get<T>(SITE_CONFIG_PK(siteId), key)
+export async function getSiteSetting<T = unknown>(key: string): Promise<T | null> {
+  return requireStore().get<T>(SITE_CONFIG_PK, key)
 }
 
-export async function setSiteSetting(
-  siteId: string,
-  key: string,
-  value: unknown
-): Promise<void> {
-  return requireStore().put(SITE_CONFIG_PK(siteId), key, value)
+export async function setSiteSetting(key: string, value: unknown): Promise<void> {
+  return requireStore().put(SITE_CONFIG_PK, key, value)
 }
 
-export async function deleteSiteSetting(siteId: string, key: string): Promise<void> {
-  return requireStore().remove(SITE_CONFIG_PK(siteId), key)
+export async function deleteSiteSetting(key: string): Promise<void> {
+  return requireStore().remove(SITE_CONFIG_PK, key)
 }
 
 /**
- * Fetch every setting for a site as a flat map (`{ 'site.name': 'My Blog', ... }`).
+ * Fetch every site setting as a flat map (`{ 'site.name': 'My Blog', ... }`).
  * Use `unflattenSettings` to convert to the nested shape if needed.
  */
-export async function listSiteSettings(
-  siteId: string = DEFAULT_SITE_ID
-): Promise<Record<string, unknown>> {
-  const items = await requireStore().query(SITE_CONFIG_PK(siteId))
+export async function listSiteSettings(): Promise<Record<string, unknown>> {
+  const items = await requireStore().query(SITE_CONFIG_PK)
   const out: Record<string, unknown> = {}
   for (const item of items) {
     out[item.sk] = item.value

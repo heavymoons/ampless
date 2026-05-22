@@ -51,7 +51,6 @@ describe('createAmplessMiddleware', () => {
       headers: Map<string, string>
     }
     expect(res.rewrittenTo?.pathname).toBe('/site/default')
-    expect(res.headers.get('x-site-id')).toBe('default')
   })
 
   it('rewrites /about → /site/default/about', () => {

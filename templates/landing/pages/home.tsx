@@ -10,21 +10,18 @@ import { SiteFooter } from '@/components/site-chrome/site-footer'
 // Hero-led landing layout: big headline + subhead + CTA, then an
 // optional "Latest" grid sourced from published posts. Falls back to
 // site name / description when the manifest hero fields are empty.
-export default async function LandingHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
+export default async function LandingHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
-    listPublishedPosts({ siteId, limit: 6 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
+    listPublishedPosts({ limit: 6 }),
   ])
 
   // Featured embed below the hero — typical use is a short "About"
   // or "Welcome" article. Filtered out of the Latest grid below to
   // avoid showing the same post twice.
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug
-    ? await getPublishedPost(featuredSlug, { siteId })
-    : null
+  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items

@@ -11,7 +11,6 @@ import {
 function p(format: Post['format'], body: unknown): Post {
   return {
     postId: '1',
-    siteId: 'default',
     slug: 's',
     title: 't',
     format,

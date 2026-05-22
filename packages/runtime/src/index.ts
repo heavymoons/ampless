@@ -99,17 +99,17 @@ export interface Ampless {
   // post fetching (server-side, uses generateServerClientUsingCookies
   // with apiKey authMode)
   listPublishedPosts(opts?: ListPostsOptions): Promise<ListPostsResult>
-  getPublishedPost(slug: string, opts?: { siteId?: string }): Promise<Post | null>
+  getPublishedPost(slug: string): Promise<Post | null>
   listPostsByTag(tag: string, opts?: ListPostsByTagOptions): Promise<ListPostsResult>
 
   // settings + theme
-  loadSiteSettings(siteId?: string): Promise<EffectiveSiteSettings>
-  resolveActiveTheme(siteId?: string): Promise<ResolvedTheme>
-  loadThemeConfig(siteId?: string): Promise<EffectiveThemeConfig>
+  loadSiteSettings(): Promise<EffectiveSiteSettings>
+  resolveActiveTheme(): Promise<ResolvedTheme>
+  loadThemeConfig(): Promise<EffectiveThemeConfig>
 
   // metadata
-  postMetadata(post: Post, siteId?: string): Promise<Metadata>
-  siteMetadata(siteId?: string): Promise<Metadata>
+  postMetadata(post: Post): Promise<Metadata>
+  siteMetadata(): Promise<Metadata>
 
   // rendering
   renderBody(post: Post): string
@@ -151,15 +151,15 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
 
   return {
     listPublishedPosts: (o) => posts.listPublishedPosts(o),
-    getPublishedPost: (slug, o) => posts.getPublishedPost(slug, o),
+    getPublishedPost: (slug) => posts.getPublishedPost(slug),
     listPostsByTag: (tag, o) => posts.listPostsByTag(tag, o),
 
-    loadSiteSettings: (siteId) => settings.loadSiteSettings(siteId),
-    resolveActiveTheme: (siteId) => themeActive.resolveActiveTheme(siteId),
-    loadThemeConfig: (siteId) => themeConfig.loadThemeConfig(siteId),
+    loadSiteSettings: () => settings.loadSiteSettings(),
+    resolveActiveTheme: () => themeActive.resolveActiveTheme(),
+    loadThemeConfig: () => themeConfig.loadThemeConfig(),
 
-    postMetadata: (post, siteId) => seo.postMetadata(post, siteId),
-    siteMetadata: (siteId) => seo.siteMetadata(siteId),
+    postMetadata: (post) => seo.postMetadata(post),
+    siteMetadata: () => seo.siteMetadata(),
 
     renderBody: (post) => renderBody(post),
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),

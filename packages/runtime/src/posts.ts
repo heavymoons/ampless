@@ -22,7 +22,6 @@ import type { AmplessOutputs } from './outputs.js'
 // without depending on any single template's schema definition.
 export interface PublicPostShape {
   postId: string
-  siteId: string
   slug: string
   title: string
   excerpt?: string | null
@@ -46,18 +45,13 @@ interface QueryResponse<T> {
 
 interface PublicQueries {
   listPublishedPosts(args: {
-    siteId?: string
     from?: string
     to?: string
     limit?: number
     nextToken?: string
   }): Promise<QueryResponse<PublicPostConnectionShape>>
-  getPublishedPost(args: {
-    siteId?: string
-    slug: string
-  }): Promise<QueryResponse<PublicPostShape>>
+  getPublishedPost(args: { slug: string }): Promise<QueryResponse<PublicPostShape>>
   listPostsByTag(args: {
-    siteId?: string
     tag: string
     limit?: number
     nextToken?: string
@@ -69,7 +63,6 @@ interface PublicClient {
 }
 
 export interface ListPostsOptions {
-  siteId?: string
   /** ISO 8601 timestamp; SK lower bound (inclusive). */
   from?: string
   /** ISO 8601 timestamp; SK upper bound (inclusive). */
@@ -80,7 +73,6 @@ export interface ListPostsOptions {
 }
 
 export interface ListPostsByTagOptions {
-  siteId?: string
   limit?: number
   nextToken?: string
 }
@@ -92,7 +84,7 @@ export interface ListPostsResult {
 
 export interface PostsApi {
   listPublishedPosts(opts?: ListPostsOptions): Promise<ListPostsResult>
-  getPublishedPost(slug: string, opts?: { siteId?: string }): Promise<Post | null>
+  getPublishedPost(slug: string): Promise<Post | null>
   listPostsByTag(tag: string, opts?: ListPostsByTagOptions): Promise<ListPostsResult>
 }
 
@@ -111,7 +103,6 @@ function decodeMetadata(value: unknown): PostMetadata | undefined {
 function toCorePost(p: PublicPostShape): Post {
   return {
     postId: p.postId,
-    siteId: p.siteId,
     slug: p.slug,
     title: p.title,
     excerpt: p.excerpt ?? undefined,
@@ -155,7 +146,6 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
   return {
     async listPublishedPosts(opts: ListPostsOptions = {}): Promise<ListPostsResult> {
       const { data, errors } = await client.queries.listPublishedPosts({
-        siteId: opts.siteId ?? 'default',
         from: opts.from,
         to: opts.to,
         limit: opts.limit ?? 20,
@@ -168,12 +158,8 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
       return { items, nextToken: data?.nextToken ?? null }
     },
 
-    async getPublishedPost(
-      slug: string,
-      opts: { siteId?: string } = {}
-    ): Promise<Post | null> {
+    async getPublishedPost(slug: string): Promise<Post | null> {
       const { data, errors } = await client.queries.getPublishedPost({
-        siteId: opts.siteId ?? 'default',
         slug,
       })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to get post')
@@ -185,7 +171,6 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
       opts: ListPostsByTagOptions = {}
     ): Promise<ListPostsResult> {
       const { data, errors } = await client.queries.listPostsByTag({
-        siteId: opts.siteId ?? 'default',
         tag,
         limit: opts.limit ?? 20,
         nextToken: opts.nextToken,

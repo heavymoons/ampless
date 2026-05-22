@@ -4,7 +4,6 @@ import { listPostsByTag } from '@/lib/posts-public'
 
 interface Props {
   links: string | undefined
-  siteId: string
   className?: string
 }
 
@@ -19,7 +18,7 @@ interface Props {
  * paired with `force-dynamic` on the page so fresh content shows up
  * after publish events.
  */
-export async function SiteSidebar({ links, siteId, className }: Props) {
+export async function SiteSidebar({ links, className }: Props) {
   const items = parseLinkList(links)
   if (items.length === 0) return null
 
@@ -28,7 +27,7 @@ export async function SiteSidebar({ links, siteId, className }: Props) {
     items.map(async (item) => {
       const tagRef = isTagListUrl(item.url)
       if (!tagRef) return { type: 'link' as const, label: item.label, url: item.url }
-      const { items: posts } = await listPostsByTag(tagRef.tag, { siteId, limit: 50 })
+      const { items: posts } = await listPostsByTag(tagRef.tag, { limit: 50 })
       return {
         type: 'tagSection' as const,
         label: item.label,

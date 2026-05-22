@@ -7,18 +7,17 @@ interface Ctx {
 export type FeedRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
 
 /**
- * Feed route delegate. Looks up the active theme for the request's
- * siteId and forwards to whichever `routes.feed` handler the theme
- * provides. Themes without a feed handler return 404.
+ * Feed route delegate. Looks up the active theme and forwards to
+ * whichever `routes.feed` handler the theme provides. Themes without
+ * a feed handler return 404.
  */
 export function createFeedRouteHandler(ampless: Ampless): FeedRouteHandler {
-  return async function GET(request: Request, { params }: Ctx): Promise<Response> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+  return async function GET(request: Request): Promise<Response> {
+    const { module } = await ampless.resolveActiveTheme()
     const handler = module.routes?.feed
     if (!handler) {
       return new Response('feed not implemented for this theme', { status: 404 })
     }
-    return handler({ siteId, request })
+    return handler({ request })
   }
 }

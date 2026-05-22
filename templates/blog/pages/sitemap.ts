@@ -1,14 +1,13 @@
 import { publicAssetUrl } from '@/lib/storage'
 
 interface Ctx {
-  siteId: string
   request: Request
 }
 
 // /sitemap.xml proxy — plugin-seo regenerates the sitemap on every
-// content event and writes it to `public/plugins/seo/{siteId}/sitemap.xml`.
-export async function blogSitemapHandler({ siteId }: Ctx): Promise<Response> {
-  const url = publicAssetUrl(`public/plugins/seo/${siteId}/sitemap.xml`)
+// content event and writes it to `public/plugins/seo/sitemap.xml`.
+export async function blogSitemapHandler(_ctx: Ctx): Promise<Response> {
+  const url = publicAssetUrl('public/plugins/seo/sitemap.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

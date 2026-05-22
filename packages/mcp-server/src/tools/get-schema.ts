@@ -14,7 +14,7 @@ export function getSchema() {
         identifier: ['postId'],
         fields: {
           postId: { type: 'string', required: true, description: 'auto-generated if omitted on create' },
-          slug: { type: 'string', required: true, description: 'URL slug, unique per site' },
+          slug: { type: 'string', required: true, description: 'URL slug, unique' },
           title: { type: 'string', required: true },
           excerpt: { type: 'string' },
           format: { type: 'enum', values: ['tiptap', 'markdown', 'html'], required: true },
@@ -67,7 +67,7 @@ export function getSchema() {
       noLayout:
         'metadata.no_layout=true serves the post as bare HTML with no theme chrome — the public route at /<slug> 308-redirects to /_/<slug>, and that route renders the body verbatim with no wrapping <html>/<head>/layout. Use this for landing pages, embeds, or any post whose body is a full HTML document. Only meaningful with format=html (the other formats need the theme renderer).',
       staticFormat:
-        'A fourth format value `static` exists on the underlying data model for posts whose body is a JSON manifest pointing to a pre-uploaded HTML/CSS/JS bundle in S3 at public/static/<siteId>/<slug>/. Public URL pattern: /_/<slug>/ for the entrypoint and /_/<slug>/<file> for every bundle file (308 redirect from /<slug> via the post dispatcher). Static posts are created/edited through the dedicated tools `upload_static_bundle` (zip in one shot), `upload_static_file` / `delete_static_file` (incremental per-file ops), and `commit_static_post` (rebuild the manifest from the current S3 prefix). `create_post` / `update_post` intentionally do NOT accept format=static — the bundle tools are the only supported entry point so the Post manifest stays in sync with the S3 prefix.',
+        'A fourth format value `static` exists on the underlying data model for posts whose body is a JSON manifest pointing to a pre-uploaded HTML/CSS/JS bundle in S3 at public/static/<slug>/. Public URL pattern: /_/<slug>/ for the entrypoint and /_/<slug>/<file> for every bundle file (308 redirect from /<slug> via the post dispatcher). Static posts are created/edited through the dedicated tools `upload_static_bundle` (zip in one shot), `upload_static_file` / `delete_static_file` (incremental per-file ops), and `commit_static_post` (rebuild the manifest from the current S3 prefix). `create_post` / `update_post` intentionally do NOT accept format=static — the bundle tools are the only supported entry point so the Post manifest stays in sync with the S3 prefix.',
     },
   }
 }

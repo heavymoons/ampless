@@ -14,7 +14,6 @@ const QUERY = /* GraphQL */ `
 `
 
 export interface ListPostsArgs {
-  siteId?: string
   status?: 'draft' | 'published' | 'all'
   limit?: number
   nextToken?: string
@@ -33,19 +32,19 @@ export const listPostsSchema = {
   },
 } as const
 
-export async function listPosts(
-  client: GraphqlClient,
-  defaultSiteId: string,
-  args: ListPostsArgs = {}
-) {
-  const siteId = args.siteId ?? defaultSiteId
+export async function listPosts(client: GraphqlClient, args: ListPostsArgs = {}) {
   const status = args.status ?? 'all'
-  const filter: Record<string, unknown> = { siteId: { eq: siteId } }
+  const filter: Record<string, unknown> = {}
   if (status !== 'all') filter.status = { eq: status }
+  const hasFilter = Object.keys(filter).length > 0
 
   const data = await client.query<{
     listPosts: { items: Parameters<typeof toCorePost>[0][]; nextToken: string | null }
-  }>(QUERY, { filter, limit: args.limit ?? 20, nextToken: args.nextToken })
+  }>(QUERY, {
+    filter: hasFilter ? filter : undefined,
+    limit: args.limit ?? 20,
+    nextToken: args.nextToken,
+  })
 
   return {
     posts: data.listPosts.items.map(toCorePost),
