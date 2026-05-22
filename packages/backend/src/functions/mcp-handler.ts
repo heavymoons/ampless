@@ -3,12 +3,13 @@ import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
 import { decodeAwsJson } from 'ampless'
-import { dispatchToolCall, tools, type ToolContext } from '@ampless/mcp-server/tools'
+import { dispatchToolCall, tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
 import { createMcpGraphqlClient } from './mcp-graphql-client.js'
+import { createMcpStorageClient } from './mcp-storage-client.js'
 
 /**
- * MCP HTTP endpoint Lambda. Phase 4: Bearer validation + JSON-RPC 2.0
- * tool dispatch over AppSync IAM auth.
+ * MCP HTTP endpoint Lambda. Phase 5: Bearer validation + JSON-RPC 2.0
+ * tool dispatch over AppSync IAM auth, including `upload_media`.
  *
  *   1. Reads KvStore directly (PK = 'mcp-tokens', SK = SHA-256 hex)
  *      to validate `Authorization: Bearer amk_...`. Same narrow IAM
@@ -20,14 +21,14 @@ import { createMcpGraphqlClient } from './mcp-graphql-client.js'
  *      registry. The GraphqlClient implementation hits AppSync with
  *      SigV4 (`AWS_IAM` auth mode), gated by `allow.resource(mcpHandler)
  *      .to(['query', 'mutate'])` on Post / PostTag in the schema.
+ *   4. `upload_media` decodes the base64 body inline and uploads to S3
+ *      using the Lambda execution role (s3:PutObject on public/media/*).
+ *      Payload limit ~6 MB (base64-inflated) covers typical CMS images;
+ *      large files should use the stdio CLI.
  *
  * Function URL event format: Lambda Function URLs emit API Gateway
  * HTTP v2 events (https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html#urls-payloads).
  * Headers arrive lowercased.
- *
- * Note: `upload_media` is filtered out — the StorageClient flow needs
- * presigned S3 PUT URLs (the Lambda doesn't accept the binary body
- * itself), which lands in Phase 5.
  */
 
 interface FunctionUrlEvent {
@@ -113,13 +114,13 @@ function requireEnv(name: string): string {
 
 const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
 const APPSYNC_URL = requireEnv('AMPLESS_APPSYNC_URL')
+const BUCKET_NAME = requireEnv('AMPLESS_BUCKET_NAME')
 const AWS_REGION = process.env['AWS_REGION'] ?? 'us-east-1'
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
-// HTTP transport doesn't carry the binary body for `upload_media` —
-// that needs the presigned-PUT flow planned for Phase 5. Drop it from
-// the advertised registry so MCP clients don't see a verb they can't call.
-const HTTP_TOOLS = tools.filter((t) => t.name !== 'upload_media')
+// All tools are available over HTTP, including `upload_media` which
+// uses inline base64 (decoded + S3-uploaded by the Lambda).
+const HTTP_TOOLS = tools
 
 function hashToken(plain: string): string {
   return createHash('sha256').update(plain).digest('hex')
@@ -189,20 +190,22 @@ function decodeTokenMeta(value: KvRow['value']): McpTokenMeta | null {
   return parsed as unknown as McpTokenMeta
 }
 
-// Lazy graphql client: instantiated on first tools/call request so
-// `initialize` / `tools/list` (which never touch AppSync) don't pay
-// the credential-chain lookup. Cached for the warm-Lambda lifetime.
+// Lazy clients: instantiated on first tools/call request so
+// `initialize` / `tools/list` (which never touch AppSync or S3) don't
+// pay the credential-chain lookup. Cached for the warm-Lambda lifetime.
 let cachedCtx: ToolContext | null = null
 function makeContext(meta: McpTokenMeta): ToolContext {
   if (cachedCtx && cachedCtx.defaultSiteId === (meta.scope.siteId ?? 'default')) {
     return cachedCtx
   }
+  let storageClient: StorageClient | null = null
   const ctx: ToolContext = {
     graphql: createMcpGraphqlClient({ endpoint: APPSYNC_URL, region: AWS_REGION }),
     storage: () => {
-      throw new Error(
-        'upload_media is not available on the HTTP MCP transport in v0.2 Phase 4 — use the stdio CLI or wait for Phase 5'
-      )
+      if (!storageClient) {
+        storageClient = createMcpStorageClient({ bucket: BUCKET_NAME, region: AWS_REGION })
+      }
+      return storageClient
     },
     defaultSiteId: meta.scope.siteId ?? 'default',
   }

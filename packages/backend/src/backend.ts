@@ -361,6 +361,18 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     'AMPLESS_APPSYNC_URL',
     backend.data.resources.cfnResources.cfnGraphqlApi.attrGraphQlUrl
   )
+  // Phase 5: S3 PutObject for `upload_media`. Scope to `public/media/*`
+  // which matches the prefix `buildMediaKey` always produces. The Lambda
+  // execution role carries these credentials — no AWS_ACCESS_KEY_ID
+  // env var needed in the function.
+  mcpHandlerFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:PutObject'],
+      resources: [`${backend.storage.resources.bucket.bucketArn}/public/media/*`],
+    })
+  )
+  mcpHandlerFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
 
   // Function URL: auth NONE because the handler does its own Bearer
   // validation. CORS open because MCP clients connect from arbitrary
