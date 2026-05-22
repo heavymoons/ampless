@@ -45,7 +45,19 @@ interface FunctionUrlResult {
 interface KvRow {
   pk: string
   sk: string
-  value: string // JSON-encoded McpTokenMeta
+  /**
+   * Stored as an `a.json()` field. Two shapes show up at this layer:
+   *   - JSON-encoded string: what the admin client serialises into
+   *     AppSync's AWSJSON input ("a JSON-encoded string"), preserved
+   *     verbatim by some resolver paths.
+   *   - Native object: Amplify Gen 2's auto-generated CreateKvStore /
+   *     UpdateKvStore resolver parses the incoming AWSJSON and stores
+   *     it as a native DynamoDB Map. `DynamoDBDocumentClient` then
+   *     unmarshals it straight into a JS object on read.
+   * Handle both — the existing trusted-processor cache code does the
+   * same dance for `siteconfig:*` rows.
+   */
+  value: string | Record<string, unknown>
   ttl?: number | null
 }
 
@@ -154,16 +166,31 @@ async function validateBearer(plaintext: string): Promise<McpTokenMeta | null> {
   )
   const row = res.Item as KvRow | undefined
   if (!row?.value) return null
-  let meta: McpTokenMeta
-  try {
-    meta = JSON.parse(row.value) as McpTokenMeta
-  } catch {
-    console.error('[mcp-handler] could not parse token row', { hash })
+  const meta = decodeTokenMeta(row.value)
+  if (!meta) {
+    console.error('[mcp-handler] could not decode token row', { hash, valueType: typeof row.value })
     return null
   }
   if (meta.revokedAt) return null
   if (meta.expiresAt && new Date(meta.expiresAt).getTime() <= Date.now()) return null
   return meta
+}
+
+/**
+ * `value` arrives in either of two shapes (see `KvRow.value` comment).
+ * Normalise both into the parsed `McpTokenMeta` and return `null` if
+ * the shape is unrecognisable — leak nothing about which check failed.
+ */
+function decodeTokenMeta(value: KvRow['value']): McpTokenMeta | null {
+  if (typeof value === 'object') return value as unknown as McpTokenMeta
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as McpTokenMeta
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 // Lazy graphql client: instantiated on first tools/call request so

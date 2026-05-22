@@ -150,6 +150,27 @@ describe('mcp-handler', () => {
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
   })
 
+  it('row.value as a native object (DynamoDB Map) decodes the same as the string form', async () => {
+    // Regression guard. AppSync's auto-generated CreateKvStore resolver
+    // parses the incoming AWSJSON and stores `value` as a native DDB
+    // Map; DynamoDBDocumentClient unmarshals it straight into a JS
+    // object. Phase 3 originally JSON.parse'd `row.value` unconditionally
+    // and so couldn't validate any real token written through the
+    // admin UI — every Bearer came back as invalid_token.
+    const meta = makeValidTokenMeta()
+    mockSend.mockResolvedValueOnce({
+      Item: { pk: 'mcp-tokens', sk: 'hash', value: meta },
+    })
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 99, method: 'initialize', params: {} },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).id).toBe(99)
+  })
+
   // --- Phase 4: JSON-RPC dispatch ---
 
   it('initialize returns 200 with protocolVersion + tools capability', async () => {
