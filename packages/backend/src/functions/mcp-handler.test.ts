@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Set env before importing handler (top-level requireEnv throws otherwise).
 process.env['AMPLESS_KV_TABLE'] = 'KvStore-test'
 process.env['AMPLESS_APPSYNC_URL'] = 'https://example.appsync-api.us-east-1.amazonaws.com/graphql'
+process.env['AMPLESS_BUCKET_NAME'] = 'test-bucket'
 process.env['AWS_REGION'] = 'us-east-1'
 
 // Mock the DynamoDB Document client so tests never hit real AWS.
@@ -38,6 +39,18 @@ vi.mock('./mcp-graphql-client.js', () => {
   return {
     createMcpGraphqlClient: () => ({
       query: (op: string, vars?: Record<string, unknown>) => mockGraphqlQuery(op, vars),
+    }),
+  }
+})
+
+// Mock the S3 StorageClient so upload_media tests don't need real AWS
+// credentials. `mockPutObject` is a spy we can assert against.
+const mockPutObject = vi.fn()
+vi.mock('./mcp-storage-client.js', () => {
+  return {
+    createMcpStorageClient: () => ({
+      putObject: (key: string, body: Uint8Array, contentType: string) =>
+        mockPutObject(key, body, contentType),
     }),
   }
 })
@@ -104,6 +117,7 @@ describe('mcp-handler', () => {
   beforeEach(() => {
     mockSend.mockReset()
     mockGraphqlQuery.mockReset()
+    mockPutObject.mockReset()
   })
 
   it('OPTIONS preflight returns 204', async () => {
@@ -190,7 +204,7 @@ describe('mcp-handler', () => {
     expect(body.result.serverInfo).toMatchObject({ name: 'ampless-mcp' })
   })
 
-  it('tools/list returns the HTTP tool registry excluding upload_media', async () => {
+  it('tools/list returns the full tool registry including upload_media', async () => {
     mockValidTokenLookup()
     const res = await handler(
       makeEvent({
@@ -207,7 +221,8 @@ describe('mcp-handler', () => {
     expect(names).toContain('update_post')
     expect(names).toContain('delete_post')
     expect(names).toContain('get_schema')
-    expect(names).not.toContain('upload_media')
+    // Phase 5: upload_media is now available over HTTP transport
+    expect(names).toContain('upload_media')
   })
 
   it('tools/call list_posts dispatches via the mocked graphql client', async () => {
@@ -237,8 +252,22 @@ describe('mcp-handler', () => {
     expect(mockGraphqlQuery).toHaveBeenCalledOnce()
   })
 
-  it('tools/call upload_media (filtered) returns JSON-RPC method-not-found result', async () => {
+  it('tools/call upload_media dispatches via storage.putObject and creates a Media row', async () => {
     mockValidTokenLookup()
+    const base64Data = Buffer.from('fake-image-bytes').toString('base64')
+    mockPutObject.mockResolvedValueOnce(
+      'https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1234-photo.jpg'
+    )
+    mockGraphqlQuery.mockResolvedValueOnce({
+      createMedia: {
+        siteId: 'default',
+        mediaId: 'media-123',
+        src: 'public/media/2026/05/1234-photo.jpg',
+        mimeType: 'image/jpeg',
+        size: 16,
+        delivery: 'nextjs',
+      },
+    })
     const res = await handler(
       makeEvent({
         authorization: VALID_TOKEN,
@@ -246,15 +275,72 @@ describe('mcp-handler', () => {
           jsonrpc: '2.0',
           id: 4,
           method: 'tools/call',
-          params: { name: 'upload_media', arguments: {} },
+          params: {
+            name: 'upload_media',
+            arguments: {
+              filename: 'photo.jpg',
+              mimeType: 'image/jpeg',
+              base64Data,
+            },
+          },
         },
       })
     )
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.error).toBeDefined()
-    expect(body.error.code).toBe(-32601)
-    expect(body.error.message).toContain('upload_media')
+    expect(body.error).toBeUndefined()
+    expect(body.result.content[0].type).toBe('text')
+    // storage.putObject should have been called with the decoded bytes
+    expect(mockPutObject).toHaveBeenCalledOnce()
+    const [key, uploadedBody, contentType] = mockPutObject.mock.calls[0] as [string, Uint8Array, string]
+    expect(key).toMatch(/^public\/media\/\d{4}\/\d{2}\/\d+-photo\.jpg$/)
+    expect(contentType).toBe('image/jpeg')
+    expect(Buffer.from(uploadedBody).toString()).toBe('fake-image-bytes')
+    // graphql should have been called for createMedia
+    expect(mockGraphqlQuery).toHaveBeenCalledOnce()
+    const result = JSON.parse(body.result.content[0].text)
+    expect(result.media.siteId).toBe('default')
+  })
+
+  it('tools/call upload_media with minimal base64 (single byte) decodes correctly', async () => {
+    mockValidTokenLookup()
+    const singleByte = Buffer.from([0xff]).toString('base64') // '/w=='
+    mockPutObject.mockResolvedValueOnce('https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1-tiny.bin')
+    mockGraphqlQuery.mockResolvedValueOnce({
+      createMedia: {
+        siteId: 'default',
+        mediaId: 'media-1',
+        src: 'public/media/2026/05/1-tiny.bin',
+        mimeType: 'application/octet-stream',
+        size: 1,
+        delivery: 'nextjs',
+      },
+    })
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 41,
+          method: 'tools/call',
+          params: {
+            name: 'upload_media',
+            arguments: {
+              filename: 'tiny.bin',
+              mimeType: 'application/octet-stream',
+              base64Data: singleByte,
+            },
+          },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(mockPutObject).toHaveBeenCalledOnce()
+    const [, uploadedBody] = mockPutObject.mock.calls[0] as [string, Uint8Array, string]
+    expect(uploadedBody[0]).toBe(0xff)
+    expect(uploadedBody.length).toBe(1)
   })
 
   it('tools/call without a name parameter returns invalid-params', async () => {
