@@ -37,8 +37,13 @@ export function decodeBody(value: unknown): unknown {
   }
 }
 
+// AppSync's AWSJSON scalar requires a *JSON-encoded* string on the wire.
+// That means a raw markdown body like `# Hello` must become `"# Hello"`
+// (a JSON string literal) — sending the bare `# Hello` triggers AppSync's
+//   `Variable 'body' has an invalid value`
+// validator. So we always JSON.stringify on the way out, including for
+// strings. Same rule the admin posts-provider uses; keep them aligned.
 export function encodeBody(value: unknown): string {
-  if (typeof value === 'string') return value
   return JSON.stringify(value ?? null)
 }
 

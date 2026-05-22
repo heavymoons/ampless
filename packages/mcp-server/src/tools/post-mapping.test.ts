@@ -7,8 +7,11 @@ describe('encodeBody / decodeBody', () => {
     expect(decodeBody(encodeBody(body))).toEqual(body)
   })
 
-  it('passes pre-encoded strings through encodeBody unchanged', () => {
-    expect(encodeBody('# hello')).toBe('# hello')
+  it('wraps raw string bodies (markdown / html) as JSON string literals', () => {
+    // AWSJSON rejects bare strings; they must be a JSON string literal
+    // ("# hello", not # hello). The round-trip recovers the original.
+    expect(encodeBody('# hello')).toBe('"# hello"')
+    expect(decodeBody(encodeBody('# hello'))).toBe('# hello')
   })
 
   it('decodeBody returns non-strings as-is', () => {
