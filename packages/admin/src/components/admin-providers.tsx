@@ -5,7 +5,6 @@ import type { AmplessOutputs } from '@ampless/runtime'
 import { configureAmplify } from '../lib/amplify-client.js'
 import { installAdminPostsProvider } from '../lib/posts-provider.js'
 import { installAdminKvProvider } from '../lib/kv-provider.js'
-import { setAdminCmsConfig } from '../lib/admin-site-client.js'
 import { setAdminCmsConfigClient } from '../lib/admin-config-client.js'
 import { setAdminMediaContext } from '../lib/media.js'
 
@@ -35,7 +34,6 @@ interface Props {
  */
 export function AdminProviders({ outputs, cmsConfig, children }: Props) {
   configureAmplify(outputs)
-  setAdminCmsConfig(cmsConfig)
   setAdminCmsConfigClient(cmsConfig)
   setAdminMediaContext(outputs, cmsConfig)
   installAdminPostsProvider()

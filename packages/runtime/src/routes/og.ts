@@ -31,18 +31,18 @@ function hasOgImage(
 
 export function createOgRouteHandler(ampless: Ampless): OgRouteHandler {
   return async function GET(_req: Request, { params }: Ctx): Promise<Response> {
-    const { siteId, slug } = await params
+    const { slug } = await params
     // Allow `/og/<slug>` and `/og/<slug>.png` — some crawlers append the
     // extension based on the metadata image URL's path.
     const cleanSlug = slug.replace(/\.png$/, '')
 
-    const post = await ampless.getPublishedPost(cleanSlug, { siteId })
+    const post = await ampless.getPublishedPost(cleanSlug)
     if (!post) return new Response('not found', { status: 404 })
 
     const plugin = (ampless.cmsConfig.plugins ?? []).find(hasOgImage)
     if (!plugin) return new Response('og not configured', { status: 404 })
 
-    const settings = await ampless.loadSiteSettings(siteId)
+    const settings = await ampless.loadSiteSettings()
 
     // Resolve lazy font loaders once per request. The plugin's loader
     // caches in-process so this is cheap on warm Lambdas.

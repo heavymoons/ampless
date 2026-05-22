@@ -1,14 +1,13 @@
 import { publicAssetUrl } from '@/lib/storage'
 
 interface Ctx {
-  siteId: string
   request: Request
 }
 
 // /feed.xml proxy — plugin-rss writes the feed to
-// `public/plugins/rss/{siteId}/feed.xml`. Same flow as the blog theme.
-export async function landingFeedHandler({ siteId }: Ctx): Promise<Response> {
-  const url = publicAssetUrl(`public/plugins/rss/${siteId}/feed.xml`)
+// `public/plugins/rss/feed.xml`. Same flow as the blog theme.
+export async function landingFeedHandler(_ctx: Ctx): Promise<Response> {
+  const url = publicAssetUrl('public/plugins/rss/feed.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

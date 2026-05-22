@@ -15,7 +15,6 @@
 | Content storage | Portable Text (fixed) | Multi-format (tiptap / Markdown / HTML) |
 | AI integration | None (at v1) | MCP Server + AI provider abstraction layer |
 | Hook system | Unknown | before/after hooks + webhooks (general-purpose external integration) |
-| Multi-site | Not supported | Subdomain-based multi-site |
 | Ecosystem | Cloudflare users | AWS users (vastly larger community) |
 
 ---

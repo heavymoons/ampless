@@ -37,7 +37,6 @@ function makeMeta(overrides: Partial<McpTokenMeta> = {}): Omit<McpTokenMeta, 'la
   return {
     hash,
     prefix,
-    scope: { siteId: null },
     createdBy: 'user-sub-123',
     createdByEmail: 'admin@example.com',
     createdAt: new Date().toISOString(),

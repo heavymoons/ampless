@@ -1,12 +1,11 @@
 import { publicAssetUrl } from '@/lib/storage'
 
 interface Ctx {
-  siteId: string
   request: Request
 }
 
-export async function dadsFeedHandler({ siteId }: Ctx): Promise<Response> {
-  const url = publicAssetUrl(`public/plugins/rss/${siteId}/feed.xml`)
+export async function dadsFeedHandler(_ctx: Ctx): Promise<Response> {
+  const url = publicAssetUrl('public/plugins/rss/feed.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

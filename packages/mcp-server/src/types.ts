@@ -24,8 +24,6 @@ export interface ResolvedConfig {
   outputs: AmplifyOutputs
   email: string
   password: string
-  /** Site identifier passed to all queries that don't override it. */
-  defaultSiteId: string
 }
 
 export interface AuthSession {

@@ -5,9 +5,9 @@
 // for API stability; only the user-side file convention (proxy.ts +
 // `export const proxy`) follows Next 16's rename.
 //
-// See `@ampless/runtime/middleware` for behaviour details: multi-site
-// host rewrite, `<slug>.html` → raw route, `?previewTheme=` header
-// forwarding, multi-site Cache-Control override.
+// See `@ampless/runtime/middleware` for behaviour details:
+// `/path` → `/site/default/path` rewrite, `?previewTheme=` header
+// forwarding.
 
 import cmsConfig from './cms.config'
 import { createAmplessMiddleware } from '@ampless/runtime/middleware'

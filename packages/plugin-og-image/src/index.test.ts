@@ -16,7 +16,6 @@ const site: Config['site'] = {
 
 const post: Post = {
   postId: 'p1',
-  siteId: 'default',
   slug: 'hello',
   title: 'Hello',
   excerpt: 'A teaser',

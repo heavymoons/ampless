@@ -17,7 +17,6 @@ export interface SiteSettingsFormValues {
 }
 
 interface Props {
-  siteId: string
   initial: SiteSettingsFormValues
   /** Defaults from cms.config.ts shown as placeholders. */
   fallback: SiteSettingsFormValues
@@ -33,7 +32,7 @@ const KEYS: Array<keyof SiteSettingsFormValues> = [
   'timezone',
 ]
 
-export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
+export function SiteSettingsForm({ initial, fallback }: Props) {
   const router = useRouter()
   const t = useT()
   const [values, setValues] = useState<SiteSettingsFormValues>(initial)
@@ -60,7 +59,7 @@ export function SiteSettingsForm({ siteId, initial, fallback }: Props) {
           // Empty / undefined → skip (could also delete the row, but
           // updates without explicit "reset to default" feel safer).
           if (value === undefined || value === '') return Promise.resolve()
-          return setSiteSetting(siteId, key, value)
+          return setSiteSetting(key, value)
         })
       )
       setInfo(t('sites.edit.saved'))

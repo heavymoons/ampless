@@ -8,7 +8,6 @@ import {
 import type { StorageClient } from './types.js'
 
 export interface UploadStaticFileArgs {
-  siteId?: string
   slug: string
   /** Relative path inside the bundle (slash-separated). Must satisfy the same rules as zip entries. */
   filename: string
@@ -22,8 +21,7 @@ export const uploadStaticFileSchema = {
   type: 'object',
   required: ['slug', 'filename', 'base64Data'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
-    slug: { type: 'string', description: 'Bundle slug. Files land at public/static/<siteId>/<slug>/<filename>.' },
+    slug: { type: 'string', description: 'Bundle slug. Files land at public/static/<slug>/<filename>.' },
     filename: {
       type: 'string',
       description:
@@ -51,10 +49,8 @@ export const uploadStaticFileSchema = {
  */
 export async function uploadStaticFile(
   storage: StorageClient,
-  defaultSiteId: string,
   args: UploadStaticFileArgs,
 ) {
-  const siteId = args.siteId ?? defaultSiteId
   const filename = args.filename
 
   const reason = validateBundlePath(filename)
@@ -85,7 +81,7 @@ export async function uploadStaticFile(
   }
 
   const contentType = args.contentType ?? mimeTypeFor(filename)
-  const key = `${bundlePrefix(siteId, args.slug)}${filename}`
+  const key = `${bundlePrefix(args.slug)}${filename}`
   const url = await storage.putObject(key, body, contentType)
   return { key, url, size: body.length }
 }

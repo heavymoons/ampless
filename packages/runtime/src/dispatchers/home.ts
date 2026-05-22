@@ -12,14 +12,13 @@ export type ThemeHomeDispatcher = (props: Props) => Promise<ReactNode>
 export type ThemeHomeMetadata = (props: Props) => Promise<Metadata>
 
 /**
- * Home page dispatcher. Resolves the active theme for the request's
- * siteId and renders the theme's `components.Home` server component
- * with the same `params` Promise it was passed.
+ * Home page dispatcher. Resolves the active theme and renders the
+ * theme's `components.Home` server component with the same `params`
+ * Promise it was passed.
  */
 export function createThemeHomeDispatcher(ampless: Ampless): ThemeHomeDispatcher {
   return async function SiteHomeDispatcher({ params }: Props): Promise<ReactNode> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const Home = module.components.Home
     return (await Home({ params })) as ReactNode
   }
@@ -28,8 +27,7 @@ export function createThemeHomeDispatcher(ampless: Ampless): ThemeHomeDispatcher
 /** generateMetadata factory for the home dispatcher. */
 export function createThemeHomeMetadata(ampless: Ampless): ThemeHomeMetadata {
   return async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const fn = module.metadata?.Home
     return fn ? ((await fn({ params })) as Metadata) : {}
   }

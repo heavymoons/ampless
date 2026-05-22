@@ -3,6 +3,11 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import type { Ampless } from '../index.js'
 
+// `siteId` is still in the params shape because the file route is
+// `app/site/[siteId]/[slug]/page.tsx` — Next.js extracts every dynamic
+// segment regardless of what we do with the value. Keep the type
+// honest so callers / theme Post components see the same params shape
+// they get at runtime. The dispatcher itself ignores the field.
 interface Props {
   params: Promise<{ siteId: string; slug: string }>
 }
@@ -48,12 +53,12 @@ export type ThemePostMetadata = (props: Props) => Promise<Metadata>
  */
 export function createThemePostDispatcher(ampless: Ampless): ThemePostDispatcher {
   return async function SitePostDispatcher({ params }: Props): Promise<ReactNode> {
-    const { siteId, slug } = await params
-    const post = await ampless.getPublishedPost(slug, { siteId })
+    const { slug } = await params
+    const post = await ampless.getPublishedPost(slug)
     if (post?.metadata?.no_layout === true || post?.format === 'static') {
       redirect(`/_/${slug}`)
     }
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const Post = module.components.Post
     if (!Post) notFound()
     return (await Post({ params })) as ReactNode
@@ -63,8 +68,7 @@ export function createThemePostDispatcher(ampless: Ampless): ThemePostDispatcher
 /** generateMetadata factory for the post dispatcher. */
 export function createThemePostMetadata(ampless: Ampless): ThemePostMetadata {
   return async function generateMetadata({ params }: Props): Promise<Metadata> {
-    const { siteId } = await params
-    const { module } = await ampless.resolveActiveTheme(siteId)
+    const { module } = await ampless.resolveActiveTheme()
     const fn = module.metadata?.Post
     return fn ? ((await fn({ params })) as Metadata) : {}
   }

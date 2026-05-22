@@ -7,20 +7,17 @@ import { renderBody } from '@/lib/posts'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 
-export default async function CorporateHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
+export default async function CorporateHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
-    listPublishedPosts({ siteId, limit: 8 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
+    listPublishedPosts({ limit: 8 }),
   ])
 
   // Top-story embed between hero and news. Filtered out of news to
   // avoid duplication. Skipped silently if missing / unpublished.
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug
-    ? await getPublishedPost(featuredSlug, { siteId })
-    : null
+  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items

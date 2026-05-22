@@ -20,7 +20,6 @@ const TRUSTED_QUEUE_URL = requireEnv('TRUSTED_QUEUE_URL')
 const UNTRUSTED_QUEUE_URL = requireEnv('UNTRUSTED_QUEUE_URL')
 
 interface RawPost {
-  siteId?: string
   postId?: string
   slug?: string
   title?: string
@@ -73,7 +72,6 @@ function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEv
   // Trim to the published event payload — drop body/format etc. to keep
   // SQS messages well under the 256 KiB limit even for large posts.
   const payload = {
-    siteId: item.siteId,
     postId: item.postId,
     slug: item.slug,
     title: item.title,
@@ -90,16 +88,14 @@ function emitKvEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[]
     : {}
   const pk = item.pk
   if (!pk) return []
-  // Only `siteconfig:{siteId}` rows trigger the site-settings cache
-  // rebuild. Cache rows (`cache:*`), plugin state, and other namespaces
-  // are intentionally ignored.
-  if (!pk.startsWith('siteconfig:')) return []
-  const siteId = pk.slice('siteconfig:'.length)
-  if (!siteId) return []
+  // Only the `siteconfig` row triggers the site-settings cache rebuild.
+  // Cache rows (`cache:*`), plugin state, and other namespaces are
+  // intentionally ignored.
+  if (pk !== 'siteconfig') return []
   return [
     {
       type: 'site.settings.updated',
-      payload: { siteId },
+      payload: {},
       timestamp,
     },
   ]

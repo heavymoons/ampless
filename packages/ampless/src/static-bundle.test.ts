@@ -138,11 +138,11 @@ describe('mimeTypeFor', () => {
 
 describe('bundlePrefix', () => {
   it('builds the canonical S3 prefix', () => {
-    expect(bundlePrefix('default', 'my-lp')).toBe('public/static/default/my-lp/')
+    expect(bundlePrefix('my-lp')).toBe('public/static/my-lp/')
   })
 
-  it('preserves arbitrary site / slug strings unchanged', () => {
-    expect(bundlePrefix('site2', 'a b c')).toBe('public/static/site2/a b c/')
+  it('preserves arbitrary slug strings unchanged', () => {
+    expect(bundlePrefix('a b c')).toBe('public/static/a b c/')
   })
 })
 

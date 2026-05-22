@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
-import { DEFAULT_SITE_ID } from 'ampless'
 import { validateColorScheme } from '@ampless/runtime'
 import { Providers } from './providers'
 import { siteMetadata } from '@/lib/seo'
@@ -9,20 +8,13 @@ import { getLocale, getDictionary } from '@/lib/i18n'
 import { I18nProvider } from '@/components/i18n-provider'
 import './globals.css'
 
-// Resolve metadata per site at request time. The middleware sets
-// `x-site-id` so we can pick the right merged settings; falls back to
-// DEFAULT_SITE_ID for admin / API routes that don't go through the
-// public middleware path.
 export async function generateMetadata(): Promise<Metadata> {
-  const h = await headers()
-  const siteId = h.get('x-site-id') ?? DEFAULT_SITE_ID
-  return siteMetadata(siteId)
+  return siteMetadata()
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const h = await headers()
-  const siteId = h.get('x-site-id') ?? DEFAULT_SITE_ID
-  const theme = await loadThemeConfig(siteId)
+  const theme = await loadThemeConfig()
   const themeCss = renderThemeCss(theme.cssVars)
   const locale = getLocale()
   const dict = getDictionary(locale)

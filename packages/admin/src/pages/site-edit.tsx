@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { siteFor } from 'ampless'
 import type { Admin } from '../index.js'
 import {
   SiteSettingsForm,
@@ -14,19 +13,22 @@ interface Props {
  * Server-rendered: pre-fills the form with the merged settings (so the
  * editor sees what's currently effective). The form itself writes
  * directly to KvStore via the AppSync client; no Server Action needed.
+ *
+ * ampless runs one site per Amplify deployment. The route still takes a
+ * `[siteId]` param for forward-compat with the existing URL structure,
+ * but the value isn't used — a follow-up PR flattens the URL.
  */
 export function createSiteEditPage(admin: Admin) {
   const { cmsConfig, t, loadSiteSettings } = admin
 
   async function EditSitePage({ params }: Props) {
     const { siteId } = await params
-    const settings = await loadSiteSettings(siteId)
+    const settings = await loadSiteSettings()
 
-    const defaults = siteFor(siteId, cmsConfig)
     const fallback: SiteSettingsFormValues = {
-      'site.name': defaults.name,
-      'site.url': defaults.url,
-      'site.description': defaults.description,
+      'site.name': cmsConfig.site.name,
+      'site.url': cmsConfig.site.url,
+      'site.description': cmsConfig.site.description,
       'media.imageDisplay': cmsConfig.media?.imageDisplay,
       'media.imageMaxWidth': cmsConfig.media?.imageMaxWidth,
       dateFormat: cmsConfig.dateFormat,
@@ -46,16 +48,7 @@ export function createSiteEditPage(admin: Admin) {
     return (
       <div className="mx-auto max-w-7xl p-4 md:p-8">
         <div className="mb-6 md:mb-8">
-          <Link
-            href="/admin/sites"
-            className="text-sm text-muted-foreground hover:underline"
-          >
-            ← {t('sidebar.sites')}
-          </Link>
           <h1 className="mt-2 text-2xl font-bold md:text-3xl">{settings.site.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            {t('common.siteId')}: <code className="font-mono">{siteId}</code>
-          </p>
           <div className="mt-4">
             <Link
               href={`/admin/sites/${siteId}/theme`}
@@ -66,7 +59,7 @@ export function createSiteEditPage(admin: Admin) {
           </div>
         </div>
 
-        <SiteSettingsForm siteId={siteId} initial={initial} fallback={fallback} />
+        <SiteSettingsForm initial={initial} fallback={fallback} />
       </div>
     )
   }

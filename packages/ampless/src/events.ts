@@ -20,7 +20,6 @@ export type EventType = ContentEventType | MediaEventType | SiteSettingsEventTyp
 
 /** Minimal projection of a Post item carried in events (no body, to keep payloads small). */
 export interface ContentEventPayload {
-  siteId: string
   postId: string
   slug: string
   title: string
@@ -30,20 +29,18 @@ export interface ContentEventPayload {
 }
 
 export interface MediaEventPayload {
-  siteId: string
   mediaId: string
   src: string
   mimeType: string
 }
 
 /**
- * Emitted whenever any setting under `siteconfig:{siteId}` in KvStore
- * is created, updated, or removed. Subscribers (built-in or user
- * plugins) can rebuild caches, theme assets, etc.
+ * Emitted whenever any setting under the `siteconfig:` PK in KvStore is
+ * created, updated, or removed. Subscribers (built-in or user plugins)
+ * can rebuild caches, theme assets, etc.
  */
-export interface SiteSettingsEventPayload {
-  siteId: string
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface SiteSettingsEventPayload {}
 
 export type EventPayloadOf<T extends EventType> = T extends ContentEventType
   ? ContentEventPayload

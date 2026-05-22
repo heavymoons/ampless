@@ -57,7 +57,7 @@ interface KvRow {
    *     it as a native DynamoDB Map. `DynamoDBDocumentClient` then
    *     unmarshals it straight into a JS object on read.
    * Handle both — the existing trusted-processor cache code does the
-   * same dance for `siteconfig:*` rows.
+   * same dance for `siteconfig` rows.
    */
   value: string | Record<string, unknown>
   ttl?: number | null
@@ -66,7 +66,6 @@ interface KvRow {
 interface McpTokenMeta {
   hash: string
   prefix: string
-  scope: { siteId: string | null }
   createdBy: string
   createdByEmail: string
   createdAt: string
@@ -194,10 +193,8 @@ function decodeTokenMeta(value: KvRow['value']): McpTokenMeta | null {
 // `initialize` / `tools/list` (which never touch AppSync or S3) don't
 // pay the credential-chain lookup. Cached for the warm-Lambda lifetime.
 let cachedCtx: ToolContext | null = null
-function makeContext(meta: McpTokenMeta): ToolContext {
-  if (cachedCtx && cachedCtx.defaultSiteId === (meta.scope.siteId ?? 'default')) {
-    return cachedCtx
-  }
+function makeContext(): ToolContext {
+  if (cachedCtx) return cachedCtx
   let storageClient: StorageClient | null = null
   const ctx: ToolContext = {
     graphql: createMcpGraphqlClient({ endpoint: APPSYNC_URL, region: AWS_REGION }),
@@ -207,16 +204,12 @@ function makeContext(meta: McpTokenMeta): ToolContext {
       }
       return storageClient
     },
-    defaultSiteId: meta.scope.siteId ?? 'default',
   }
   cachedCtx = ctx
   return ctx
 }
 
-async function dispatchJsonRpc(
-  req: JsonRpcRequest,
-  meta: McpTokenMeta
-): Promise<JsonRpcResponse> {
+async function dispatchJsonRpc(req: JsonRpcRequest): Promise<JsonRpcResponse> {
   switch (req.method) {
     case 'initialize':
       return jsonRpcResult(req.id, {
@@ -248,7 +241,7 @@ async function dispatchJsonRpc(
       if (!tool) {
         return jsonRpcError(req.id, JSON_RPC_METHOD_NOT_FOUND, `unknown tool: ${params.name}`)
       }
-      const ctx = makeContext(meta)
+      const ctx = makeContext()
       try {
         const result = await dispatchToolCall(params.name, params.arguments ?? {}, ctx)
         // Match the stdio server's response shape: { content: [{ type: 'text', text: ... }] }.
@@ -319,7 +312,7 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
   }
 
   try {
-    const response = await dispatchJsonRpc(req, meta)
+    const response = await dispatchJsonRpc(req)
     return jsonResponse(200, response)
   } catch (err) {
     // Last-ditch catch: dispatchJsonRpc shouldn't throw for normal

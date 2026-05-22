@@ -54,9 +54,8 @@ describe('KvStore DI', () => {
     expect(hasKvStore()).toBe(true)
   })
 
-  it('SITE_CONFIG_PK builds the right namespace', () => {
-    expect(SITE_CONFIG_PK('default')).toBe('siteconfig:default')
-    expect(SITE_CONFIG_PK('blog')).toBe('siteconfig:blog')
+  it('SITE_CONFIG_PK is the constant `siteconfig` namespace', () => {
+    expect(SITE_CONFIG_PK).toBe('siteconfig')
   })
 })
 
@@ -69,25 +68,24 @@ describe('site settings helpers', () => {
   })
 
   it('round-trips a single setting', async () => {
-    await setSiteSetting('default', 'site.name', 'My Blog')
-    expect(await getSiteSetting<string>('default', 'site.name')).toBe('My Blog')
+    await setSiteSetting('site.name', 'My Blog')
+    expect(await getSiteSetting<string>('site.name')).toBe('My Blog')
   })
 
   it('returns null for an unset key', async () => {
-    expect(await getSiteSetting('default', 'site.unknown')).toBeNull()
+    expect(await getSiteSetting('site.unknown')).toBeNull()
   })
 
-  it('listSiteSettings returns the flat map for one site', async () => {
-    await setSiteSetting('default', 'site.name', 'A')
-    await setSiteSetting('default', 'site.url', 'https://a')
-    await setSiteSetting('blog', 'site.name', 'B') // different site, must not leak
-    const flat = await listSiteSettings('default')
+  it('listSiteSettings returns the flat settings map', async () => {
+    await setSiteSetting('site.name', 'A')
+    await setSiteSetting('site.url', 'https://a')
+    const flat = await listSiteSettings()
     expect(flat).toEqual({ 'site.name': 'A', 'site.url': 'https://a' })
   })
 
   it('settings are persistent (no TTL set)', async () => {
-    await setSiteSetting('default', 'site.name', 'forever')
-    const stored = mem.store.get('siteconfig:default//site.name')
+    await setSiteSetting('site.name', 'forever')
+    const stored = mem.store.get('siteconfig//site.name')
     expect(stored?.ttl).toBeUndefined()
   })
 })

@@ -72,7 +72,6 @@ export async function extractZip(file: File): Promise<BundleExtractResult> {
 // ----------------------------------------------------------------------------
 
 export interface UploadOptions {
-  siteId: string
   slug: string
   files: ExtractedFile[]
   /** Set to a non-default file if the user wants something other than `index.html` to be the entry. */
@@ -103,9 +102,9 @@ export async function uploadBundle(opts: UploadOptions): Promise<StaticPostBody>
 
   // Clear the existing prefix so removed files vanish. Best-effort — if
   // the listing fails (no prior bundle), proceed with the upload anyway.
-  await deleteBundle(opts.siteId, opts.slug).catch(() => undefined)
+  await deleteBundle(opts.slug).catch(() => undefined)
 
-  const prefix = bundlePrefix(opts.siteId, opts.slug)
+  const prefix = bundlePrefix(opts.slug)
   let uploaded = 0
   for (const f of opts.files) {
     const task = uploadData({
@@ -133,8 +132,8 @@ export async function uploadBundle(opts: UploadOptions): Promise<StaticPostBody>
  * Recursively delete everything under the bundle's S3 prefix. Used
  * when a static post is deleted or just before a fresh upload.
  */
-export async function deleteBundle(siteId: string, slug: string): Promise<void> {
-  const prefix = bundlePrefix(siteId, slug)
+export async function deleteBundle(slug: string): Promise<void> {
+  const prefix = bundlePrefix(slug)
   const result = await list({ path: prefix })
   for (const item of result.items) {
     await remove({ path: item.path })

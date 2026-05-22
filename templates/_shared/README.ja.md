@@ -144,12 +144,6 @@ env 変数追加 / 変更後は再デプロイをトリガーしてください�
 
 Amplify Hosting アプリの **Domain management** からドメインをバインドします — ACM 証明書と DNS レコードは Amplify が自動でプロビジョニングします。詳細手順: [RUNBOOK.ja.md → カスタムドメインを Amplify Hosting に追加](./RUNBOOK.ja.md#adding-a-custom-domain-to-amplify-hosting)
 
-### マルチサイト（複数ドメインを 1 デプロイで）
-
-ampless は 1 つの Amplify Hosting デプロイで複数のサイトを配信できます。各サイトは独自の `siteId`、ホスト名、サイト名、アクティブテーマを持ちます。有効化するには、`cms.config.ts` の `sites:` ブロック（コメントアウト例あり）を埋めてデプロイ。
-
-マルチサイトモードにはキャッシュ周りのトレードオフがあります。詳細: [RUNBOOK.ja.md → マルチサイト / カスタムドメイン](./RUNBOOK.ja.md#multi-site--custom-domains)
-
 ## AI 連携（MCP）
 
 ampless は MCP（Model Context Protocol）サーバーを同梱しているので、Claude Desktop / Cursor / Claude Code など MCP に対応した AI クライアントから投稿の読み書きができます。
@@ -174,7 +168,7 @@ commit 前に diff を確認できます。
 
 ## 運用
 
-日常以外の運用レシピ — ユーザー昇格、パスワードリセット、バックアップ復元、カスタムドメイン配線、AppSync API キーローテーション、マルチサイト構築 — は [RUNBOOK.ja.md](./RUNBOOK.ja.md) にあります。
+日常以外の運用レシピ — ユーザー昇格、パスワードリセット、バックアップ復元、カスタムドメイン配線、AppSync API キーローテーション — は [RUNBOOK.ja.md](./RUNBOOK.ja.md) にあります。
 
 ## ライセンス
 

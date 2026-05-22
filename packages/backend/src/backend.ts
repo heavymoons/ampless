@@ -373,7 +373,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     })
   )
   // Static-bundle MCP tools: PutObject + DeleteObject under
-  // `public/static/*` (per-bundle prefix is `public/static/<siteId>/<slug>/`).
+  // `public/static/*` (per-bundle prefix is `public/static/<slug>/`).
   // ListBucket is required for `upload_static_bundle` (wipe existing
   // prefix), `delete_static_file` (existence probe), and
   // `commit_static_post` (manifest rebuild from current prefix). The

@@ -17,17 +17,11 @@ import { getKvStore } from 'ampless'
 
 const TOKENS_PK = 'mcp-tokens'
 
-export interface McpTokenScope {
-  /** Site this token can act on. `null` = all sites on this deployment. */
-  siteId: string | null
-}
-
 export interface McpTokenMeta {
   /** SHA-256 hex of the plaintext token (= storage SK). */
   hash: string
   /** Plaintext prefix for UI display, e.g. "amk_AbCd". */
   prefix: string
-  scope: McpTokenScope
   /** Cognito `sub` of the admin who issued the token. */
   createdBy: string
   createdByEmail: string

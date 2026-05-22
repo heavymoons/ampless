@@ -3,7 +3,6 @@ import type { Config } from 'ampless'
 import type { Admin } from '../index.js'
 import { I18nProvider } from '../components/i18n-provider.js'
 import { Sidebar } from '../components/sidebar.js'
-import { SiteSelector } from '../components/site-selector.js'
 import { AdminProviders } from '../components/admin-providers.js'
 
 /**
@@ -14,8 +13,8 @@ import { AdminProviders } from '../components/admin-providers.js'
  *   Functions cannot be passed directly to Client Components unless
  *   you explicitly expose it by marking it with "use server".
  *
- * Client state modules only read `cmsConfig.site` / `sites` / `media`
- * — never `plugins[].hooks` — so reducing each plugin instance to its
+ * Client state modules only read `cmsConfig.site` / `media` — never
+ * `plugins[].hooks` — so reducing each plugin instance to its
  * metadata (name / apiVersion / trust_level) is safe.
  */
 function sanitizeCmsConfigForClient(config: Config): Config {
@@ -34,7 +33,7 @@ function sanitizeCmsConfigForClient(config: Config): Config {
  *
  * - An auth gate (`redirect('/login')` if the visitor isn't in the
  *   `ampless-admin` or `ampless-editor` Cognito group).
- * - The admin sidebar (with optional multi-site selector).
+ * - The admin sidebar.
  * - An i18n provider hydrated from the resolved locale dict.
  * - A client-side `AdminProviders` shell that configures the Amplify
  *   SDK and installs the admin's posts / kv providers once on mount.
@@ -46,18 +45,12 @@ export function createAdminLayout(admin: Admin) {
       redirect('/login')
     }
 
-    const sites = admin.adminSiteOptions()
-    const currentSiteId = await admin.currentAdminSiteId()
-    const selector =
-      sites.length > 0 ? <SiteSelector current={currentSiteId} sites={sites} /> : null
-
     return (
       <AdminProviders outputs={admin.outputs} cmsConfig={sanitizeCmsConfigForClient(admin.cmsConfig)}>
         <I18nProvider locale={admin.locale} dict={admin.dict}>
           <div className="flex min-h-screen flex-col md:flex-row">
             <Sidebar
               email={session!.email}
-              siteSelector={selector}
               isAdmin={admin.isAdmin(session)}
             />
             <main className="min-w-0 flex-1">{children}</main>

@@ -8,7 +8,6 @@ import type { GraphqlClient, StorageClient } from './types.js'
 import { upsertStaticPost } from './upsert-static-post.js'
 
 export interface CommitStaticPostArgs {
-  siteId?: string
   slug: string
   title?: string
   entrypoint?: string
@@ -24,7 +23,6 @@ export const commitStaticPostSchema = {
   type: 'object',
   required: ['slug'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string' },
     title: {
       type: 'string',
@@ -69,12 +67,10 @@ export const commitStaticPostSchema = {
 export async function commitStaticPost(
   graphql: GraphqlClient,
   storage: StorageClient,
-  defaultSiteId: string,
   args: CommitStaticPostArgs,
 ) {
-  const siteId = args.siteId ?? defaultSiteId
   const slug = args.slug
-  const prefix = bundlePrefix(siteId, slug)
+  const prefix = bundlePrefix(slug)
 
   const objects = await storage.listObjects(prefix)
   if (objects.length === 0) {
@@ -104,7 +100,7 @@ export async function commitStaticPost(
     uploadedAt: new Date().toISOString(),
   }
 
-  const { post, created } = await upsertStaticPost(graphql, siteId, slug, body, {
+  const { post, created } = await upsertStaticPost(graphql, slug, body, {
     title: args.title,
     postId: args.postId,
     excerpt: args.excerpt,

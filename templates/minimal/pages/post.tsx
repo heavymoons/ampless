@@ -13,17 +13,17 @@ import { t } from '@/lib/i18n'
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
 export async function generatePostMetadata({ params }: PostCtx): Promise<Metadata> {
-  const { siteId, slug } = await params
-  const post = await getPublishedPost(slug, { siteId })
+  const { slug } = await params
+  const post = await getPublishedPost(slug)
   if (!post) return {}
-  return postMetadata(post, siteId)
+  return postMetadata(post)
 }
 
 export default async function MinimalPost({ params }: PostCtx) {
-  const { siteId, slug } = await params
+  const { slug } = await params
   const [post, settings] = await Promise.all([
-    getPublishedPost(slug, { siteId }),
-    loadSiteSettings(siteId),
+    getPublishedPost(slug),
+    loadSiteSettings(),
   ])
   if (!post) notFound()
 

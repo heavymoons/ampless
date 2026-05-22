@@ -30,7 +30,6 @@ export async function startServer(config: ResolvedConfig): Promise<void> {
   const ctx: ToolContext = {
     graphql,
     storage,
-    defaultSiteId: config.defaultSiteId,
   }
 
   const server = new Server(

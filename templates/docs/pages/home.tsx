@@ -11,12 +11,11 @@ import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar
 // Docs home: sidebar nav on the left (with optional tag-driven
 // sections), latest posts list on the right. Acts as the docs landing
 // page until the user arranges static pages.
-export default async function DocsHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
+export default async function DocsHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
-    listPublishedPosts({ siteId, limit: 12 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
+    listPublishedPosts({ limit: 12 }),
   ])
   const posts = postsResult.items
 
@@ -31,7 +30,7 @@ export default async function DocsHome({ params }: ThemeRouteContext) {
 
       <div className="mx-auto grid max-w-6xl gap-6 px-6 py-10 lg:grid-cols-[15rem_1fr] lg:gap-10">
         <CollapsibleSidebar className="lg:sticky lg:top-6 lg:self-start">
-          <SiteSidebar links={theme.values.sidebarNav} siteId={siteId} />
+          <SiteSidebar links={theme.values.sidebarNav} />
         </CollapsibleSidebar>
 
         <main className="min-w-0">

@@ -3,7 +3,6 @@ import type { Post } from './types.js'
 export const DUMMY_POSTS: Post[] = [
   {
     postId: 'post-001',
-    siteId: 'default',
     slug: 'hello-world',
     title: 'Hello, ampless',
     excerpt: 'Welcome to your new ampless-powered blog. This is the first post.',
@@ -23,7 +22,6 @@ export const DUMMY_POSTS: Post[] = [
   },
   {
     postId: 'post-002',
-    siteId: 'default',
     slug: 'about-ampless',
     title: 'About ampless',
     excerpt: 'Why ampless exists, and what makes it different from other CMS options.',
@@ -42,7 +40,6 @@ export const DUMMY_POSTS: Post[] = [
   },
   {
     postId: 'post-003',
-    siteId: 'default',
     slug: 'getting-started',
     title: 'Getting started',
     excerpt: 'How to set up your ampless site and deploy it to AWS.',

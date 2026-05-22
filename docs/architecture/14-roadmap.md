@@ -35,21 +35,11 @@ WordPress compatibility scope is **WXR data import only**; plugin / theme / Gute
 
 Features needed to run dogfood sites on ampless, in priority order. Each changesets cut at a granular level, bumped from v0.x → v0.(x+1) when a meaningful unit is ready.
 
-#### Multi-site foundation (top priority)
-- [ ] Refactor `byStatus` GSI to a `siteId+status` composite key (remove v0.1 single-site assumption)
-- [ ] hostname → `siteId` routing (implement `middleware.ts`, handle both subdomains and fully separate domains with the same mechanism)
-- [ ] Reflect `sites.{id}.domains[]` in `cms.config` (configure publication per site, allow multiple domains per site)
-- [ ] Site-switcher UI in admin panel
+#### Single-site model + edge caching (top priority)
+- [x] Drop in-deploy multi-site support. One Amplify deployment = one site (`siteId` column remains as a forward-compat hook, always `"default"`)
+- [ ] CloudFront cache strategy: emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations (Amplify Hosting's internal CloudFront doesn't include Host in the cache key and users cannot modify Cache Policy / Lambda@Edge, so the cleanest path is to make every deployment serve a single site)
+- [ ] Flatten internal `/site/[default]/` routing tree to root-relative paths
 - [ ] Amplify Hosting custom domain operations guide (DNS / SSL / adding separate domain procedure)
-
-**SSR cache and multi-domain trade-off:**
-
-Amplify Hosting's internal CloudFront does not include Host in the cache key, and users cannot modify Cache Policy / Lambda@Edge. Caching SSR responses in multi-domain mode causes the same path for site1 and site2 to collide. Therefore:
-
-- **Single-site operation** (`sites` not configured or 1 site): emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations
-- **Multi-site operation** (`sites` 2 or more): middleware forces `Cache-Control: private, no-store` to disable caching entirely (trade-off: increased PV / Lambda cost to avoid collisions)
-
-The switch is automatically determined by the number of entries in `cms.config.sites`. Supporting both simultaneously is deferred until after v1.0, when Amplify Hosting can be replaced with a custom CDK + CloudFront setup.
 
 #### Themes / Visual Customization
 - [ ] Lightweight customization via `configSchema` (primaryColor, font, logo, sidebar toggle)

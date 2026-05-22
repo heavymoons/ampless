@@ -4,7 +4,7 @@ import { getUrl } from 'aws-amplify/storage/server'
 import type { Ampless } from '../index.js'
 
 interface Ctx {
-  params: Promise<{ siteId: string; slug: string; path?: string[] }>
+  params: Promise<{ slug: string; path?: string[] }>
 }
 
 export type UnderscoreRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
@@ -19,9 +19,9 @@ export type UnderscoreRouteHandler = (req: Request, ctx: Ctx) => Promise<Respons
  *     body is its own complete HTML document and ships as the entire
  *     response. URL: `/_/<slug>` (no trailing slash, no extra path).
  *  2. `format: 'static'` posts — the body is a manifest describing a
- *     bundle of files in S3 at `public/static/<siteId>/<slug>/`. The
- *     bundle's entrypoint is served at `/_/<slug>/`, every internal
- *     file at `/_/<slug>/<relative-path>`.
+ *     bundle of files in S3 at `public/static/<slug>/`. The bundle's
+ *     entrypoint is served at `/_/<slug>/`, every internal file at
+ *     `/_/<slug>/<relative-path>`.
  *
  * Routing model:
  *   - File location: `app/site/[siteId]/r/[slug]/[[...path]]/route.ts`.
@@ -57,10 +57,10 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
   })
 
   return async function GET(request: Request, { params }: Ctx): Promise<Response> {
-    const { siteId, slug, path } = await params
+    const { slug, path } = await params
     const restSegments = path ?? []
 
-    const post = await ampless.getPublishedPost(slug, { siteId })
+    const post = await ampless.getPublishedPost(slug)
     if (!post) {
       return new Response('Not Found', { status: 404 })
     }
@@ -93,7 +93,6 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
             : 'index.html'
         const presignedUrl = await signStaticAsset({
           runWithAmplifyServerContext,
-          siteId,
           slug,
           rest: entrypoint,
         })
@@ -136,7 +135,6 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
 
     const presignedUrl = await signStaticAsset({
       runWithAmplifyServerContext,
-      siteId,
       slug,
       rest,
     })
@@ -154,13 +152,12 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
 
 interface SignStaticAssetArgs {
   runWithAmplifyServerContext: ReturnType<typeof createServerRunner>['runWithAmplifyServerContext']
-  siteId: string
   slug: string
   rest: string
 }
 
 /**
- * Sign a 1-hour presigned URL for `public/static/<siteId>/<slug>/<rest>`.
+ * Sign a 1-hour presigned URL for `public/static/<slug>/<rest>`.
  * Returns null when the object is missing or any Amplify-layer error
  * occurs — distinguishing the two reliably isn't possible through
  * Amplify's wrapper (both surface as throws). Callers turn null into
@@ -168,11 +165,10 @@ interface SignStaticAssetArgs {
  */
 async function signStaticAsset({
   runWithAmplifyServerContext,
-  siteId,
   slug,
   rest,
 }: SignStaticAssetArgs): Promise<string | null> {
-  const objectPath = `public/static/${siteId}/${slug}/${rest}`
+  const objectPath = `public/static/${slug}/${rest}`
   try {
     return await runWithAmplifyServerContext({
       nextServerContext: { cookies },

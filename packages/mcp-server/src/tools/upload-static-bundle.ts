@@ -11,7 +11,6 @@ import { extractZipFromBuffer } from './static-bundle-extract.js'
 import { upsertStaticPost } from './upsert-static-post.js'
 
 export interface UploadStaticBundleArgs {
-  siteId?: string
   postId?: string
   slug: string
   title: string
@@ -30,7 +29,6 @@ export const uploadStaticBundleSchema = {
   type: 'object',
   required: ['slug', 'title', 'zipBase64'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     postId: {
       type: 'string',
       description:
@@ -62,8 +60,8 @@ export const uploadStaticBundleSchema = {
 } as const
 
 /**
- * Replace the entire bundle at `public/static/<siteId>/<slug>/` with
- * the zip the caller submitted, then upsert the matching Post row
+ * Replace the entire bundle at `public/static/<slug>/` with the zip
+ * the caller submitted, then upsert the matching Post row
  * (`format: 'static'`, `body` = manifest pointing at the entrypoint
  * and listing every uploaded file).
  *
@@ -81,10 +79,8 @@ export const uploadStaticBundleSchema = {
 export async function uploadStaticBundle(
   graphql: GraphqlClient,
   storage: StorageClient,
-  defaultSiteId: string,
   args: UploadStaticBundleArgs,
 ) {
-  const siteId = args.siteId ?? defaultSiteId
   const slug = args.slug
 
   // 1. Decode the archive.
@@ -126,7 +122,7 @@ export async function uploadStaticBundle(
 
   // 4. Wipe the existing prefix so removed files vanish. Best-effort:
   // if there's no prior bundle, ListObjects returns empty.
-  const prefix = bundlePrefix(siteId, slug)
+  const prefix = bundlePrefix(slug)
   const existing = await storage.listObjects(prefix).catch((err) => {
     console.error('[upload_static_bundle] listObjects failed (proceeding)', err)
     return []
@@ -148,7 +144,7 @@ export async function uploadStaticBundle(
     files: files.map((f) => f.path).sort(),
     uploadedAt: new Date().toISOString(),
   }
-  const { post } = await upsertStaticPost(graphql, siteId, slug, body, {
+  const { post } = await upsertStaticPost(graphql, slug, body, {
     title: args.title,
     postId: args.postId,
     status: args.status,

@@ -11,12 +11,12 @@ import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar
 import { t } from '@/lib/i18n'
 
 export default async function DocsTag({ params }: ThemeRouteContext<{ tag: string }>) {
-  const { siteId, tag } = await params
+  const { tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings, theme] = await Promise.all([
-    listPostsByTag(decodedTag, { siteId, limit: 50 }),
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
+    listPostsByTag(decodedTag, { limit: 50 }),
+    loadSiteSettings(),
+    loadThemeConfig(),
   ])
   if (posts.length === 0) notFound()
 
@@ -31,7 +31,7 @@ export default async function DocsTag({ params }: ThemeRouteContext<{ tag: strin
 
       <div className="mx-auto grid max-w-6xl gap-6 px-6 py-10 lg:grid-cols-[15rem_1fr] lg:gap-10">
         <CollapsibleSidebar className="lg:sticky lg:top-6 lg:self-start">
-          <SiteSidebar links={theme.values.sidebarNav} siteId={siteId} />
+          <SiteSidebar links={theme.values.sidebarNav} />
         </CollapsibleSidebar>
 
         <main className="min-w-0">

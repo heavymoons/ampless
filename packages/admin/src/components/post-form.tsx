@@ -20,7 +20,6 @@ import {
   markdownToHtml,
   htmlToMarkdown,
 } from '@ampless/runtime'
-import { readAdminSiteIdFromCookie } from '../lib/admin-site-client.js'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
@@ -234,7 +233,6 @@ export function PostForm({ post }: PostFormProps) {
       const tags = parseTags(tagsInput)
       const metadata = buildMetadata()
       const finalSlug = slug || slugify(title)
-      const finalSiteId = post?.siteId ?? readAdminSiteIdFromCookie()
 
       // For static posts, push the pending bundle to S3 before saving
       // the post row. The returned manifest becomes the body so the
@@ -245,7 +243,6 @@ export function PostForm({ post }: PostFormProps) {
       if (format === 'static') {
         if (pendingBundle) {
           nextBody = await uploadBundle({
-            siteId: finalSiteId,
             slug: finalSlug,
             files: pendingBundle.files,
             entrypoint: pendingBundle.entrypoint,
@@ -258,25 +255,20 @@ export function PostForm({ post }: PostFormProps) {
       }
 
       if (isEdit) {
-        await updatePost(
-          post!.postId,
-          {
-            title,
-            slug: finalSlug,
-            excerpt: excerpt || undefined,
-            format,
-            body: nextBody,
-            status,
-            publishedAt:
-              status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
-            tags,
-            metadata,
-          },
-          { siteId: post!.siteId }
-        )
+        await updatePost(post!.postId, {
+          title,
+          slug: finalSlug,
+          excerpt: excerpt || undefined,
+          format,
+          body: nextBody,
+          status,
+          publishedAt:
+            status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
+          tags,
+          metadata,
+        })
       } else {
         await createPost({
-          siteId: finalSiteId,
           slug: finalSlug,
           title,
           excerpt: excerpt || undefined,
@@ -306,7 +298,7 @@ export function PostForm({ post }: PostFormProps) {
       // we don't orphan ~megabytes of assets. Errors are swallowed —
       // a partial S3 delete shouldn't block the post deletion.
       if (post.format === 'static') {
-        await deleteBundle(post.siteId, post.slug).catch(() => undefined)
+        await deleteBundle(post.slug).catch(() => undefined)
       }
       await deletePost(post.postId)
       router.push('/admin/posts')
@@ -322,7 +314,6 @@ export function PostForm({ post }: PostFormProps) {
   // existing post (on edit) or sensible defaults.
   const previewPost: Post = {
     postId: post?.postId ?? 'preview',
-    siteId: post?.siteId ?? readAdminSiteIdFromCookie(),
     slug: slug || slugify(title) || 'preview',
     title,
     excerpt: excerpt || undefined,

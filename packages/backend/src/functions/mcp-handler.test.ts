@@ -90,7 +90,6 @@ function makeValidTokenMeta(overrides: Record<string, unknown> = {}) {
   return {
     hash: 'abc123',
     prefix: 'amk_AbCd',
-    scope: { siteId: null },
     createdBy: 'sub-1',
     createdByEmail: 'admin@example.com',
     createdAt: new Date().toISOString(),
@@ -265,7 +264,6 @@ describe('mcp-handler', () => {
     )
     mockGraphqlQuery.mockResolvedValueOnce({
       createMedia: {
-        siteId: 'default',
         mediaId: 'media-123',
         src: 'public/media/2026/05/1234-photo.jpg',
         mimeType: 'image/jpeg',
@@ -304,7 +302,7 @@ describe('mcp-handler', () => {
     // graphql should have been called for createMedia
     expect(mockGraphqlQuery).toHaveBeenCalledOnce()
     const result = JSON.parse(body.result.content[0].text)
-    expect(result.media.siteId).toBe('default')
+    expect(result.media.mediaId).toBe('media-123')
   })
 
   it('tools/call upload_media with minimal base64 (single byte) decodes correctly', async () => {
@@ -313,7 +311,6 @@ describe('mcp-handler', () => {
     mockPutObject.mockResolvedValueOnce('https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1-tiny.bin')
     mockGraphqlQuery.mockResolvedValueOnce({
       createMedia: {
-        siteId: 'default',
         mediaId: 'media-1',
         src: 'public/media/2026/05/1-tiny.bin',
         mimeType: 'application/octet-stream',

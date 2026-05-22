@@ -81,7 +81,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
   return {
     Post: a
       .model({
-        siteId: a.string().required(),
         postId: a.id().required(),
         slug: a.string().required(),
         title: a.string().required(),
@@ -99,22 +98,17 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         //     raw route handler when this is true.
         // Other keys are passed through unchanged for plugin / app use.
         metadata: a.json(),
-        // Denormalized GSI keys — set by every write path (admin client,
-        // MCP tools). Same pattern as siteIdStatus: composing the
-        // partition key as a single string lets each public-read query
-        // hit DynamoDB with a pure PK Query, no filter pass.
-        //   siteIdStatus = `${siteId}#${status}`
-        //     → bySiteIdStatus partitions per site×status, sorted by publishedAt
-        //   siteIdSlug = `${siteId}#${slug}`
-        //     → bySiteIdSlug locates a single post by slug in O(1)
-        siteIdStatus: a.string(),
-        siteIdSlug: a.string(),
       })
-      .identifier(['siteId', 'postId'])
+      .identifier(['postId'])
+      // Secondary indexes for the public-read resolvers.
+      //   byStatus — PK = status, SK = publishedAt → newest-first listing
+      //     of published posts (drafts live in their own partition).
+      //   bySlug — PK = slug → O(1) lookup by slug. Slugs are unique
+      //     across the site, enforced at the admin form level.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .secondaryIndexes((index: any) => [
-        index('siteIdStatus').sortKeys(['publishedAt']).name('bySiteIdStatus'),
-        index('siteIdSlug').name('bySiteIdSlug'),
+        index('status').sortKeys(['publishedAt']).name('byStatus'),
+        index('slug').name('bySlug'),
       ])
       // Direct table access is admin/editor only — guests must go through
       // the custom queries below, which strip drafts at the resolver level.
@@ -141,7 +135,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
 
     Page: a
       .model({
-        siteId: a.string().required(),
         pageId: a.id().required(),
         slug: a.string().required(),
         title: a.string().required(),
@@ -150,7 +143,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         status: a.enum(['draft', 'published']),
         publishedAt: a.datetime(),
       })
-      .identifier(['siteId', 'pageId'])
+      .identifier(['pageId'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
@@ -158,14 +151,13 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
 
     Media: a
       .model({
-        siteId: a.string().required(),
         mediaId: a.id().required(),
         src: a.string().required(),
         mimeType: a.string().required(),
         size: a.integer(),
         delivery: a.string(),
       })
-      .identifier(['siteId', 'mediaId'])
+      .identifier(['mediaId'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
@@ -173,13 +165,12 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
 
     Taxonomy: a
       .model({
-        siteId: a.string().required(),
         termId: a.id().required(),
         type: a.enum(['category', 'tag']),
         name: a.string().required(),
         slug: a.string().required(),
       })
-      .identifier(['siteId', 'termId'])
+      .identifier(['termId'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
@@ -191,14 +182,12 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // sort key. Maintained by the admin client whenever a post is created,
     // updated, or deleted; never edited by end users.
     //
-    //   PK: siteIdTag         e.g. "default#tech"
+    //   PK: tag               e.g. "tech"
     //   SK: publishedAtPostId e.g. "2026-04-27T13:57:05.679Z#post-001"
     PostTag: a
       .model({
-        siteIdTag: a.string().required(),
-        publishedAtPostId: a.string().required(),
-        siteId: a.string().required(),
         tag: a.string().required(),
+        publishedAtPostId: a.string().required(),
         postId: a.id().required(),
         publishedAt: a.datetime().required(),
         slug: a.string().required(),
@@ -207,7 +196,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         // Full tag list of the post (for chip rendering on tag pages).
         tags: a.string().array(),
       })
-      .identifier(['siteIdTag', 'publishedAtPostId'])
+      .identifier(['tag', 'publishedAtPostId'])
       // Lambda resource auth covered at schema scope — see Post for the
       // explanation.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -216,7 +205,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       ]),
 
     // Generic key/value store. Two roles in one table:
-    //   - Site settings: PK = `siteconfig:{siteId}`, SK = dotted key
+    //   - Site settings: PK = `siteconfig`, SK = dotted key
     //     (`site.name`, `media.imageDisplay`, ...). No TTL → persistent.
     //   - Caches / plugin state: PK = whatever namespace the caller picks
     //     (`cache:{ns}`, `pluginstate:{name}:...`). TTL set → DynamoDB
@@ -243,7 +232,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
     PublicPost: a.customType({
-      siteId: a.string().required(),
       postId: a.id().required(),
       slug: a.string().required(),
       title: a.string().required(),
@@ -274,7 +262,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     listPublishedPosts: a
       .query()
       .arguments({
-        siteId: a.string(),
         // Both ISO 8601 strings; query SK condition is pushed into DynamoDB
         // so only the matching publishedAt range is read.
         from: a.datetime(),
@@ -299,7 +286,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
 
     getPublishedPost: a
       .query()
-      .arguments({ siteId: a.string(), slug: a.string().required() })
+      .arguments({ slug: a.string().required() })
       .returns(a.ref('PublicPost'))
       .handler(
         a.handler.custom({
@@ -318,7 +305,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     listPostsByTag: a
       .query()
       .arguments({
-        siteId: a.string(),
         tag: a.string().required(),
         limit: a.integer(),
         nextToken: a.string(),

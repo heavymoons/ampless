@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { resolveSiteId, isMultiSite, type Config } from 'ampless'
+import { type Config } from 'ampless'
 
 export interface CreateMiddlewareOpts {
   cmsConfig: Config
@@ -7,17 +7,20 @@ export interface CreateMiddlewareOpts {
 
 export type MiddlewareFn = (request: NextRequest) => NextResponse
 
+// Internal rewrite target. The `/site/[siteId]/` dispatcher tree is
+// retained as an implementation detail of the public route layout;
+// a follow-up PR flattens it. Pinned to `'default'` since the
+// schema's `siteId` column no longer exists — there is only one site
+// per Amplify deployment.
+const INTERNAL_SITE_SEGMENT = 'default'
+
 /**
  * Build the ampless public-site middleware. Performs:
  *
- *  - hostname → siteId resolution (multi-site rewrites)
- *  - `/path` → `/site/<siteId>/path` internal rewrite
- *  - `/_/<slug>(/...)` → `/site/<siteId>/r/<slug>(/...)` rewrite for
+ *  - `/path` → `/site/default/path` internal rewrite
+ *  - `/_/<slug>(/...)` → `/site/default/r/<slug>(/...)` rewrite for
  *    the unified bare-HTML / static-bundle route
  *  - `?previewTheme=<name>` → `x-preview-theme` header forwarding
- *  - `Cache-Control: private, no-store` in multi-site mode (Amplify
- *    Hosting's CloudFront cache key doesn't include Host, so SSR
- *    responses would cross-contaminate at the same path)
  *
  * Bare-HTML / static routing is data-driven: the theme post dispatcher
  * redirects `metadata.no_layout` and `format='static'` posts to
@@ -28,13 +31,16 @@ export type MiddlewareFn = (request: NextRequest) => NextResponse
  * `next/dist/build/route-discovery.js`). The browser URL stays
  * `/_/<slug>(/...)`; only the rewrite target uses `r/`.
  *
- * The factory captures the multi-site flag at construction time so the
- * hot path stays a pair of cheap header lookups.
+ * Single site per Amplify deployment: the rewritten internal path uses
+ * the fixed `default` segment. The internal `/site/[siteId]/` routing
+ * tree is retained as an implementation detail; a follow-up PR
+ * flattens the URL structure further.
  */
-export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): MiddlewareFn {
-  const MULTI_SITE = isMultiSite(cmsConfig)
-
-  // Public path → /site/{siteId}/... internal rewrite. The browser URL
+// `cmsConfig` is reserved for future middleware behaviour (redirect
+// tables, A/B routing) — keep the signature stable across that
+// follow-up.
+export function createAmplessMiddleware(_opts: CreateMiddlewareOpts): MiddlewareFn {
+  // Public path → /site/default/... internal rewrite. The browser URL
   // stays unchanged; Next.js resolves the rewritten path under
   // `app/site/[siteId]/...`.
   //
@@ -42,18 +48,7 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
   // folders with an underscore prefix as private — they're not routable
   // even via middleware rewrites. The unified `_` route gets the same
   // treatment via the `_ → r` translation below.)
-  //
-  // In multi-site mode we additionally force `Cache-Control: private,
-  // no-store` because Amplify Hosting's CloudFront cache key doesn't
-  // include Host — caching SSR responses there would let site1 and
-  // site2 cross-contaminate at the same path.
   return function middleware(request: NextRequest): NextResponse {
-    const host = (request.headers.get('host') ?? '').split(':')[0]
-    const siteId = resolveSiteId(host ?? '', cmsConfig)
-    if (!siteId) {
-      return new NextResponse('Site not found', { status: 404 })
-    }
-
     const url = request.nextUrl.clone()
     if (!url.pathname.startsWith('/site/')) {
       let tail = url.pathname === '/' ? '' : url.pathname
@@ -65,7 +60,7 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
       if (tail === '/_' || tail.startsWith('/_/')) {
         tail = `/r${tail.slice(2)}`
       }
-      url.pathname = `/site/${siteId}${tail}`
+      url.pathname = `/site/${INTERNAL_SITE_SEGMENT}${tail}`
     }
 
     // Theme preview override. The admin's iframe-based preview hits
@@ -77,16 +72,10 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
     const previewTheme = url.searchParams.get('previewTheme')
     const previewColorScheme = url.searchParams.get('previewColorScheme')
     const requestHeaders = new Headers(request.headers)
-    requestHeaders.set('x-site-id', siteId)
     if (previewTheme) requestHeaders.set('x-preview-theme', previewTheme)
     if (previewColorScheme) requestHeaders.set('x-preview-color-scheme', previewColorScheme)
 
-    const response = NextResponse.rewrite(url, { request: { headers: requestHeaders } })
-    response.headers.set('x-site-id', siteId)
-    if (MULTI_SITE) {
-      response.headers.set('Cache-Control', 'private, no-store')
-    }
-    return response
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
   }
 }
 

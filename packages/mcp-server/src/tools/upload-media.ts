@@ -4,7 +4,6 @@ import { buildMediaKey } from './media-key.js'
 const MUTATION = /* GraphQL */ `
   mutation CreateMedia($input: CreateMediaInput!) {
     createMedia(input: $input) {
-      siteId
       mediaId
       src
       mimeType
@@ -15,7 +14,6 @@ const MUTATION = /* GraphQL */ `
 `
 
 export interface UploadMediaArgs {
-  siteId?: string
   filename: string
   mimeType: string
   /** Base64-encoded file body (no data: URL prefix). */
@@ -26,7 +24,6 @@ export const uploadMediaSchema = {
   type: 'object',
   required: ['filename', 'mimeType', 'base64Data'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     filename: { type: 'string', description: 'Original filename; sanitized server-side' },
     mimeType: {
       type: 'string',
@@ -44,10 +41,8 @@ export const uploadMediaSchema = {
 export async function uploadMedia(
   graphql: GraphqlClient,
   storage: StorageClient,
-  defaultSiteId: string,
   args: UploadMediaArgs
 ) {
-  const siteId = args.siteId ?? defaultSiteId
   const body = Buffer.from(args.base64Data, 'base64')
   const key = buildMediaKey(args.filename)
   const url = await storage.putObject(key, body, args.mimeType)
@@ -55,7 +50,6 @@ export async function uploadMedia(
   const mediaId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const data = await graphql.query<{
     createMedia: {
-      siteId: string
       mediaId: string
       src: string
       mimeType: string
@@ -64,7 +58,6 @@ export async function uploadMedia(
     }
   }>(MUTATION, {
     input: {
-      siteId,
       mediaId,
       src: key,
       mimeType: args.mimeType,

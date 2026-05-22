@@ -1,6 +1,4 @@
 import {
-  composeSiteIdStatus,
-  composeSiteIdSlug,
   encodeAwsJson,
   type Post,
   type PostMetadata,
@@ -19,7 +17,6 @@ const MUTATION = /* GraphQL */ `
 `
 
 export interface CreatePostArgs {
-  siteId?: string
   postId?: string
   slug: string
   title: string
@@ -36,7 +33,6 @@ export const createPostSchema = {
   type: 'object',
   required: ['slug', 'title', 'format', 'body'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     postId: { type: 'string', description: 'Optional explicit id; auto-generated if omitted' },
     slug: { type: 'string' },
     title: { type: 'string' },
@@ -72,10 +68,8 @@ export const createPostSchema = {
 
 export async function createPost(
   client: GraphqlClient,
-  defaultSiteId: string,
   args: CreatePostArgs
 ): Promise<Post> {
-  const siteId = args.siteId ?? defaultSiteId
   const postId =
     args.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const status = args.status ?? 'draft'
@@ -86,7 +80,6 @@ export async function createPost(
     createPost: Parameters<typeof toCorePost>[0]
   }>(MUTATION, {
     input: {
-      siteId,
       postId,
       slug: args.slug,
       title: args.title,
@@ -97,9 +90,6 @@ export async function createPost(
       publishedAt,
       tags: args.tags,
       metadata: args.metadata !== undefined ? encodeAwsJson(args.metadata) : undefined,
-      // Denormalized GSI keys.
-      siteIdStatus: composeSiteIdStatus(siteId, status),
-      siteIdSlug: composeSiteIdSlug(siteId, args.slug),
     },
   })
 

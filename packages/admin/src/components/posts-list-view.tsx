@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { listPosts, type Post } from 'ampless'
-import { readAdminSiteIdFromCookie } from '../lib/admin-site-client.js'
 import {
   Button,
   Table,
@@ -21,8 +20,7 @@ export function PostsList() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const siteId = readAdminSiteIdFromCookie()
-    listPosts({ status: 'all', siteId })
+    listPosts({ status: 'all' })
       .then(setPosts)
       .finally(() => setLoading(false))
   }, [])

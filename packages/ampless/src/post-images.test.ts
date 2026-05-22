@@ -5,7 +5,6 @@ import { extractFirstImageUrl } from './post-images.js'
 function makePost(overrides: Partial<Post>): Post {
   return {
     postId: 'p1',
-    siteId: 'default',
     slug: 'hello',
     title: 'Hello',
     format: 'markdown',

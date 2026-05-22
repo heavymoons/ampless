@@ -76,66 +76,13 @@ Conversions may be lossy and require user confirmation before proceeding.
 - Derived formats are cached in S3
 - The DynamoDB 400 KB item size limit is respected; oversized content is offloaded to S3
 
-### Multi-Site
+### Site Model
 
-The system supports running multiple sites within a single-tenant setup (1 Amplify environment = 1 deployment).
+One Amplify deployment = one site. To run multiple sites, deploy separate Amplify environments.
 
-#### Overview
+The schema keeps a `siteId` column, but the value is always the literal `"default"` and is otherwise meaningless today — it's a forward-compat hook in case multi-site is ever re-introduced.
 
-```
-[Admin UI] Switch between sites from a single admin panel
-  ├── Site A (blog.example.com)
-  ├── Site B (docs.example.com)
-  └── Site C (news.other-domain.com)   ← separate domains supported
-
-[Public side] Next.js middleware routes by domain/subdomain
-```
-
-#### Data Model
-
-All content carries a `siteId`.
-The mapping between domains and `siteId` values is managed in configuration.
-
-```json
-{
-  "siteId": "blog",
-  "postId": "post-001",
-  "title": "Post title",
-  ...
-}
-```
-
-```typescript
-// cms.config.ts
-export default defineConfig({
-  sites: {
-    blog:  { domains: ['blog.example.com'] },
-    docs:  { domains: ['docs.example.com'] },
-    news:  { domains: ['news.other-domain.com', 'news.example.com'] },
-  }
-})
-```
-
-In v0.1, a default value of `"default"` supports single-site operation.
-Multi-site support can be added later without breaking changes.
-
-#### Domain Routing (Next.js middleware)
-
-```typescript
-// middleware.ts
-export function middleware(request: NextRequest) {
-  const hostname = request.headers.get('host')
-  const siteId = resolveSiteId(hostname) // resolved from domain mapping
-  request.headers.set('x-site-id', siteId)
-}
-```
-
-#### Difference from Multi-Tenancy
-
-Full multi-tenancy (per-tenant auth isolation, billing, tenant leakage prevention) is not implemented.
-Amplify naturally maps 1 repository to 1 environment; if complete tenant isolation is required, deploy a separate Amplify environment.
-
-Multi-site is strictly for the use case of "one administrator running multiple public sites."
+An in-deploy multi-site mode existed previously (one deployment serving multiple domains via middleware host routing). It was removed because Amplify Hosting's CloudFront cache key doesn't include Host, so SSR responses could not be safely cached at the edge and the middleware had to force `Cache-Control: private, no-store`. The edge-cache cost on the read path turned out to be larger than the operational cost of deploying per-site (which every operator was already doing).
 
 ### Media Management
 

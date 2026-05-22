@@ -1,7 +1,7 @@
-import { DEFAULT_SITE_ID, siteFor, unflattenSettings, type Config } from 'ampless'
+import { unflattenSettings, type Config } from 'ampless'
 import type { StorageApi } from './storage.js'
 
-// Merged effective settings for a site. Shape mirrors `cms.config.ts`
+// Merged effective settings for the site. Shape mirrors `cms.config.ts`
 // but only includes the runtime-overridable subset.
 export interface EffectiveSiteSettings {
   site: { name: string; url: string; description?: string }
@@ -27,45 +27,43 @@ interface RemoteSettings {
 }
 
 export interface SiteSettingsApi {
-  loadSiteSettings(siteId?: string): Promise<EffectiveSiteSettings>
+  loadSiteSettings(): Promise<EffectiveSiteSettings>
 }
 
 export function createSiteSettings(
   cmsConfig: Config,
   storage: StorageApi
 ): SiteSettingsApi {
-  async function fetchRemote(siteId: string): Promise<RemoteSettings | null> {
+  async function fetchRemote(): Promise<RemoteSettings | null> {
     if (!storage.isStorageConfigured()) return null
     let url: string
     try {
-      url = storage.publicAssetUrl(`public/site-settings/${siteId}.json`)
+      url = storage.publicAssetUrl('public/site-settings.json')
     } catch {
       return null
     }
     // Next.js dedupes & caches GETs across the request when `revalidate`
     // is set. 60s matches the S3 cache header from the trusted processor,
     // so admin edits propagate within ~1 minute on cold pages.
-    const res = await fetch(url, { next: { revalidate: 60, tags: [`site-settings:${siteId}`] } })
+    const res = await fetch(url, {
+      next: { revalidate: 60, tags: ['site-settings'] },
+    })
     if (!res.ok) return null
     const flat = (await res.json()) as Record<string, unknown>
     return unflattenSettings(flat) as RemoteSettings
   }
 
   /**
-   * Resolve the effective settings for a site by merging:
+   * Resolve the effective settings by merging:
    *   1. KvStore-backed runtime settings (S3 cache)
-   *   2. cms.config.sites.{siteId} per-site overrides
-   *   3. cms.config defaults (site, media, dateFormat, timezone)
+   *   2. cms.config defaults (site, media, dateFormat, timezone)
    *
-   * Higher-numbered layers fill in missing fields only — runtime always
-   * wins when present.
+   * Runtime always wins when present.
    */
   return {
-    async loadSiteSettings(
-      siteId: string = DEFAULT_SITE_ID
-    ): Promise<EffectiveSiteSettings> {
-      const remote = await fetchRemote(siteId).catch(() => null)
-      const baseSite = siteFor(siteId, cmsConfig)
+    async loadSiteSettings(): Promise<EffectiveSiteSettings> {
+      const remote = await fetchRemote().catch(() => null)
+      const baseSite = cmsConfig.site
 
       return {
         site: {

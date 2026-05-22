@@ -189,15 +189,15 @@ export function splitDomain(
 
 /**
  * Rewrite the scaffold defaults in `cms.config.ts` to reflect the
- * deployed domain. Two changes, both idempotent and only applied when
- * the scaffold placeholders are still present (so mount-mode users who
+ * deployed domain. One change, idempotent and only applied when the
+ * scaffold placeholder is still present (so mount-mode users who
  * already customized the file are not clobbered):
  *
  *  1. `site.url`: `'http://localhost:3000'` → `'https://<fullDomain>'`.
- *  2. `sites.default.domains`: inject `sites: { default: { domains:
- *     ['<fullDomain>'] } }` when no `sites:` block exists. Surfaces
- *     the bound domain in the admin sites list. Single-entry `sites`
- *     stays single-site mode (see `isMultiSite` in ampless).
+ *
+ * (Previously this also injected a `sites: { default: { domains: ... } }`
+ * block for multi-site routing — that's gone now. One Amplify deployment
+ * = one site, so the host is implicit.)
  *
  * Returns the set of mutations made. Callers can use this for logging;
  * the function never throws on a missing or already-customized file.
@@ -205,15 +205,14 @@ export function splitDomain(
 export async function rewriteCmsConfigForDomain(
   projectDir: string,
   fullDomain: string
-): Promise<{ urlRewritten: boolean; sitesInjected: boolean }> {
+): Promise<{ urlRewritten: boolean }> {
   const path = resolve(projectDir, 'cms.config.ts')
   if (!existsSync(path)) {
-    return { urlRewritten: false, sitesInjected: false }
+    return { urlRewritten: false }
   }
 
   let content = await readFile(path, 'utf-8')
   let urlRewritten = false
-  let sitesInjected = false
 
   const urlRe = /url:\s*['"]http:\/\/localhost:3000['"]/
   if (urlRe.test(content)) {
@@ -221,35 +220,10 @@ export async function rewriteCmsConfigForDomain(
     urlRewritten = true
   }
 
-  // Detect an existing active `sites:` declaration (commented lines start
-  // with `//` and so won't match `^\s*sites:`).
-  const sitesActiveRe = /^\s*sites:\s*\{/m
-  if (!sitesActiveRe.test(content)) {
-    // Find the `site: { ... },` block and append a `sites:` block right
-    // after it. The non-greedy `[\s\S]*?` plus an anchor on `\n\2\},`
-    // (newline + same indent + `},`) makes the match tolerant of `}`
-    // characters inside string values like `'{{siteName}}'`.
-    const siteCloseRe = /(\n(\s*)site:\s*\{[\s\S]*?\n\2\},)/
-    const m = siteCloseRe.exec(content)
-    if (m) {
-      const indent = m[2] ?? '  '
-      const inner = indent + '  '
-      const innermost = inner + '  '
-      const inject =
-        `\n${indent}sites: {\n` +
-        `${inner}default: {\n` +
-        `${innermost}domains: ['${fullDomain}'],\n` +
-        `${inner}},\n` +
-        `${indent}},`
-      content = content.replace(siteCloseRe, `$1${inject}`)
-      sitesInjected = true
-    }
-  }
-
-  if (urlRewritten || sitesInjected) {
+  if (urlRewritten) {
     await writeFile(path, content, 'utf-8')
   }
-  return { urlRewritten, sitesInjected }
+  return { urlRewritten }
 }
 
 interface RunOpts extends ExecaOptions {
@@ -763,19 +737,15 @@ export async function runDeploy(opts: DeployOptions): Promise<DeployResult> {
   await writeFile(resolve(opts.projectDir, 'amplify.yml'), AMPLIFY_BUILD_SPEC, 'utf-8')
 
   // When deploying with a custom domain, swap the localhost scaffold
-  // defaults in cms.config.ts for the real URL + bind the domain to the
-  // default site so the admin sites list reflects production reality
-  // out of the gate. No-op when the user customized the file already
-  // (mount mode) or when no --domain was passed.
+  // default in cms.config.ts for the real URL. No-op when the user
+  // customized the file already (mount mode) or when no --domain was
+  // passed.
   if (opts.domain) {
     const { registrable, subdomain } = splitDomain(opts.domain, opts.subdomain)
     const fullDomain = subdomain ? `${subdomain}.${registrable}` : registrable
     const mutations = await rewriteCmsConfigForDomain(opts.projectDir, fullDomain)
-    if (mutations.urlRewritten || mutations.sitesInjected) {
-      const parts: string[] = []
-      if (mutations.urlRewritten) parts.push(`site.url → https://${fullDomain}`)
-      if (mutations.sitesInjected) parts.push(`sites.default.domains += ${fullDomain}`)
-      log.info(`cms.config.ts updated: ${parts.join(', ')}`)
+    if (mutations.urlRewritten) {
+      log.info(`cms.config.ts updated: site.url → https://${fullDomain}`)
     }
   }
 

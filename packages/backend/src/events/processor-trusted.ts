@@ -38,7 +38,7 @@ function requireEnv(name: string): string {
   return v
 }
 
-const POST_BY_SITE_STATUS_INDEX = 'bySiteIdStatus'
+const POST_BY_STATUS_INDEX = 'byStatus'
 
 function safeParse(s: string): unknown {
   try {
@@ -51,13 +51,13 @@ function safeParse(s: string): unknown {
 
 /**
  * SQS-driven trusted plugin executor. Trusted plugins get a runtime
- * context with `listPublishedPosts` (one Query per site partition)
- * and `writePublicAsset` (S3 PutObject under
- * `public/plugins/{name}/{siteId}/{key}`).
+ * context with `listPublishedPosts` (one Query against the byStatus
+ * GSI) and `writePublicAsset` (S3 PutObject under
+ * `public/plugins/{name}/{key}`).
  *
  * Built-in: rebuilds the site-settings JSON cache at
- * `public/site-settings/{siteId}.json` whenever a
- * `site.settings.updated` event arrives.
+ * `public/site-settings.json` whenever a `site.settings.updated`
+ * event arrives.
  *
  * Re-exported by the template's thin shell
  * `amplify/events/processor-trusted/handler.ts` which supplies the
@@ -81,22 +81,20 @@ export function createProcessorTrustedHandler(
   // regional URLs at runtime.
   const REGION = requireEnv('AWS_REGION')
 
-  // One Query per site partition: PK = `${siteId}#published`, SK
+  // One Query against the `byStatus` GSI: PK = 'published', SK
   // (publishedAt) gives newest-first ordering with `ScanIndexForward:
-  // false`. No filter needed — drafts and other sites live in different
-  // partitions.
-  async function listPublished(siteId: string): Promise<Post[]> {
+  // false`. No filter needed — drafts live in a different partition.
+  async function listPublished(): Promise<Post[]> {
     const items: Post[] = []
     let exclusiveStartKey: Record<string, unknown> | undefined
-    const partition = `${siteId}#published`
     do {
       const res = await ddb.send(
         new QueryCommand({
           TableName: POST_TABLE,
-          IndexName: POST_BY_SITE_STATUS_INDEX,
-          KeyConditionExpression: '#siteIdStatus = :siteIdStatus',
-          ExpressionAttributeNames: { '#siteIdStatus': 'siteIdStatus' },
-          ExpressionAttributeValues: { ':siteIdStatus': partition },
+          IndexName: POST_BY_STATUS_INDEX,
+          KeyConditionExpression: '#status = :status',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':status': 'published' },
           ScanIndexForward: false,
           ExclusiveStartKey: exclusiveStartKey as never,
         })
@@ -104,7 +102,6 @@ export function createProcessorTrustedHandler(
       for (const row of res.Items ?? []) {
         items.push({
           postId: row.postId,
-          siteId: row.siteId,
           slug: row.slug,
           title: row.title,
           excerpt: row.excerpt ?? undefined,
@@ -120,16 +117,12 @@ export function createProcessorTrustedHandler(
     return items
   }
 
-  function makeContext(plugin: AmplessPlugin, siteId: string): PluginRuntimeContext {
+  function makeContext(plugin: AmplessPlugin): PluginRuntimeContext {
     return {
-      siteId,
       site: opts.site,
-      listPublishedPosts: () => listPublished(siteId),
+      listPublishedPosts: () => listPublished(),
       async writePublicAsset(key, body, contentType) {
-        // S3 key includes siteId so multi-site deployments don't collide
-        // (site1's sitemap.xml vs site2's sitemap.xml). Plugin name keeps
-        // the existing per-plugin segregation.
-        const objectKey = `public/plugins/${plugin.name}/${siteId}/${key}`
+        const objectKey = `public/plugins/${plugin.name}/${key}`
         await s3.send(
           new PutObjectCommand({
             Bucket: BUCKET,
@@ -146,17 +139,16 @@ export function createProcessorTrustedHandler(
 
   // --- Built-in: site settings cache ---
   //
-  // Whenever any `siteconfig:{siteId}` row in KvStore changes, the
-  // dispatcher emits a `site.settings.updated` event. This handler reads
-  // every setting under that PK and writes a single JSON object to S3
-  // at `public/site-settings/{siteId}.json`. The Next.js public site
-  // fetches that file on render — the database is never reached on the
-  // public path.
+  // Whenever any `siteconfig` row in KvStore changes, the dispatcher
+  // emits a `site.settings.updated` event. This handler reads every
+  // setting under that PK and writes a single JSON object to S3 at
+  // `public/site-settings.json`. The Next.js public site fetches that
+  // file on render — the database is never reached on the public path.
   //
   // Built into the trusted processor (not a user plugin) because the
-  // public site cannot function without it once multi-site settings
-  // move to KvStore.
-  async function rebuildSiteSettingsCache(siteId: string): Promise<void> {
+  // public site cannot function without site settings being cached out
+  // to S3.
+  async function rebuildSiteSettingsCache(): Promise<void> {
     const settings: Record<string, unknown> = {}
     let exclusiveStartKey: Record<string, unknown> | undefined
     do {
@@ -165,7 +157,7 @@ export function createProcessorTrustedHandler(
           TableName: KV_TABLE,
           KeyConditionExpression: '#pk = :pk',
           ExpressionAttributeNames: { '#pk': 'pk' },
-          ExpressionAttributeValues: { ':pk': `siteconfig:${siteId}` },
+          ExpressionAttributeValues: { ':pk': 'siteconfig' },
           ExclusiveStartKey: exclusiveStartKey as never,
         })
       )
@@ -180,7 +172,7 @@ export function createProcessorTrustedHandler(
       exclusiveStartKey = res.LastEvaluatedKey
     } while (exclusiveStartKey)
 
-    const objectKey = `public/site-settings/${siteId}.json`
+    const objectKey = 'public/site-settings.json'
     await s3.send(
       new PutObjectCommand({
         Bucket: BUCKET,
@@ -206,18 +198,14 @@ export function createProcessorTrustedHandler(
         console.error('[trusted-processor] bad message', record.body, err)
         continue
       }
-      const siteId = (parsed.payload as { siteId?: string }).siteId ?? 'default'
 
       // Built-in: rebuild the site settings JSON cache. Runs before user
       // plugins so they observe a consistent S3 state if they read it.
       if (parsed.type === 'site.settings.updated') {
         try {
-          await rebuildSiteSettingsCache(siteId)
+          await rebuildSiteSettingsCache()
         } catch (err) {
-          console.error(
-            `[trusted-processor] site-settings-cache rebuild failed for ${siteId}`,
-            err
-          )
+          console.error('[trusted-processor] site-settings-cache rebuild failed', err)
           throw err
         }
       }
@@ -226,7 +214,7 @@ export function createProcessorTrustedHandler(
         const hook = plugin.hooks?.[parsed.type]
         if (!hook) continue
         try {
-          await hook(parsed as never, makeContext(plugin, siteId))
+          await hook(parsed as never, makeContext(plugin))
         } catch (err) {
           // Re-throw so SQS retries. After maxReceiveCount the message lands in DLQ.
           console.error(`[trusted-processor] ${plugin.name}.${parsed.type} failed`, err)

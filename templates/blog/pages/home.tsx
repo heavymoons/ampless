@@ -9,21 +9,18 @@ import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 import { t } from '@/lib/i18n'
 
-export default async function BlogHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
+export default async function BlogHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(siteId),
-    loadThemeConfig(siteId),
-    listPublishedPosts({ siteId }),
+    loadSiteSettings(),
+    loadThemeConfig(),
+    listPublishedPosts(),
   ])
 
   // Featured (pinned) post: render the body inline above the list,
   // then drop the same slug from the feed so it doesn't show twice.
   // Missing / unpublished slugs return null and the section is skipped.
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug
-    ? await getPublishedPost(featuredSlug, { siteId })
-    : null
+  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items

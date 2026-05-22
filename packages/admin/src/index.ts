@@ -27,7 +27,6 @@ import {
   type Locale,
 } from './lib/i18n.js'
 import { createMedia } from './lib/media.js'
-import { createAdminSite } from './lib/admin-site.js'
 import { createAmplifyServer, type AmplifyServer } from './lib/amplify-server.js'
 import { createAuthServer, type ServerSession } from './lib/auth-server.js'
 
@@ -73,13 +72,9 @@ export interface Admin {
   isEditor(session: ServerSession | null): boolean
   readonly amplifyServer: AmplifyServer
 
-  // admin site selector
-  currentAdminSiteId(): Promise<string>
-  adminSiteOptions(): Array<{ id: string; name: string }>
-
-  // settings / theme passthroughs (require `ampless` opt; throw otherwise)
-  loadSiteSettings(siteId?: string): Promise<EffectiveSiteSettings>
-  loadThemeConfig(siteId?: string): Promise<EffectiveThemeConfig>
+  // settings / theme passthroughs (require `ampless` opt; throw otherwise).
+  loadSiteSettings(): Promise<EffectiveSiteSettings>
+  loadThemeConfig(): Promise<EffectiveThemeConfig>
 
   // media
   publicMediaUrl(input: string): string
@@ -94,10 +89,10 @@ export interface Admin {
  * Wire up the admin UI from user-supplied config blobs. Returns an
  * `Admin` instance containing everything page / API factories need —
  * the same instance is shared by `<AdminLayout>`, `<PostForm>`,
- * `<SiteSelector>`, `/api/media`, etc.
+ * `/api/media`, etc.
  *
  * If `opts.ampless` is omitted, server-side pages that depend on
- * `loadSiteSettings` / `loadThemeConfig` (the sites edit and theme
+ * `loadSiteSettings` / `loadThemeConfig` (the site edit and theme
  * pages) will throw. Pass the same runtime instance you already use on
  * the public side for shared caching.
  */
@@ -105,15 +100,14 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
   const { outputs, cmsConfig, ampless: amplessIn, locale: localeOpt } = opts
 
   const { locale, dict } = resolveLocale(localeOpt)
-  const adminSite = createAdminSite(cmsConfig)
   const amplifyServer = createAmplifyServer(outputs)
   const auth = createAuthServer(amplifyServer)
   const media = createMedia(outputs, cmsConfig)
 
   // The runtime is optional — pages that don't touch settings (login,
-  // dashboard, posts list / new / edit, media, sites list) don't need
-  // it. The two server-rendered settings pages do; they call through
-  // these passthroughs.
+  // dashboard, posts list / new / edit, media) don't need it. The two
+  // server-rendered settings pages do; they call through these
+  // passthroughs.
   //
   // When the caller passes a thunk (the recommended form for the
   // scaffolded `lib/admin.ts`), the resolved instance is cached after
@@ -153,11 +147,8 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     isEditor: auth.isEditor,
     amplifyServer,
 
-    currentAdminSiteId: adminSite.currentAdminSiteId,
-    adminSiteOptions: adminSite.adminSiteOptions,
-
-    loadSiteSettings: async (siteId) => (await resolveAmpless()).loadSiteSettings(siteId),
-    loadThemeConfig: async (siteId) => (await resolveAmpless()).loadThemeConfig(siteId),
+    loadSiteSettings: async () => (await resolveAmpless()).loadSiteSettings(),
+    loadThemeConfig: async () => (await resolveAmpless()).loadThemeConfig(),
 
     publicMediaUrl: media.publicMediaUrl,
 

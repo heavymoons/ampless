@@ -144,12 +144,6 @@ Trigger a redeploy after adding/changing env vars.
 
 Bind a domain to your Amplify Hosting app in **Domain management** — Amplify provisions an ACM certificate and DNS records automatically. Full step-by-step: [RUNBOOK.md → Adding a custom domain](./RUNBOOK.md#adding-a-custom-domain-to-amplify-hosting).
 
-### Multi-site (multiple domains, one deploy)
-
-ampless can serve multiple sites from a single Amplify Hosting deployment. Each site has its own `siteId`, hostname(s), name, and active theme. To enable, fill in the `sites:` block in `cms.config.ts` (it's there as a commented example) and deploy.
-
-There's a caching trade-off in multi-site mode; details in [RUNBOOK.md → Multi-site / custom domains](./RUNBOOK.md#multi-site--custom-domains).
-
 ## AI integration (MCP)
 
 ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor / Claude Code / anything that speaks MCP can read and write your posts.
@@ -174,7 +168,7 @@ You can review the diff before committing.
 
 ## Operations
 
-Day-to-day operational recipes — user promotion, password reset, backup restore, custom domain wiring, AppSync API key rotation, multi-site setup — live in [RUNBOOK.md](./RUNBOOK.md).
+Day-to-day operational recipes — user promotion, password reset, backup restore, custom domain wiring, AppSync API key rotation — live in [RUNBOOK.md](./RUNBOOK.md).
 
 ## License
 

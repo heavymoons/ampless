@@ -136,12 +136,12 @@ describe('mimeTypeFor', () => {
 
 describe('bundlePrefix', () => {
   it('builds the canonical S3 prefix', () => {
-    expect(bundlePrefix('default', 'my-lp')).toBe('public/static/default/my-lp/')
+    expect(bundlePrefix('my-lp')).toBe('public/static/my-lp/')
   })
 
-  it('preserves arbitrary site / slug strings unchanged', () => {
+  it('preserves arbitrary slug strings unchanged', () => {
     // No URL-encoding here — callers ensure inputs are well-formed
-    // (slug validation lives in admin form, siteId in cms.config).
-    expect(bundlePrefix('site2', 'a b c')).toBe('public/static/site2/a b c/')
+    // (slug validation lives in admin form).
+    expect(bundlePrefix('a b c')).toBe('public/static/a b c/')
   })
 })

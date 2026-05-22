@@ -8,7 +8,6 @@ import {
 
 export const POST_FIELDS = /* GraphQL */ `
   fragment PostFields on Post {
-    siteId
     postId
     slug
     title
@@ -23,7 +22,6 @@ export const POST_FIELDS = /* GraphQL */ `
 `
 
 interface RawPost {
-  siteId: string
   postId: string
   slug: string
   title: string
@@ -39,7 +37,6 @@ interface RawPost {
 export function toCorePost(p: RawPost): Post {
   const metadata = decodeAwsJson(p.metadata)
   return {
-    siteId: p.siteId,
     postId: p.postId,
     slug: p.slug,
     title: p.title,

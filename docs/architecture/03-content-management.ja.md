@@ -76,67 +76,13 @@ canonical フォーマットの変更（例: tiptap → Markdown への移行）
 - 派生フォーマットは S3 にキャッシュ
 - DynamoDB の 400KB Item サイズ制限を意識し、巨大コンテンツは S3 に逃がす
 
-### マルチサイト
+### サイトモデル
 
-シングルテナント（1 Amplify 環境 = 1 デプロイ）で、複数サイトを運用できる設計とする。
+1 Amplify デプロイ = 1 サイト。複数サイトを運用したい場合は Amplify デプロイ自体を分ける。
 
-#### 概要
+スキーマには `siteId` カラムが残っているが、値は常に `"default"` 固定で、現状は意味を持たない（将来的にマルチサイトを再導入する場合に備えた前方互換のためのフック）。
 
-```
-[管理画面] 1つの管理画面でサイトを切り替え
-  ├── サイトA (blog.example.com)
-  ├── サイトB (docs.example.com)
-  └── サイトC (news.other-domain.com)   ← 別ドメインも可
-
-[公開側] Next.js middleware でドメイン/サブドメイン振り分け
-```
-
-#### データモデル
-
-すべてのコンテンツに `siteId` を持たせる。
-ドメインと siteId のマッピングは設定で管理する。
-
-```json
-{
-  "siteId": "blog",
-  "postId": "post-001",
-  "title": "記事タイトル",
-  ...
-}
-```
-
-```typescript
-// cms.config.ts
-export default defineConfig({
-  sites: {
-    blog:  { domains: ['blog.example.com'] },
-    docs:  { domains: ['docs.example.com'] },
-    news:  { domains: ['news.other-domain.com', 'news.example.com'] },
-  }
-})
-```
-
-v0.1 ではデフォルト値 `"default"` で単一サイト運用。
-マルチサイト機能は後から破壊的変更なしで追加できる。
-
-#### ドメインルーティング（Next.js middleware）
-
-```typescript
-// middleware.ts
-export function middleware(request: NextRequest) {
-  const hostname = request.headers.get('host')
-  const siteId = resolveSiteId(hostname) // ドメインマッピングから解決
-  request.headers.set('x-site-id', siteId)
-}
-```
-
-#### マルチテナントとの違い
-
-本格的なマルチテナント（テナント間の認証分離、課金、テナント漏洩対策）は行わない。
-Amplify は 1 リポジトリ = 1 環境が自然であり、完全なテナント分離が必要なら
-別の Amplify 環境をデプロイすればよい。
-
-マルチサイトはあくまで「1 管理者が複数の公開サイトを運営する」ユースケースに対応する。
+過去には 1 デプロイで複数ドメインを振り分ける「マルチサイトモード」が存在したが、Amplify Hosting の CloudFront キャッシュキーが Host を含まないため SSR レスポンスを安全にキャッシュできず、`Cache-Control: private, no-store` を強制せざるを得なかった。読み取りパスのエッジキャッシュを失うコストが、デプロイを分ける運用コスト（実際 全運用者はそうしていた）より大きかったため撤去した。
 
 ### メディア管理
 

@@ -6,11 +6,11 @@ import { loadSiteSettings } from '@/lib/site-settings'
 import { t } from '@/lib/i18n'
 
 export default async function MinimalTag({ params }: ThemeRouteContext<{ tag: string }>) {
-  const { siteId, tag } = await params
+  const { tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings] = await Promise.all([
-    listPostsByTag(decodedTag, { siteId, limit: 50 }),
-    loadSiteSettings(siteId),
+    listPostsByTag(decodedTag, { limit: 50 }),
+    loadSiteSettings(),
   ])
 
   if (posts.length === 0) notFound()

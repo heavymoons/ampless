@@ -215,8 +215,8 @@ export function validateBundle(files: ExtractedFile[]): ValidationIssue[] {
 // S3 key helpers
 // ----------------------------------------------------------------------------
 
-export function bundlePrefix(siteId: string, slug: string): string {
-  return `public/static/${siteId}/${slug}/`
+export function bundlePrefix(slug: string): string {
+  return `public/static/${slug}/`
 }
 
 // ----------------------------------------------------------------------------

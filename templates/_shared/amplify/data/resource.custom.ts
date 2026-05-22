@@ -14,12 +14,11 @@
 //     return {
 //       Bookmark: a
 //         .model({
-//           siteId: a.string().required(),
 //           bookmarkId: a.id().required(),
 //           url: a.string().required(),
 //           title: a.string(),
 //         })
-//         .identifier(['siteId', 'bookmarkId'])
+//         .identifier(['bookmarkId'])
 //         .authorization((allow: any) => [allow.groups(['ampless-admin', 'ampless-editor'])]),
 //     }
 //   }

@@ -181,7 +181,7 @@ ampless では `editor` は **信頼された主体（trusted principal）** と
 editor 権限を持つ攻撃者を脅威モデルに含める指摘（editor → admin の権限昇格、stored XSS による JWT 漏洩、`format: 'html'` の任意スクリプト保存など）は、**仕様であって脆弱性ではない**。レビュー時はこれらの経路を仕様として明示的に除外し、以下を脆弱性として扱う:
 
 - 認証されていない（または `reader` のみの）主体が editor 相当の書き込みを行えてしまう経路
-- editor の操作が他テナント（別 `siteId` の sites — v0.2 マルチサイト時）に波及する経路
+- サーバー側のエラーが書き込み整合性を壊す経路（DynamoDB トランザクションの破綻、denormalized GSI キーの race による不整合など）
 - admin / 運用者を経由しないサーバ側 RCE、シークレット漏洩、IAM 昇格
 
 ### MCP Server (`packages/mcp-server`)

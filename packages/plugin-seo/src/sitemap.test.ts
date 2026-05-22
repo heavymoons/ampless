@@ -5,7 +5,6 @@ import { buildSitemap } from './sitemap.js'
 const site: Config['site'] = { name: 'Test', url: 'https://example.com/' }
 
 const published: Post = {
-  siteId: 'default',
   postId: 'p1',
   slug: 'hello & world',
   title: 'Hello',
