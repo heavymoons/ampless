@@ -151,7 +151,7 @@ describe('runUpgradeIn', () => {
 
   // 5. protected cms.config.ts: edited by user → untouched
   it('does not overwrite cms.config.ts (protected)', async () => {
-    const userContent = 'export default { sites: ["my-site"] }'
+    const userContent = 'export default { site: { name: "my-site", url: "https://my-site.example.com" } }'
     writeFileSync(join(projectDir, 'cms.config.ts'), userContent)
 
     await runUpgradeIn(projectDir, templateDir, { noInstall: true })

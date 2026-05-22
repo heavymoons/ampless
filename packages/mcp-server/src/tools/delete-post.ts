@@ -21,7 +21,6 @@ export const deletePostSchema = {
   required: ['postId'],
   properties: {
     postId: { type: 'string' },
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
   },
 } as const
 

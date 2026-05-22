@@ -181,7 +181,7 @@ Specifically:
 Findings that include an editor-privileged attacker in the threat model (editor-to-admin privilege escalation, JWT leakage via stored XSS, arbitrary script storage via `format: 'html'`, etc.) are **by design, not vulnerabilities**. During reviews, explicitly exclude these paths as specified behavior and treat the following as actual vulnerabilities:
 
 - Paths by which an unauthenticated (or `reader`-only) principal can perform editor-level writes
-- Paths by which an editor's actions affect other tenants (sites with different `siteId` — applicable in v0.2 multi-site)
+- Server-side errors that drop write integrity (broken DynamoDB transactions, race-induced corruption of denormalized GSI keys)
 - Server-side RCE, secret leakage, or IAM privilege escalation that does not go through the admin/operator
 
 ### MCP Server (`packages/mcp-server`)

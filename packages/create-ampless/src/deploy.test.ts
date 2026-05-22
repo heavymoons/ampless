@@ -103,27 +103,19 @@ export default defineConfig({
     name: '{{siteName}}',
     url: 'http://localhost:3000',
   },
-  // Multi-site config.
-  //
-  //   sites: {
-  //     blog: {
-  //       domains: ['blog.example.com'],
-  //     },
-  //   },
   dateFormat: 'iso',
 })
 `
 
-  it('rewrites url and injects sites block on a scaffolded config', async () => {
+  it('rewrites the localhost url on a scaffolded config', async () => {
     const { dir, cleanup } = await makeProject(scaffold)
     try {
       const result = await rewriteCmsConfigForDomain(dir, 'ampless.example.com')
-      expect(result).toEqual({ urlRewritten: true, sitesInjected: true })
+      expect(result).toEqual({ urlRewritten: true })
 
       const out = await readFile(resolve(dir, 'cms.config.ts'), 'utf-8')
       expect(out).toContain(`url: 'https://ampless.example.com'`)
       expect(out).not.toContain(`'http://localhost:3000'`)
-      expect(out).toMatch(/sites:\s*\{\s*default:\s*\{\s*domains:\s*\['ampless\.example\.com'\]/)
     } finally {
       await cleanup()
     }
@@ -146,33 +138,12 @@ export default defineConfig({
     }
   })
 
-  it('does not inject a duplicate sites block when one already exists', async () => {
-    const withSites = scaffold.replace(
-      `dateFormat: 'iso',`,
-      `sites: { admin: { domains: ['admin.example.com'] } },\n  dateFormat: 'iso',`
-    )
-    const { dir, cleanup } = await makeProject(withSites)
-    try {
-      const result = await rewriteCmsConfigForDomain(dir, 'production.example.com')
-      expect(result.sitesInjected).toBe(false)
-      // URL placeholder still gets swapped.
-      expect(result.urlRewritten).toBe(true)
-
-      const out = await readFile(resolve(dir, 'cms.config.ts'), 'utf-8')
-      // Existing sites block survives; no second `sites:` was added.
-      expect(out.match(/^\s*sites:\s*\{/gm)?.length ?? 0).toBe(1)
-      expect(out).toContain(`admin: { domains: ['admin.example.com'] }`)
-    } finally {
-      await cleanup()
-    }
-  })
-
   it('returns no mutations when cms.config.ts is missing', async () => {
     const { dir, cleanup } = await makeProject(scaffold)
     try {
       await rm(resolve(dir, 'cms.config.ts'))
       const result = await rewriteCmsConfigForDomain(dir, 'example.com')
-      expect(result).toEqual({ urlRewritten: false, sitesInjected: false })
+      expect(result).toEqual({ urlRewritten: false })
     } finally {
       await cleanup()
     }
@@ -186,14 +157,11 @@ export default defineConfig({
     const { dir, cleanup } = await makeProject(realTemplate)
     try {
       const result = await rewriteCmsConfigForDomain(dir, 'ampless.heavymoons.net')
-      expect(result).toEqual({ urlRewritten: true, sitesInjected: true })
+      expect(result).toEqual({ urlRewritten: true })
 
       const out = await readFile(resolve(dir, 'cms.config.ts'), 'utf-8')
       expect(out).toContain(`url: 'https://ampless.heavymoons.net'`)
       expect(out).not.toContain(`'http://localhost:3000'`)
-      // Active (non-commented) sites block present.
-      expect(out).toMatch(/^\s*sites:\s*\{/m)
-      expect(out).toContain(`domains: ['ampless.heavymoons.net']`)
     } finally {
       await cleanup()
     }
@@ -207,7 +175,7 @@ export default defineConfig({
       const result2 = await rewriteCmsConfigForDomain(dir, 'example.com')
       const after2 = await readFile(resolve(dir, 'cms.config.ts'), 'utf-8')
       expect(after1).toBe(after2)
-      expect(result2).toEqual({ urlRewritten: false, sitesInjected: false })
+      expect(result2).toEqual({ urlRewritten: false })
     } finally {
       await cleanup()
     }

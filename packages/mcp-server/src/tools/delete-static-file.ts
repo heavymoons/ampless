@@ -11,7 +11,6 @@ export const deleteStaticFileSchema = {
   type: 'object',
   required: ['slug', 'filename'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string' },
     filename: {
       type: 'string',

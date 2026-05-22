@@ -27,29 +27,7 @@ export default defineConfig({
       losslessForPng: true,
     },
   },
-  // Multi-site config. Leave undefined for single-site operation; the
-  // runtime then serves every request as siteId='default'. To run
-  // multiple sites in one Amplify environment, declare two or more
-  // entries here:
-  //
-  //   sites: {
-  //     blog: {
-  //       domains: ['blog.example.com', 'www.example.com'],
-  //       name: 'My Blog',
-  //       url: 'https://blog.example.com',
-  //     },
-  //     docs: {
-  //       domains: ['docs.example.com'],
-  //       name: 'Docs',
-  //       url: 'https://docs.example.com',
-  //     },
-  //   },
-  //
-  // In multi-site mode the middleware forces `Cache-Control: private,
-  // no-store` on public responses (Amplify Hosting's CloudFront cache
-  // key cannot disambiguate by Host). Single-site mode leaves caching
-  // to the default page directives.
-
+  // Date display format.
   // 'iso'    — YYYY-MM-DD (default; SSR-safe, locale-neutral)
   // 'long'   — "April 27, 2026" (en-US)
   // 'locale' — browser/server locale

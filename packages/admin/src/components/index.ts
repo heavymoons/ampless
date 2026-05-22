@@ -15,16 +15,10 @@ export { AdminProviders } from './admin-providers.js'
 // keeps the public escape hatch surface focused on reusable
 // widgets / utilities (forms, providers, media helpers) instead of
 // opinionated admin pages.
-export {
-  ADMIN_SITE_COOKIE,
-  readAdminSiteIdFromCookie,
-  setAdminCmsConfig,
-} from '../lib/admin-site-client.js'
 export { publicMediaUrl, setAdminMediaContext } from '../lib/media.js'
 export { uploadProcessedImage, sanitizeName } from '../lib/upload.js'
 export { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 export { Sidebar } from './sidebar.js'
-export { SiteSelector } from './site-selector.js'
 export { PostForm } from './post-form.js'
 export { SiteSettingsForm, type SiteSettingsFormValues } from './site-settings-form.js'
 export { ThemeSettingsForm } from './theme-settings-form.js'

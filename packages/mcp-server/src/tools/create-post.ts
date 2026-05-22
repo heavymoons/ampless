@@ -36,7 +36,6 @@ export const createPostSchema = {
   type: 'object',
   required: ['slug', 'title', 'format', 'body'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     postId: { type: 'string', description: 'Optional explicit id; auto-generated if omitted' },
     slug: { type: 'string' },
     title: { type: 'string' },

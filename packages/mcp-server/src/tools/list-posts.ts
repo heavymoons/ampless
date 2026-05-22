@@ -23,7 +23,6 @@ export interface ListPostsArgs {
 export const listPostsSchema = {
   type: 'object',
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     status: {
       type: 'string',
       enum: ['draft', 'published', 'all'],

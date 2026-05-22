@@ -35,21 +35,11 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 
 ドッグフード対象サイトを ampless で立てるために必要な機能を優先順に。粒度ごとに changeset を切り、まとまった単位で v0.x → v0.(x+1) に bump する運用。
 
-#### マルチサイト基盤（最優先）
-- [ ] `byStatus` GSI を `siteId+status` 複合キーに改修（v0.1 単一サイト前提を解除）
-- [ ] hostname → `siteId` ルーティング（middleware.ts 本実装、サブドメインも完全別ドメインも同じ仕組みで対応）
-- [ ] cms.config の `sites.{id}.domains[]` を実装に反映（複数サイトの公開設定、1 サイトに複数ドメイン紐付け可）
-- [ ] 管理画面のサイト切り替え UI
+#### シングルサイトモデル + エッジキャッシュ（最優先）
+- [x] 1 デプロイ複数ドメイン振り分け（マルチサイトモード）を撤去。1 Amplify デプロイ = 1 サイトに固定（`siteId` カラムは前方互換のため `"default"` 固定で残す）
+- [ ] CloudFront キャッシュ戦略: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュを活用し Lambda 起動回数を削減（Amplify Hosting の内部 CloudFront は cache key に Host を含めず Cache Policy / Lambda@Edge も触れないため、1 デプロイ = 1 サイトに固定するのが最も素直）
+- [ ] 内部の `/site/[default]/` ルーティング階層をフラット化（ルート相対パスに統一）
 - [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
-
-**SSR キャッシュとマルチドメインのトレードオフ:**
-
-Amplify Hosting の内部 CloudFront は cache key に Host を含めず、ユーザーが Cache Policy / Lambda@Edge を触れないため、マルチドメインで SSR レスポンスをキャッシュさせると site1 と site2 の同 path が衝突する。これにより:
-
-- **シングルサイト運用**（`sites` 未設定 or 1 サイト）: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュ活用 → Lambda 起動回数を削減
-- **マルチサイト運用**（`sites` 2 件以上）: middleware が `Cache-Control: private, no-store` を強制してキャッシュを完全 OFF（衝突を避ける代償として PV / Lambda コスト増）
-
-切り替えは `cms.config.sites` の件数で自動判定。両立は v1.0 後に Amplify Hosting を捨てて自前 CDK + CloudFront に移行した時の課題として残す。
 
 #### テーマ / 見た目カスタマイズ
 - [ ] `configSchema` ベースの軽カスタマイズ（primaryColor、フォント、ロゴ、sidebar 切替）

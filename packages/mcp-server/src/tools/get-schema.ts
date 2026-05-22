@@ -11,9 +11,8 @@ export function getSchema() {
     contentTypes: [
       {
         name: 'post',
-        identifier: ['siteId', 'postId'],
+        identifier: ['postId'],
         fields: {
-          siteId: { type: 'string', required: true },
           postId: { type: 'string', required: true, description: 'auto-generated if omitted on create' },
           slug: { type: 'string', required: true, description: 'URL slug, unique per site' },
           title: { type: 'string', required: true },
@@ -36,9 +35,8 @@ export function getSchema() {
       },
       {
         name: 'page',
-        identifier: ['siteId', 'pageId'],
+        identifier: ['pageId'],
         fields: {
-          siteId: { type: 'string', required: true },
           pageId: { type: 'string', required: true },
           slug: { type: 'string', required: true },
           title: { type: 'string', required: true },
@@ -50,9 +48,8 @@ export function getSchema() {
       },
       {
         name: 'media',
-        identifier: ['siteId', 'mediaId'],
+        identifier: ['mediaId'],
         fields: {
-          siteId: { type: 'string', required: true },
           mediaId: { type: 'string', required: true },
           src: { type: 'string', required: true, description: 'S3 key' },
           mimeType: { type: 'string', required: true },

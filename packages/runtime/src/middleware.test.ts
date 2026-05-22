@@ -42,7 +42,7 @@ function makeReq(host: string, pathname: string, search = ''): unknown {
 }
 
 describe('createAmplessMiddleware', () => {
-  it('rewrites / → /site/default in single-site mode', () => {
+  it('rewrites / → /site/default', () => {
     const mw = createAmplessMiddleware({
       cmsConfig: { site: { name: 'X', url: 'https://x' } },
     })
@@ -116,42 +116,6 @@ describe('createAmplessMiddleware', () => {
     expect(res.rewrittenTo?.pathname).toBe('/site/default/promo.html')
   })
 
-  it('resolves multi-site host to the matching siteId', () => {
-    const mw = createAmplessMiddleware({
-      cmsConfig: {
-        site: { name: 'D', url: 'https://d' },
-        sites: {
-          blog: { domains: ['blog.example.com'], name: 'B', url: 'https://b' },
-          docs: { domains: ['docs.example.com'], name: 'D', url: 'https://d' },
-        },
-      },
-    })
-    const res = mw(makeReq('blog.example.com', '/posts/x') as never) as unknown as {
-      rewrittenTo?: URL
-      headers: Map<string, string>
-    }
-    expect(res.rewrittenTo?.pathname).toBe('/site/blog/posts/x')
-    expect(res.headers.get('x-site-id')).toBe('blog')
-    // multi-site mode forces no-store
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
-  })
-
-  it('returns 404 for an unregistered multi-site host', () => {
-    const mw = createAmplessMiddleware({
-      cmsConfig: {
-        site: { name: 'D', url: 'https://d' },
-        sites: {
-          blog: { domains: ['blog.example.com'], name: 'B', url: 'https://b' },
-          docs: { domains: ['docs.example.com'], name: 'D', url: 'https://d' },
-        },
-      },
-    })
-    const res = mw(makeReq('unknown.example.com', '/') as never) as unknown as {
-      status: number
-    }
-    expect(res.status).toBe(404)
-  })
-
   it('forwards ?previewTheme=<name> to x-preview-theme header', () => {
     const mw = createAmplessMiddleware({
       cmsConfig: { site: { name: 'X', url: 'https://x' } },
@@ -170,6 +134,18 @@ describe('createAmplessMiddleware', () => {
       makeReq('x.example.com', '/', '?previewColorScheme=dark') as never
     ) as unknown as { requestHeaders?: Headers }
     expect(res.requestHeaders?.get('x-preview-color-scheme')).toBe('dark')
+  })
+
+  it('does not set Cache-Control (no longer force-disabled)', () => {
+    // Single-site mode: no per-deploy host disambiguation needed, so
+    // edge caching is left to the route's own directives.
+    const mw = createAmplessMiddleware({
+      cmsConfig: { site: { name: 'X', url: 'https://x' } },
+    })
+    const res = mw(makeReq('x.example.com', '/') as never) as unknown as {
+      headers: Map<string, string>
+    }
+    expect(res.headers.get('Cache-Control')).toBeUndefined()
   })
 
   it('exports a sensible default matcher config', () => {

@@ -126,9 +126,9 @@ export function createProcessorTrustedHandler(
       site: opts.site,
       listPublishedPosts: () => listPublished(siteId),
       async writePublicAsset(key, body, contentType) {
-        // S3 key includes siteId so multi-site deployments don't collide
-        // (site1's sitemap.xml vs site2's sitemap.xml). Plugin name keeps
-        // the existing per-plugin segregation.
+        // S3 key includes siteId for forward-compat with the schema's
+        // `siteId` column (always `'default'` on single-site deployments).
+        // Plugin name keeps the per-plugin segregation.
         const objectKey = `public/plugins/${plugin.name}/${siteId}/${key}`
         await s3.send(
           new PutObjectCommand({
@@ -154,8 +154,8 @@ export function createProcessorTrustedHandler(
   // public path.
   //
   // Built into the trusted processor (not a user plugin) because the
-  // public site cannot function without it once multi-site settings
-  // move to KvStore.
+  // public site cannot function without site settings being cached out
+  // to S3.
   async function rebuildSiteSettingsCache(siteId: string): Promise<void> {
     const settings: Record<string, unknown> = {}
     let exclusiveStartKey: Record<string, unknown> | undefined

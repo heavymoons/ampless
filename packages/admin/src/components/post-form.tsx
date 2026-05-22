@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Image as ImageIcon } from 'lucide-react'
 import {
+  DEFAULT_SITE_ID,
   createPost,
   updatePost,
   deletePost,
@@ -20,7 +21,6 @@ import {
   markdownToHtml,
   htmlToMarkdown,
 } from '@ampless/runtime'
-import { readAdminSiteIdFromCookie } from '../lib/admin-site-client.js'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
@@ -234,7 +234,7 @@ export function PostForm({ post }: PostFormProps) {
       const tags = parseTags(tagsInput)
       const metadata = buildMetadata()
       const finalSlug = slug || slugify(title)
-      const finalSiteId = post?.siteId ?? readAdminSiteIdFromCookie()
+      const finalSiteId = post?.siteId ?? DEFAULT_SITE_ID
 
       // For static posts, push the pending bundle to S3 before saving
       // the post row. The returned manifest becomes the body so the
@@ -322,7 +322,7 @@ export function PostForm({ post }: PostFormProps) {
   // existing post (on edit) or sensible defaults.
   const previewPost: Post = {
     postId: post?.postId ?? 'preview',
-    siteId: post?.siteId ?? readAdminSiteIdFromCookie(),
+    siteId: post?.siteId ?? DEFAULT_SITE_ID,
     slug: slug || slugify(title) || 'preview',
     title,
     excerpt: excerpt || undefined,

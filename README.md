@@ -89,7 +89,7 @@ ampless is being developed in the open eventually, but **the repo stays private 
 | Phase | Highlights |
 |---|---|
 | v0.1 (done — internal) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
-| v0.x (in progress) | Multi-site (subdomains + cross-domain), theme customization, MCP HTTP transport + access tokens, AI provider abstraction, WXR import, monitoring polish |
+| v0.x (in progress) | Theme customization, MCP HTTP transport + access tokens, CloudFront cache strategy, AI provider abstraction, WXR import, monitoring polish |
 | v1.0 RC (public-flip trigger) | Core + first-party plugins are enough to run a real site; ampless's own marketing page exists |
 | v1.0 stable | Admin polish, custom content types, REST API, eject |
 | v2.0+ | Third-party plugins, marketplace, WASM sandbox |

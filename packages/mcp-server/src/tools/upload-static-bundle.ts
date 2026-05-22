@@ -30,7 +30,6 @@ export const uploadStaticBundleSchema = {
   type: 'object',
   required: ['slug', 'title', 'zipBase64'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     postId: {
       type: 'string',
       description:

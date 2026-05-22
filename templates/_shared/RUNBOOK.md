@@ -15,9 +15,7 @@ For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), star
   - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
   - [Restore from a Post-table backup](#restore-from-a-post-table-backup)
   - [Inspect failed plugin events](#inspect-failed-plugin-events)
-- [Multi-site / custom domains](#multi-site--custom-domains)
-  - [Single domain operation](#single-domain-operation)
-  - [Multi-site mode caveat: SSR caching is force-disabled](#multi-site-mode-caveat-ssr-caching-is-force-disabled)
+- [Custom domains](#custom-domains)
   - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
 
 ## AppSync API key (auto-renewed)
@@ -117,49 +115,10 @@ or `aws sqs receive-message --queue-url <dlq-url> --max-number-of-messages 10`.
 There's no automated alarm in v0.1 — periodic manual checks recommended,
 or wire up a CloudWatch alarm on `ApproximateNumberOfMessagesVisible`.
 
-## Multi-site / custom domains
+## Custom domains
 
-ampless can serve multiple sites from one Amplify Hosting deployment.
-Each site is identified by a `siteId` and bound to one or more
-hostnames via `cms.config.ts`:
-
-```ts
-sites: {
-  blog: {
-    domains: ['blog.example.com', 'www.example.com'],
-    name: 'My Blog',
-    url: 'https://blog.example.com',
-  },
-  docs: {
-    domains: ['docs.example.com'],
-    name: 'Docs',
-    url: 'https://docs.example.com',
-  },
-},
-```
-
-The middleware (`middleware.ts`) maps incoming `Host` to a `siteId` and
-internally rewrites the path to `/_sites/{siteId}/...`. Subdomains and
-fully separate domains are equivalent at the application layer — only
-the AWS-side wiring differs.
-
-### Single domain operation
-
-If `sites` is undefined or has only one entry, ampless runs in
-single-site mode (`siteId='default'`). SSR responses follow each page's
-own caching directives (so you can opt into CloudFront caching with
-`Cache-Control: public, s-maxage=...` per route).
-
-### Multi-site mode caveat: SSR caching is force-disabled
-
-When two or more sites are declared, the middleware adds
-`Cache-Control: private, no-store` to every public response. This is
-because Amplify Hosting's CloudFront does not include `Host` in its
-cache key — leaving caching on would let `https://site1/foo` and
-`https://site2/foo` cross-contaminate at the edge. The trade-off is
-that every public read hits Lambda. Lifting it requires moving off
-Amplify Hosting onto a self-managed CloudFront + Open Next stack
-(roadmap: post-v1.0).
+ampless runs one site per Amplify deployment. To serve multiple sites
+on different domains, deploy a separate Amplify environment per site.
 
 ### Adding a custom domain to Amplify Hosting
 
@@ -178,19 +137,15 @@ For each domain you want to bind:
      also works as a fallback.
 4. Wait for the **Domain activation** to finish (typically 15–60
    minutes; certificate validation is the slow step).
-5. Add the new domain to the matching `sites.{id}.domains[]` in
-   `cms.config.ts` and redeploy:
+5. Update `cms.config.ts` so `site.url` reflects the new canonical URL,
+   commit, and push to redeploy:
    ```bash
-   git add cms.config.ts && git commit -m "feat: add docs.example.com"
+   git add cms.config.ts && git commit -m "feat: bind docs.example.com"
    git push   # Amplify Hosting picks it up
    ```
 
 Verify end-to-end:
 
 ```bash
-curl -I https://docs.example.com/                  # 200 with the docs site's HTML
-curl -sI https://docs.example.com/ | grep -i cache # Cache-Control: private, no-store
+curl -I https://docs.example.com/   # 200 with your site's HTML
 ```
-
-If the request returns `404 Site not found` instead, the host is not
-listed in any `sites.*.domains[]` — fix the config and redeploy.

@@ -31,19 +31,18 @@ const navItems: readonly NavItem[] = [
   { href: '/admin', key: 'sidebar.dashboard', icon: LayoutDashboard },
   { href: '/admin/posts', key: 'sidebar.posts', icon: FileText },
   { href: '/admin/media', key: 'sidebar.media', icon: Image },
-  { href: '/admin/sites', key: 'sidebar.sites', icon: Globe },
+  // ampless runs one site per deployment, so this links directly to
+  // the single site's settings page instead of a list landing.
+  { href: '/admin/sites/default', key: 'sidebar.sites', icon: Globe },
   { href: '/admin/users', key: 'sidebar.users', icon: Users, adminOnly: true },
   { href: '/admin/mcp-tokens', key: 'sidebar.mcpTokens', icon: Key, adminOnly: true },
 ] as const
 
 export function Sidebar({
   email,
-  siteSelector,
   isAdmin,
 }: {
   email: string
-  /** Rendered above the main nav in multi-site mode. */
-  siteSelector?: React.ReactNode
   /** Gates `adminOnly` nav entries (user management). */
   isAdmin: boolean
 }) {
@@ -122,8 +121,6 @@ export function Sidebar({
             <X className="h-5 w-5" />
           </Button>
         </div>
-
-        {siteSelector ? <div className="border-b">{siteSelector}</div> : null}
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
           {navItems.map((item) => {

@@ -38,7 +38,6 @@ export const updatePostSchema = {
   required: ['postId'],
   properties: {
     postId: { type: 'string' },
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string' },
     title: { type: 'string' },
     excerpt: { type: 'string' },

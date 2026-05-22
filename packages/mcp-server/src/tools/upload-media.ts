@@ -26,7 +26,6 @@ export const uploadMediaSchema = {
   type: 'object',
   required: ['filename', 'mimeType', 'base64Data'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     filename: { type: 'string', description: 'Original filename; sanitized server-side' },
     mimeType: {
       type: 'string',

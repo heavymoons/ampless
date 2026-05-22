@@ -18,7 +18,6 @@ export type {
   Page,
   Media,
   Config,
-  SiteConfig,
   AuthContext,
   Role,
   ContentFormat,
@@ -29,9 +28,6 @@ export type {
 } from './types.js'
 export {
   DEFAULT_SITE_ID,
-  resolveSiteId,
-  isMultiSite,
-  siteFor,
   composeSiteIdStatus,
   composeSiteIdSlug,
 } from './sites.js'

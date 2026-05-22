@@ -30,7 +30,6 @@ export interface GetPostArgs {
 export const getPostSchema = {
   type: 'object',
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string', description: 'Post slug' },
     postId: { type: 'string', description: 'Post id (used when slug is omitted)' },
   },

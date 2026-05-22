@@ -15,7 +15,6 @@
 | コンテンツ保存 | Portable Text 固定 | マルチフォーマット（tiptap/Markdown/HTML） |
 | AI 連携 | なし（v1 時点） | MCP Server + AI プロバイダ抽象レイヤー |
 | フックシステム | 不明 | before/after フック + Webhook（外部連携の汎用口） |
-| マルチサイト | 非対応 | サブドメインベースのマルチサイト |
 | エコシステム | Cloudflare ユーザー | AWS ユーザー（圧倒的多数） |
 
 ---

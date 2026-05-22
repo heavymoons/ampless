@@ -22,7 +22,6 @@ export const uploadStaticFileSchema = {
   type: 'object',
   required: ['slug', 'filename', 'base64Data'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string', description: 'Bundle slug. Files land at public/static/<siteId>/<slug>/<filename>.' },
     filename: {
       type: 'string',

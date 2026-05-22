@@ -19,17 +19,10 @@ import {
   type McpTokenMeta,
 } from '../lib/mcp-token-storage.js'
 
-export interface SiteOption {
-  id: string
-  name: string
-}
-
 interface Props {
   /** Cognito sub of the currently logged-in admin. */
   currentUserId: string
   currentUserEmail: string
-  /** Site list for the scope selector. Empty = single-site mode. */
-  sites: SiteOption[]
   /**
    * MCP HTTP endpoint URL (the `mcp-handler` Lambda Function URL).
    * `null` when the project hasn't been deployed yet, so
@@ -59,7 +52,7 @@ function relativeTime(iso: string | null): string {
   return `${d}d ago`
 }
 
-export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpoint }: Props) {
+export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: Props) {
   const t = useT()
 
   const [endpointCopied, setEndpointCopied] = useState(false)
@@ -81,7 +74,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
 
   // Create modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [scopeSiteId, setScopeSiteId] = useState<string | null>(null)
   const [expPreset, setExpPreset] = useState<ExpirationPreset>('never')
   const [customDate, setCustomDate] = useState('')
   const [creating, setCreating] = useState(false)
@@ -110,7 +102,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
   }, [])
 
   function openCreateModal() {
-    setScopeSiteId(null)
     setExpPreset('never')
     setCustomDate('')
     setCreateError(null)
@@ -143,7 +134,9 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
       const meta = await createToken({
         hash,
         prefix,
-        scope: { siteId: scopeSiteId },
+        // Single-site deployment: tokens always cover the whole site.
+        // Storage retains the field for forward-compat.
+        scope: { siteId: null },
         createdBy: currentUserId,
         createdByEmail: currentUserEmail,
         createdAt: new Date().toISOString(),
@@ -181,12 +174,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
     } catch (err) {
       console.warn('[mcp-tokens-view] clipboard write failed', err)
     }
-  }
-
-  function scopeLabel(siteId: string | null): string {
-    if (!siteId) return t('mcpTokens.scopeAll')
-    const site = sites.find((s) => s.id === siteId)
-    return site?.name ?? siteId
   }
 
   return (
@@ -240,7 +227,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('mcpTokens.columnPrefix')}</TableHead>
-                  <TableHead>{t('mcpTokens.columnScope')}</TableHead>
                   <TableHead>{t('mcpTokens.columnCreated')}</TableHead>
                   <TableHead>{t('mcpTokens.columnLastUsed')}</TableHead>
                   <TableHead>{t('mcpTokens.columnStatus')}</TableHead>
@@ -253,7 +239,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
                   return (
                     <TableRow key={tok.hash}>
                       <TableCell className="font-mono text-xs">{tok.prefix}</TableCell>
-                      <TableCell className="text-sm">{scopeLabel(tok.scope.siteId)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         <span title={tok.createdAt}>{relativeTime(tok.createdAt)}</span>
                         {tok.createdByEmail && (
@@ -312,28 +297,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, sites, mcpEndpo
             <h2 className="text-lg font-semibold">{t('mcpTokens.createModalTitle')}</h2>
 
             <div className="mt-4 space-y-4">
-              {/* Scope selector */}
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="mcp-scope">
-                  {t('mcpTokens.scopeLabel')}
-                </label>
-                <select
-                  id="mcp-scope"
-                  className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
-                  value={scopeSiteId ?? ''}
-                  onChange={(e) =>
-                    setScopeSiteId(e.target.value === '' ? null : e.target.value)
-                  }
-                >
-                  <option value="">{t('mcpTokens.scopeAll')}</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Expiration */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">{t('mcpTokens.expirationLabel')}</p>

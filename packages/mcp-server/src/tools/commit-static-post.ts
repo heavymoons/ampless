@@ -24,7 +24,6 @@ export const commitStaticPostSchema = {
   type: 'object',
   required: ['slug'],
   properties: {
-    siteId: { type: 'string', description: 'Site identifier (defaults to "default")' },
     slug: { type: 'string' },
     title: {
       type: 'string',

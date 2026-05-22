@@ -15,9 +15,7 @@ ampless で構築したサイトで、ときどき必要になる運用作業の
   - [パスワードリセット（管理者上書き）](#reset-a-users-password-admin-override)
   - [Post テーブルのバックアップから復元](#restore-from-a-post-table-backup)
   - [失敗したプラグインイベントを確認する](#inspect-failed-plugin-events)
-- [マルチサイト / カスタムドメイン](#multi-site--custom-domains)
-  - [シングルドメイン運用](#single-domain-operation)
-  - [マルチサイト時の注意：SSR キャッシュは強制無効化](#multi-site-mode-caveat-ssr-caching-is-force-disabled)
+- [カスタムドメイン](#custom-domains)
   - [カスタムドメインを Amplify Hosting に追加する](#adding-a-custom-domain-to-amplify-hosting)
 
 ## AppSync API キー（自動更新）
@@ -95,34 +93,9 @@ DynamoDB のポイントインタイムリカバリ（PITR）は v0.1 の `defin
 
 処理に失敗したプロセッサー呼び出しは、`amplify/backend.ts` で作成された共有イベント DLQ（`EventsDlq`）に送られます。SQS コンソールまたは `aws sqs receive-message --queue-url <dlq-url> --max-number-of-messages 10` でメッセージを確認してください。v0.1 には自動アラームがないため、定期的な手動確認を推奨します。あるいは `ApproximateNumberOfMessagesVisible` に CloudWatch アラームを設定してください。
 
-## マルチサイト / カスタムドメイン
+## カスタムドメイン
 
-ampless は 1 つの Amplify Hosting デプロイメントから複数のサイトを配信できます。各サイトは `siteId` で識別され、`cms.config.ts` 内で 1 つ以上のホスト名に紐づけられます：
-
-```ts
-sites: {
-  blog: {
-    domains: ['blog.example.com', 'www.example.com'],
-    name: 'My Blog',
-    url: 'https://blog.example.com',
-  },
-  docs: {
-    domains: ['docs.example.com'],
-    name: 'Docs',
-    url: 'https://docs.example.com',
-  },
-},
-```
-
-ミドルウェア（`middleware.ts`）が受信リクエストの `Host` を `siteId` にマッピングし、パスを `/_sites/{siteId}/...` に内部リライトします。サブドメインと完全に分離されたドメインはアプリケーション層では等価です — AWS 側の設定のみが異なります。
-
-### シングルドメイン運用
-
-`sites` が未定義または 1 エントリのみの場合、ampless はシングルサイトモード（`siteId='default'`）で動作します。SSR レスポンスはルートごとのキャッシュディレクティブに従います（ルートごとに `Cache-Control: public, s-maxage=...` を指定することで CloudFront キャッシュを利用できます）。
-
-### マルチサイトモードの注意事項：SSR キャッシュの強制無効化
-
-2 つ以上のサイトが設定されている場合、ミドルウェアはすべてのパブリックレスポンスに `Cache-Control: private, no-store` を付加します。これは Amplify Hosting の CloudFront がキャッシュキーに `Host` を含まないため、キャッシュを有効にすると `https://site1/foo` と `https://site2/foo` がエッジでコンテンツを混在させてしまうためです。このトレードオフとして、すべてのパブリック読み取りが Lambda にヒットします。この制約を解消するには、Amplify Hosting から独自管理の CloudFront + Open Next スタックへの移行が必要です（ロードマップ：v1.0 以降）。
+ampless は 1 Amplify デプロイ = 1 サイト。複数サイトを別ドメインで配信したい場合は、サイトごとに Amplify 環境を分けてデプロイしてください。
 
 ### Amplify Hosting へのカスタムドメイン追加
 
@@ -134,17 +107,14 @@ sites: {
    - **Route 53 / Amplify 管理の DNS プロバイダー**：Amplify が CNAME を作成してくれるので、確認するだけです。
    - **外部 DNS**（Cloudflare、Squarespace など）：Amplify が表示する CNAME / DNS 検証レコードをコピーします。ACM のメール検証もフォールバックとして使用できます。
 4. **Domain activation** が完了するまで待ちます（通常 15〜60 分。証明書の検証が最も時間がかかります）。
-5. 新しいドメインを `cms.config.ts` の対応する `sites.{id}.domains[]` に追加して再デプロイします：
+5. `cms.config.ts` の `site.url` を新しい canonical URL に更新し、commit して push します：
    ```bash
-   git add cms.config.ts && git commit -m "feat: add docs.example.com"
+   git add cms.config.ts && git commit -m "feat: bind docs.example.com"
    git push   # Amplify Hosting が自動検出します
    ```
 
 エンドツーエンドで確認：
 
 ```bash
-curl -I https://docs.example.com/                  # 200 とドキュメントサイトの HTML
-curl -sI https://docs.example.com/ | grep -i cache # Cache-Control: private, no-store
+curl -I https://docs.example.com/   # 200 とサイトの HTML
 ```
-
-リクエストが `404 Site not found` を返す場合、そのホストはいずれの `sites.*.domains[]` にも登録されていません — 設定を修正して再デプロイしてください。
