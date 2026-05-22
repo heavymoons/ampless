@@ -418,6 +418,14 @@ export interface AmplessSchemaAuthorizationOpts {
  * `amplify/data/resource.ts`. When no Lambda function refs are
  * supplied the function returns `[]`, so the schema stays unaffected.
  *
+ * Return type is `any[]` (matching the rest of this module's
+ * intentional looseness around `@aws-amplify/data-schema`'s heavily
+ * generic builder types) so callers don't have to wrestle the
+ * generic `SchemaAuthorization<…>` parameters that change between
+ * minor versions. `amplify/data/resource.ts` strict-type-checks fine
+ * downstream because the schema itself still resolves through
+ * `ClientSchema<typeof schema>` correctly.
+ *
  * Usage:
  *
  *     const schema = a.schema({
@@ -427,9 +435,14 @@ export interface AmplessSchemaAuthorizationOpts {
  *       mcpHandlerFunction: mcpHandler,
  *     }))
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function amplessSchemaAuthorization(allow: any, opts: AmplessSchemaAuthorizationOpts = {}): unknown[] {
-  const rules: unknown[] = []
+export function amplessSchemaAuthorization(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  allow: any,
+  opts: AmplessSchemaAuthorizationOpts = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rules: any[] = []
   if (opts.mcpHandlerFunction) {
     rules.push(allow.resource(opts.mcpHandlerFunction).to(['query', 'mutate']))
   }
