@@ -64,23 +64,49 @@ describe('createAmplessMiddleware', () => {
     expect(res.rewrittenTo?.pathname).toBe('/site/default/about')
   })
 
-  it('rewrites /raw/<slug> → /site/default/raw/<slug>', () => {
-    // Raw bare-HTML routing is data-driven (post.metadata.no_layout
-    // → dispatcher redirects to /raw/<slug>). Middleware just adds
-    // the site prefix, no special slug-suffix matching.
+  it('rewrites /_/<slug> → /site/default/r/<slug>', () => {
+    // Unified `_` routing is data-driven (post.metadata.no_layout or
+    // format='static' → dispatcher redirects to /_/<slug>). Middleware
+    // translates the public `_` prefix to the routable `r/` folder
+    // because Next.js excludes any underscore-prefixed path part
+    // from App Router discovery.
     const mw = createAmplessMiddleware({
       cmsConfig: { site: { name: 'X', url: 'https://x' } },
     })
-    const res = mw(makeReq('x.example.com', '/raw/promo') as never) as unknown as {
+    const res = mw(makeReq('x.example.com', '/_/promo') as never) as unknown as {
       rewrittenTo?: URL
     }
-    expect(res.rewrittenTo?.pathname).toBe('/site/default/raw/promo')
+    expect(res.rewrittenTo?.pathname).toBe('/site/default/r/promo')
+  })
+
+  it('rewrites /_/<slug>/<file> → /site/default/r/<slug>/<file>', () => {
+    // Static-bundle internal file path: the trailing path joins the
+    // optional catch-all `[[...path]]` segment inside the unified
+    // route handler.
+    const mw = createAmplessMiddleware({
+      cmsConfig: { site: { name: 'X', url: 'https://x' } },
+    })
+    const res = mw(
+      makeReq('x.example.com', '/_/promo/assets/style.css') as never,
+    ) as unknown as { rewrittenTo?: URL }
+    expect(res.rewrittenTo?.pathname).toBe('/site/default/r/promo/assets/style.css')
+  })
+
+  it('rewrites /_/<slug>/ (trailing slash) → /site/default/r/<slug>/', () => {
+    const mw = createAmplessMiddleware({
+      cmsConfig: { site: { name: 'X', url: 'https://x' } },
+    })
+    const res = mw(makeReq('x.example.com', '/_/promo/') as never) as unknown as {
+      rewrittenTo?: URL
+    }
+    expect(res.rewrittenTo?.pathname).toBe('/site/default/r/promo/')
   })
 
   it('does NOT special-case .html slug suffix', () => {
     // Regression guard: the legacy `/<slug>.html` → /raw/<slug>.html
     // rewrite was retired in favour of `metadata.no_layout`. Slugs
     // ending in .html should now be treated as ordinary post URLs.
+    // (And /raw/ itself was retired in favour of /_/<slug>.)
     const mw = createAmplessMiddleware({
       cmsConfig: { site: { name: 'X', url: 'https://x' } },
     })

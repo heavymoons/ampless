@@ -36,7 +36,8 @@ export type PostStatus = 'draft' | 'published'
  * Well-known keys:
  *   - `no_layout`: when true, the public page is served as bare HTML
  *     (no theme chrome). The runtime's post dispatcher checks this
- *     before rendering and redirects to the raw route handler.
+ *     before rendering and redirects to the unified `/_/<slug>` route
+ *     handler.
  *
  * Additional keys are passed through unchanged — themes and plugins
  * are free to store their own per-post state here (e.g. SEO overrides,

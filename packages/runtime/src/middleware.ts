@@ -12,17 +12,21 @@ export type MiddlewareFn = (request: NextRequest) => NextResponse
  *
  *  - hostname → siteId resolution (multi-site rewrites)
  *  - `/path` → `/site/<siteId>/path` internal rewrite
+ *  - `/_/<slug>(/...)` → `/site/<siteId>/r/<slug>(/...)` rewrite for
+ *    the unified bare-HTML / static-bundle route
  *  - `?previewTheme=<name>` → `x-preview-theme` header forwarding
  *  - `Cache-Control: private, no-store` in multi-site mode (Amplify
  *    Hosting's CloudFront cache key doesn't include Host, so SSR
  *    responses would cross-contaminate at the same path)
  *
- * No-layout / bare-HTML routing is data-driven: the theme post
- * dispatcher reads `post.metadata.no_layout` and redirects to
- * `/raw/<slug>` when set. The plain prefix-prepend below picks up
- * that path because the raw route lives at
- * `app/site/<siteId>/raw/<slug>/route.ts` — no special middleware
- * branch is needed.
+ * Bare-HTML / static routing is data-driven: the theme post dispatcher
+ * redirects `metadata.no_layout` and `format='static'` posts to
+ * `/_/<slug>`. The middleware rewrites the public `_` prefix to the
+ * routable internal folder name `r/`, because Next.js's App Router
+ * excludes any path part starting with `_` during route discovery
+ * (see `recursive-readdir` + `ignorePartFilter` in
+ * `next/dist/build/route-discovery.js`). The browser URL stays
+ * `/_/<slug>(/...)`; only the rewrite target uses `r/`.
  *
  * The factory captures the multi-site flag at construction time so the
  * hot path stays a pair of cheap header lookups.
@@ -36,7 +40,8 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
   //
   // (We use `/site/` rather than `/_sites/` because Next.js treats
   // folders with an underscore prefix as private — they're not routable
-  // even via middleware rewrites.)
+  // even via middleware rewrites. The unified `_` route gets the same
+  // treatment via the `_ → r` translation below.)
   //
   // In multi-site mode we additionally force `Cache-Control: private,
   // no-store` because Amplify Hosting's CloudFront cache key doesn't
@@ -51,7 +56,15 @@ export function createAmplessMiddleware({ cmsConfig }: CreateMiddlewareOpts): Mi
 
     const url = request.nextUrl.clone()
     if (!url.pathname.startsWith('/site/')) {
-      const tail = url.pathname === '/' ? '' : url.pathname
+      let tail = url.pathname === '/' ? '' : url.pathname
+      // Public `_` namespace → routable internal folder `r`. The
+      // App Router won't discover folders starting with `_`, so the
+      // rewrite target must use a non-underscore name. Single literal
+      // `_` segment only; nested underscore-prefixed slugs are left
+      // alone (none of the reserved routes have them).
+      if (tail === '/_' || tail.startsWith('/_/')) {
+        tail = `/r${tail.slice(2)}`
+      }
       url.pathname = `/site/${siteId}${tail}`
     }
 

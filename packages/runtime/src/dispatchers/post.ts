@@ -19,14 +19,24 @@ export type ThemePostMetadata = (props: Props) => Promise<Metadata>
  * Post page dispatcher. Resolves the active theme and renders the
  * theme's `components.Post` server component.
  *
- * Before delegating, the dispatcher peeks at the post's metadata: if
- * `metadata.no_layout === true`, the post is meant to be served as
- * bare HTML (own DOCTYPE, no theme chrome, no Next.js root layout).
- * Next.js page.tsx can't bypass the root layout, so we 308-redirect
- * to the raw route handler at `/raw/<slug>` which returns the body
- * unchanged. The redirect is permanent because no_layout is a
- * persistent property of the post — bookmarks naturally settle on
- * the `/raw/` URL.
+ * Before delegating, the dispatcher peeks at the post's data and
+ * 308-redirects to `/_/<slug>` for both formats that need to bypass
+ * the theme's post page:
+ *
+ *  - `metadata.no_layout === true` — the body is its own complete
+ *    HTML document and ships as the entire response. The unified
+ *    route handler at `/_/<slug>` emits the body verbatim.
+ *  - `format === 'static'` — the body is a manifest pointing at a
+ *    bundle of files in S3. The unified route handler then 308s
+ *    again to `/_/<slug>/` (trailing slash) so relative paths inside
+ *    the bundle resolve correctly.
+ *
+ * Why the redirect lands on `/_/<slug>` rather than `/_/<slug>/` for
+ * static posts: trailing-slash anchoring is the unified route
+ * handler's responsibility — keeps the dispatcher format-agnostic
+ * and the public URL pattern symmetric (no_layout and static both
+ * settle on `/_/<slug>(/...)`). One extra 308 round-trip is cheap;
+ * it deduplicates the trailing-slash branch into a single place.
  *
  * The metadata peek is an extra AppSync call before theme resolve,
  * but it's the same query the theme's Post component would make
@@ -40,23 +50,8 @@ export function createThemePostDispatcher(ampless: Ampless): ThemePostDispatcher
   return async function SitePostDispatcher({ params }: Props): Promise<ReactNode> {
     const { siteId, slug } = await params
     const post = await ampless.getPublishedPost(slug, { siteId })
-    if (post?.metadata?.no_layout === true) {
-      redirect(`/raw/${slug}`)
-    }
-    if (post?.format === 'static') {
-      // Hand off to the static catch-all. The target URL needs a
-      // trailing slash so relative paths inside the bundle resolve
-      // against `/<slug>/…` rather than the site root — visiting
-      // `/<slug>` would make `<img src="img.png">` load from
-      // `/img.png` instead of `/<slug>/img.png`. The catch-all
-      // handler itself enforces this too, but doing it here avoids
-      // an extra hop.
-      const body = (post.body ?? null) as { entrypoint?: string } | null
-      const entrypoint =
-        typeof body?.entrypoint === 'string' && body.entrypoint
-          ? body.entrypoint
-          : 'index.html'
-      redirect(`/${slug}/${entrypoint}`)
+    if (post?.metadata?.no_layout === true || post?.format === 'static') {
+      redirect(`/_/${slug}`)
     }
     const { module } = await ampless.resolveActiveTheme(siteId)
     const Post = module.components.Post
