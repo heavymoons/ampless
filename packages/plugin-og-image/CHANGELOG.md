@@ -1,5 +1,12 @@
 # @ampless/plugin-og-image
 
+## 0.2.0-alpha.8
+
+### Patch Changes
+
+- Updated dependencies [e1fd2ca]
+  - ampless@0.2.0-alpha.8
+
 ## 0.2.0-alpha.7
 
 ### Patch Changes
