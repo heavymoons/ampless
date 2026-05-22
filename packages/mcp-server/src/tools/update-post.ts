@@ -1,4 +1,10 @@
-import { composeSiteIdStatus, composeSiteIdSlug, encodeAwsJson, type Post } from 'ampless'
+import {
+  composeSiteIdStatus,
+  composeSiteIdSlug,
+  encodeAwsJson,
+  type Post,
+  type PostMetadata,
+} from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
@@ -24,6 +30,7 @@ export interface UpdatePostArgs {
   status?: 'draft' | 'published'
   publishedAt?: string
   tags?: string[]
+  metadata?: PostMetadata | Record<string, unknown>
 }
 
 export const updatePostSchema = {
@@ -35,11 +42,29 @@ export const updatePostSchema = {
     slug: { type: 'string' },
     title: { type: 'string' },
     excerpt: { type: 'string' },
-    format: { type: 'string', enum: ['tiptap', 'markdown', 'html'] },
-    body: { description: 'tiptap JSON, markdown source, or raw HTML' },
+    format: {
+      type: 'string',
+      enum: ['tiptap', 'markdown', 'html'],
+      description:
+        'tiptap = rich text JSON tree; markdown = source string; html = raw HTML string (no sanitization).',
+    },
+    body: { description: 'tiptap JSON, markdown source, or raw HTML string' },
     status: { type: 'string', enum: ['draft', 'published'] },
     publishedAt: { type: 'string', description: 'ISO 8601 timestamp' },
     tags: { type: 'array', items: { type: 'string' } },
+    metadata: {
+      type: 'object',
+      description:
+        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /raw/<slug>); meaningful only with format=html. Passing metadata replaces the existing metadata object — read the current post first if you only want to add a key.',
+      properties: {
+        no_layout: {
+          type: 'boolean',
+          description:
+            'Serve the post as bare HTML with no theme chrome. Only meaningful when format=html; ignored otherwise.',
+        },
+      },
+      additionalProperties: true,
+    },
   },
 } as const
 
@@ -62,6 +87,7 @@ export async function updatePost(
   if (args.status !== undefined) input.status = args.status
   if (args.publishedAt !== undefined) input.publishedAt = args.publishedAt
   if (args.tags !== undefined) input.tags = args.tags
+  if (args.metadata !== undefined) input.metadata = encodeAwsJson(args.metadata)
   // Recompute the denormalized GSI keys whenever status / slug changes.
   if (args.status !== undefined) {
     input.siteIdStatus = composeSiteIdStatus(siteId, args.status)

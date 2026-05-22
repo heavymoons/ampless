@@ -1,4 +1,10 @@
-import { decodeAwsJson, type Post, type ContentFormat, type PostStatus } from 'ampless'
+import {
+  decodeAwsJson,
+  type Post,
+  type PostMetadata,
+  type ContentFormat,
+  type PostStatus,
+} from 'ampless'
 
 export const POST_FIELDS = /* GraphQL */ `
   fragment PostFields on Post {
@@ -12,6 +18,7 @@ export const POST_FIELDS = /* GraphQL */ `
     status
     publishedAt
     tags
+    metadata
   }
 `
 
@@ -26,9 +33,11 @@ interface RawPost {
   status?: string | null
   publishedAt?: string | null
   tags?: (string | null)[] | null
+  metadata?: unknown
 }
 
 export function toCorePost(p: RawPost): Post {
+  const metadata = decodeAwsJson(p.metadata)
   return {
     siteId: p.siteId,
     postId: p.postId,
@@ -40,5 +49,9 @@ export function toCorePost(p: RawPost): Post {
     status: ((p.status ?? 'draft') as PostStatus),
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
+    metadata:
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as PostMetadata)
+        : undefined,
   }
 }

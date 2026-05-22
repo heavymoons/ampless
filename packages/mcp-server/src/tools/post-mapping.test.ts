@@ -57,4 +57,39 @@ describe('toCorePost', () => {
     }
     expect(toCorePost(row).tags).toEqual(['a', 'b'])
   })
+
+  it('decodes metadata as AWSJSON (string round-trip)', () => {
+    const row = {
+      siteId: 'default',
+      postId: 'p1',
+      slug: 'hello',
+      title: 'Hello',
+      metadata: '{"no_layout":true,"author":"alice"}',
+    }
+    expect(toCorePost(row).metadata).toEqual({ no_layout: true, author: 'alice' })
+  })
+
+  it('passes a native-object metadata through (Amplify-stored Map)', () => {
+    // Mirrors the KvStore shape quirk in mcp-handler — Amplify's
+    // generated mutation resolver sometimes stores AWSJSON as native
+    // DDB types, so the read-back is already an object. The decoder
+    // should pass it through without re-parsing.
+    const row = {
+      siteId: 'default',
+      postId: 'p1',
+      slug: 'hello',
+      title: 'Hello',
+      metadata: { no_layout: true },
+    }
+    expect(toCorePost(row).metadata).toEqual({ no_layout: true })
+  })
+
+  it('returns undefined when metadata is missing or null', () => {
+    expect(
+      toCorePost({ siteId: 'd', postId: 'p', slug: 's', title: 't' }).metadata
+    ).toBeUndefined()
+    expect(
+      toCorePost({ siteId: 'd', postId: 'p', slug: 's', title: 't', metadata: null }).metadata
+    ).toBeUndefined()
+  })
 })
