@@ -7,8 +7,22 @@ import { updatePost, updatePostSchema } from './update-post.js'
 import { deletePost, deletePostSchema } from './delete-post.js'
 import { uploadMedia, uploadMediaSchema } from './upload-media.js'
 import { getSchema, getSchemaSchema } from './get-schema.js'
+import { uploadStaticBundle, uploadStaticBundleSchema } from './upload-static-bundle.js'
+import { uploadStaticFile, uploadStaticFileSchema } from './upload-static-file.js'
+import { deleteStaticFile, deleteStaticFileSchema } from './delete-static-file.js'
+import { commitStaticPost, commitStaticPostSchema } from './commit-static-post.js'
 
-export type { GraphqlClient, StorageClient, ToolContext } from './types.js'
+export type {
+  GraphqlClient,
+  StorageClient,
+  StorageObject,
+  ToolContext,
+} from './types.js'
+export {
+  extractZipFromBuffer,
+  decodeUtf8,
+  type ExtractZipOptions,
+} from './static-bundle-extract.js'
 
 export interface ToolDefinition {
   name: string
@@ -70,6 +84,56 @@ export const tools: ToolDefinition[] = [
       'Returns the CMS content schema (Post/Page/Media field shapes, format enum, notes). Useful as the first call to understand what fields are available.',
     inputSchema: getSchemaSchema,
     handler: async () => getSchema(),
+  },
+  {
+    name: 'upload_static_bundle',
+    description:
+      "Create or replace a `format: 'static'` post in one shot. Pass a base64-encoded zip; the server unpacks it, validates every path + lints HTML/CSS/SVG for absolute path refs (bundles must be self-contained via relative paths), wipes the existing S3 prefix at public/static/<siteId>/<slug>/, uploads every file, and upserts the Post row with a manifest pointing at the entrypoint. Use this when you have the whole bundle to submit at once. For incremental edits use upload_static_file / delete_static_file followed by commit_static_post.",
+    inputSchema: uploadStaticBundleSchema,
+    handler: (args, ctx) =>
+      uploadStaticBundle(
+        ctx.graphql,
+        ctx.storage(),
+        ctx.defaultSiteId,
+        args as unknown as Parameters<typeof uploadStaticBundle>[3],
+      ),
+  },
+  {
+    name: 'upload_static_file',
+    description:
+      "Upload a single file into an existing static bundle's S3 prefix. The Post row is NOT modified — its `body` manifest will be out of sync with the prefix until you call `commit_static_post`. Use this for incremental edits (one CSS swap, single image change) where rebuilding the entire zip would be overkill. Text files (HTML/CSS/SVG) are linted for absolute / protocol-relative URL refs the same as the zip flow.",
+    inputSchema: uploadStaticFileSchema,
+    handler: (args, ctx) =>
+      uploadStaticFile(
+        ctx.storage(),
+        ctx.defaultSiteId,
+        args as unknown as Parameters<typeof uploadStaticFile>[2],
+      ),
+  },
+  {
+    name: 'delete_static_file',
+    description:
+      "Delete a single file from a static bundle's S3 prefix. The Post row is NOT modified — its `body` manifest will list the deleted file until you call `commit_static_post`. Idempotent: returns `{ deleted: false }` instead of throwing if the file isn't there.",
+    inputSchema: deleteStaticFileSchema,
+    handler: (args, ctx) =>
+      deleteStaticFile(
+        ctx.storage(),
+        ctx.defaultSiteId,
+        args as unknown as Parameters<typeof deleteStaticFile>[2],
+      ),
+  },
+  {
+    name: 'commit_static_post',
+    description:
+      'Rebuild a static post\'s Post row from whatever is currently in its S3 prefix. Scans `public/static/<siteId>/<slug>/`, picks the entrypoint (default `index.html` or override), and upserts the Post with a fresh manifest (sorted file list + uploadedAt timestamp). Use this as the "save" step after a series of `upload_static_file` / `delete_static_file` calls. `title` is required when creating a brand-new post; on update, existing fields are preserved unless explicitly overridden.',
+    inputSchema: commitStaticPostSchema,
+    handler: (args, ctx) =>
+      commitStaticPost(
+        ctx.graphql,
+        ctx.storage(),
+        ctx.defaultSiteId,
+        args as unknown as Parameters<typeof commitStaticPost>[3],
+      ),
   },
 ]
 

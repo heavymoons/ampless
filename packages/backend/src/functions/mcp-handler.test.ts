@@ -223,6 +223,11 @@ describe('mcp-handler', () => {
     expect(names).toContain('get_schema')
     // Phase 5: upload_media is now available over HTTP transport
     expect(names).toContain('upload_media')
+    // Static-bundle tools (Phase 6 follow-on).
+    expect(names).toContain('upload_static_bundle')
+    expect(names).toContain('upload_static_file')
+    expect(names).toContain('delete_static_file')
+    expect(names).toContain('commit_static_post')
   })
 
   it('tools/call list_posts dispatches via the mocked graphql client', async () => {

@@ -64,6 +64,23 @@ export type {
   OgImageRenderContext,
 } from './plugin.js'
 export { extractFirstImageUrl } from './post-images.js'
+export {
+  DEFAULT_ENTRYPOINT,
+  MAX_BUNDLE_BYTES,
+  TEXT_EXTENSIONS,
+  mimeTypeFor,
+  validateBundlePath,
+  findAbsolutePathRefs,
+  validateBundle,
+  bundlePrefix,
+  stripCommonPrefix,
+  pickDefaultEntrypoint,
+} from './static-bundle.js'
+export type {
+  ValidationIssue,
+  ExtractedFile,
+  BundleExtractResult,
+} from './static-bundle.js'
 export type {
   EventType,
   ContentEventType,

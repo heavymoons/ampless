@@ -372,6 +372,31 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
       resources: [`${backend.storage.resources.bucket.bucketArn}/public/media/*`],
     })
   )
+  // Static-bundle MCP tools: PutObject + DeleteObject under
+  // `public/static/*` (per-bundle prefix is `public/static/<siteId>/<slug>/`).
+  // ListBucket is required for `upload_static_bundle` (wipe existing
+  // prefix), `delete_static_file` (existence probe), and
+  // `commit_static_post` (manifest rebuild from current prefix). The
+  // ListBucket grant is bucket-scoped — IAM forbids attaching it to a
+  // key — so we constrain it via an `s3:prefix` condition limited to
+  // `public/static/*` so the role can't enumerate other paths.
+  mcpHandlerFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:PutObject', 's3:DeleteObject'],
+      resources: [`${backend.storage.resources.bucket.bucketArn}/public/static/*`],
+    })
+  )
+  mcpHandlerFn.addToRolePolicy(
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [backend.storage.resources.bucket.bucketArn],
+      conditions: {
+        StringLike: { 's3:prefix': ['public/static/*'] },
+      },
+    })
+  )
   mcpHandlerFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
 
   // Function URL: auth NONE because the handler does its own Bearer
