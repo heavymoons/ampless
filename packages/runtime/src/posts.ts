@@ -10,7 +10,7 @@
 
 import { cookies } from 'next/headers'
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
-import type { Post, PostMetadata } from 'ampless'
+import { decodeAwsJson, type Post, type PostMetadata } from 'ampless'
 import type { AmplessOutputs } from './outputs.js'
 
 // Wire shape of the three queries this module calls. The actual
@@ -96,33 +96,16 @@ export interface PostsApi {
   listPostsByTag(tag: string, opts?: ListPostsByTagOptions): Promise<ListPostsResult>
 }
 
-function decodeBody(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
-}
-
-// Mirrors the admin posts-provider: AppSync's AWSJSON scalar carries
-// a JSON-encoded string, so metadata gets the same parse treatment as
-// body. Returns undefined for nullish / malformed payloads so callers
-// can rely on `post.metadata?.no_layout`.
+// `body` / `metadata` are AWSJSON scalars on the wire — see
+// `packages/ampless/src/awsjson.ts` for the encode/decode contract.
+// Metadata returns undefined for nullish / malformed payloads so
+// callers can rely on `post.metadata?.no_layout`.
 function decodeMetadata(value: unknown): PostMetadata | undefined {
   if (value === null || value === undefined) return undefined
-  const parsed = typeof value === 'string' ? safeJsonParse(value) : value
+  const parsed = decodeAwsJson(value)
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as PostMetadata)
     : undefined
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
 }
 
 function toCorePost(p: PublicPostShape): Post {
@@ -133,7 +116,7 @@ function toCorePost(p: PublicPostShape): Post {
     title: p.title,
     excerpt: p.excerpt ?? undefined,
     format: (p.format ?? 'markdown') as Post['format'],
-    body: decodeBody(p.body),
+    body: decodeAwsJson(p.body),
     status: (p.status ?? 'draft') as Post['status'],
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),

@@ -1,6 +1,6 @@
-import { composeSiteIdStatus, composeSiteIdSlug, type Post } from 'ampless'
+import { composeSiteIdStatus, composeSiteIdSlug, encodeAwsJson, type Post } from 'ampless'
 import type { GraphqlClient } from './types.js'
-import { POST_FIELDS, encodeBody, toCorePost } from './post-mapping.js'
+import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
 import { getPost } from './get-post.js'
 
@@ -58,7 +58,7 @@ export async function updatePost(
   if (args.title !== undefined) input.title = args.title
   if (args.excerpt !== undefined) input.excerpt = args.excerpt
   if (args.format !== undefined) input.format = args.format
-  if (args.body !== undefined) input.body = encodeBody(args.body)
+  if (args.body !== undefined) input.body = encodeAwsJson(args.body)
   if (args.status !== undefined) input.status = args.status
   if (args.publishedAt !== undefined) input.publishedAt = args.publishedAt
   if (args.tags !== undefined) input.tags = args.tags

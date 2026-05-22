@@ -1,7 +1,7 @@
 'use client'
 
 import { generateClient } from 'aws-amplify/api'
-import { setKvStore, type KvItem, type KvStore } from 'ampless'
+import { decodeAwsJson, encodeAwsJson, setKvStore, type KvItem, type KvStore } from 'ampless'
 
 interface KvRow {
   pk: string
@@ -72,27 +72,15 @@ export function installAdminKvProvider(): void {
     return m
   }
 
-  // AppSync stores `a.json()` as the AWSJSON scalar — a JSON-encoded
-  // string on the wire. Encode/decode to keep the API surface (KvStore
-  // interface) typed against `unknown` rather than strings.
-  function encodeValue(value: unknown): string {
-    return JSON.stringify(value ?? null)
-  }
-
-  function decodeValue(raw: unknown): unknown {
-    if (typeof raw !== 'string') return raw
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return raw
-    }
-  }
+  // The `value` column is an `a.json()` field — see
+  // `packages/ampless/src/awsjson.ts` for the wire-format rules
+  // (`encodeAwsJson` / `decodeAwsJson`).
 
   const store: KvStore = {
     async get<T = unknown>(pk: string, sk: string): Promise<T | null> {
       const model = requireModel()
       const { data } = await model.get({ pk, sk })
-      return data ? (decodeValue(data.value) as T) : null
+      return data ? (decodeAwsJson(data.value) as T) : null
     },
 
     async query<T = unknown>(pk: string): Promise<KvItem<T>[]> {
@@ -106,7 +94,7 @@ export function installAdminKvProvider(): void {
       return (data ?? []).map((row) => ({
         pk: row.pk,
         sk: row.sk,
-        value: decodeValue(row.value) as T,
+        value: decodeAwsJson(row.value) as T,
         ttl: row.ttl ?? undefined,
       }))
     },
@@ -123,7 +111,7 @@ export function installAdminKvProvider(): void {
         const { errors } = await model.update({
           pk,
           sk,
-          value: encodeValue(value),
+          value: encodeAwsJson(value),
           ttl: ttl ?? null,
         })
         if (errors) throw new Error(errors[0]?.message ?? 'KvStore.update failed')
@@ -131,7 +119,7 @@ export function installAdminKvProvider(): void {
         const { errors } = await model.create({
           pk,
           sk,
-          value: encodeValue(value),
+          value: encodeAwsJson(value),
           ttl,
         })
         if (errors) throw new Error(errors[0]?.message ?? 'KvStore.create failed')

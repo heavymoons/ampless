@@ -2,6 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
+import { decodeAwsJson } from 'ampless'
 import { dispatchToolCall, tools, type ToolContext } from '@ampless/mcp-server/tools'
 import { createMcpGraphqlClient } from './mcp-graphql-client.js'
 
@@ -178,19 +179,14 @@ async function validateBearer(plaintext: string): Promise<McpTokenMeta | null> {
 
 /**
  * `value` arrives in either of two shapes (see `KvRow.value` comment).
- * Normalise both into the parsed `McpTokenMeta` and return `null` if
- * the shape is unrecognisable — leak nothing about which check failed.
+ * Defer the wire-shape handling to the shared `decodeAwsJson` and
+ * narrow the result to `McpTokenMeta`, returning `null` if the shape
+ * is unrecognisable — leak nothing about which check failed.
  */
 function decodeTokenMeta(value: KvRow['value']): McpTokenMeta | null {
-  if (typeof value === 'object') return value as unknown as McpTokenMeta
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value) as McpTokenMeta
-    } catch {
-      return null
-    }
-  }
-  return null
+  const parsed = decodeAwsJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  return parsed as unknown as McpTokenMeta
 }
 
 // Lazy graphql client: instantiated on first tools/call request so

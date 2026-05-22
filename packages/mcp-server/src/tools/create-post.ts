@@ -1,6 +1,6 @@
-import { composeSiteIdStatus, composeSiteIdSlug, type Post } from 'ampless'
+import { composeSiteIdStatus, composeSiteIdSlug, encodeAwsJson, type Post } from 'ampless'
 import type { GraphqlClient } from './types.js'
-import { POST_FIELDS, encodeBody, toCorePost } from './post-mapping.js'
+import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { syncPostTags } from '../posttag.js'
 
 const MUTATION = /* GraphQL */ `
@@ -67,7 +67,7 @@ export async function createPost(
       title: args.title,
       excerpt: args.excerpt,
       format: args.format,
-      body: encodeBody(args.body),
+      body: encodeAwsJson(args.body),
       status,
       publishedAt,
       tags: args.tags,
