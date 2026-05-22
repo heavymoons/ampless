@@ -1,5 +1,12 @@
 # @ampless/admin
 
+## 0.2.0-alpha.24
+
+### Patch Changes
+
+- Updated dependencies [76abf3d]
+  - @ampless/mcp-server@0.2.0-alpha.8
+
 ## 0.2.0-alpha.23
 
 ### Minor Changes
