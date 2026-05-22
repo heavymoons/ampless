@@ -50,6 +50,7 @@ export {
 export type { KvStore, KvItem } from './kv.js'
 export { formatDate } from './format.js'
 export { escapeXml } from './xml.js'
+export { encodeAwsJson, decodeAwsJson } from './awsjson.js'
 export { formatPublicAssetUrl } from './storage.js'
 export { definePlugin } from './plugin.js'
 export type {

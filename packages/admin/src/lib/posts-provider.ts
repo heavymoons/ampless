@@ -5,6 +5,8 @@ import {
   setPostsProvider,
   composeSiteIdStatus,
   composeSiteIdSlug,
+  decodeAwsJson,
+  encodeAwsJson,
   type Post,
   type PostMetadata,
   type PostsProvider,
@@ -75,47 +77,16 @@ interface DataClient {
   }
 }
 
-// AppSync's AWSJSON scalar requires a *JSON-encoded* string on the wire.
-// That means a raw markdown body like `# Hello` must become `"# Hello"`
-// (a JSON string literal) — sending the bare `# Hello` triggers AppSync's
-//   `Variable 'body' has an invalid value`
-// validator. So we always JSON.stringify on the way out, including for
-// strings.
-//
-// On the way in, the stored value is JSON-encoded — JSON.parse decodes
-// it. The catch branch handles legacy rows that were written before this
-// rule was enforced, falling back to the raw string.
-function encodeBody(value: unknown): string {
-  return JSON.stringify(value ?? null)
-}
-
-function decodeBody(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
-}
-
-// AppSync's AWSJSON scalar carries a JSON-encoded string on the wire,
-// so the metadata column gets the same encode/decode treatment as body.
-// Legacy rows missing metadata return undefined so callers can rely on
-// `post.metadata?.no_layout` without nullish branches.
+// Body and metadata fields are AWSJSON scalars on the wire. The
+// shared `encodeAwsJson` / `decodeAwsJson` helpers in `ampless`
+// enforce the JSON-string-on-the-wire rule for every callsite across
+// the monorepo — see `packages/ampless/src/awsjson.ts` for the rationale.
 function decodeMetadata(value: unknown): PostMetadata | undefined {
   if (value === null || value === undefined) return undefined
-  const parsed = typeof value === 'string' ? safeJsonParse(value) : value
+  const parsed = decodeAwsJson(value)
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as PostMetadata)
     : undefined
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
 }
 
 function toCorePost(p: DataPostRow): Post {
@@ -126,7 +97,7 @@ function toCorePost(p: DataPostRow): Post {
     title: p.title,
     excerpt: p.excerpt ?? undefined,
     format: (p.format ?? 'markdown') as Post['format'],
-    body: decodeBody(p.body),
+    body: decodeAwsJson(p.body),
     status: (p.status ?? 'draft') as Post['status'],
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
@@ -276,11 +247,11 @@ export function installAdminPostsProvider(): void {
         title: input.title,
         excerpt: input.excerpt,
         format: input.format,
-        body: encodeBody(input.body),
+        body: encodeAwsJson(input.body),
         status: input.status,
         publishedAt: input.publishedAt,
         tags: input.tags,
-        ...(input.metadata !== undefined && { metadata: encodeBody(input.metadata) }),
+        ...(input.metadata !== undefined && { metadata: encodeAwsJson(input.metadata) }),
         // Denormalized GSI keys. Must match every change to slug /
         // status — see the update() branch below.
         siteIdStatus: composeSiteIdStatus(input.siteId, input.status),
@@ -309,11 +280,11 @@ export function installAdminPostsProvider(): void {
         ...(patch.title !== undefined && { title: patch.title }),
         ...(patch.excerpt !== undefined && { excerpt: patch.excerpt }),
         ...(patch.format !== undefined && { format: patch.format }),
-        ...(patch.body !== undefined && { body: encodeBody(patch.body) }),
+        ...(patch.body !== undefined && { body: encodeAwsJson(patch.body) }),
         ...(patch.status !== undefined && { status: patch.status }),
         ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
         ...(patch.tags !== undefined && { tags: patch.tags }),
-        ...(patch.metadata !== undefined && { metadata: encodeBody(patch.metadata) }),
+        ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
         ...(patch.status !== undefined &&
           nextStatus && { siteIdStatus: composeSiteIdStatus(siteId, nextStatus) }),
         ...(patch.slug !== undefined &&

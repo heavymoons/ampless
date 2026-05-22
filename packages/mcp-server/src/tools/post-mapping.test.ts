@@ -1,33 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { decodeBody, encodeBody, toCorePost } from './post-mapping.js'
+import { toCorePost } from './post-mapping.js'
 
-describe('encodeBody / decodeBody', () => {
-  it('round-trips structured body through JSON', () => {
-    const body = { type: 'doc', content: [{ type: 'paragraph' }] }
-    expect(decodeBody(encodeBody(body))).toEqual(body)
-  })
-
-  it('wraps raw string bodies (markdown / html) as JSON string literals', () => {
-    // AWSJSON rejects bare strings; they must be a JSON string literal
-    // ("# hello", not # hello). The round-trip recovers the original.
-    expect(encodeBody('# hello')).toBe('"# hello"')
-    expect(decodeBody(encodeBody('# hello'))).toBe('# hello')
-  })
-
-  it('decodeBody returns non-strings as-is', () => {
-    const obj = { type: 'doc' }
-    expect(decodeBody(obj)).toBe(obj)
-  })
-
-  it('decodeBody falls back to the raw string on invalid JSON', () => {
-    expect(decodeBody('not json')).toBe('not json')
-  })
-
-  it('encodeBody serialises undefined / null as JSON null', () => {
-    expect(encodeBody(undefined)).toBe('null')
-    expect(encodeBody(null)).toBe('null')
-  })
-})
+// AWSJSON encode / decode tests live in `ampless/src/awsjson.test.ts`
+// since the helpers are now provided by `ampless` (`encodeAwsJson` /
+// `decodeAwsJson`). Only the Post-shape mapping is tested here.
 
 describe('toCorePost', () => {
   it('maps a fully populated row', () => {
