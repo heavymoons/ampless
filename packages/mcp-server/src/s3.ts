@@ -1,5 +1,11 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3'
 import { formatPublicAssetUrl } from 'ampless'
+import type { StorageObject } from './tools/types.js'
 import type { AmplifyOutputs } from './types.js'
 
 // `sanitizeName` / `buildMediaKey` moved to `./tools/media-key.ts` so
@@ -36,5 +42,37 @@ export class StorageClient {
       })
     )
     return formatPublicAssetUrl(this.bucket, this.region, key)
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key })
+    )
+  }
+
+  async listObjects(prefix: string): Promise<StorageObject[]> {
+    const out: StorageObject[] = []
+    let token: string | undefined
+    // Paginate so the static-bundle tools always see the full prefix —
+    // S3 ListObjectsV2 caps at 1000 entries per call.
+    do {
+      const res = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+        })
+      )
+      for (const obj of res.Contents ?? []) {
+        if (!obj.Key) continue
+        out.push({
+          key: obj.Key,
+          size: obj.Size ?? 0,
+          lastModified: obj.LastModified?.toISOString(),
+        })
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined
+    } while (token)
+    return out
   }
 }

@@ -1,6 +1,11 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3'
 import { formatPublicAssetUrl } from 'ampless'
-import type { StorageClient } from '@ampless/mcp-server/tools'
+import type { StorageClient, StorageObject } from '@ampless/mcp-server/tools'
 
 export interface CreateMcpStorageClientOpts {
   bucket: string
@@ -10,11 +15,12 @@ export interface CreateMcpStorageClientOpts {
 /**
  * StorageClient impl for the HTTP MCP transport Lambda. Uses the
  * Lambda execution role's credentials (no AWS_ACCESS_KEY_ID env
- * needed); `backend.ts` grants `s3:PutObject` on the bucket's
- * `public/media/*` prefix scope. The bucket name + region arrive as
- * env vars rather than via `amplify_outputs.json` — the Lambda
- * doesn't read that file at runtime, the outputs are baked into env
- * at CDK synth time.
+ * needed); `backend.ts` grants the appropriate S3 actions per
+ * upload destination (media: `public/media/*`, static bundles:
+ * `public/static/*`). The bucket name + region arrive as env vars
+ * rather than via `amplify_outputs.json` — the Lambda doesn't read
+ * that file at runtime, the outputs are baked into env at CDK synth
+ * time.
  */
 export function createMcpStorageClient(opts: CreateMcpStorageClientOpts): StorageClient {
   const client = new S3Client({ region: opts.region })
@@ -29,6 +35,36 @@ export function createMcpStorageClient(opts: CreateMcpStorageClientOpts): Storag
         })
       )
       return formatPublicAssetUrl(opts.bucket, opts.region, key)
+    },
+    async deleteObject(key) {
+      await client.send(
+        new DeleteObjectCommand({ Bucket: opts.bucket, Key: key })
+      )
+    },
+    async listObjects(prefix) {
+      const out: StorageObject[] = []
+      let token: string | undefined
+      // Paginate so the static-bundle tools always see the full prefix —
+      // S3 ListObjectsV2 caps at 1000 entries per call.
+      do {
+        const res = await client.send(
+          new ListObjectsV2Command({
+            Bucket: opts.bucket,
+            Prefix: prefix,
+            ContinuationToken: token,
+          })
+        )
+        for (const obj of res.Contents ?? []) {
+          if (!obj.Key) continue
+          out.push({
+            key: obj.Key,
+            size: obj.Size ?? 0,
+            lastModified: obj.LastModified?.toISOString(),
+          })
+        }
+        token = res.IsTruncated ? res.NextContinuationToken : undefined
+      } while (token)
+      return out
     },
   }
 }

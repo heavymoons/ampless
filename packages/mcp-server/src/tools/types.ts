@@ -16,6 +16,15 @@ export interface GraphqlClient {
   query<T>(operation: string, variables?: Record<string, unknown>): Promise<T>
 }
 
+export interface StorageObject {
+  /** Full S3 key including any prefix. */
+  key: string
+  /** Object size in bytes (0 when the backend can't supply it). */
+  size: number
+  /** ISO 8601 timestamp of the last write, when the backend supplies it. */
+  lastModified?: string
+}
+
 export interface StorageClient {
   /**
    * Upload `body` to the bucket at `key` with `contentType`. Returns
@@ -23,6 +32,20 @@ export interface StorageClient {
    * https://{bucket}.s3.{region}.amazonaws.com/{key}).
    */
   putObject(key: string, body: Uint8Array, contentType: string): Promise<string>
+
+  /**
+   * Remove the object at `key`. Implementations should treat a missing
+   * key as success (S3 DeleteObject is idempotent by default).
+   */
+  deleteObject(key: string): Promise<void>
+
+  /**
+   * List every object under `prefix`. Implementations are expected to
+   * paginate internally so the caller gets the full set in a single
+   * resolved promise — the static-bundle tools never expect more than
+   * a few hundred entries per bundle in practice.
+   */
+  listObjects(prefix: string): Promise<StorageObject[]>
 }
 
 export interface ToolContext {
