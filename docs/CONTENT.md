@@ -39,8 +39,8 @@ layout and theme chrome, set **`format: 'html'`** and toggle the
 What happens internally:
 
 - The flag is stored as `metadata.no_layout: true` on the post.
-- Visiting `/<slug>` triggers a 308 redirect to `/raw/<slug>`.
-- The `/raw/<slug>` route handler returns the post body as
+- Visiting `/<slug>` triggers a 308 redirect to `/_/<slug>`.
+- The `/_/<slug>` route handler returns the post body as
   `text/html` with **no Next.js root layout and no theme chrome**.
 
 ```
@@ -60,7 +60,7 @@ body: <!DOCTYPE html>
       </html>
 ```
 
-Visiting `/promo` → 308 → `/raw/promo` → the body is returned as the
+Visiting `/promo` → 308 → `/_/promo` → the body is returned as the
 entire HTTP response.
 
 ### `no_layout` only makes sense with `format: 'html'`
@@ -70,12 +70,12 @@ tiptap / markdown bodies, "no layout" would just produce a
 context-less HTML fragment without `<!DOCTYPE>` or `<head>`. Changing
 the format away from `html` automatically clears the flag.
 
-### `/raw/<slug>` direct access
+### `/_/<slug>` direct access
 
-The `/raw/<slug>` route is the destination that `no_layout` posts
-redirect to. Visiting `/raw/<slug>` for a post **without** the flag
-returns 404 — it's not a general-purpose escape hatch around the
-theme chrome.
+The `/_/<slug>` route is the destination that `no_layout` posts and
+static-bundle posts redirect to. Visiting `/_/<slug>` for a post
+**without** either flag returns 404 — it's not a general-purpose
+escape hatch around the theme chrome.
 
 ## Static bundles (`format: 'static'`)
 
@@ -113,7 +113,7 @@ replaced atomically, not merged.
 Max bundle size: **50 MB uncompressed**. macOS metadata
 (`__MACOSX/`, `.DS_Store`) and Windows `Thumbs.db` are auto-stripped.
 A common top-level directory is auto-flattened — drop `mybundle.zip`
-and `mybundle/index.html` becomes `/<slug>/index.html`.
+and `mybundle/index.html` becomes `/_/<slug>/index.html`.
 
 HTML / CSS / SVG files are linted for absolute-path references
 (`href="/style.css"`, `url(/img.png)`) and path-traversal sequences
@@ -124,14 +124,15 @@ and save is blocked until they're fixed. Use **relative** paths
 ### URL layout
 
 ```
-/<slug>/                   → 308 redirect → /<slug>/<entrypoint>
-/<slug>/<entrypoint>       → S3 presigned URL (302)
-/<slug>/assets/style.css   → S3 presigned URL (302)
+/<slug>                    → 308 redirect → /_/<slug>
+/_/<slug>                  → 308 redirect → /_/<slug>/
+/_/<slug>/                 → S3 presigned URL for the entrypoint (302)
+/_/<slug>/assets/style.css → S3 presigned URL (302)
 ```
 
 The `entrypoint` defaults to `index.html` and is detected from the
 uploaded files; you can override it in the uploader UI. Every file
-in the bundle is reachable at `/<slug>/<relative-path>`.
+in the bundle is reachable at `/_/<slug>/<relative-path>`.
 
 ### Storage layout
 
@@ -158,8 +159,8 @@ asset itself is then served by S3.
 | --- | --- | --- |
 | `format: 'tiptap' \| 'markdown' \| 'html'` (no `no_layout`) | `/<slug>` | theme post page (header / footer / etc.) |
 | Tag listing | `/tag/<tag-name>` | theme tag page |
-| `format: 'html'` + `no_layout: true` | `/<slug>` (308 → `/raw/<slug>`) | bare HTML route (no layout, no chrome) |
-| `format: 'static'` | `/<slug>/` (308 → `/<slug>/<entrypoint>`) | static bundle served from S3 via presigned URL |
+| `format: 'html'` + `no_layout: true` | `/<slug>` (308 → `/_/<slug>`) | bare HTML route (no layout, no chrome) |
+| `format: 'static'` | `/<slug>` (308 → `/_/<slug>/`) | static bundle served from S3 via presigned URL |
 
 ## Featured / pinned content on the home page
 

@@ -74,7 +74,7 @@ export const config = defaultMatcherConfig
 
 - `@ampless/runtime` — `createAmpless`、ランタイム型、`renderBody`・`renderThemeCss`・フォーマットコンバーターの再エクスポート
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`、`defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createUnderscoreRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`、`createThemePostDispatcher`、`createThemeTagDispatcher`（それぞれ対応する `*Metadata` ファクトリーあり）
 
 ## テンプレートに残るもの

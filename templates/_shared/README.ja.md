@@ -65,7 +65,7 @@ npm run sandbox
 投稿（Post）が唯一のコンテンツタイプです。各投稿には以下があります:
 
 - **Format** — `tiptap`（リッチテキスト）/ `markdown` / `html`（生 HTML、サニタイズなし）/ `static`（HTML/CSS/JS の zip アップロード）
-- **No layout** フラグ（`format: 'html'` のときのみ）— 本文をそのまま出力し、Next.js のレイアウトもテーマのクロームも適用しない。URL は `/<slug>` のままで、ルートが `/raw/<slug>` にリダイレクトする
+- **No layout** フラグ（`format: 'html'` のときのみ）— 本文をそのまま出力し、Next.js のレイアウトもテーマのクロームも適用しない。URL は `/<slug>` のままで、ルートが `/_/<slug>` にリダイレクトする
 - **Slug** — 公開 URL
 - **Status** — `draft`（管理者のみ）または `published`
 

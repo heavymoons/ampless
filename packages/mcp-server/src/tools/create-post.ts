@@ -57,7 +57,7 @@ export const createPostSchema = {
     metadata: {
       type: 'object',
       description:
-        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /raw/<slug>); meaningful only with format=html. Other keys pass through unchanged for themes/plugins.',
+        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /_/<slug>); meaningful only with format=html. Other keys pass through unchanged for themes/plugins.',
       properties: {
         no_layout: {
           type: 'boolean',

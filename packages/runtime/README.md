@@ -74,7 +74,7 @@ export const config = defaultMatcherConfig
 
 - `@ampless/runtime` — `createAmpless`, runtime types, and re-exports of `renderBody`, `renderThemeCss`, format converters
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`, `defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createUnderscoreRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`, `createThemePostDispatcher`, `createThemeTagDispatcher` (each with a matching `*Metadata` factory)
 
 ## What's still in the template

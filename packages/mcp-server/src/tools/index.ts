@@ -49,7 +49,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'create_post',
     description:
-      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (the public route redirects to /raw/<slug>).',
+      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (the public route redirects to /_/<slug>).',
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, ctx.defaultSiteId, args as unknown as Parameters<typeof createPost>[2]),

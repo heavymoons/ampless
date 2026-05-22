@@ -55,7 +55,7 @@ export const updatePostSchema = {
     metadata: {
       type: 'object',
       description:
-        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /raw/<slug>); meaningful only with format=html. Passing metadata replaces the existing metadata object — read the current post first if you only want to add a key.',
+        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /_/<slug>); meaningful only with format=html. Passing metadata replaces the existing metadata object — read the current post first if you only want to add a key.',
       properties: {
         no_layout: {
           type: 'boolean',

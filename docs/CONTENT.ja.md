@@ -25,8 +25,8 @@
 内部の挙動は次のとおりです:
 
 - フラグは投稿の `metadata.no_layout: true` として保存されます。
-- `/<slug>` にアクセスすると 308 リダイレクトで `/raw/<slug>` に飛ばされます。
-- `/raw/<slug>` のルートハンドラーが投稿本文を `text/html` でそのまま返します。**Next.js のルートレイアウトもテーマのクロームも適用されません**。
+- `/<slug>` にアクセスすると 308 リダイレクトで `/_/<slug>` に飛ばされます。
+- `/_/<slug>` のルートハンドラーが投稿本文を `text/html` でそのまま返します。**Next.js のルートレイアウトもテーマのクロームも適用されません**。
 
 ```
 slug: promo
@@ -45,15 +45,15 @@ body: <!DOCTYPE html>
       </html>
 ```
 
-`/promo` にアクセスすると → 308 → `/raw/promo` → 本文がそのまま HTTP レスポンス全体として返されます。
+`/promo` にアクセスすると → 308 → `/_/promo` → 本文がそのまま HTTP レスポンス全体として返されます。
 
 ### `no_layout` は `format: 'html'` 専用
 
 **No layout** チェックボックスは `format: 'html'` のときだけ表示されます。tiptap や markdown 本文で「レイアウトなし」にしても、`<!DOCTYPE>` も `<head>` もない、文脈のない HTML フラグメントが返されるだけだからです。フォーマットを `html` 以外に変更すると、フラグは自動的にクリアされます。
 
-### `/raw/<slug>` への直接アクセス
+### `/_/<slug>` への直接アクセス
 
-`/raw/<slug>` ルートは `no_layout` 投稿のリダイレクト先として存在しています。フラグが**立っていない**投稿に対して `/raw/<slug>` にアクセスすると 404 を返します — テーマのクロームを回避する汎用的なエスケープハッチではありません。
+`/_/<slug>` ルートは `no_layout` 投稿および `format: 'static'` 投稿のリダイレクト先として存在しています。どちらのフラグも**立っていない**投稿に対して `/_/<slug>` にアクセスすると 404 を返します — テーマのクロームを回避する汎用的なエスケープハッチではありません。
 
 ## 静的バンドル（`format: 'static'`）
 
@@ -80,19 +80,20 @@ ampless はブラウザ上で zip を展開してファイル一覧を検証し�
 | `.pdf`, `.txt`, `.xml`, `.map` | その他 |
 | 未知の拡張子 | `application/octet-stream` として配信 |
 
-最大バンドルサイズ: **非圧縮で 50 MB**。macOS のメタデータ（`__MACOSX/`、`.DS_Store`）や Windows の `Thumbs.db` は自動で除去されます。共通の最上位ディレクトリは自動で展開されます — `mybundle.zip` をドロップすれば `mybundle/index.html` は `/<slug>/index.html` になります。
+最大バンドルサイズ: **非圧縮で 50 MB**。macOS のメタデータ（`__MACOSX/`、`.DS_Store`）や Windows の `Thumbs.db` は自動で除去されます。共通の最上位ディレクトリは自動で展開されます — `mybundle.zip` をドロップすれば `mybundle/index.html` は `/_/<slug>/index.html` になります。
 
 HTML / CSS / SVG ファイルは検証時に絶対パス参照（`href="/style.css"`、`url(/img.png)`）やパストラバーサル（`../`）の有無がチェックされます。違反しているファイルは UI に一覧表示され、修正するまで保存はブロックされます。**相対パス**（`./style.css`、`assets/img.png`）で記述してください。
 
 ### URL 構造
 
 ```
-/<slug>/                   → 308 リダイレクト → /<slug>/<entrypoint>
-/<slug>/<entrypoint>       → S3 の presigned URL に 302
-/<slug>/assets/style.css   → S3 の presigned URL に 302
+/<slug>                    → 308 リダイレクト → /_/<slug>
+/_/<slug>                  → 308 リダイレクト → /_/<slug>/
+/_/<slug>/                 → entrypoint の S3 presigned URL に 302
+/_/<slug>/assets/style.css → S3 の presigned URL に 302
 ```
 
-`entrypoint` のデフォルトは `index.html` で、アップロードされたファイルから自動検出されます。アップローダー UI で上書きも可能です。バンドル内のすべてのファイルは `/<slug>/<相対パス>` でアクセスできます。
+`entrypoint` のデフォルトは `index.html` で、アップロードされたファイルから自動検出されます。アップローダー UI で上書きも可能です。バンドル内のすべてのファイルは `/_/<slug>/<相対パス>` でアクセスできます。
 
 ### 保存先
 
@@ -114,8 +115,8 @@ S3 バケットは非公開のままです。公開ルートが必要に応じ�
 | --- | --- | --- |
 | `format: 'tiptap' \| 'markdown' \| 'html'`（`no_layout` なし） | `/<slug>` | テーマの投稿ページ（ヘッダー / フッターなど） |
 | タグ一覧 | `/tag/<tag-name>` | テーマのタグページ |
-| `format: 'html'` + `no_layout: true` | `/<slug>`（308 → `/raw/<slug>`） | ベア HTML ルート（レイアウトなし、クロームなし） |
-| `format: 'static'` | `/<slug>/`（308 → `/<slug>/<entrypoint>`） | S3 の presigned URL 経由で配信される静的バンドル |
+| `format: 'html'` + `no_layout: true` | `/<slug>`（308 → `/_/<slug>`） | ベア HTML ルート（レイアウトなし、クロームなし） |
+| `format: 'static'` | `/<slug>`（308 → `/_/<slug>/`） | S3 の presigned URL 経由で配信される静的バンドル |
 
 ## ホームページのフィーチャード / ピン留めコンテンツ
 
