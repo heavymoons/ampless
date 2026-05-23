@@ -45,7 +45,7 @@ export default defineConfig({
 })
 ```
 
-Add the dispatcher route in your Next.js app (the `_shared` template ships one at `app/site/[siteId]/og/[slug]/route.ts`).
+Add the dispatcher route in your Next.js app (the `_shared` template ships one at `app/og/[slug]/route.ts`).
 
 ## Options
 

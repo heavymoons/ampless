@@ -28,6 +28,23 @@ export interface StaticPostBody {
 export type PostStatus = 'draft' | 'published'
 
 /**
+ * Per-post cache strategy. Middleware computes the response's
+ * Cache-Control header from this value (plus `post.updatedAt` for the
+ * `auto` case and the project's `cms.config.cache.*` knobs).
+ *
+ *   - `'auto'` (default): cooldown by edit time. Posts updated within
+ *     the cooldown window (`cms.config.cache.cooldownMs`, default 1h)
+ *     emit a no-store header so editors see fresh content immediately.
+ *     Older posts emit a long s-maxage so the CDN serves them cheaply.
+ *   - `'deep'`: always long-cache (`cms.config.cache.deepTtlSeconds`,
+ *     default 1h). Use for posts whose content is fixed for the
+ *     foreseeable future.
+ *   - `'hot'`: always no-store. Use for posts whose content is rapidly
+ *     evolving or computed per request.
+ */
+export type CacheStrategy = 'auto' | 'deep' | 'hot'
+
+/**
  * Free-form per-post metadata. The `metadata` JSON column carries
  * arbitrary key/value pairs; the runtime / themes / plugins each pick
  * the keys they care about. A handful of well-known keys are owned by
@@ -35,9 +52,13 @@ export type PostStatus = 'draft' | 'published'
  *
  * Well-known keys:
  *   - `no_layout`: when true, the public page is served as bare HTML
- *     (no theme chrome). The runtime's post dispatcher checks this
- *     before rendering and redirects to the unified `/_/<slug>` route
- *     handler.
+ *     (no theme chrome). Middleware rewrites the request to the
+ *     unified internal route handler (`/r/<slug>`) for such posts
+ *     and renders the body verbatim — no Next.js root layout, no
+ *     theme chrome.
+ *   - `cache`: see `CacheStrategy`. Overrides the default 'auto'
+ *     cache strategy for this post. Independent of `no_layout` —
+ *     applies uniformly to themed, no_layout, and static posts.
  *
  * Additional keys are passed through unchanged — themes and plugins
  * are free to store their own per-post state here (e.g. SEO overrides,
@@ -45,6 +66,7 @@ export type PostStatus = 'draft' | 'published'
  */
 export interface PostMetadata {
   no_layout?: boolean
+  cache?: CacheStrategy
   [key: string]: unknown
 }
 
@@ -59,6 +81,15 @@ export interface Post {
   publishedAt?: string
   tags?: string[]
   metadata?: PostMetadata
+  /**
+   * DynamoDB auto-managed timestamp (ISO 8601). Surfaced through the
+   * `PublicPost` projection so middleware can compute the
+   * `metadata.cache='auto'` cooldown without re-fetching the model
+   * row. Absent on optimistically-constructed posts (e.g. test
+   * fixtures); the cache strategy treats absent values as "very old"
+   * and emits a long s-maxage.
+   */
+  updatedAt?: string
 }
 
 export interface Page {
@@ -139,6 +170,37 @@ export interface Config {
    * ignored by the runtime.
    */
   plugins?: Array<import('./plugin.js').AmplessPlugin | string>
+  /**
+   * Cache strategy knobs read by the runtime's middleware when
+   * computing `Cache-Control` for post responses. Each field is
+   * optional — middleware applies the documented defaults when a
+   * field is absent.
+   */
+  cache?: CacheConfig
+}
+
+/**
+ * Tunables for middleware-computed `Cache-Control`. See
+ * `PostMetadata.cache` / `CacheStrategy` for how the per-post override
+ * interacts with these defaults.
+ */
+export interface CacheConfig {
+  /**
+   * `cache: 'auto'` cooldown. Posts whose `updatedAt` is younger than
+   * this many milliseconds emit a no-store header so editors see
+   * fresh content immediately after a save. Default 3,600,000 (1h).
+   */
+  cooldownMs?: number
+  /**
+   * `cache: 'auto'` post-cooldown TTL, in seconds. Applied as both
+   * `max-age` and `s-maxage` on the response. Default 300 (5 minutes).
+   */
+  freshTtlSeconds?: number
+  /**
+   * `cache: 'deep'` TTL, in seconds. Applied as both `max-age` and
+   * `s-maxage`. Default 3600 (1 hour).
+   */
+  deepTtlSeconds?: number
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

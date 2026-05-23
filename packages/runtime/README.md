@@ -34,10 +34,10 @@ export const ampless = createAmpless({
 })
 ```
 
-Routes and dispatchers under `app/site/[siteId]/` become one-line factory invocations:
+Routes and dispatchers under `app/` become one-line factory invocations:
 
 ```ts
-// app/site/[siteId]/page.tsx
+// app/page.tsx
 import { ampless } from '@/lib/ampless'
 import {
   createThemeHomeDispatcher,
@@ -50,7 +50,7 @@ export default createThemeHomeDispatcher(ampless)
 ```
 
 ```ts
-// app/site/[siteId]/og/[slug]/route.ts
+// app/og/[slug]/route.ts
 import { ampless } from '@/lib/ampless'
 import { createOgRouteHandler } from '@ampless/runtime/routes'
 
@@ -59,16 +59,42 @@ export const dynamic = 'force-dynamic'
 export const GET = createOgRouteHandler(ampless)
 ```
 
-Middleware:
+Middleware (proxy):
 
 ```ts
-// middleware.ts
+// proxy.ts (Next.js 16 rename of middleware.ts)
 import cmsConfig from './cms.config'
-import { createAmplessMiddleware, defaultMatcherConfig } from '@ampless/runtime/middleware'
+import outputs from './amplify_outputs.json'
+import { createAmplessMiddleware } from '@ampless/runtime/middleware'
 
-export const middleware = createAmplessMiddleware({ cmsConfig })
-export const config = defaultMatcherConfig
+export const proxy = createAmplessMiddleware({
+  cmsConfig,
+  appsyncUrl: outputs.data.url,
+  apiKey: outputs.data.api_key!,
+})
+
+// Inline the matcher — Next.js 16's Turbopack requires
+// `export const config` to be a static object literal.
+export const config = {
+  matcher: [
+    '/((?!admin|api|login|_next/static|_next/image|favicon\\.ico|amplify_outputs\\.json).*)',
+  ],
+}
 ```
+
+The middleware fetches `post.format` / `post.metadata` / `post.updatedAt`
+from AppSync (apiKey auth) on each request, caches the result in a
+200-entry LRU keyed by slug (60-second TTL, Lambda module scope), and
+rewrites the request to the right internal handler:
+
+- themed post → no rewrite, served by `app/[slug]/page.tsx`
+- `metadata.no_layout: true` HTML / `format: 'static'` → `/r/<slug>(/<path>)`,
+  served by `app/r/[slug]/[[...path]]/route.ts`
+
+It also computes `Cache-Control` from `post.metadata.cache` (auto /
+deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
+freshTtlSeconds, deepTtlSeconds}` and sets the header on the response.
+See `docs/CONTENT.md` for the cache strategy contract.
 
 ## Sub-paths
 

@@ -45,7 +45,7 @@ export default defineConfig({
 })
 ```
 
-Next.js アプリにディスパッチャールートを追加してください（`_shared` テンプレートには `app/site/[siteId]/og/[slug]/route.ts` が含まれています）。
+Next.js アプリにディスパッチャールートを追加してください（`_shared` テンプレートには `app/og/[slug]/route.ts` が含まれています）。
 
 ## オプション
 

@@ -12,8 +12,10 @@ import type { AmplessPlugin } from 'ampless'
 import { loadImageForOg } from '@ampless/plugin-og-image/load-image'
 import type { Ampless } from '../index.js'
 
+// File route is `app/og/[slug]/route.ts` — only `slug` remains after
+// the URL flatten.
 interface Ctx {
-  params: Promise<{ siteId: string; slug: string }>
+  params: Promise<{ slug: string }>
 }
 
 export type OgRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>

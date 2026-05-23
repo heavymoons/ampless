@@ -231,6 +231,12 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
 
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
+    //
+    // `updatedAt` is projected through so middleware can compute the
+    // `metadata.cache='auto'` cooldown without re-fetching the model
+    // row. It's an Amplify-managed DynamoDB attribute (set on every
+    // write); the JS resolvers pass items through verbatim so the
+    // value naturally appears here once the schema declares it.
     PublicPost: a.customType({
       postId: a.id().required(),
       slug: a.string().required(),
@@ -242,6 +248,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       publishedAt: a.datetime(),
       tags: a.string().array(),
       metadata: a.json(),
+      updatedAt: a.datetime(),
     }),
 
     // Paginated wrapper for list responses.

@@ -84,13 +84,19 @@ beforeEach(() => {
   mockGetUrl.mockResolvedValue({ url: new URL('https://s3.example.com/signed') })
 })
 
+// URLs in these tests use the public surface (`/<slug>(/<path>)`).
+// The handler is invoked by Next.js after middleware rewrites
+// `/<slug>(/<path>)` → `/r/<slug>(/<path>)` internally — `request.url`
+// surfaces the original public URL, which is what the handler's
+// trailing-slash redirect logic operates on.
+
 describe('createUnderscoreRouteHandler — no_layout HTML', () => {
-  it('returns the body verbatim with text/html for /_/<slug>', async () => {
+  it('returns the body verbatim with text/html for /<slug>', async () => {
     const handler = createUnderscoreRouteHandler(
       makeAmpless({ post: NO_LAYOUT_POST, body: '<!doctype html>BODY' }),
     )
     const res = await handler(
-      makeRequest('https://x.example.com/_/promo'),
+      makeRequest('https://x.example.com/promo'),
       makeCtx({ slug: 'promo' }),
     )
     expect(res.status).toBe(200)
@@ -98,12 +104,23 @@ describe('createUnderscoreRouteHandler — no_layout HTML', () => {
     expect(await res.text()).toBe('<!doctype html>BODY')
   })
 
+  it('does NOT set Cache-Control (middleware owns it)', async () => {
+    const handler = createUnderscoreRouteHandler(
+      makeAmpless({ post: NO_LAYOUT_POST, body: '<!doctype html>BODY' }),
+    )
+    const res = await handler(
+      makeRequest('https://x.example.com/promo'),
+      makeCtx({ slug: 'promo' }),
+    )
+    expect(res.headers.get('Cache-Control')).toBeNull()
+  })
+
   it('404s when a sub-path is appended to a no_layout post', async () => {
     const handler = createUnderscoreRouteHandler(
       makeAmpless({ post: NO_LAYOUT_POST }),
     )
     const res = await handler(
-      makeRequest('https://x.example.com/_/promo/x.css'),
+      makeRequest('https://x.example.com/promo/x.css'),
       makeCtx({ slug: 'promo', path: ['x.css'] }),
     )
     expect(res.status).toBe(404)
@@ -111,20 +128,20 @@ describe('createUnderscoreRouteHandler — no_layout HTML', () => {
 })
 
 describe('createUnderscoreRouteHandler — static bundles', () => {
-  it('308 redirects /_/<slug> (no trailing slash) to /_/<slug>/', async () => {
+  it('308 redirects /<slug> (no trailing slash) to /<slug>/', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site'),
+      makeRequest('https://x.example.com/site'),
       makeCtx({ slug: 'site' }),
     )
     expect(res.status).toBe(308)
-    expect(res.headers.get('Location')).toBe('https://x.example.com/_/site/')
+    expect(res.headers.get('Location')).toBe('https://x.example.com/site/')
   })
 
-  it('302 redirects /_/<slug>/ (trailing slash) to a presigned URL for the entrypoint', async () => {
+  it('302 redirects /<slug>/ (trailing slash) to a presigned URL for the entrypoint', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/'),
+      makeRequest('https://x.example.com/site/'),
       makeCtx({ slug: 'site' }),
     )
     expect(res.status).toBe(302)
@@ -138,10 +155,10 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
     })
   })
 
-  it('302 redirects /_/<slug>/<file> to a presigned URL', async () => {
+  it('302 redirects /<slug>/<file> to a presigned URL', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/assets/style.css'),
+      makeRequest('https://x.example.com/site/assets/style.css'),
       makeCtx({ slug: 'site', path: ['assets', 'style.css'] }),
     )
     expect(res.status).toBe(302)
@@ -156,7 +173,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
   it('404s when the requested file is not in the manifest', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/missing.html'),
+      makeRequest('https://x.example.com/site/missing.html'),
       makeCtx({ slug: 'site', path: ['missing.html'] }),
     )
     expect(res.status).toBe(404)
@@ -167,7 +184,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
   it('400s on path traversal segments', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/..%2Fevil'),
+      makeRequest('https://x.example.com/site/..%2Fevil'),
       makeCtx({ slug: 'site', path: ['..', 'evil'] }),
     )
     expect(res.status).toBe(400)
@@ -177,7 +194,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
   it('400s on null-byte segments', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/bad'),
+      makeRequest('https://x.example.com/site/bad'),
       makeCtx({ slug: 'site', path: ['bad\0file'] }),
     )
     expect(res.status).toBe(400)
@@ -187,7 +204,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
     mockGetUrl.mockRejectedValueOnce(new Error('not found'))
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: STATIC_POST }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/'),
+      makeRequest('https://x.example.com/site/'),
       makeCtx({ slug: 'site' }),
     )
     expect(res.status).toBe(404)
@@ -200,7 +217,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
     }
     const handler = createUnderscoreRouteHandler(makeAmpless({ post }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/'),
+      makeRequest('https://x.example.com/site/'),
       makeCtx({ slug: 'site' }),
     )
     expect(res.status).toBe(302)
@@ -217,7 +234,7 @@ describe('createUnderscoreRouteHandler — static bundles', () => {
     }
     const handler = createUnderscoreRouteHandler(makeAmpless({ post }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/site/anything.html'),
+      makeRequest('https://x.example.com/site/anything.html'),
       makeCtx({ slug: 'site', path: ['anything.html'] }),
     )
     expect(res.status).toBe(302)
@@ -229,17 +246,17 @@ describe('createUnderscoreRouteHandler — negative paths', () => {
   it('404s when the post is missing', async () => {
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: null }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/missing'),
+      makeRequest('https://x.example.com/missing'),
       makeCtx({ slug: 'missing' }),
     )
     expect(res.status).toBe(404)
   })
 
-  it('404s for format=html without no_layout', async () => {
+  it('404s for format=html without no_layout (middleware never rewrites these here)', async () => {
     const post: Post = { ...NO_LAYOUT_POST, metadata: {} }
     const handler = createUnderscoreRouteHandler(makeAmpless({ post }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/promo'),
+      makeRequest('https://x.example.com/promo'),
       makeCtx({ slug: 'promo' }),
     )
     expect(res.status).toBe(404)
@@ -253,7 +270,7 @@ describe('createUnderscoreRouteHandler — negative paths', () => {
     }
     const handler = createUnderscoreRouteHandler(makeAmpless({ post: tiptap }))
     const res = await handler(
-      makeRequest('https://x.example.com/_/promo'),
+      makeRequest('https://x.example.com/promo'),
       makeCtx({ slug: 'promo' }),
     )
     expect(res.status).toBe(404)
@@ -264,7 +281,7 @@ describe('createUnderscoreRouteHandler — negative paths', () => {
       makeAmpless({ post: NO_LAYOUT_POST }),
     )
     const res = await handler(
-      makeRequest('https://x.example.com/_/promo/style.css'),
+      makeRequest('https://x.example.com/promo/style.css'),
       makeCtx({ slug: 'promo', path: ['style.css'] }),
     )
     expect(res.status).toBe(404)

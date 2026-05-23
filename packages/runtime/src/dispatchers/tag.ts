@@ -3,8 +3,10 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { Ampless } from '../index.js'
 
+// File route is `app/tag/[tag]/page.tsx` — only the `tag` segment
+// remains after the URL flatten.
 interface Props {
-  params: Promise<{ siteId: string; tag: string }>
+  params: Promise<{ tag: string }>
 }
 
 // Use `ReactNode` (via the `react` peer dep) — `Promise<unknown>`

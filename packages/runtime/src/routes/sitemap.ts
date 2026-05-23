@@ -1,7 +1,8 @@
 import type { Ampless } from '../index.js'
 
+// File route is `app/sitemap.xml/route.ts` — no dynamic segments.
 interface Ctx {
-  params: Promise<{ siteId: string }>
+  params: Promise<Record<string, never>>
 }
 
 export type SitemapRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>

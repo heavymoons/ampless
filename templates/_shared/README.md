@@ -65,7 +65,8 @@ Promotion/demotion is done in the AWS Cognito console — see [RUNBOOK.md → Pr
 Posts are the single content type. Each post has:
 
 - **Format** — `tiptap` (rich text) / `markdown` / `html` (raw, no sanitization) / `static` (zip-upload of HTML/CSS/JS)
-- **No layout** flag (`format: 'html'` only) — render the body verbatim with no Next.js layout and no theme chrome. URL stays `/<slug>`; the route redirects to `/_/<slug>`.
+- **No layout** flag (`format: 'html'` only) — render the body verbatim with no Next.js layout and no theme chrome. URL stays `/<slug>`; middleware rewrites the request to the internal bare-HTML handler.
+- **Cache strategy** (`metadata.cache`) — override the per-post Cache-Control: `'auto'` (default; cooldown by edit time), `'deep'` (always long-cache), or `'hot'` (always no-store). See `docs/CONTENT.md` for details.
 - **Slug** — the public URL
 - **Status** — `draft` (admin only) or `published`
 
