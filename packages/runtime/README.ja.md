@@ -34,10 +34,10 @@ export const ampless = createAmpless({
 })
 ```
 
-`app/site/[siteId]/` 以下のルートとディスパッチャーはワンライナーのファクトリー呼び出しになります：
+`app/` 直下のルートとディスパッチャーはワンライナーのファクトリー呼び出しになります：
 
 ```ts
-// app/site/[siteId]/page.tsx
+// app/page.tsx
 import { ampless } from '@/lib/ampless'
 import {
   createThemeHomeDispatcher,
@@ -50,7 +50,7 @@ export default createThemeHomeDispatcher(ampless)
 ```
 
 ```ts
-// app/site/[siteId]/og/[slug]/route.ts
+// app/og/[slug]/route.ts
 import { ampless } from '@/lib/ampless'
 import { createOgRouteHandler } from '@ampless/runtime/routes'
 
@@ -59,16 +59,42 @@ export const dynamic = 'force-dynamic'
 export const GET = createOgRouteHandler(ampless)
 ```
 
-ミドルウェア：
+ミドルウェア（proxy）：
 
 ```ts
-// middleware.ts
+// proxy.ts （Next.js 16 で middleware.ts から改名）
 import cmsConfig from './cms.config'
-import { createAmplessMiddleware, defaultMatcherConfig } from '@ampless/runtime/middleware'
+import outputs from './amplify_outputs.json'
+import { createAmplessMiddleware } from '@ampless/runtime/middleware'
 
-export const middleware = createAmplessMiddleware({ cmsConfig })
-export const config = defaultMatcherConfig
+export const proxy = createAmplessMiddleware({
+  cmsConfig,
+  appsyncUrl: outputs.data.url,
+  apiKey: outputs.data.api_key!,
+})
+
+// matcher はインライン定義 — Next.js 16 の Turbopack は `export const config`
+// が静的オブジェクトリテラルであることを要求します。
+export const config = {
+  matcher: [
+    '/((?!admin|api|login|_next/static|_next/image|favicon\\.ico|amplify_outputs\\.json).*)',
+  ],
+}
 ```
+
+middleware はリクエストごとに AppSync から `post.format` /
+`post.metadata` / `post.updatedAt` を取得（apiKey 認証）し、slug をキー
+にした 200 エントリの LRU（60 秒 TTL、Lambda モジュールスコープ）で
+キャッシュした上で、適切な内部ハンドラーにリクエストを書き換えます。
+
+- 通常の投稿 → 書き換えなし、`app/[slug]/page.tsx` で配信
+- `metadata.no_layout: true` HTML / `format: 'static'` → `/r/<slug>(/<path>)`、
+  `app/r/[slug]/[[...path]]/route.ts` で配信
+
+また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
+`cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
+`Cache-Control` を算出してレスポンスに付与します。キャッシュ戦略の
+契約については `docs/CONTENT.md` を参照してください。
 
 ## サブパス
 

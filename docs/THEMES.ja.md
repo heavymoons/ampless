@@ -41,12 +41,12 @@ project/
 
 ## ランタイムモデル
 
-1. ミドルウェアが `https://blog.example.com/some-slug` を `/site/blog/some-slug` に書き換え、`x-site-id: blog` をセットします。
-2. ディスパッチャー（`app/site/[siteId]/page.tsx`）が S3 サイト設定キャッシュからその siteId の `theme.active` を読み取ります。
-3. アクティブなテーマモジュールを `themes-registry.ts` で検索し、`components.Home` をリクエストパラメーターと共にレンダリングします。
+1. ミドルウェア（proxy）が AppSync からリクエストされた slug の `post.format` / `post.metadata` / `post.updatedAt` を取得します。テーマレンダリングはそのまま通過し、no_layout HTML や静的バンドルは `/r/<slug>(/<path>)` に書き換えられます。
+2. ディスパッチャー（`app/[slug]/page.tsx`）が S3 サイト設定キャッシュから `theme.active` を読み取ります。
+3. アクティブなテーマモジュールを `themes-registry.ts` で検索し、`components.Post` をリクエストパラメーターと共にレンダリングします。
 4. ルートレイアウトが `<body data-theme="<active>">` をセットするため、マッチするテーマの `tokens.css` ブロックだけが適用されます。
 
-テーマのサイト別切り替え = 管理画面（または MCP / API 経由）で `theme.active` 設定を更新するだけです。デプロイは不要です。
+テーマの切り替え = 管理画面（または MCP / API 経由）で `theme.active` 設定を更新するだけです。デプロイは不要です。
 
 新しいテーマの追加 = `themes/<name>/` を配置し、`themes-registry.ts` に追加して、再デプロイします。
 
@@ -54,7 +54,7 @@ project/
 
 | `themes/<name>/` に置くもの | `app/`（共有）に置くもの |
 | --- | --- |
-| `manifest.ts`（カスタマイズ可能なフィールド） | ディスパッチャールート（`app/site/[siteId]/...`） |
+| `manifest.ts`（カスタマイズ可能なフィールド） | ディスパッチャールート（`app/page.tsx`、`app/[slug]/page.tsx`、`app/tag/[tag]/page.tsx`） |
 | `tokens.css`（CSS 変数） | デフォルトトークン（`app/globals.css`） |
 | `pages/home.tsx` | ルートレイアウト（`app/layout.tsx`） |
 | `pages/post.tsx` | 管理アプリ（`app/(admin)/`） |

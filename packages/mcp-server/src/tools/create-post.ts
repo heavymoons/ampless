@@ -53,12 +53,19 @@ export const createPostSchema = {
     metadata: {
       type: 'object',
       description:
-        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (the route redirects to /_/<slug>); meaningful only with format=html. Other keys pass through unchanged for themes/plugins.',
+        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (middleware rewrites /<slug> to the internal bare-HTML route); meaningful only with format=html. `cache` (auto|deep|hot) — override the per-post cache strategy. See `cacheStrategy` in get_schema.notes for details. Other keys pass through unchanged for themes/plugins.',
       properties: {
         no_layout: {
           type: 'boolean',
           description:
             'Serve the post as bare HTML with no theme chrome. Only meaningful when format=html; ignored otherwise.',
+        },
+        cache: {
+          type: 'string',
+          enum: ['auto', 'deep', 'hot'],
+          default: 'auto',
+          description:
+            "Override the response Cache-Control strategy. 'auto' (default): no-store within `cms.config.cache.cooldownMs` of updatedAt, then `max-age=freshTtlSeconds`. 'deep': always `max-age=deepTtlSeconds`. 'hot': always no-store. Independent of no_layout; applies uniformly to themed, no_layout, and static posts.",
         },
       },
       additionalProperties: true,

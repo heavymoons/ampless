@@ -65,7 +65,8 @@ npm run sandbox
 投稿（Post）が唯一のコンテンツタイプです。各投稿には以下があります:
 
 - **Format** — `tiptap`（リッチテキスト）/ `markdown` / `html`（生 HTML、サニタイズなし）/ `static`（HTML/CSS/JS の zip アップロード）
-- **No layout** フラグ（`format: 'html'` のときのみ）— 本文をそのまま出力し、Next.js のレイアウトもテーマのクロームも適用しない。URL は `/<slug>` のままで、ルートが `/_/<slug>` にリダイレクトする
+- **No layout** フラグ（`format: 'html'` のときのみ）— 本文をそのまま出力し、Next.js のレイアウトもテーマのクロームも適用しない。URL は `/<slug>` のままで、middleware がリクエストを内部のベア HTML ハンドラーに書き換える
+- **キャッシュ戦略**（`metadata.cache`）— 投稿ごとに `Cache-Control` を上書き: `'auto'`（デフォルト、編集時刻ベースのクールダウン）、`'deep'`（常に長期キャッシュ）、`'hot'`（常に no-store）。詳細は `docs/CONTENT.ja.md`
 - **Slug** — 公開 URL
 - **Status** — `draft`（管理者のみ）または `published`
 

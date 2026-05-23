@@ -46,17 +46,19 @@ project/
 
 ## Runtime model
 
-1. The middleware rewrites `https://blog.example.com/some-slug` →
-   `/site/blog/some-slug` and sets `x-site-id: blog`.
-2. The dispatcher (`app/site/[siteId]/page.tsx`) reads `theme.active`
-   for that siteId from the S3 site-settings cache.
+1. The middleware (proxy) fetches `post.format` / `post.metadata` /
+   `post.updatedAt` from AppSync for the requested slug. Themed posts
+   pass through; no_layout HTML and static bundles are rewritten to
+   `/r/<slug>(/<path>)`.
+2. The dispatcher (`app/[slug]/page.tsx`) reads `theme.active` from
+   the S3 site-settings cache.
 3. The active theme module is looked up in `themes-registry.ts`, and
-   its `components.Home` is rendered with the request params.
+   its `components.Post` is rendered with the request params.
 4. The root layout sets `<body data-theme="<active>">`, so only the
    matching theme's `tokens.css` block applies.
 
-Switching themes per site = update the `theme.active` setting in the
-admin (or via MCP / API). No deploy required.
+Switching themes = update the `theme.active` setting in the admin
+(or via MCP / API). No deploy required.
 
 Adding a new theme = drop `themes/<name>/` in, add it to
 `themes-registry.ts`, redeploy.
@@ -65,7 +67,7 @@ Adding a new theme = drop `themes/<name>/` in, add it to
 
 | Lives in `themes/<name>/` | Lives in `app/` (shared) |
 | --- | --- |
-| `manifest.ts` (customizable fields) | Dispatcher routes (`app/site/[siteId]/...`) |
+| `manifest.ts` (customizable fields) | Dispatcher routes (`app/page.tsx`, `app/[slug]/page.tsx`, `app/tag/[tag]/page.tsx`) |
 | `tokens.css` (CSS variables) | Default tokens (`app/globals.css`) |
 | `pages/home.tsx` | Root layout (`app/layout.tsx`) |
 | `pages/post.tsx` | Admin app (`app/(admin)/`) |

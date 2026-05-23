@@ -160,13 +160,13 @@ export function resolveLocalized(
 // page-component prop types vary by route shape. Themes implement them
 // as server components matching the dispatcher's `params` Promise type.
 //
-// The dispatcher routes live under `app/site/[siteId]/...` for internal
-// reasons (URL flattening is a separate change); `[siteId]` is always
-// resolved to a constant `'default'` and not surfaced in public URLs.
-// The param is preserved on `ThemeRouteContext` so existing dispatcher
-// signatures (which forward `params` straight to themes) still type-check.
+// Dispatcher routes live at the top level (`app/page.tsx`,
+// `app/[slug]/page.tsx`, `app/tag/[tag]/page.tsx`) after the URL
+// flatten in v0.2 alpha. Theme components receive only the dynamic
+// segments from their own file route — no `siteId` segment is
+// exposed.
 export interface ThemeRouteContext<P = Record<string, string>> {
-  params: Promise<P & { siteId: string }>
+  params: Promise<P>
 }
 
 export interface ThemeModule {
@@ -175,9 +175,10 @@ export interface ThemeModule {
   name: string
   manifest: ThemeManifest
   /**
-   * Server components rendered by the dispatcher routes under
-   * `app/site/[siteId]/`. Each theme MUST provide Home; Post / Tag are
-   * recommended but optional (dispatcher 404s when missing).
+   * Server components rendered by the dispatcher routes
+   * (`app/page.tsx`, `app/[slug]/page.tsx`, `app/tag/[tag]/page.tsx`).
+   * Each theme MUST provide Home; Post / Tag are recommended but
+   * optional (dispatcher 404s when missing).
    */
   components: {
     Home: (ctx: ThemeRouteContext) => Promise<unknown> | unknown

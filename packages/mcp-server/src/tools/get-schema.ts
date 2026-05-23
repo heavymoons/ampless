@@ -29,7 +29,7 @@ export function getSchema() {
           metadata: {
             type: 'json',
             description:
-              'Free-form per-post key/value bag. Reserved well-known keys (owned by ampless): `no_layout` (boolean). Other keys pass through unchanged for themes/plugins.',
+              'Free-form per-post key/value bag. Reserved well-known keys (owned by ampless): `no_layout` (boolean), `cache` (auto|deep|hot). Other keys pass through unchanged for themes/plugins.',
           },
         },
       },
@@ -65,9 +65,11 @@ export function getSchema() {
       tiptapBody:
         'When format=tiptap, body is the tiptap document JSON: { type: "doc", content: [...] }. The renderer expects this shape.',
       noLayout:
-        'metadata.no_layout=true serves the post as bare HTML with no theme chrome — the public route at /<slug> 308-redirects to /_/<slug>, and that route renders the body verbatim with no wrapping <html>/<head>/layout. Use this for landing pages, embeds, or any post whose body is a full HTML document. Only meaningful with format=html (the other formats need the theme renderer).',
+        'metadata.no_layout=true serves the post as bare HTML with no theme chrome — middleware rewrites the public /<slug> request to the internal bare-HTML handler, which renders the body verbatim with no wrapping <html>/<head>/layout. Use this for landing pages, embeds, or any post whose body is a full HTML document. Only meaningful with format=html (the other formats need the theme renderer).',
       staticFormat:
-        'A fourth format value `static` exists on the underlying data model for posts whose body is a JSON manifest pointing to a pre-uploaded HTML/CSS/JS bundle in S3 at public/static/<slug>/. Public URL pattern: /_/<slug>/ for the entrypoint and /_/<slug>/<file> for every bundle file (308 redirect from /<slug> via the post dispatcher). Static posts are created/edited through the dedicated tools `upload_static_bundle` (zip in one shot), `upload_static_file` / `delete_static_file` (incremental per-file ops), and `commit_static_post` (rebuild the manifest from the current S3 prefix). `create_post` / `update_post` intentionally do NOT accept format=static — the bundle tools are the only supported entry point so the Post manifest stays in sync with the S3 prefix.',
+        'A fourth format value `static` exists on the underlying data model for posts whose body is a JSON manifest pointing to a pre-uploaded HTML/CSS/JS bundle in S3 at public/static/<slug>/. Public URL pattern: /<slug>/ for the entrypoint and /<slug>/<file> for every bundle file (middleware rewrites both to an internal static-bundle handler). Static posts are created/edited through the dedicated tools `upload_static_bundle` (zip in one shot), `upload_static_file` / `delete_static_file` (incremental per-file ops), and `commit_static_post` (rebuild the manifest from the current S3 prefix). `create_post` / `update_post` intentionally do NOT accept format=static — the bundle tools are the only supported entry point so the Post manifest stays in sync with the S3 prefix.',
+      cacheStrategy:
+        "metadata.cache controls the response Cache-Control header (set by middleware). Values:\n  - 'auto' (default): cooldown by edit time. Posts updated within cms.config.cache.cooldownMs (default 1h) emit `public, max-age=0, must-revalidate, s-maxage=0` so editors see fresh content immediately; older posts emit `public, max-age=<freshTtlSeconds>, s-maxage=<freshTtlSeconds>` (default 300 sec / 5 min).\n  - 'deep': always `public, max-age=<deepTtlSeconds>, s-maxage=<deepTtlSeconds>` (default 3600 sec / 1 hour). Use for posts whose content is fixed for the foreseeable future.\n  - 'hot': always `public, max-age=0, must-revalidate, s-maxage=0`. Use for rapidly-evolving posts or posts whose body is computed per request.\nIndependent of metadata.no_layout and post.format — applies uniformly to themed, no_layout, and static posts. Override the defaults per project via `cms.config.cache` ({ cooldownMs, freshTtlSeconds, deepTtlSeconds }).",
     },
   }
 }

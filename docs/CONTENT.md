@@ -10,6 +10,7 @@ static HTML/CSS/JS bundles. Four things shape how a post renders:
 | --- | --- | --- |
 | `format` | post editor | how the body is stored and parsed (`tiptap` / `markdown` / `html` / `static`) |
 | `no_layout` | post editor (only shown when `format: 'html'`) | render the body verbatim with no Next.js layout and no theme chrome |
+| `cache` | `metadata.cache` (auto/deep/hot) | override the per-post cache strategy |
 | `slug` | post editor | the public URL |
 | `status` | post editor | `published` posts appear publicly; `draft` are admin-only |
 
@@ -39,9 +40,11 @@ layout and theme chrome, set **`format: 'html'`** and toggle the
 What happens internally:
 
 - The flag is stored as `metadata.no_layout: true` on the post.
-- Visiting `/<slug>` triggers a 308 redirect to `/_/<slug>`.
-- The `/_/<slug>` route handler returns the post body as
-  `text/html` with **no Next.js root layout and no theme chrome**.
+- The proxy (middleware) sees `format: 'html'` + `metadata.no_layout: true`
+  on the AppSync flag fetch and rewrites the `/<slug>` request to the
+  internal bare-HTML handler.
+- The handler returns the post body as `text/html` with **no Next.js
+  root layout and no theme chrome**. The browser URL stays `/<slug>`.
 
 ```
 slug: promo
@@ -60,8 +63,7 @@ body: <!DOCTYPE html>
       </html>
 ```
 
-Visiting `/promo` → 308 → `/_/promo` → the body is returned as the
-entire HTTP response.
+Visiting `/promo` → the body is returned as the entire HTTP response.
 
 ### `no_layout` only makes sense with `format: 'html'`
 
@@ -69,13 +71,6 @@ The **No layout** checkbox is only visible when `format: 'html'`. For
 tiptap / markdown bodies, "no layout" would just produce a
 context-less HTML fragment without `<!DOCTYPE>` or `<head>`. Changing
 the format away from `html` automatically clears the flag.
-
-### `/_/<slug>` direct access
-
-The `/_/<slug>` route is the destination that `no_layout` posts and
-static-bundle posts redirect to. Visiting `/_/<slug>` for a post
-**without** either flag returns 404 — it's not a general-purpose
-escape hatch around the theme chrome.
 
 ## Static bundles (`format: 'static'`)
 
@@ -113,7 +108,7 @@ replaced atomically, not merged.
 Max bundle size: **50 MB uncompressed**. macOS metadata
 (`__MACOSX/`, `.DS_Store`) and Windows `Thumbs.db` are auto-stripped.
 A common top-level directory is auto-flattened — drop `mybundle.zip`
-and `mybundle/index.html` becomes `/_/<slug>/index.html`.
+and `mybundle/index.html` becomes `/<slug>/index.html`.
 
 HTML / CSS / SVG files are linted for absolute-path references
 (`href="/style.css"`, `url(/img.png)`) and path-traversal sequences
@@ -124,20 +119,21 @@ and save is blocked until they're fixed. Use **relative** paths
 ### URL layout
 
 ```
-/<slug>                    → 308 redirect → /_/<slug>
-/_/<slug>                  → 308 redirect → /_/<slug>/
-/_/<slug>/                 → S3 presigned URL for the entrypoint (302)
-/_/<slug>/assets/style.css → S3 presigned URL (302)
+/<slug>                    → 308 redirect → /<slug>/  (anchor trailing slash)
+/<slug>/                   → S3 presigned URL for the entrypoint (302)
+/<slug>/assets/style.css   → S3 presigned URL (302)
 ```
 
-The `entrypoint` defaults to `index.html` and is detected from the
-uploaded files; you can override it in the uploader UI. Every file
-in the bundle is reachable at `/_/<slug>/<relative-path>`.
+The browser URL stays `/<slug>` / `/<slug>/<path>` throughout —
+middleware rewrites these to the internal static-bundle handler at
+request time. The `entrypoint` defaults to `index.html` and is
+detected from the uploaded files; you can override it in the uploader
+UI. Every file in the bundle is reachable at `/<slug>/<relative-path>`.
 
 ### Storage layout
 
 ```
-s3://<bucket>/public/static/<siteId>/<slug>/...
+s3://<bucket>/public/static/<slug>/...
 ```
 
 The bucket stays private. The public route signs short-lived
@@ -153,14 +149,46 @@ asset itself is then served by S3.
 - Absolute paths, `../` traversal, and null bytes are rejected by
   validation. Author your bundle with relative paths.
 
+## Cache strategy (`metadata.cache`)
+
+Each post response carries a `Cache-Control` header computed by the
+proxy. The default behaviour is **cooldown by edit time** — recent
+edits emit `no-store` so editors see fresh content immediately; once
+the cooldown elapses the post becomes CDN-cacheable.
+
+Override per post via `metadata.cache`:
+
+| Value | Behaviour |
+| --- | --- |
+| `'auto'` (default) | `no-store` within `cms.config.cache.cooldownMs` (default 1h) of `updatedAt`; then `public, max-age=<freshTtlSeconds>, s-maxage=<freshTtlSeconds>` (default 5 min). |
+| `'deep'` | always `public, max-age=<deepTtlSeconds>, s-maxage=<deepTtlSeconds>` (default 1 hour). Use for posts whose content is fixed for the foreseeable future. |
+| `'hot'` | always `no-store`. Use for rapidly-evolving posts or bodies computed per request. |
+
+Project-wide knobs live in `cms.config.ts`:
+
+```ts
+export default defineConfig({
+  // ...
+  cache: {
+    cooldownMs: 60 * 60 * 1000, // 1 hour — auto strategy cooldown
+    freshTtlSeconds: 300,       // 5 minutes — auto post-cooldown TTL
+    deepTtlSeconds: 60 * 60,    // 1 hour — deep strategy TTL
+  },
+})
+```
+
+`metadata.cache` is independent of `metadata.no_layout` and `format` —
+the same three strategies apply uniformly to themed, no_layout, and
+static posts.
+
 ## URL summary
 
 | Post setting | Public URL | Renderer |
 | --- | --- | --- |
 | `format: 'tiptap' \| 'markdown' \| 'html'` (no `no_layout`) | `/<slug>` | theme post page (header / footer / etc.) |
 | Tag listing | `/tag/<tag-name>` | theme tag page |
-| `format: 'html'` + `no_layout: true` | `/<slug>` (308 → `/_/<slug>`) | bare HTML route (no layout, no chrome) |
-| `format: 'static'` | `/<slug>` (308 → `/_/<slug>/`) | static bundle served from S3 via presigned URL |
+| `format: 'html'` + `no_layout: true` | `/<slug>` | bare HTML route (no layout, no chrome) |
+| `format: 'static'` | `/<slug>/` | static bundle served from S3 via presigned URL |
 
 ## Featured / pinned content on the home page
 

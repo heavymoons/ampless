@@ -31,6 +31,12 @@ export interface PublicPostShape {
   publishedAt?: string | null
   tags?: Array<string | null> | null
   metadata?: unknown
+  /**
+   * ISO 8601 timestamp from DynamoDB's auto-managed `updatedAt`.
+   * Surfaced through the `PublicPost` projection in v0.2 alpha so
+   * middleware can compute the `metadata.cache='auto'` cooldown.
+   */
+  updatedAt?: string | null
 }
 
 export interface PublicPostConnectionShape {
@@ -112,6 +118,7 @@ function toCorePost(p: PublicPostShape): Post {
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
     metadata: decodeMetadata(p.metadata),
+    updatedAt: p.updatedAt ?? undefined,
   }
 }
 

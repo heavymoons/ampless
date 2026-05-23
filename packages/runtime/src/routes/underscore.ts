@@ -10,42 +10,46 @@ interface Ctx {
 export type UnderscoreRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
 
 /**
- * Unified `/_/<slug>(/...)` route handler.
+ * Unified internal route handler for no_layout HTML and static bundle
+ * posts. Mounted at `app/r/[slug]/[[...path]]/route.ts`; reached via
+ * middleware rewrite from the public `/<slug>(/<path>)` URL, never
+ * directly.
  *
- * The public URL prefix `/_/` is reserved for two related cases that
- * both need to bypass the theme's post page:
+ * Two cases that both need to bypass the themed post page:
  *
  *  1. `format: 'html'` posts with `metadata.no_layout === true` — the
  *     body is its own complete HTML document and ships as the entire
- *     response. URL: `/_/<slug>` (no trailing slash, no extra path).
+ *     response. Reached via middleware rewrite of `/<slug>`.
  *  2. `format: 'static'` posts — the body is a manifest describing a
  *     bundle of files in S3 at `public/static/<slug>/`. The bundle's
- *     entrypoint is served at `/_/<slug>/`, every internal file at
- *     `/_/<slug>/<relative-path>`.
+ *     entrypoint is served at `/<slug>/`, every internal file at
+ *     `/<slug>/<relative-path>` (middleware rewrites both to
+ *     `/r/<slug>/...`).
  *
  * Routing model:
- *   - File location: `app/site/[siteId]/r/[slug]/[[...path]]/route.ts`.
- *     The literal folder is `r/` (not `_/`) because Next.js's App
- *     Router skips any path part starting with `_` during route
- *     discovery (see `recursive-readdir` + `ignorePartFilter` in
- *     next/dist/build/route-discovery.js). Middleware rewrites the
- *     public `/_/` prefix to `/r/` internally; the public URL stays
- *     `/_/<slug>(/...)`.
+ *   - File location: `app/r/[slug]/[[...path]]/route.ts`. The literal
+ *     folder is `r/` (not `_/` etc.) because Next.js's App Router
+ *     skips any path part starting with `_` during route discovery
+ *     (see `recursive-readdir` + `ignorePartFilter` in
+ *     next/dist/build/route-discovery.js). The `r/` prefix is an
+ *     internal filesystem detail — the public URL stays `/<slug>(/...)`.
  *   - `params.path` is `undefined` (or `[]`) for single-segment
- *     requests `/_/<slug>`, an array of remaining segments otherwise.
+ *     requests, an array of remaining segments otherwise.
  *
- * Trailing-slash responsibility lives here, not in the dispatcher:
- * the dispatcher redirects `format='static'` posts to `/_/<slug>`,
- * and this handler then 308-redirects to `/_/<slug>/` to anchor
- * relative paths inside the bundle. Same anchoring reason as the
- * legacy static route's behaviour — `<img src="img.png">` must resolve
- * to `/_/<slug>/img.png`, not the site root.
+ * Trailing-slash responsibility lives here. For static bundles the
+ * handler 308-redirects `/<slug>` to `/<slug>/` so relative asset
+ * paths inside the bundle resolve correctly — `<img src="img.png">`
+ * must resolve to `/<slug>/img.png`, not the site root.
  *
  * Trust model: no_layout HTML bodies are emitted verbatim, same trust
  * shape as `format: 'html'` post bodies on the regular path. Static
  * bundle assets are served via short-lived S3 presigned URLs; the
  * bucket stays private. See docs/architecture/04-access-layer-mcp.md
  * §"editor の信頼モデル".
+ *
+ * Cache-Control: deliberately omitted from the responses here.
+ * Middleware computes the strategy from `metadata.cache` +
+ * `post.updatedAt` and sets the header on the rewritten response.
  */
 export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteHandler {
   // createServerRunner is expensive (parses outputs, builds resource
@@ -65,8 +69,9 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
       return new Response('Not Found', { status: 404 })
     }
 
-    // Single-segment access: `/_/<slug>` or `/_/<slug>/`. Distinguish
-    // no_layout HTML (`format='html'`) from static bundle entrypoint
+    // Single-segment access: public `/<slug>` or `/<slug>/` (rewritten
+    // to `/r/<slug>` by middleware). Distinguish no_layout HTML
+    // (`format='html'`) from static bundle entrypoint
     // (`format='static'`).
     if (restSegments.length === 0) {
       if (post.format === 'html' && post.metadata?.no_layout === true) {
@@ -74,14 +79,15 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
           status: 200,
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'public, max-age=300',
+            // Cache-Control set by middleware (cache strategy depends on
+            // post.metadata.cache + post.updatedAt).
           },
         })
       }
       if (post.format === 'static') {
         const url = new URL(request.url)
         if (!url.pathname.endsWith('/')) {
-          // Anchor relative paths inside the bundle to `/_/<slug>/...`.
+          // Anchor relative paths inside the bundle to `/<slug>/...`.
           const next = new URL(url)
           next.pathname = `${url.pathname}/`
           return Response.redirect(next.toString(), 308)
@@ -101,9 +107,10 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
         }
         return Response.redirect(presignedUrl, 302)
       }
-      // Any other shape (tiptap, markdown, html without no_layout) at
-      // `/_/<slug>` is not legitimate — the regular `/<slug>` route
-      // owns those, and we don't want to leak the body chrome-free.
+      // Any other shape (tiptap, markdown, html without no_layout)
+      // arriving here is a middleware bug — those slugs should never
+      // be rewritten to `/r/`. Return 404 defensively so we don't leak
+      // a chrome-free body.
       return new Response('Not Found', { status: 404 })
     }
 

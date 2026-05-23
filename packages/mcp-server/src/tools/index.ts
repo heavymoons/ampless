@@ -49,7 +49,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'create_post',
     description:
-      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (the public route redirects to /_/<slug>).',
+      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details.',
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, args as unknown as Parameters<typeof createPost>[1]),

@@ -2,8 +2,12 @@ import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
 import type { Ampless } from '../index.js'
 
+// Public URL structure is flat (`/`, `/<slug>`, `/<slug>/<path>`); the
+// home page file route is `app/page.tsx`, so `params` carries no
+// dynamic segments. Kept as a Promise-of-empty-object to preserve the
+// shape Next.js 16 server components expect.
 interface Props {
-  params: Promise<{ siteId: string }>
+  params: Promise<Record<string, never>>
 }
 
 // Use `ReactNode` (via the `react` peer dep) — `Promise<unknown>`
