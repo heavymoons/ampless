@@ -82,6 +82,7 @@
     "proxy-config-inline",
     "remove-siteid-from-schema",
     "remove-unreleased-http-mcp",
+    "retired-files-cleanup",
     "sanitize-cmsconfig-for-client",
     "scaffold-all-themes-and-copy-theme",
     "shim-tdz-fix",
