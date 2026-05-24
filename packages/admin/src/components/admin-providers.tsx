@@ -5,6 +5,7 @@ import type { AmplessOutputs } from '@ampless/runtime'
 import { configureAmplify } from '../lib/amplify-client.js'
 import { installAdminPostsProvider } from '../lib/posts-provider.js'
 import { installAdminKvProvider } from '../lib/kv-provider.js'
+import { installAdminMcpTokenProvider } from '../lib/mcp-token-provider.js'
 import { setAdminCmsConfigClient } from '../lib/admin-config-client.js'
 import { setAdminMediaContext } from '../lib/media.js'
 
@@ -38,6 +39,7 @@ export function AdminProviders({ outputs, cmsConfig, children }: Props) {
   setAdminMediaContext(outputs, cmsConfig)
   installAdminPostsProvider()
   installAdminKvProvider()
+  installAdminMcpTokenProvider()
 
   return <>{children}</>
 }

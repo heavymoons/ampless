@@ -229,6 +229,35 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.groups(['ampless-admin', 'ampless-editor']),
       ]),
 
+    // Admin-issued API tokens for the HTTP MCP endpoint. Identifier =
+    // SHA-256 hex of plaintext; the Lambda hashes incoming Bearers and
+    // GetItem's this table directly (bypassing AppSync) so token
+    // validation costs one DDB read.
+    //
+    // Admin-only authorization is the security boundary: the MCP
+    // Lambda runs every tool with its own IAM role independent of the
+    // issuer's Cognito group, so editors must not be able to mint
+    // tokens that bypass their own group restrictions. KvStore is
+    // shared with editors for site settings / caches; this model is
+    // deliberately separate so the namespace can't be smuggled into
+    // there.
+    McpToken: a
+      .model({
+        hash: a.string().required(),
+        prefix: a.string().required(),
+        createdBy: a.string().required(),
+        createdByEmail: a.string().required(),
+        issuedAt: a.datetime().required(),
+        lastUsedAt: a.datetime(),
+        expiresAt: a.datetime(),
+        revokedAt: a.datetime(),
+      })
+      .identifier(['hash'])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .authorization((allow: any) => [
+        allow.groups(['ampless-admin']),
+      ]),
+
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
     //

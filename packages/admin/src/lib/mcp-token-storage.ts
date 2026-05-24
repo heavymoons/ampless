@@ -1,47 +1,28 @@
 /**
- * Storage layer for MCP API access tokens, persisted in the project's
- * KvStore (PK = `mcp-tokens`, SK = token SHA-256 hash).
+ * Storage layer for MCP API access tokens, persisted in the
+ * admin-only `McpToken` AppSync model (identifier = SHA-256 hex of
+ * plaintext).
  *
- * Storage-agnostic: callers install a `KvStore` implementation via
- * `setKvStore()` from `ampless` before invoking these functions. The
- * Lambda data path uses an implementation that talks to AppSync over
- * IAM; the admin UI path reuses the same library through whatever auth
- * context the route handler is in.
+ * The Lambda validator reads the same table directly via DynamoDB
+ * GetItem (see `packages/backend/src/functions/mcp-handler.ts`) — the
+ * admin UI write path goes through AppSync, so the `ampless-admin`
+ * group restriction is enforced at the API layer.
  *
  * Revocation is a soft delete: `revokedAt` is set and the row stays
  * for audit. Callers validating an incoming Bearer must check
  * `revokedAt === null` AND `expiresAt` (if set) AND that the row exists.
  */
 
-import { getKvStore } from 'ampless'
+import { getMcpTokenStore, type McpTokenRow } from './mcp-token-store.js'
 
-const TOKENS_PK = 'mcp-tokens'
-
-export interface McpTokenMeta {
-  /** SHA-256 hex of the plaintext token (= storage SK). */
-  hash: string
-  /** Plaintext prefix for UI display, e.g. "amk_AbCd". */
-  prefix: string
-  /** Cognito `sub` of the admin who issued the token. */
-  createdBy: string
-  createdByEmail: string
-  /** ISO 8601. */
-  createdAt: string
-  /** ISO 8601 or null. Updated by the validator on each successful auth. */
-  lastUsedAt: string | null
-  /** ISO 8601 or null. Token rejected after this point. */
-  expiresAt: string | null
-  /** ISO 8601 or null. Token rejected once set. */
-  revokedAt: string | null
-}
+export type McpTokenMeta = McpTokenRow
 
 export async function listTokens(): Promise<McpTokenMeta[]> {
-  const items = await getKvStore().query<McpTokenMeta>(TOKENS_PK)
-  return items.map((item) => item.value)
+  return await getMcpTokenStore().list()
 }
 
 export async function findByHash(hash: string): Promise<McpTokenMeta | null> {
-  return await getKvStore().get<McpTokenMeta>(TOKENS_PK, hash)
+  return await getMcpTokenStore().get(hash)
 }
 
 export async function createToken(
@@ -52,7 +33,7 @@ export async function createToken(
     lastUsedAt: null,
     revokedAt: null,
   }
-  await getKvStore().put(TOKENS_PK, meta.hash, full)
+  await getMcpTokenStore().put(full)
   return full
 }
 
@@ -60,7 +41,7 @@ export async function revokeToken(hash: string): Promise<void> {
   const existing = await findByHash(hash)
   if (!existing) return
   if (existing.revokedAt) return
-  await getKvStore().put(TOKENS_PK, hash, {
+  await getMcpTokenStore().put({
     ...existing,
     revokedAt: new Date().toISOString(),
   })
@@ -69,7 +50,7 @@ export async function revokeToken(hash: string): Promise<void> {
 export async function touchLastUsed(hash: string): Promise<void> {
   const existing = await findByHash(hash)
   if (!existing) return
-  await getKvStore().put(TOKENS_PK, hash, {
+  await getMcpTokenStore().put({
     ...existing,
     lastUsedAt: new Date().toISOString(),
   })

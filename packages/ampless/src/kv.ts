@@ -47,8 +47,8 @@ function requireStore(): KvStore {
 /**
  * Access the injected `KvStore` directly. Use the site-setting helpers
  * (`getSiteSetting` etc.) when storing per-site configuration; reach
- * for this lower-level handle only when you need a different PK
- * namespace (e.g. `mcp-tokens`).
+ * for this lower-level handle when you need a different PK namespace
+ * (plugin caches, ad-hoc shared state, etc.).
  */
 export function getKvStore(): KvStore {
   return requireStore()

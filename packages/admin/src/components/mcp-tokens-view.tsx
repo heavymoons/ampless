@@ -136,7 +136,7 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
         prefix,
         createdBy: currentUserId,
         createdByEmail: currentUserEmail,
-        createdAt: new Date().toISOString(),
+        issuedAt: new Date().toISOString(),
         expiresAt: expiresAtFromPreset(),
       })
       void meta
@@ -232,7 +232,7 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
                     <TableRow key={tok.hash}>
                       <TableCell className="font-mono text-xs">{tok.prefix}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        <span title={tok.createdAt}>{relativeTime(tok.createdAt)}</span>
+                        <span title={tok.issuedAt}>{relativeTime(tok.issuedAt)}</span>
                         {tok.createdByEmail && (
                           <span className="ml-1 text-muted-foreground/70">
                             by {tok.createdByEmail}

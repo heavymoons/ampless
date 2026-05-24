@@ -17,8 +17,6 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { setKvStore } from 'ampless'
-import type { KvStore, KvItem } from 'ampless'
 import { generateToken } from '../lib/mcp-token-format.js'
 import {
   listTokens,
@@ -26,28 +24,26 @@ import {
   revokeToken,
   type McpTokenMeta,
 } from '../lib/mcp-token-storage.js'
+import { setMcpTokenStore, type McpTokenRow, type McpTokenStore } from '../lib/mcp-token-store.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeInMemoryKvStore(): KvStore {
-  const db = new Map<string, Map<string, unknown>>()
+function makeInMemoryStore(): McpTokenStore {
+  const db = new Map<string, McpTokenRow>()
   return {
-    async get<T>(pk: string, sk: string): Promise<T | null> {
-      return (db.get(pk)?.get(sk) as T) ?? null
+    async list() {
+      return Array.from(db.values())
     },
-    async query<T>(pk: string): Promise<KvItem<T>[]> {
-      const partition = db.get(pk)
-      if (!partition) return []
-      return Array.from(partition.entries()).map(([sk, value]) => ({ pk, sk, value: value as T }))
+    async get(hash) {
+      return db.get(hash) ?? null
     },
-    async put(pk: string, sk: string, value: unknown): Promise<void> {
-      if (!db.has(pk)) db.set(pk, new Map())
-      db.get(pk)!.set(sk, value)
+    async put(row) {
+      db.set(row.hash, row)
     },
-    async remove(pk: string, sk: string): Promise<void> {
-      db.get(pk)?.delete(sk)
+    async remove(hash) {
+      db.delete(hash)
     },
   }
 }
@@ -61,7 +57,7 @@ function makeTokenMeta(
     prefix,
     createdBy: 'user-sub-abc',
     createdByEmail: 'admin@example.com',
-    createdAt: new Date().toISOString(),
+    issuedAt: new Date().toISOString(),
     expiresAt: null,
     ...overrides,
   }
@@ -79,7 +75,7 @@ function tokenStatus(tok: McpTokenMeta): 'active' | 'revoked' | 'expired' {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  setKvStore(makeInMemoryKvStore())
+  setMcpTokenStore(makeInMemoryStore())
 })
 
 // ---------------------------------------------------------------------------
