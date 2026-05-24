@@ -93,7 +93,7 @@ Do not report a task complete based solely on type checks if a UI/theme was modi
 ## Known constraints
 
 - **Sandbox data is ephemeral.** Schema-affecting changes can rebuild the API and tables; treat sandbox content as throw-away. Production data is durable.
-- **One Amplify deployment = one site.** To serve multiple sites on different domains, deploy separate Amplify environments. The schema's `siteId` column is always the literal `"default"` (retained for forward-compat).
+- **One Amplify deployment = one site.** To serve multiple sites on different domains, deploy separate Amplify environments.
 - **The AppSync public API key is shipped in `amplify_outputs.json` and visible to any site visitor.** Treat it as a low-trust credential — its only privilege is reading published posts. Auto-rotated monthly by the `api-key-renewer` Lambda; no manual rotation needed.
 - **The first registered user becomes admin.** Subsequent role changes go through the Cognito console (see RUNBOOK).
 

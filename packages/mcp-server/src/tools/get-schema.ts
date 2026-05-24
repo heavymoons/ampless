@@ -1,5 +1,6 @@
-// Static, hand-curated schema description. v0.1 has fixed Post/Page/Media
-// types — when v0.2 adds custom content types, this becomes dynamic.
+// Static, hand-curated schema description. Post/Page/Media types are
+// fixed today; a future custom-content-type system will make this
+// dynamic.
 
 export const getSchemaSchema = {
   type: 'object',

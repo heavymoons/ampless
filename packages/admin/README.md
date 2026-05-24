@@ -12,11 +12,10 @@ factories that wire it all together.
 
 ## Why a library?
 
-The admin UI used to live in the template project. Every bug fix and
-feature meant copy-pasting files between the template and downstream
-sites. Extracting to `@ampless/admin` lets a project run
-`npm update @ampless/admin` to pick up improvements — the same upgrade
-flow as any other dependency.
+Shipping the admin UI as `@ampless/admin` lets a project pick up
+fixes and features with `npm update @ampless/admin` — the same upgrade
+flow as any other dependency, without copy-pasting files between the
+template and downstream sites.
 
 ## Install
 

@@ -3,8 +3,8 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import type { Ampless } from '../index.js'
 
-// File route is `app/tag/[tag]/page.tsx` — only the `tag` segment
-// remains after the URL flatten.
+// File route is `app/tag/[tag]/page.tsx` — only the `tag` segment is
+// passed through to themes.
 interface Props {
   params: Promise<{ tag: string }>
 }

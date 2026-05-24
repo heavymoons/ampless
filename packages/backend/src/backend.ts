@@ -48,10 +48,8 @@ export interface DefineAmplessBackendOpts {
 export type AmplessBackend = any
 
 /**
- * The end-to-end ampless backend wiring: identical to the 251-line
- * `backend.ts` that used to live in `templates/_shared/amplify/`,
- * but parameterised on the resource objects so users only have to
- * compose the imports.
+ * The end-to-end ampless backend wiring, parameterised on the resource
+ * objects so users only have to compose the imports.
  *
  * What it does, in order:
  *   1. Calls `defineBackend` with every Ampless resource.
@@ -265,16 +263,17 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   kvTable.grantReadData(trustedFn)
   // S3 grant is bucket-wide for `public/plugins/*` rather than per-plugin
   // prefix. Rationale:
-  //   1. v0.1 trusted plugins are first-party only (see ARCHITECTURE.md §4),
+  //   1. Trusted plugins are first-party only (see ARCHITECTURE.md §4),
   //      so cross-plugin tampering isn't a threat model we're defending.
   //   2. Per-plugin enumeration (`public/plugins/{name}/*` for each name)
   //      doesn't scale — IAM inline policies cap at 10 KiB, breaking around
-  //      50 plugins; incompatible with the v0.2 marketplace direction.
+  //      50 plugins, and that conflicts with the eventual marketplace
+  //      direction.
   //   3. The real key namespacing is enforced in code: `writePublicAsset`
   //      always prefixes with the calling plugin's name, so a plugin can't
   //      overwrite a sibling's path without bypassing the runtime context.
-  //   4. Strict per-plugin isolation is planned for v0.2 via plugin-per-Lambda
-  //      with capability-based dynamic IAM (see roadmap).
+  //   4. Strict per-plugin isolation is planned via plugin-per-Lambda with
+  //      capability-based dynamic IAM (see roadmap).
   trustedFn.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
@@ -334,9 +333,9 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
 
   // --- MCP HTTP endpoint ---
   //
-  // Phase 4: Bearer auth + JSON-RPC tool dispatch. The handler reads
-  // KvStore directly to validate `Authorization: Bearer amk_...` tokens
-  // (PK 'mcp-tokens', SK = SHA-256 hash of plaintext) and dispatches
+  // Bearer auth + JSON-RPC tool dispatch. The handler reads KvStore
+  // directly to validate `Authorization: Bearer amk_...` tokens (PK
+  // 'mcp-tokens', SK = SHA-256 hash of plaintext) and dispatches
   // `tools/call` through the shared `@ampless/mcp-server/tools` registry.
   //
   // AppSync IAM auth: the `allow.resource(mcpHandler)` clause in the
@@ -361,8 +360,8 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     'AMPLESS_APPSYNC_URL',
     backend.data.resources.cfnResources.cfnGraphqlApi.attrGraphQlUrl
   )
-  // Phase 5: S3 PutObject for `upload_media`. Scope to `public/media/*`
-  // which matches the prefix `buildMediaKey` always produces. The Lambda
+  // S3 PutObject for `upload_media`. Scope to `public/media/*` which
+  // matches the prefix `buildMediaKey` always produces. The Lambda
   // execution role carries these credentials — no AWS_ACCESS_KEY_ID
   // env var needed in the function.
   mcpHandlerFn.addToRolePolicy(

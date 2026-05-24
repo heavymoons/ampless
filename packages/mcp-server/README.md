@@ -121,7 +121,7 @@ If you're letting the AI generate post bodies, asking for markdown is usually ea
 ## Security notes
 
 - **Editor trust model.** ampless treats `editor` and `admin` as a single trust class — both can store arbitrary HTML/JS in post bodies (see `docs/architecture/04-access-layer-mcp.md`). Whatever the MCP server can write, that user account could already write through the admin UI.
-- **Credentials in the config file.** `AMPLESS_MCP_PASSWORD` lives in plaintext inside Claude Desktop / Cursor's config file. Treat that file like an SSH private key. v0.2 adds OS keychain integration.
+- **Credentials in the config file.** `AMPLESS_MCP_PASSWORD` lives in plaintext inside Claude Desktop / Cursor's config file. Treat that file like an SSH private key. OS keychain integration is on the roadmap.
 - **AWS credentials.** Only `upload_media` requires them. Use a dedicated IAM user / role with write access only to your site's S3 bucket.
 
 ## CLI flags

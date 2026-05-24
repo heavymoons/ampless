@@ -4,8 +4,7 @@
  *
  * We test the underlying functions used by the view directly — the React
  * component itself requires a DOM environment (jsdom) that isn't wired up
- * in this package's vitest config. The tests below cover all meaningful
- * behaviours specified in the Phase 2 design:
+ * in this package's vitest config. The tests below cover:
  *
  *   - Empty state: listTokens returns []
  *   - Token list: stored tokens are retrieved correctly

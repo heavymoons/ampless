@@ -161,10 +161,8 @@ export function resolveLocalized(
 // as server components matching the dispatcher's `params` Promise type.
 //
 // Dispatcher routes live at the top level (`app/page.tsx`,
-// `app/[slug]/page.tsx`, `app/tag/[tag]/page.tsx`) after the URL
-// flatten in v0.2 alpha. Theme components receive only the dynamic
-// segments from their own file route — no `siteId` segment is
-// exposed.
+// `app/[slug]/page.tsx`, `app/tag/[tag]/page.tsx`). Theme components
+// receive only the dynamic segments from their own file route.
 export interface ThemeRouteContext<P = Record<string, string>> {
   params: Promise<P>
 }

@@ -2,8 +2,8 @@
 // `definePlugin({ hooks: { 'after:content.published': ... } })`.
 //
 // `before:*` is reserved for synchronous validation in the Core library
-// and is not yet wired to plugins (planned for v0.2). `after:*` events
-// flow through DynamoDB Streams → SQS → trust_level Lambdas.
+// and is not yet wired to plugins. `after:*` events flow through
+// DynamoDB Streams → SQS → trust_level Lambdas.
 
 export type ContentEventType =
   | 'content.created'

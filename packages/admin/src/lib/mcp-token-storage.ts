@@ -3,10 +3,10 @@
  * KvStore (PK = `mcp-tokens`, SK = token SHA-256 hash).
  *
  * Storage-agnostic: callers install a `KvStore` implementation via
- * `setKvStore()` from `ampless` before invoking these functions. In
- * the Lambda data path (Phase 2) the implementation talks to AppSync
- * over IAM; the admin UI path (Phase 2 onwards) reuses the same
- * library through whatever auth context the route handler is in.
+ * `setKvStore()` from `ampless` before invoking these functions. The
+ * Lambda data path uses an implementation that talks to AppSync over
+ * IAM; the admin UI path reuses the same library through whatever auth
+ * context the route handler is in.
  *
  * Revocation is a soft delete: `revokedAt` is set and the row stays
  * for audit. Callers validating an incoming Bearer must check

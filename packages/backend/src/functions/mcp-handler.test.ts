@@ -167,9 +167,9 @@ describe('mcp-handler', () => {
     // Regression guard. AppSync's auto-generated CreateKvStore resolver
     // parses the incoming AWSJSON and stores `value` as a native DDB
     // Map; DynamoDBDocumentClient unmarshals it straight into a JS
-    // object. Phase 3 originally JSON.parse'd `row.value` unconditionally
-    // and so couldn't validate any real token written through the
-    // admin UI — every Bearer came back as invalid_token.
+    // object. `row.value` must be decoded with `decodeAwsJson` (which
+    // tolerates both shapes) — a naive `JSON.parse` here would reject
+    // every Bearer written through the admin UI.
     const meta = makeValidTokenMeta()
     mockSend.mockResolvedValueOnce({
       Item: { pk: 'mcp-tokens', sk: 'hash', value: meta },
@@ -184,7 +184,7 @@ describe('mcp-handler', () => {
     expect(JSON.parse(res.body).id).toBe(99)
   })
 
-  // --- Phase 4: JSON-RPC dispatch ---
+  // --- JSON-RPC dispatch ---
 
   it('initialize returns 200 with protocolVersion + tools capability', async () => {
     mockValidTokenLookup()
@@ -220,9 +220,9 @@ describe('mcp-handler', () => {
     expect(names).toContain('update_post')
     expect(names).toContain('delete_post')
     expect(names).toContain('get_schema')
-    // Phase 5: upload_media is now available over HTTP transport
+    // upload_media is available over HTTP transport
     expect(names).toContain('upload_media')
-    // Static-bundle tools (Phase 6 follow-on).
+    // Static-bundle tools.
     expect(names).toContain('upload_static_bundle')
     expect(names).toContain('upload_static_file')
     expect(names).toContain('delete_static_file')

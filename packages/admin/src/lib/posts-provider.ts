@@ -153,10 +153,10 @@ export function installAdminPostsProvider(): void {
     }
 
     // Upsert: try update first, fall back to create on ConditionalCheckFailed.
-    // We can't trust oldKeys alone because legacy posts published before the
-    // PostTag denormalized index existed have no rows in DynamoDB even though
-    // oldPost.tags suggests they should — AppSync's `update` would otherwise
-    // fail with `attribute_exists` not satisfied.
+    // oldKeys alone isn't enough — a post can carry tags on the canonical row
+    // without having matching PostTag rows yet (e.g. tags were edited but the
+    // denormalized rows haven't been backfilled), in which case AppSync's
+    // `update` fails with `attribute_exists` not satisfied.
     //
     // Also covers the reverse: if a row was somehow orphaned (post deleted
     // but PostTag not), a `create` finds the existing PK → fall back to update.
@@ -199,8 +199,8 @@ export function installAdminPostsProvider(): void {
     )
 
     // Update entries whose key didn't change but display fields might have
-    // (title/slug/excerpt/tags). Use upsert to tolerate legacy posts where
-    // PostTag rows were never created.
+    // (title/slug/excerpt/tags). Use upsert to tolerate posts where the
+    // expected PostTag rows aren't actually present.
     await Promise.all(
       newEntries.filter((e) => oldKeys.has(entryKey(e))).map(upsertPostTag)
     )

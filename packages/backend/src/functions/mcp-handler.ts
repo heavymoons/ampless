@@ -8,12 +8,12 @@ import { createMcpGraphqlClient } from './mcp-graphql-client.js'
 import { createMcpStorageClient } from './mcp-storage-client.js'
 
 /**
- * MCP HTTP endpoint Lambda. Phase 5: Bearer validation + JSON-RPC 2.0
- * tool dispatch over AppSync IAM auth, including `upload_media`.
+ * MCP HTTP endpoint Lambda. Bearer validation + JSON-RPC 2.0 tool
+ * dispatch over AppSync IAM auth, including `upload_media`.
  *
  *   1. Reads KvStore directly (PK = 'mcp-tokens', SK = SHA-256 hex)
- *      to validate `Authorization: Bearer amk_...`. Same narrow IAM
- *      grant as Phase 3 (`dynamodb:GetItem` on the KvStore table).
+ *      to validate `Authorization: Bearer amk_...`. The Lambda has a
+ *      narrow IAM grant: `dynamodb:GetItem` on the KvStore table.
  *   2. Parses the incoming JSON-RPC envelope by hand (no MCP SDK
  *      stdio transport in a Lambda runtime — overkill for the three
  *      verbs we actually need).

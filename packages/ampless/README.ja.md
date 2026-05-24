@@ -12,7 +12,7 @@ AWS Amplify 向け CMS コアライブラリ。
 `ampless` は [ampless](https://github.com/heavymoons/ampless) CMS を支えるコアライブラリです。以下を公開しています：
 
 - `defineConfig()` — ユーザー向け `cms.config.ts` スキーマ
-- `defineSchema()` — コンテンツタイプ定義（カスタムコンテンツタイプシステムは v0.2 で完成予定）
+- `defineSchema()` — コンテンツタイプ定義（フルカスタムコンテンツタイプシステムは将来対応予定）
 - `Post` / `Page` / `Media` / `AuthContext` 共有型
 - プラグインコントラクト（`definePlugin`、`AmplessPlugin`、フック、`PluginRuntimeContext`、イベント型、`escapeXml` / `formatPublicAssetUrl`）
 - DI スタイルの `setPostsProvider()` — テンプレートの Amplify データラッパーが注入します。未設定の場合は API がダミーの投稿を返すため、AWS を接続する前にプロトタイプを作成できます。

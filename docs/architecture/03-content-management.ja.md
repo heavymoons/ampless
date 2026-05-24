@@ -30,7 +30,6 @@
 
 ```json
 {
-  "siteId": "default",
   "postId": "post-001",
   "title": "記事タイトル",
   "format": "tiptap",
@@ -43,7 +42,7 @@
 |--------|-----------|------------|
 | `tiptap` | tiptap JSON | WYSIWYG エディタ派 |
 | `markdown` | Markdown 文字列 | 開発者、git push 運用派 |
-| `html` | HTML 文字列 | WordPress 移行組、レガシー |
+| `html` | HTML 文字列 | WordPress 移行組、HTML 直接編集派 |
 
 #### 派生フォーマット — S3 にキャッシュ
 
@@ -80,9 +79,7 @@ canonical フォーマットの変更（例: tiptap → Markdown への移行）
 
 1 Amplify デプロイ = 1 サイト。複数サイトを運用したい場合は Amplify デプロイ自体を分ける。
 
-スキーマには `siteId` カラムが残っているが、値は常に `"default"` 固定で、現状は意味を持たない（将来的にマルチサイトを再導入する場合に備えた前方互換のためのフック）。
-
-過去には 1 デプロイで複数ドメインを振り分ける「マルチサイトモード」が存在したが、Amplify Hosting の CloudFront キャッシュキーが Host を含まないため SSR レスポンスを安全にキャッシュできず、`Cache-Control: private, no-store` を強制せざるを得なかった。読み取りパスのエッジキャッシュを失うコストが、デプロイを分ける運用コスト（実際 全運用者はそうしていた）より大きかったため撤去した。
+これは読み取りパスをエッジでキャッシュ可能に保つための選択でもある。Amplify Hosting の CloudFront キャッシュキーは Host を含まないため、1 デプロイで複数ドメインを振り分けるモードでは SSR レスポンスを安全にキャッシュできず、`Cache-Control: private, no-store` を強制せざるを得なくなる。サイトごとにデプロイを分ければそのトレードオフは発生しない。
 
 ### メディア管理
 

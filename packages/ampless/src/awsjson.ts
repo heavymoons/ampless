@@ -28,7 +28,7 @@
  *
  * `decodeAwsJson` tolerates both: pass strings through `JSON.parse`,
  * everything else as-is, fall back to the raw string on parse errors
- * so legacy bare-string rows aren't lost.
+ * so bare-string rows aren't lost.
  */
 
 /**

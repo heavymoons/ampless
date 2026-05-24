@@ -49,7 +49,7 @@ export default defineConfig({
     '@aws-sdk/client-sqs',
     '@aws-sdk/lib-dynamodb',
     '@aws-sdk/util-dynamodb',
-    // Phase 4 MCP handler relies on @smithy SigV4 + credential provider.
+    // The HTTP MCP handler relies on @smithy SigV4 + credential provider.
     // Leaving them external because the Lambda runtime bundles AWS SDK v3
     // (which transitively includes @smithy/*) and Amplify's downstream
     // esbuild step will resolve them from node_modules at deploy time.

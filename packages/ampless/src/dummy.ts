@@ -15,7 +15,7 @@ export const DUMMY_POSTS: Post[] = [
       '## What to try next\n\n' +
       '- Edit `cms.config.ts` to customize your site\n' +
       '- Run `npx ampx sandbox` to deploy the backend\n' +
-      '- Visit `/admin` to manage content (coming in Phase 4)\n',
+      '- Visit `/admin` to manage content\n',
     status: 'published',
     publishedAt: '2026-04-01T00:00:00Z',
     tags: ['welcome'],
@@ -32,7 +32,7 @@ export const DUMMY_POSTS: Post[] = [
       '## Key differences\n\n' +
       '- **AWS-native**: Uses Amplify Gen 2, DynamoDB, S3, Cognito, Lambda\n' +
       '- **Plugin-first**: Core stays small, features come from plugins\n' +
-      '- **AI-first**: MCP Server included from v0.1\n' +
+      '- **AI-first**: MCP Server included out of the box\n' +
       '- **MIT licensed**: No commercial barriers\n',
     status: 'published',
     publishedAt: '2026-04-02T00:00:00Z',
