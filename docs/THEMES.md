@@ -4,10 +4,10 @@
 # Authoring Themes for ampless
 
 A theme in ampless is a self-contained module that ships under
-`themes/<name>/` in a scaffolded project. **Multiple themes are
-installed simultaneously** — each site picks its active theme at
-runtime, so a single deployment can render different subdomains with
-different themes.
+`themes/<name>/` in a scaffolded project. **Every installed theme is
+bundled into the build**, and the deployment renders whichever one is
+marked active in site settings. Switching the active theme is a single
+admin/MCP write — no rebuild required.
 
 This document explains the layout, the manifest, and how to add a new
 theme.
@@ -31,12 +31,12 @@ project/
       ...
   themes-registry.ts     # imports every installed theme
   app/
-    site/[siteId]/       # thin dispatchers — render the active theme
-      page.tsx
-      [slug]/page.tsx
-      tag/[tag]/page.tsx
-      feed.xml/route.ts
-      sitemap.xml/route.ts
+    page.tsx             # home dispatcher — renders the active theme's Home
+    [slug]/page.tsx      # themed post dispatcher (middleware rewrites no_layout / static)
+    tag/[tag]/page.tsx   # tag dispatcher
+    feed.xml/route.ts    # feed dispatcher
+    sitemap.xml/route.ts # sitemap dispatcher
+    r/[slug]/[[...path]]/route.ts  # internal: no_layout HTML + static bundles (middleware rewrite target)
     layout.tsx           # sets <body data-theme={active}>
     globals.css          # default tokens + Tailwind base
     (admin)/             # admin app — theme-agnostic
@@ -125,15 +125,14 @@ matches the dispatcher route shape:
 ```ts
 import type { ThemeRouteContext } from 'ampless'
 
-export default async function BlogHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
-  // ... fetch posts, render
+export default async function BlogHome(_: ThemeRouteContext) {
+  // No dynamic segments — just fetch posts and render.
 }
 
 export default async function BlogPost(
   { params }: ThemeRouteContext<{ slug: string }>
 ) {
-  const { siteId, slug } = await params
+  const { slug } = await params
 }
 ```
 
@@ -142,9 +141,9 @@ returns 404 if the active theme doesn't define them.
 
 ### Route handlers
 
-`routes.feed` and `routes.sitemap` receive `{ siteId, request }` and
-must return a `Response`. They're optional; missing handlers produce
-404 from the corresponding dispatcher route.
+`routes.feed` and `routes.sitemap` receive `{ request }` and must
+return a `Response`. They're optional; missing handlers produce 404
+from the corresponding dispatcher route.
 
 ## The manifest (`manifest.ts`)
 
@@ -252,18 +251,18 @@ in the document head, so they override the scoped tokens block too.
 7. **Verify**:
    ```bash
    npm run dev
-   # admin: /admin/sites/<siteId>/theme → switch to your-theme
+   # admin: /admin/sites/default/theme → switch to your-theme
    ```
 
 ## Storage layout
 
 | Setting | Storage |
 | --- | --- |
-| Active theme per site | KvStore PK `siteconfig:<siteId>`, SK `theme.active`, value = theme name |
-| Manifest field overrides | KvStore PK `siteconfig:<siteId>`, SK `theme.<fieldKey>` |
+| Active theme | KvStore PK `siteconfig`, SK `theme.active`, value = theme name |
+| Manifest field overrides | KvStore PK `siteconfig`, SK `theme.<fieldKey>` |
 
 Both flow through the existing site-settings cache pipeline (KvStore
-stream → trusted processor → `s3://<bucket>/public/site-settings/<siteId>.json`).
+stream → trusted processor → `s3://<bucket>/public/site-settings.json`).
 The public site reads that JSON file with a 60-second Next.js fetch
 cache; admin edits propagate within ~1 minute.
 

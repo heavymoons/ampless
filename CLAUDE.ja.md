@@ -13,11 +13,24 @@ pnpm workspaces + Turborepo + changesets で管理する monorepo。
 
 ```
 packages/
-  ampless/           — CMS コアライブラリ (npm: ampless)
-  create-ampless/    — CLI スキャフォールドツール (npm: create-ampless)
-  plugin-seo/        — SEO プラグイン (npm: @ampless/plugin-seo)
+  ampless/           — CMS コアライブラリ、フック、型 (npm: ampless)
+  admin/             — 管理画面のコンポーネント / プロバイダ / フック (npm: @ampless/admin)
+  runtime/           — Next.js ランタイム: ミドルウェア、ディスパッチャー、公開ルート (npm: @ampless/runtime)
+  backend/           — Amplify Gen 2 バックエンド配線 + AppSync スキーマ (npm: @ampless/backend)
+  mcp-server/        — MCP ツールレジストリ、stdio + HTTP トランスポート (npm: @ampless/mcp-server)
+  create-ampless/    — CLI スキャフォールド / アップグレードツール (npm: create-ampless)
+  plugin-seo/        — SEO メタプラグイン (npm: @ampless/plugin-seo)
+  plugin-rss/        — RSS フィードプラグイン (npm: @ampless/plugin-rss)
+  plugin-og-image/   — OG 画像生成プラグイン (npm: @ampless/plugin-og-image)
+  plugin-webhook/    — 外向き Webhook プラグイン (npm: @ampless/plugin-webhook)
 templates/
-  blog/              — ブログスターターテンプレート (create-ampless CLI でコピーされる)
+  _shared/           — テーマ非依存の app/ ツリー + Amplify バックエンド (create-ampless でコピー)
+  blog/              — Blog テーマオーバーレイ
+  corporate/         — Corporate テーマオーバーレイ
+  dads/              — DADS (デジタル庁デザインシステム) テーマオーバーレイ
+  docs/              — Docs / ハンドブック向けテーマオーバーレイ
+  landing/           — 1 ページ LP 向けテーマオーバーレイ
+  minimal/           — ミニマル / ヘッドレス向けテーマオーバーレイ
 ```
 
 ## 技術スタック
@@ -47,7 +60,7 @@ pnpm changeset        # バージョニング用 changeset を作成
 - TypeScript の共通設定は `tsconfig.base.json`、各パッケージはそれを extends
 - 各パッケージは独自の `tsup.config.ts` を持つ
 - CLI の対話プロンプトには `@clack/prompts` を使う (inquirer は使わない)
-- コンテンツは Portable Text (構造化 JSON) で保存
+- 投稿は `format` フィールド (`tiptap` / `markdown` / `html` / `static`) を持ち、本文の形は宣言した format に従う。`tiptap` は tiptap ドキュメント JSON、`markdown` / `html` はソース文字列、`static` は S3 にアップロード済みバンドルを指すマニフェスト。
 - プラグインの信頼レベル: untrusted / trusted / privileged (ARCHITECTURE.ja.md §4 参照)
 
 ## Changeset ポリシー
@@ -70,6 +83,11 @@ pnpm changeset        # バージョニング用 changeset を作成
 - 自動生成ファイル (`CHANGELOG.md`、`.changeset/*.md`) は対象外で、英語単一のままにする。
 - package / template の `README.md` も翻訳がある場合は同じルールに従う。ない場合は英語のみでも可。
 
+## ローカル作業メモ
+
+- 開発中の一時メモ、レビューまとめ、設計のスクラッチ、エージェント間の引き継ぎファイルなど、ローカルだけで使うドキュメントは `docs/tmp/` 配下に置く。このディレクトリは gitignore されているので、コミットされず手元に留まる。
+- 自分用のメモ置き場、または未確定 / 公開予定のないコンテキスト引き継ぎ用に使う。共有できる段階になったら通常の `docs/` パスへ移動し、上記の言語ポリシーに従う。
+
 ## AWS / Amplify 固有事項
 
 - Amplify Gen 2 (CDK ベース、TypeScript)
@@ -87,4 +105,4 @@ pnpm changeset        # バージョニング用 changeset を作成
 
 ## ステータス
 
-初期開発中 (private repo)。最初の公開リリースとして v0.1.0 を目指す。
+private repo でクローズドアルファ開発中。`main` ブランチから changesets 経由で `alpha` dist-tag として npm に公開している。最初の公開リリースのターゲットは **v1.0 RC**: ampless で自前のドッグフードサイトを運用できる状態を目指す（マーケットプレイスは v1.0 の必須要件ではない）。
