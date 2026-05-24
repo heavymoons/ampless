@@ -11,7 +11,7 @@
 - `themes-registry.ts` — 自動生成ファイル。手動で編集しない。
 - `amplify/` — TypeScript で定義された Amplify Gen 2 バックエンド（Cognito / DynamoDB / S3 / AppSync / Lambda）。
 - `amplify_outputs.json` — `npm run sandbox` / Amplify Hosting が生成するファイル。編集しない。
-- `app/` — Next.js 15 App Router（公開サイト + `/admin` UI）。
+- `app/` — Next.js 16 App Router（公開サイト + `/admin` UI）。
 - `components/` — 共有 UI コンポーネント。
 - `lib/` — 共有ユーティリティ（データアクセス、認証など）。
 - `cms.config.ts` — サイト、プラグイン、デフォルト設定。

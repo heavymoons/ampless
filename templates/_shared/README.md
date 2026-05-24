@@ -2,7 +2,7 @@
 > 
 # {{siteName}}
 
-Your site is built with [ampless](https://github.com/heavymoons/ampless) — a serverless CMS that runs on AWS Amplify Gen 2 (Cognito + DynamoDB + S3 + AppSync + Lambda) with a Next.js 15 frontend.
+Your site is built with [ampless](https://github.com/heavymoons/ampless) — a serverless CMS that runs on AWS Amplify Gen 2 (Cognito + DynamoDB + S3 + AppSync + Lambda) with a Next.js 16 frontend.
 
 This README covers what you, the site owner, need to know day-to-day. Operational recipes (rotating keys, restoring backups, etc.) live in [RUNBOOK.md](./RUNBOOK.md). Per-theme customization details live in `themes/<name>/README.md`.
 

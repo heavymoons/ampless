@@ -56,26 +56,26 @@
     "ampless": "workspace:*",
     "@ampless/mcp-server": "workspace:*",
     "@aws-crypto/sha256-js": "^5.2.0",
-    "@aws-sdk/client-appsync": "^3.717.0",
-    "@aws-sdk/client-cognito-identity-provider": "^3.717.0",
-    "@aws-sdk/client-dynamodb": "^3.717.0",
-    "@aws-sdk/client-s3": "^3.1048.0",
-    "@aws-sdk/client-sqs": "^3.717.0",
-    "@aws-sdk/credential-provider-node": "^3.717.0",
-    "@aws-sdk/lib-dynamodb": "^3.717.0",
-    "@aws-sdk/util-dynamodb": "^3.717.0",
-    "@smithy/protocol-http": "^5.3.0",
-    "@smithy/signature-v4": "^5.4.0",
-    "fflate": "^0.8.2"
+    "@aws-sdk/client-appsync": "^3.1053.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1053.0",
+    "@aws-sdk/client-dynamodb": "^3.1053.0",
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/client-sqs": "^3.1053.0",
+    "@aws-sdk/credential-provider-node": "^3.972.44",
+    "@aws-sdk/lib-dynamodb": "^3.1053.0",
+    "@aws-sdk/util-dynamodb": "^3.996.2",
+    "@smithy/protocol-http": "^5.4.4",
+    "@smithy/signature-v4": "^5.4.4",
+    "fflate": "^0.8.3"
   },
   "peerDependencies": {
     "@aws-amplify/backend": "^1",
     "aws-cdk-lib": "^2"
   },
   "devDependencies": {
-    "@aws-amplify/backend": "^1.13.0",
-    "@types/aws-lambda": "^8.10.147",
-    "aws-cdk-lib": "^2.174.0"
+    "@aws-amplify/backend": "^1.22.0",
+    "@types/aws-lambda": "^8.10.161",
+    "aws-cdk-lib": "^2.257.0"
   },
   "scripts": {
     "build": "tsup",
