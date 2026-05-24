@@ -99,6 +99,8 @@ The CLI creates the GitHub repo (`gh` CLI auth or `GITHUB_TOKEN` required), crea
 
 Either way the first deploy takes 10–20 minutes (CloudFormation provisions Cognito, DynamoDB, S3, AppSync, Lambda). Subsequent pushes redeploy automatically via the connected branch.
 
+Prerequisites for the CLI flow: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`aws configure`) and [GitHub CLI](https://cli.github.com/) (`gh auth login`) authenticated, or supply `--github-token` directly. Full details land in the scaffolded project's `README.md` ("Requirements" + "Deploying to production").
+
 ## Editor trust model (read this before granting `editor` access)
 
 ampless treats `ampless-editor` as a trusted principal — same shape as WordPress's `unfiltered_html` capability. Editors can store arbitrary HTML / JavaScript in post bodies and the public site renders it verbatim. The full spec is in [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md); the short version is **don't grant `editor` to anyone you wouldn't also grant `admin`**.

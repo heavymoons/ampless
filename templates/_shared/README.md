@@ -10,9 +10,9 @@ If you use an AI coding agent (Claude Code, Cursor, Codex, etc.) on this project
 
 ## Requirements
 
-- **Node.js 20+** and **npm**
-- **AWS account** with CLI credentials (`aws configure`) — the sandbox + production both deploy real AWS resources
-- **GitHub account** for production hosting via AWS Amplify Hosting
+- **Node.js 20+** and **npm**.
+- **AWS account.** Install the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then `aws configure` to set credentials + default region. The sandbox + production both deploy real AWS resources.
+- **GitHub account** for production hosting via AWS Amplify Hosting. The CLI deploy flow ([below](#option-1-cli-one-shot-recommended)) also needs the [`gh` CLI](https://cli.github.com/) authenticated via `gh auth login` (or a `GITHUB_TOKEN` env var with `repo` scope). The manual console flow doesn't need `gh`.
 
 ## Commands
 
@@ -149,7 +149,13 @@ Useful extra flags:
 
 See `npx create-ampless@latest --help` for the full list.
 
-Prerequisites: `aws configure` done, `gh auth login` done (or `GITHUB_TOKEN` set), an IAM service role with `AdministratorAccess-Amplify` (`--create-iam-role` provisions one named `AmplifyDeployBackend` if you don't pass `--iam-service-role`).
+**Prerequisites for this flow (in addition to the [top-level Requirements](#requirements)):**
+
+| | Why | How |
+|---|---|---|
+| `aws` CLI authenticated | Provisions the Amplify Hosting app + service role | [Install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) and run `aws configure` (or `aws sso login`). Verify with `aws sts get-caller-identity`. |
+| `gh` CLI authenticated **or** `GITHUB_TOKEN` env | Creates the GitHub repo and pushes the initial commit | [Install `gh`](https://cli.github.com/) and `gh auth login`, **or** export a [personal access token](https://github.com/settings/tokens) with `repo` scope as `GITHUB_TOKEN`. Skip if you pass `--github-token <token>` directly. |
+| IAM service role for Amplify Hosting | Lets Amplify deploy backend resources on your behalf | Either pass `--create-iam-role` to have the CLI provision one named `AmplifyDeployBackend` (idempotent), or pass `--iam-service-role <arn>` to reuse an existing role. The role must trust `amplify.amazonaws.com` and have `AdministratorAccess-Amplify` attached. |
 
 ### Option 2: Console (manual)
 
