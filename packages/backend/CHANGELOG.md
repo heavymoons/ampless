@@ -1,5 +1,13 @@
 # @ampless/backend
 
+## 1.0.0-alpha.21
+
+### Patch Changes
+
+- Updated dependencies [dbc7e43]
+  - ampless@1.0.0-alpha.11
+  - @ampless/mcp-server@1.0.0-alpha.12
+
 ## 1.0.0-alpha.20
 
 ### Minor Changes

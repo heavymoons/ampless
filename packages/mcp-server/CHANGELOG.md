@@ -1,5 +1,13 @@
 # @ampless/mcp-server
 
+## 1.0.0-alpha.12
+
+### Patch Changes
+
+- dbc7e43: Strip alpha-period history residue from READMEs. Code-comment cleanup elsewhere (no behavior change).
+- Updated dependencies [dbc7e43]
+  - ampless@1.0.0-alpha.11
+
 ## 1.0.0-alpha.11
 
 ### Minor Changes
