@@ -1,5 +1,13 @@
 # @ampless/runtime
 
+## 1.0.0-alpha.15
+
+### Patch Changes
+
+- Updated dependencies [dbc7e43]
+  - ampless@1.0.0-alpha.11
+  - @ampless/plugin-og-image@0.2.0-alpha.11
+
 ## 1.0.0-alpha.14
 
 ### Minor Changes

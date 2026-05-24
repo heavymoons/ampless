@@ -1,6 +1,6 @@
 {
   "name": "@ampless/mcp-server",
-  "version": "1.0.0-alpha.11",
+  "version": "1.0.0-alpha.12",
   "description": "MCP server for ampless — lets AI agents (Claude Desktop, Cursor, Claude Code) read and write posts and media via AppSync",
   "license": "MIT",
   "type": "module",

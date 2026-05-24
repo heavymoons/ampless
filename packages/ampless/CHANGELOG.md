@@ -1,5 +1,11 @@
 # ampless
 
+## 1.0.0-alpha.11
+
+### Patch Changes
+
+- dbc7e43: Strip alpha-period history residue from READMEs. Code-comment cleanup elsewhere (no behavior change).
+
 ## 1.0.0-alpha.10
 
 ### Minor Changes
