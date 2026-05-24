@@ -68,7 +68,7 @@ function makeFakeBuilder() {
 }
 
 describe('amplessSchemaModels', () => {
-  it('returns the seven expected top-level keys', () => {
+  it('returns the expected top-level keys', () => {
     const { a } = makeFakeBuilder()
     const models = amplessSchemaModels(a)
     const keys = Object.keys(models).sort()
@@ -80,6 +80,7 @@ describe('amplessSchemaModels', () => {
         'Taxonomy',
         'PostTag',
         'KvStore',
+        'McpToken',
         'PublicPost',
         'PublicPostConnection',
         'listPublishedPosts',

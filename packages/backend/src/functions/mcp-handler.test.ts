@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Set env before importing handler (top-level requireEnv throws otherwise).
-process.env['AMPLESS_KV_TABLE'] = 'KvStore-test'
+process.env['AMPLESS_MCP_TOKEN_TABLE'] = 'McpToken-test'
 process.env['AMPLESS_APPSYNC_URL'] = 'https://example.appsync-api.us-east-1.amazonaws.com/graphql'
 process.env['AMPLESS_BUCKET_NAME'] = 'test-bucket'
 process.env['AWS_REGION'] = 'us-east-1'
@@ -86,13 +86,13 @@ function makeEvent(opts: EventOpts): Parameters<typeof handler>[0] {
   }
 }
 
-function makeValidTokenMeta(overrides: Record<string, unknown> = {}) {
+function makeValidTokenRow(overrides: Record<string, unknown> = {}) {
   return {
     hash: 'abc123',
     prefix: 'amk_AbCd',
     createdBy: 'sub-1',
     createdByEmail: 'admin@example.com',
-    createdAt: new Date().toISOString(),
+    issuedAt: new Date().toISOString(),
     lastUsedAt: null,
     expiresAt: null,
     revokedAt: null,
@@ -103,11 +103,9 @@ function makeValidTokenMeta(overrides: Record<string, unknown> = {}) {
 const VALID_TOKEN = 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 function mockValidTokenLookup(overrides: Record<string, unknown> = {}) {
-  const meta = makeValidTokenMeta(overrides)
-  mockSend.mockResolvedValueOnce({
-    Item: { pk: 'mcp-tokens', sk: 'hash', value: JSON.stringify(meta) },
-  })
-  return meta
+  const row = makeValidTokenRow(overrides)
+  mockSend.mockResolvedValueOnce({ Item: row })
+  return row
 }
 
 // --- tests ---
@@ -161,27 +159,6 @@ describe('mcp-handler', () => {
     const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
-  })
-
-  it('row.value as a native object (DynamoDB Map) decodes the same as the string form', async () => {
-    // Regression guard. AppSync's auto-generated CreateKvStore resolver
-    // parses the incoming AWSJSON and stores `value` as a native DDB
-    // Map; DynamoDBDocumentClient unmarshals it straight into a JS
-    // object. `row.value` must be decoded with `decodeAwsJson` (which
-    // tolerates both shapes) — a naive `JSON.parse` here would reject
-    // every Bearer written through the admin UI.
-    const meta = makeValidTokenMeta()
-    mockSend.mockResolvedValueOnce({
-      Item: { pk: 'mcp-tokens', sk: 'hash', value: meta },
-    })
-    const res = await handler(
-      makeEvent({
-        authorization: VALID_TOKEN,
-        body: { jsonrpc: '2.0', id: 99, method: 'initialize', params: {} },
-      })
-    )
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body).id).toBe(99)
   })
 
   // --- JSON-RPC dispatch ---

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { setKvStore } from 'ampless'
-import type { KvStore, KvItem } from 'ampless'
 import { generateToken, hashToken } from './mcp-token-format.js'
 import {
   listTokens,
@@ -10,24 +8,22 @@ import {
   touchLastUsed,
 } from './mcp-token-storage.js'
 import type { McpTokenMeta } from './mcp-token-storage.js'
+import { setMcpTokenStore, type McpTokenRow, type McpTokenStore } from './mcp-token-store.js'
 
-function makeInMemoryKvStore(): KvStore {
-  const db = new Map<string, Map<string, unknown>>()
+function makeInMemoryStore(): McpTokenStore {
+  const db = new Map<string, McpTokenRow>()
   return {
-    async get<T>(pk: string, sk: string): Promise<T | null> {
-      return (db.get(pk)?.get(sk) as T) ?? null
+    async list() {
+      return Array.from(db.values())
     },
-    async query<T>(pk: string): Promise<KvItem<T>[]> {
-      const partition = db.get(pk)
-      if (!partition) return []
-      return Array.from(partition.entries()).map(([sk, value]) => ({ pk, sk, value: value as T }))
+    async get(hash) {
+      return db.get(hash) ?? null
     },
-    async put(pk: string, sk: string, value: unknown): Promise<void> {
-      if (!db.has(pk)) db.set(pk, new Map())
-      db.get(pk)!.set(sk, value)
+    async put(row) {
+      db.set(row.hash, row)
     },
-    async remove(pk: string, sk: string): Promise<void> {
-      db.get(pk)?.delete(sk)
+    async remove(hash) {
+      db.delete(hash)
     },
   }
 }
@@ -39,14 +35,14 @@ function makeMeta(overrides: Partial<McpTokenMeta> = {}): Omit<McpTokenMeta, 'la
     prefix,
     createdBy: 'user-sub-123',
     createdByEmail: 'admin@example.com',
-    createdAt: new Date().toISOString(),
+    issuedAt: new Date().toISOString(),
     expiresAt: null,
     ...overrides,
   }
 }
 
 beforeEach(() => {
-  setKvStore(makeInMemoryKvStore())
+  setMcpTokenStore(makeInMemoryStore())
 })
 
 describe('generateToken', () => {

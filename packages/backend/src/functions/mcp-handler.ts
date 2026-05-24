@@ -2,7 +2,6 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
-import { decodeAwsJson } from 'ampless'
 import { dispatchToolCall, tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
 import { createMcpGraphqlClient } from './mcp-graphql-client.js'
 import { createMcpStorageClient } from './mcp-storage-client.js'
@@ -11,9 +10,11 @@ import { createMcpStorageClient } from './mcp-storage-client.js'
  * MCP HTTP endpoint Lambda. Bearer validation + JSON-RPC 2.0 tool
  * dispatch over AppSync IAM auth, including `upload_media`.
  *
- *   1. Reads KvStore directly (PK = 'mcp-tokens', SK = SHA-256 hex)
- *      to validate `Authorization: Bearer amk_...`. The Lambda has a
- *      narrow IAM grant: `dynamodb:GetItem` on the KvStore table.
+ *   1. Reads the admin-only `McpToken` DynamoDB table directly
+ *      (identifier = SHA-256 hex of plaintext) to validate
+ *      `Authorization: Bearer amk_...`. The Lambda has a narrow IAM
+ *      grant: `dynamodb:GetItem` on the McpToken table only — no
+ *      AppSync round-trip for token validation.
  *   2. Parses the incoming JSON-RPC envelope by hand (no MCP SDK
  *      stdio transport in a Lambda runtime — overkill for the three
  *      verbs we actually need).
@@ -44,34 +45,21 @@ interface FunctionUrlResult {
   body: string
 }
 
-interface KvRow {
-  pk: string
-  sk: string
-  /**
-   * Stored as an `a.json()` field. Two shapes show up at this layer:
-   *   - JSON-encoded string: what the admin client serialises into
-   *     AppSync's AWSJSON input ("a JSON-encoded string"), preserved
-   *     verbatim by some resolver paths.
-   *   - Native object: Amplify Gen 2's auto-generated CreateKvStore /
-   *     UpdateKvStore resolver parses the incoming AWSJSON and stores
-   *     it as a native DynamoDB Map. `DynamoDBDocumentClient` then
-   *     unmarshals it straight into a JS object on read.
-   * Handle both — the existing trusted-processor cache code does the
-   * same dance for `siteconfig` rows.
-   */
-  value: string | Record<string, unknown>
-  ttl?: number | null
-}
-
-interface McpTokenMeta {
+/**
+ * Row shape returned by the McpToken DynamoDB table. Fields are
+ * first-class (no nested AWSJSON `value`) because each one is a typed
+ * column on the AppSync model. Dates are ISO 8601 strings — Amplify
+ * stores `a.datetime()` as a string in DynamoDB.
+ */
+interface McpTokenRow {
   hash: string
   prefix: string
   createdBy: string
   createdByEmail: string
-  createdAt: string
-  lastUsedAt: string | null
-  expiresAt: string | null
-  revokedAt: string | null
+  issuedAt: string
+  lastUsedAt?: string | null
+  expiresAt?: string | null
+  revokedAt?: string | null
 }
 
 interface JsonRpcRequest {
@@ -87,8 +75,6 @@ interface JsonRpcResponse {
   result?: unknown
   error?: { code: number; message: string; data?: unknown }
 }
-
-const TOKENS_PK = 'mcp-tokens'
 
 // Standard JSON-RPC 2.0 error codes
 // https://www.jsonrpc.org/specification#error_object
@@ -111,7 +97,7 @@ function requireEnv(name: string): string {
   return v
 }
 
-const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
+const MCP_TOKEN_TABLE = requireEnv('AMPLESS_MCP_TOKEN_TABLE')
 const APPSYNC_URL = requireEnv('AMPLESS_APPSYNC_URL')
 const BUCKET_NAME = requireEnv('AMPLESS_BUCKET_NAME')
 const AWS_REGION = process.env['AWS_REGION'] ?? 'us-east-1'
@@ -151,42 +137,25 @@ function jsonRpcError(
 /**
  * Validate a Bearer token by:
  *  1. Hashing the plaintext to its SHA-256 hex.
- *  2. Looking up the KvStore row at (PK = 'mcp-tokens', SK = hash).
+ *  2. GetItem on the McpToken table at `{ hash }`.
  *  3. Rejecting if missing, revoked, or expired.
- * Returns the decoded meta on success, or `null` on any failure (caller
+ * Returns the row on success, or `null` on any failure (caller
  * surfaces the same 401 either way — exposing which check failed would
  * leak whether a hash exists in storage).
  */
-async function validateBearer(plaintext: string): Promise<McpTokenMeta | null> {
+async function validateBearer(plaintext: string): Promise<McpTokenRow | null> {
   const hash = hashToken(plaintext)
   const res = await ddb.send(
     new GetCommand({
-      TableName: KV_TABLE,
-      Key: { pk: TOKENS_PK, sk: hash },
+      TableName: MCP_TOKEN_TABLE,
+      Key: { hash },
     })
   )
-  const row = res.Item as KvRow | undefined
-  if (!row?.value) return null
-  const meta = decodeTokenMeta(row.value)
-  if (!meta) {
-    console.error('[mcp-handler] could not decode token row', { hash, valueType: typeof row.value })
-    return null
-  }
-  if (meta.revokedAt) return null
-  if (meta.expiresAt && new Date(meta.expiresAt).getTime() <= Date.now()) return null
-  return meta
-}
-
-/**
- * `value` arrives in either of two shapes (see `KvRow.value` comment).
- * Defer the wire-shape handling to the shared `decodeAwsJson` and
- * narrow the result to `McpTokenMeta`, returning `null` if the shape
- * is unrecognisable — leak nothing about which check failed.
- */
-function decodeTokenMeta(value: KvRow['value']): McpTokenMeta | null {
-  const parsed = decodeAwsJson(value)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  return parsed as unknown as McpTokenMeta
+  const row = res.Item as McpTokenRow | undefined
+  if (!row) return null
+  if (row.revokedAt) return null
+  if (row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now()) return null
+  return row
 }
 
 // Lazy clients: instantiated on first tools/call request so

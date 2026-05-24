@@ -199,6 +199,8 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // collected (≤48h delay). Lets KvStore double as a cache.
   cfnKvTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
 
+  const mcpTokenTable = backend.data.resources.tables['McpToken']
+
   const eventsStack = backend.createStack('amplessEvents')
 
   // 2. Shared dead-letter queue.
@@ -333,10 +335,11 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
 
   // --- MCP HTTP endpoint ---
   //
-  // Bearer auth + JSON-RPC tool dispatch. The handler reads KvStore
-  // directly to validate `Authorization: Bearer amk_...` tokens (PK
-  // 'mcp-tokens', SK = SHA-256 hash of plaintext) and dispatches
-  // `tools/call` through the shared `@ampless/mcp-server/tools` registry.
+  // Bearer auth + JSON-RPC tool dispatch. The handler reads the
+  // `McpToken` DynamoDB table directly to validate
+  // `Authorization: Bearer amk_...` (identifier = SHA-256 hash of
+  // plaintext) and dispatches `tools/call` through the shared
+  // `@ampless/mcp-server/tools` registry.
   //
   // AppSync IAM auth: the `allow.resource(mcpHandler)` clause in the
   // schema (Post + PostTag, via `mcpHandlerFunction: mcpHandler` in the
@@ -346,15 +349,18 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // grant on a model.
   const mcpHandlerFn = backend.mcpHandler.resources.lambda
 
-  // KvStore: read the single row that backs each Bearer token.
+  // McpToken: read the single row that backs each Bearer token. The
+  // table is admin-only at the AppSync layer; the Lambda bypasses
+  // AppSync and reads the row directly, which is why it gets a narrow
+  // DDB GetItem grant instead of a `resource(...).to(['query'])` rule.
   mcpHandlerFn.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['dynamodb:GetItem'],
-      resources: [kvTable.tableArn],
+      resources: [mcpTokenTable.tableArn],
     })
   )
-  mcpHandlerFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
+  mcpHandlerFn.addEnvironment('AMPLESS_MCP_TOKEN_TABLE', mcpTokenTable.tableName)
   // AppSync endpoint for the SigV4-signed GraphQL client.
   mcpHandlerFn.addEnvironment(
     'AMPLESS_APPSYNC_URL',
