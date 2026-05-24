@@ -10,9 +10,9 @@
 
 ## 必要なもの
 
-- **Node.js 20+** と **npm**
-- **AWS アカウント**と CLI 認証情報（`aws configure`）— sandbox / 本番ともに実 AWS リソースをデプロイします
-- 本番ホスティング（AWS Amplify Hosting）用の **GitHub アカウント**
+- **Node.js 20+** と **npm**。
+- **AWS アカウント.** [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) をインストールしてから `aws configure` で認証情報とデフォルトリージョンを設定します。sandbox / 本番ともに実 AWS リソースをデプロイします。
+- **GitHub アカウント** — AWS Amplify Hosting 経由の本番デプロイで必要。下記の [CLI デプロイフロー](#方法-1-cli-ワンショット推奨) を使う場合は [`gh` CLI](https://cli.github.com/) を `gh auth login` で認証する（または `repo` スコープ付きの `GITHUB_TOKEN` 環境変数を設定する）必要があります。コンソール経由の手動フローには `gh` は不要です。
 
 ## コマンド
 
@@ -121,6 +121,43 @@ export default defineConfig({
 ## 本番デプロイ
 
 同梱の [`amplify.yml`](./amplify.yml) が、connect したブランチへの push のたびに `npx ampx pipeline-deploy`（Amplify バックエンド） + `npm run build`（Next.js）を実行します。
+
+### 方法 1: CLI ワンショット（推奨）
+
+このプロジェクトディレクトリ内で:
+
+```bash
+npx create-ampless@latest --mount \
+  --github-owner <your-user-or-org> \
+  --aws-region <region> \
+  --create-iam-role           # 初回のみ。次回以降は `--iam-service-role <arn>` で使い回し
+```
+
+CLI が以下を一気に実行します:
+
+1. GitHub repo を作成（認証済みの `gh` CLI、`GITHUB_TOKEN` 環境変数、または `--github-token` フラグを利用）
+2. プロジェクトを repo に push
+3. Amplify Hosting アプリ + ブランチ作成、GitHub 連携登録、`amplify.yml` ビルド spec 配置
+4. 初回デプロイ起動
+
+便利な追加フラグ:
+
+- `--github-private` — private repo を作成（デフォルト: public）
+- `--domain <name>` `--subdomain <prefix>` — 同じ流れの中でカスタムドメインをバインド
+- `--skip-confirm` — 非対話モード（CI / 再実行向け）
+- `--aws-profile <name>` — 複数 AWS profile がある場合に明示
+
+全フラグは `npx create-ampless@latest --help` を参照。
+
+**このフロー固有の事前準備（[トップの必要なもの](#必要なもの) に加えて）:**
+
+| | 用途 | 準備方法 |
+|---|---|---|
+| `aws` CLI 認証済み | Amplify Hosting アプリ + サービスロールの provision | [インストール](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) して `aws configure` を実行（または `aws sso login`）。`aws sts get-caller-identity` で確認。 |
+| `gh` CLI 認証済み **または** `GITHUB_TOKEN` env | GitHub repo を作成して初回コミットを push | [`gh` をインストール](https://cli.github.com/) して `gh auth login` を実行、**または** `repo` スコープ付きの [personal access token](https://github.com/settings/tokens) を `GITHUB_TOKEN` として export。`--github-token <token>` を直接渡す場合は不要。 |
+| Amplify Hosting 用 IAM service role | Amplify が代理で backend リソースをデプロイするのに必要 | `--create-iam-role` を渡せば CLI が `AmplifyDeployBackend`（idempotent）を provision。または `--iam-service-role <arn>` で既存ロールを再利用。ロールは `amplify.amazonaws.com` を trust し、`AdministratorAccess-Amplify` を attach している必要があります。 |
+
+### 方法 2: コンソール（手動）
 
 1. **GitHub（または Amplify Hosting が対応する git ホスト）にこのプロジェクトを push**:
    ```bash

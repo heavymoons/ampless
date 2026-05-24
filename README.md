@@ -33,6 +33,8 @@ npm run dev           # http://localhost:3000
 
 Sign up at `/login` — the first registered user is automatically promoted to the `ampless-admin` Cognito group.
 
+When you're ready to publish, the CLI's `--mount` mode wires the directory you've been working in to a new GitHub repo + Amplify Hosting app in one shot — see [Publishing](#publishing) below.
+
 ## Stack
 
 | Layer | Tech |
@@ -77,6 +79,27 @@ export default defineConfig({
   ],
 })
 ```
+
+## Publishing
+
+After you've scaffolded locally and confirmed the sandbox is happy, push the project to GitHub and connect it to Amplify Hosting. Two paths:
+
+**CLI (`--mount`, recommended).** From inside the project directory:
+
+```bash
+npx create-ampless@latest --mount \
+  --github-owner <your-user-or-org> \
+  --aws-region <region> \
+  --create-iam-role           # one-off; reuse `--iam-service-role <arn>` next time
+```
+
+The CLI creates the GitHub repo (`gh` CLI auth or `GITHUB_TOKEN` required), creates the Amplify Hosting app, registers the GitHub connection, sets `amplify.yml` build settings, and kicks off the first deploy. Add `--domain` / `--subdomain` to bind a custom domain in the same pass; add `--skip-confirm` to make it CI-friendly. See `npx create-ampless@latest --help` for the full flag list.
+
+**Manual (console).** `git init && git push` to a repo of your own, then **AWS Amplify Hosting console → Create new app → Host web app → connect repo → deploy**. Step-by-step in the scaffolded project's `README.md` ("Deploying to production") and `RUNBOOK.md`.
+
+Either way the first deploy takes 10–20 minutes (CloudFormation provisions Cognito, DynamoDB, S3, AppSync, Lambda). Subsequent pushes redeploy automatically via the connected branch.
+
+Prerequisites for the CLI flow: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`aws configure`) and [GitHub CLI](https://cli.github.com/) (`gh auth login`) authenticated, or supply `--github-token` directly. Full details land in the scaffolded project's `README.md` ("Requirements" + "Deploying to production").
 
 ## Editor trust model (read this before granting `editor` access)
 

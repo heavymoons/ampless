@@ -33,6 +33,8 @@ npm run dev           # http://localhost:3000
 
 `/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。
 
+公開準備ができたら、CLI の `--mount` モードで「ローカルで作業中のディレクトリ」を GitHub repo + Amplify Hosting アプリに一括登録できます。下記 [公開](#公開) セクション参照。
+
 ## スタック
 
 | レイヤー | 技術 |
@@ -77,6 +79,27 @@ export default defineConfig({
   ],
 })
 ```
+
+## 公開
+
+ローカルで scaffold して sandbox 動作確認まで終わったら、GitHub に push して Amplify Hosting に接続します。2 通りの経路があります:
+
+**CLI (`--mount`, 推奨).** プロジェクトディレクトリ内で:
+
+```bash
+npx create-ampless@latest --mount \
+  --github-owner <your-user-or-org> \
+  --aws-region <region> \
+  --create-iam-role           # 初回のみ。次回以降は `--iam-service-role <arn>` で使い回し
+```
+
+CLI が GitHub repo 作成 (`gh` CLI 認証または `GITHUB_TOKEN` が必要)、Amplify Hosting アプリ作成、GitHub 連携登録、`amplify.yml` ビルド設定、初回デプロイ起動までを一気に実行します。`--domain` / `--subdomain` を渡すと同じ流れの中でカスタムドメインもバインドされます。`--skip-confirm` で CI フレンドリーな非対話モードに。フラグ全体は `npx create-ampless@latest --help` で確認できます。
+
+**手動 (コンソール).** `git init && git push` で自前の repo に上げてから、**AWS Amplify Hosting コンソール → Create new app → Host web app → repo 連携 → デプロイ**。詳細手順は scaffold 後のプロジェクトの `README.ja.md`（「本番デプロイ」セクション）と `RUNBOOK.ja.md` に。
+
+いずれも初回デプロイは 10〜20 分（CloudFormation で Cognito / DynamoDB / S3 / AppSync / Lambda を provision）。以降は接続ブランチへの push で自動再デプロイ。
+
+CLI フローの前提条件: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`aws configure`) と [GitHub CLI](https://cli.github.com/) (`gh auth login`) を認証済みにしておくか、`--github-token` を直接渡すこと。詳細は scaffold 後のプロジェクトの `README.ja.md` (「必要なもの」+「本番デプロイ」セクション) に。
 
 ## エディタートラストモデル（`editor` 権限を付与する前に必ずお読みください）
 
