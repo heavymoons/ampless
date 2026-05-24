@@ -3,7 +3,7 @@
 
 # ampless テーマの作成
 
-ampless におけるテーマは、スキャフォールドされたプロジェクトの `themes/<name>/` 以下に格納される自己完結型のモジュールです。**複数のテーマを同時にインストールできます** — 各サイトがランタイムでアクティブなテーマを選択するため、単一のデプロイで異なるサブドメインを異なるテーマでレンダリングできます。
+ampless におけるテーマは、スキャフォールドされたプロジェクトの `themes/<name>/` 以下に格納される自己完結型のモジュールです。**インストール済みのテーマはすべてビルドにバンドルされ**、サイト設定で active 指定されたテーマがレンダリングに使われます。アクティブテーマの切り替えは管理画面 / MCP からの 1 回の書き込みだけで済み、再ビルドは不要です。
 
 このドキュメントでは、ディレクトリ構成、マニフェスト、そして新しいテーマの追加方法について説明します。
 
@@ -26,12 +26,12 @@ project/
       ...
   themes-registry.ts     # インストール済みテーマをすべてインポート
   app/
-    site/[siteId]/       # 薄いディスパッチャー — アクティブなテーマをレンダリング
-      page.tsx
-      [slug]/page.tsx
-      tag/[tag]/page.tsx
-      feed.xml/route.ts
-      sitemap.xml/route.ts
+    page.tsx             # ホームディスパッチャー — アクティブテーマの Home をレンダリング
+    [slug]/page.tsx      # テーマレンダリング用ポストディスパッチャー（ミドルウェアが no_layout / static を書き換え）
+    tag/[tag]/page.tsx   # タグディスパッチャー
+    feed.xml/route.ts    # フィードディスパッチャー
+    sitemap.xml/route.ts # sitemap ディスパッチャー
+    r/[slug]/[[...path]]/route.ts  # 内部: no_layout HTML / static バンドル用（ミドルウェアの書き換え先）
     layout.tsx           # <body data-theme={active}> を設定
     globals.css          # デフォルトトークン + Tailwind ベース
     (admin)/             # 管理アプリ — テーマ非依存
@@ -106,15 +106,14 @@ export default defineThemeModule({
 ```ts
 import type { ThemeRouteContext } from 'ampless'
 
-export default async function BlogHome({ params }: ThemeRouteContext) {
-  const { siteId } = await params
-  // ... 投稿を取得してレンダリング
+export default async function BlogHome(_: ThemeRouteContext) {
+  // 動的セグメントなし — 投稿を取得してレンダリングするだけ。
 }
 
 export default async function BlogPost(
   { params }: ThemeRouteContext<{ slug: string }>
 ) {
-  const { siteId, slug } = await params
+  const { slug } = await params
 }
 ```
 
@@ -122,7 +121,7 @@ export default async function BlogPost(
 
 ### ルートハンドラー
 
-`routes.feed` と `routes.sitemap` は `{ siteId, request }` を受け取り、`Response` を返す必要があります。省略可能で、ハンドラーがない場合は対応するディスパッチャールートが 404 を返します。
+`routes.feed` と `routes.sitemap` は `{ request }` を受け取り、`Response` を返す必要があります。省略可能で、ハンドラーがない場合は対応するディスパッチャールートが 404 を返します。
 
 ## マニフェスト（`manifest.ts`）
 
@@ -214,17 +213,17 @@ export default defineTheme({
 7. **動作確認：**
    ```bash
    npm run dev
-   # 管理画面: /admin/sites/<siteId>/theme → your-theme に切り替え
+   # 管理画面: /admin/sites/default/theme → your-theme に切り替え
    ```
 
 ## ストレージレイアウト
 
 | 設定項目 | ストレージ |
 | --- | --- |
-| サイトごとのアクティブテーマ | KvStore PK `siteconfig:<siteId>`、SK `theme.active`、値 = テーマ名 |
-| マニフェストフィールドのオーバーライド | KvStore PK `siteconfig:<siteId>`、SK `theme.<fieldKey>` |
+| アクティブテーマ | KvStore PK `siteconfig`、SK `theme.active`、値 = テーマ名 |
+| マニフェストフィールドのオーバーライド | KvStore PK `siteconfig`、SK `theme.<fieldKey>` |
 
-どちらも既存のサイト設定キャッシュパイプライン（KvStore ストリーム → trusted プロセッサー → `s3://<bucket>/public/site-settings/<siteId>.json`）を経由します。公開サイトはその JSON ファイルを 60 秒の Next.js フェッチキャッシュで読み取ります。管理画面での編集は約 1 分以内に反映されます。
+どちらも既存のサイト設定キャッシュパイプライン（KvStore ストリーム → trusted プロセッサー → `s3://<bucket>/public/site-settings.json`）を経由します。公開サイトはその JSON ファイルを 60 秒の Next.js フェッチキャッシュで読み取ります。管理画面での編集は約 1 分以内に反映されます。
 
 ## なぜ統一されたフィールドセットではなく、テーマごとのマニフェストなのか？
 

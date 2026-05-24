@@ -19,3 +19,6 @@ dist/
 
 # Stray screenshots from agent debugging sessions
 /*.png
+
+# Temporary review notes and local handoff docs
+docs/tmp/

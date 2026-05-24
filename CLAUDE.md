@@ -13,11 +13,24 @@ Monorepo managed with pnpm workspaces + Turborepo + changesets.
 
 ```
 packages/
-  ampless/           — CMS core library (npm: ampless)
-  create-ampless/    — CLI scaffolding tool (npm: create-ampless)
-  plugin-seo/        — SEO plugin (npm: @ampless/plugin-seo)
+  ampless/           — CMS core library, hooks, types (npm: ampless)
+  admin/             — Admin app components, providers, hooks (npm: @ampless/admin)
+  runtime/           — Next.js runtime: middleware, dispatchers, public routes (npm: @ampless/runtime)
+  backend/           — Amplify Gen 2 backend wiring + AppSync schema (npm: @ampless/backend)
+  mcp-server/        — MCP tool registry, stdio + HTTP transports (npm: @ampless/mcp-server)
+  create-ampless/    — CLI scaffolding / upgrade tool (npm: create-ampless)
+  plugin-seo/        — SEO meta plugin (npm: @ampless/plugin-seo)
+  plugin-rss/        — RSS feed plugin (npm: @ampless/plugin-rss)
+  plugin-og-image/   — OG image generator plugin (npm: @ampless/plugin-og-image)
+  plugin-webhook/    — Outbound webhook plugin (npm: @ampless/plugin-webhook)
 templates/
-  blog/              — Blog starter template (copied by create-ampless CLI)
+  _shared/           — Theme-agnostic app/ tree + Amplify backend (copied by create-ampless)
+  blog/              — Blog theme overlay
+  corporate/         — Corporate theme overlay
+  dads/              — DADS (Digital Agency design system) theme overlay
+  docs/              — Docs/handbook theme overlay
+  landing/           — Single-page landing theme overlay
+  minimal/           — Minimal headless-friendly theme overlay
 ```
 
 ## Tech Stack
@@ -47,7 +60,7 @@ pnpm changeset        # Create a changeset for versioning
 - Shared TypeScript config in `tsconfig.base.json`, each package extends it
 - Each package has its own `tsup.config.ts` for build configuration
 - Use `@clack/prompts` for CLI interactive prompts (not inquirer)
-- Content is stored as Portable Text (structured JSON)
+- Posts carry a `format` field (`tiptap` / `markdown` / `html` / `static`); the body shape matches the declared format. `tiptap` stores tiptap document JSON; `markdown` / `html` store the source string; `static` stores a manifest pointing at a pre-uploaded bundle in S3.
 - Plugin trust levels: untrusted / trusted / privileged (see ARCHITECTURE.md §4)
 
 ## Changeset Policy
@@ -70,6 +83,11 @@ pnpm changeset        # Create a changeset for versioning
 - Auto-generated files (`CHANGELOG.md`, `.changeset/*.md`) are exempt — they stay single-language (English).
 - Package/template `README.md` files follow the same rule when translations exist; otherwise English-only is acceptable.
 
+## Local Working Notes
+
+- Temporary development notes, review summaries, scratch design docs, and any other local-only handoff files belong under `docs/tmp/`. This directory is gitignored, so contents stay on the contributor's machine and never reach the repo.
+- Use it for personal scratch space or for handing off context to an agent / future-you when the note isn't ready (or isn't intended) to be shared. Promote a note to a regular `docs/` path once it's ready for the repo, and follow the language policy above when you do.
+
 ## AWS / Amplify Specifics
 
 - Amplify Gen 2 (CDK-based, TypeScript)
@@ -87,4 +105,4 @@ pnpm changeset        # Create a changeset for versioning
 
 ## Status
 
-Early development (private repo). Targeting v0.1.0 for initial public release.
+Private repo in closed alpha development. Packages publish to npm under the `alpha` dist-tag from the `main` branch via changesets. The bar for the first public release is **v1.0 RC**: first-party dogfood sites running on ampless, no marketplace required.
