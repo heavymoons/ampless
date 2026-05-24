@@ -122,6 +122,37 @@ export default defineConfig({
 
 同梱の [`amplify.yml`](./amplify.yml) が、connect したブランチへの push のたびに `npx ampx pipeline-deploy`（Amplify バックエンド） + `npm run build`（Next.js）を実行します。
 
+### 方法 1: CLI ワンショット（推奨）
+
+このプロジェクトディレクトリ内で:
+
+```bash
+npx create-ampless@latest --mount \
+  --github-owner <your-user-or-org> \
+  --aws-region <region> \
+  --create-iam-role           # 初回のみ。次回以降は `--iam-service-role <arn>` で使い回し
+```
+
+CLI が以下を一気に実行します:
+
+1. GitHub repo を作成（認証済みの `gh` CLI、`GITHUB_TOKEN` 環境変数、または `--github-token` フラグを利用）
+2. プロジェクトを repo に push
+3. Amplify Hosting アプリ + ブランチ作成、GitHub 連携登録、`amplify.yml` ビルド spec 配置
+4. 初回デプロイ起動
+
+便利な追加フラグ:
+
+- `--github-private` — private repo を作成（デフォルト: public）
+- `--domain <name>` `--subdomain <prefix>` — 同じ流れの中でカスタムドメインをバインド
+- `--skip-confirm` — 非対話モード（CI / 再実行向け）
+- `--aws-profile <name>` — 複数 AWS profile がある場合に明示
+
+全フラグは `npx create-ampless@latest --help` を参照。
+
+事前準備: `aws configure` 済み、`gh auth login` 済み（または `GITHUB_TOKEN` 設定済み）、`AdministratorAccess-Amplify` 付きの IAM service role（`--iam-service-role` を渡さない場合は `--create-iam-role` で `AmplifyDeployBackend` を自動 provision）。
+
+### 方法 2: コンソール（手動）
+
 1. **GitHub（または Amplify Hosting が対応する git ホスト）にこのプロジェクトを push**:
    ```bash
    git init && git add . && git commit -m "init"

@@ -122,6 +122,37 @@ A redeploy is required for plugin changes (the plugin code ships in the Lambda b
 
 The shipped [`amplify.yml`](./amplify.yml) runs `npx ampx pipeline-deploy` (Amplify backend) + `npm run build` (Next.js) on every push to the branch you connect.
 
+### Option 1: CLI one-shot (recommended)
+
+From inside this project directory:
+
+```bash
+npx create-ampless@latest --mount \
+  --github-owner <your-user-or-org> \
+  --aws-region <region> \
+  --create-iam-role           # first time only; reuse `--iam-service-role <arn>` on later mounts
+```
+
+The CLI:
+
+1. Creates a GitHub repo (uses your authenticated `gh` CLI, the `GITHUB_TOKEN` env var, or the `--github-token` flag).
+2. Pushes this project to that repo.
+3. Provisions an Amplify Hosting app + branch, registers the GitHub connection, writes the `amplify.yml` build spec.
+4. Kicks off the first deploy.
+
+Useful extra flags:
+
+- `--github-private` — private repo (default: public)
+- `--domain <name>` `--subdomain <prefix>` — bind a custom domain in the same pass
+- `--skip-confirm` — non-interactive (good for CI / re-runs)
+- `--aws-profile <name>` — explicit AWS profile when you have multiple
+
+See `npx create-ampless@latest --help` for the full list.
+
+Prerequisites: `aws configure` done, `gh auth login` done (or `GITHUB_TOKEN` set), an IAM service role with `AdministratorAccess-Amplify` (`--create-iam-role` provisions one named `AmplifyDeployBackend` if you don't pass `--iam-service-role`).
+
+### Option 2: Console (manual)
+
 1. **Push this project to GitHub** (or another git host Amplify Hosting supports):
    ```bash
    git init && git add . && git commit -m "init"
