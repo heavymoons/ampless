@@ -165,9 +165,9 @@ export interface Config {
   locale?: string
   /**
    * Active plugins. Each entry is the result of a plugin factory call
-   * (e.g. `seoPlugin({ ... })`) or a raw AmplessPlugin object. Strings are
-   * accepted for backward compatibility with the legacy v0 config but are
-   * ignored by the runtime.
+   * (e.g. `seoPlugin({ ... })`) or a raw AmplessPlugin object. Strings
+   * are accepted by the type for tolerance but are ignored by the
+   * runtime — only factory results and plugin objects take effect.
    */
   plugins?: Array<import('./plugin.js').AmplessPlugin | string>
   /**

@@ -36,9 +36,9 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 ドッグフード対象サイトを ampless で立てるために必要な機能を優先順に。粒度ごとに changeset を切り、まとまった単位で v0.x → v0.(x+1) に bump する運用。
 
 #### シングルサイトモデル + エッジキャッシュ（最優先）
-- [x] 1 デプロイ複数ドメイン振り分け（マルチサイトモード）を撤去。1 Amplify デプロイ = 1 サイトに固定（`siteId` カラムは前方互換のため `"default"` 固定で残す）
+- [x] 1 デプロイ複数ドメイン振り分け（マルチサイトモード）を撤去。1 Amplify デプロイ = 1 サイトに固定
+- [x] 内部のルーティング階層をフラット化（ルート相対パスに統一）
 - [ ] CloudFront キャッシュ戦略: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュを活用し Lambda 起動回数を削減（Amplify Hosting の内部 CloudFront は cache key に Host を含めず Cache Policy / Lambda@Edge も触れないため、1 デプロイ = 1 サイトに固定するのが最も素直）
-- [ ] 内部の `/site/[default]/` ルーティング階層をフラット化（ルート相対パスに統一）
 - [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
 
 #### テーマ / 見た目カスタマイズ

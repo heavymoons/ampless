@@ -5,8 +5,8 @@
 //
 // authMode is 'apiKey' because Amplify Gen 2 custom handlers
 // (`a.handler.custom`) don't support `allow.guest()` — only apiKey /
-// userPool / lambda / group / owner. We re-evaluated this in Phase 5;
-// see RUNBOOK.md for the API key rotation runbook.
+// userPool / lambda / group / owner. See RUNBOOK.md for the API key
+// rotation runbook.
 
 import { cookies } from 'next/headers'
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
@@ -33,8 +33,8 @@ export interface PublicPostShape {
   metadata?: unknown
   /**
    * ISO 8601 timestamp from DynamoDB's auto-managed `updatedAt`.
-   * Surfaced through the `PublicPost` projection in v0.2 alpha so
-   * middleware can compute the `metadata.cache='auto'` cooldown.
+   * Surfaced through the `PublicPost` projection so middleware can
+   * compute the `metadata.cache='auto'` cooldown.
    */
   updatedAt?: string | null
 }

@@ -1,6 +1,6 @@
 // Middleware-driven post routing.
 //
-// Public URL surface (after v0.2 alpha URL flatten):
+// Public URL surface:
 //   /                     — home (themed, no rewrite)
 //   /<slug>               — themed post (default), no_layout HTML, or
 //                           static-bundle entrypoint, depending on

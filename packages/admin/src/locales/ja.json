@@ -287,7 +287,6 @@
     "endpointCopy": "コピー",
     "endpointCopied": "コピー済み",
     "endpointMissing": "まだデプロイされていません。`npm run sandbox` を実行するか Amplify Hosting に push してエンドポイント URL をプロビジョニングしてください。",
-    "inertBanner": "注意: エンドポイントはトークン検証を行いますが、ツールディスパッチ (list_posts / create_post など) は v0.2 Phase 4 で実装されます。現在は有効なトークンに対して stub の 200 レスポンスを返します。",
     "createButton": "トークンを作成",
     "createModalTitle": "トークンを作成",
     "scopeLabel": "スコープ",

@@ -22,8 +22,8 @@ interface ThemeListEntry {
  * passed in because the registry lives in the user's project — admin
  * stays agnostic of which themes a project happens to install.
  *
- * The `[siteId]` param is retained on the route signature for the
- * existing internal URL structure; its value isn't used.
+ * The `[siteId]` param appears in the route signature for the
+ * internal URL structure; its value isn't used.
  */
 export function createSiteThemePage(admin: Admin, themeList: ReadonlyArray<ThemeListEntry>) {
   const { cmsConfig, t, locale, loadThemeConfig } = admin

@@ -1,5 +1,5 @@
-// PostTag denormalized index sync — mirrors templates/blog/lib/posts-provider.ts
-// (Phase 4) but talks to AppSync via raw GraphQL instead of generateClient.
+// PostTag denormalized index sync — mirrors the admin posts-provider but
+// talks to AppSync via raw GraphQL instead of generateClient.
 // Each (tag, post) combination becomes one PostTag row keyed by:
 //   PK: tag
 //   SK: `${publishedAt}#${postId}`

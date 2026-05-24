@@ -203,11 +203,6 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
         )}
       </div>
 
-      {/* Inert banner */}
-      <div className="rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-200">
-        {t('mcpTokens.inertBanner')}
-      </div>
-
       {/* Token list */}
       <section className="space-y-3">
         {loading ? (

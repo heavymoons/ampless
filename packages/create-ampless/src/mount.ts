@@ -26,10 +26,9 @@ export function validateMountableProject(destDir: string): string | null {
   return null
 }
 
-// `MOUNT_DEFAULT_GITIGNORE` previously lived here; canonical content
-// has moved to `gitignore.ts` so scaffold + mount share one source of
-// truth. Re-exported under the historical name to avoid breaking any
-// downstream import that snuck in.
+// Canonical `.gitignore` content lives in `gitignore.ts` so scaffold
+// and mount share one source of truth. Re-exported under the
+// `MOUNT_DEFAULT_GITIGNORE` name for downstream importers.
 export { DEFAULT_GITIGNORE as MOUNT_DEFAULT_GITIGNORE } from './gitignore.js'
 
 /**

@@ -394,8 +394,8 @@ export interface AmplessSchemaAuthorizationOpts {
    * destructure `resource` out of their `allow` parameter), so this
    * grant applies broadly — every model the Lambda calls is reachable.
    * That's wider than strictly necessary; the MCP tools' GraphQL
-   * operations narrow the effective surface to Post / PostTag in
-   * Phase 4 and Media in Phase 5.
+   * operations narrow the effective surface to Post / PostTag for
+   * content tools and Media for `upload_media`.
    *
    * Typed as `unknown` for the same reason `userAdminFunction` /
    * `mcpHandlerFunction` are in other helpers — `defineFunction`'s

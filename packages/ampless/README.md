@@ -12,7 +12,7 @@ CMS core library for AWS Amplify.
 `ampless` is the core library that powers the [ampless](https://github.com/heavymoons/ampless) CMS. It exposes:
 
 - `defineConfig()` — the user-facing `cms.config.ts` schema
-- `defineSchema()` — content type definitions (full custom-content-type system in v0.2)
+- `defineSchema()` — content type definitions (full custom-content-type system planned)
 - The `Post` / `Page` / `Media` / `AuthContext` shared types
 - The plugin contract (`definePlugin`, `AmplessPlugin`, hooks, `PluginRuntimeContext`, event types, `escapeXml` / `formatPublicAssetUrl`)
 - A DI-style `setPostsProvider()` that the templates' Amplify-data wrapper plugs into; without one the API serves built-in dummy posts so users can prototype before wiring AWS

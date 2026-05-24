@@ -16,11 +16,9 @@ import type { ParsedArgs } from './args.js'
 /**
  * Directories under `app/` that ampless owns wholesale. Anything
  * present in the user's project at one of these paths but absent from
- * the current `_shared/app/` gets deleted on upgrade — this is how
- * route shells dropped between alpha versions (e.g. the alpha.17
- * `/api/mcp` route after PR #57 retired Cognito-service-user HTTP MCP)
- * get cleaned out so they don't linger and break type-checking against
- * newer `@ampless/admin` exports.
+ * the current `_shared/app/` gets deleted on upgrade — this keeps route
+ * shells we no longer ship from lingering and breaking type-checking
+ * against newer `@ampless/admin` exports.
  *
  * Add a path here the first time ampless scaffolds anything inside
  * it; never remove. The list is the source of truth for "where ampless
@@ -50,7 +48,7 @@ const AMPLESS_MANAGED_APP_PATHS: readonly string[] = [
  * 「ampless が完全に所有していたファイル」のみであることを確認すること。
  */
 const AMPLESS_RETIRED_PATHS: readonly string[] = [
-  // Retired in alpha.20+ along with the in-deploy multi-site drop (PR #93).
+  // Retired alongside the in-deploy multi-site drop.
   'lib/admin-site.ts',
   'lib/admin-site-client.ts',
 ] as const
@@ -516,8 +514,8 @@ export async function runUpgradeIn(
 
   // 6d. Remove app/ files that are no longer in the template. See
   // `AMPLESS_MANAGED_APP_PATHS` — entries get added on first scaffold
-  // and never removed, so this loop catches alpha-to-alpha cleanups
-  // like the PR #57 HTTP MCP route removal.
+  // and never removed, so this loop catches route shells that ampless
+  // no longer ships.
   await removeObsoleteFiles(destDir, obsoleteFiles)
 
   // 7. execute merge package.json
@@ -546,10 +544,9 @@ export async function runUpgradeIn(
   // edit `dev` / `build` / `start` and they survive every upgrade.
   //
   // Iterate the allowlist itself (not the template) so a script that
-  // ampless used to own but has since dropped from the template (e.g.
-  // `sandbox:dev`) gets cleaned out of the user's package.json on the
-  // next upgrade. Without this branch the obsolete key would linger
-  // forever.
+  // ampless once shipped but no longer does (e.g. `sandbox:dev`) gets
+  // cleaned out of the user's package.json on the next upgrade.
+  // Without this branch the obsolete key would linger forever.
   const templateScripts = (templatePkg['scripts'] ?? {}) as Record<string, string>
   const projectScripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
   for (const name of AMPLESS_MANAGED_SCRIPTS) {

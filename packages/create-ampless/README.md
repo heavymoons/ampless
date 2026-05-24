@@ -15,7 +15,7 @@ The wizard walks you through:
 
 1. Project name
 2. Site name (used as the default `<title>` and OGP `siteName`)
-3. Theme — `blog` for v0.1
+3. Theme — pick from the bundled themes (e.g. `blog`)
 4. Plugins — `seo`, `rss`, `webhook`
 
 Output is a Next.js 16 (App Router) project with the AWS Amplify Gen 2 backend definitions, an admin panel at `/admin`, public blog at `/`, the chosen plugins pre-wired in `cms.config.ts`, and a `RUNBOOK.md` for operations notes.

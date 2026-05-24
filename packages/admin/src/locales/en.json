@@ -287,7 +287,6 @@
     "endpointCopy": "Copy",
     "endpointCopied": "Copied",
     "endpointMissing": "Not deployed yet. Run `npm run sandbox` or push to Amplify Hosting to provision the endpoint URL.",
-    "inertBanner": "Heads up: the endpoint validates tokens, but tool dispatch (list_posts / create_post / etc.) lands in v0.2 Phase 4. Valid tokens currently get a stub 200 response.",
     "createButton": "Create token",
     "createModalTitle": "Create token",
     "scopeLabel": "Scope",

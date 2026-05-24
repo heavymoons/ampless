@@ -42,7 +42,7 @@ describe('decodeAwsJson', () => {
     expect(decodeAwsJson(undefined)).toBeUndefined()
   })
 
-  it('falls back to the raw string on invalid JSON (legacy bare-string rows)', () => {
+  it('falls back to the raw string on invalid JSON (bare-string rows)', () => {
     expect(decodeAwsJson('not json')).toBe('not json')
     expect(decodeAwsJson('# hello')).toBe('# hello')
   })

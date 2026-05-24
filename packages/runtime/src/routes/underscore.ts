@@ -54,8 +54,7 @@ export type UnderscoreRouteHandler = (req: Request, ctx: Ctx) => Promise<Respons
 export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteHandler {
   // createServerRunner is expensive (parses outputs, builds resource
   // configs); cache once per process. The route handler closure keeps
-  // a reference so cold-start cost is paid once. Same model as the
-  // legacy static route handler.
+  // a reference so cold-start cost is paid once.
   const { runWithAmplifyServerContext } = createServerRunner({
     config: ampless.outputs as Parameters<typeof createServerRunner>[0]['config'],
   })
@@ -120,7 +119,7 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
     }
 
     // Reject traversal / null bytes / cross-segment slashes — same
-    // hardening as /api/media/[...path] and the legacy static route.
+    // hardening as /api/media/[...path].
     if (
       restSegments.some(
         (s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\') || s.includes('\0'),
@@ -135,7 +134,7 @@ export function createUnderscoreRouteHandler(ampless: Ampless): UnderscoreRouteH
 
     // Cheap pre-flight: if the manifest knows the file list and the
     // requested file isn't in it, skip the S3 round-trip. Empty file
-    // lists (legacy / partial uploads) bypass this and try S3 anyway.
+    // lists (partial uploads) bypass this and try S3 anyway.
     if (fileList.length > 0 && !fileList.includes(rest)) {
       return new Response('Not Found', { status: 404 })
     }

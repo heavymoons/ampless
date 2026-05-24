@@ -31,9 +31,9 @@ return rows where `status === 'published'`.
 
 Amplify Gen 2 `a.handler.custom` resolvers don't support `allow.guest()`
 or `allow.authenticated('identityPool')` — only apiKey / userPool /
-lambda / group / owner. v0.1 chose API key for simplicity; switching
-the public reads to a Lambda function data source (`a.handler.function`)
-is a v0.2 candidate.
+lambda / group / owner. ampless uses the API key for simplicity;
+moving the public reads to a Lambda function data source
+(`a.handler.function`) is a future option.
 
 ### Auto-renewal — no rotation runbook required
 
@@ -101,8 +101,8 @@ The `/login` page also has a self-service "Forgot password?" flow.
 
 ### Restore from a Post-table backup
 
-DynamoDB Point-in-Time Recovery is **not** enabled by `defineData` in
-v0.1; turn it on manually via AWS Console → DynamoDB → Tables →
+DynamoDB Point-in-Time Recovery is **not** enabled by `defineData`;
+turn it on manually via AWS Console → DynamoDB → Tables →
 `<your post table>` → Backups → Edit PITR. Once enabled, restoration
 takes the form `aws dynamodb restore-table-to-point-in-time` to a new
 table; you'll need to migrate items back to the live table afterwards.
@@ -112,8 +112,9 @@ table; you'll need to migrate items back to the live table afterwards.
 Failed processor invocations land in the shared events DLQ created in
 `amplify/backend.ts` (`EventsDlq`). View messages via the SQS console
 or `aws sqs receive-message --queue-url <dlq-url> --max-number-of-messages 10`.
-There's no automated alarm in v0.1 — periodic manual checks recommended,
-or wire up a CloudWatch alarm on `ApproximateNumberOfMessagesVisible`.
+ampless doesn't ship an automated alarm out of the box — periodic
+manual checks are recommended, or wire up a CloudWatch alarm on
+`ApproximateNumberOfMessagesVisible`.
 
 ## Custom domains
 

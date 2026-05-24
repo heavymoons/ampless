@@ -3,7 +3,7 @@
 
 /**
  * Build the public S3 URL for an object key, in the regional virtual-host
- * style: `https://{bucket}.s3.{region}.amazonaws.com/{key}`. The legacy
+ * style: `https://{bucket}.s3.{region}.amazonaws.com/{key}`. The
  * non-regional form (`s3.amazonaws.com`) issues redirects and is avoided.
  */
 export function formatPublicAssetUrl(

@@ -2,8 +2,8 @@
 // that want to embed admin form components (post-form, site-settings-form,
 // theme-settings-form, media-uploader) outside the bundled admin pages.
 // Most consumers don't need this — the `@ampless/admin/pages` factories
-// already wire everything up. Surfaces stay minimal so the public API
-// surface for v0.1 stays small and overridable later.
+// already wire everything up. The exported surface stays intentionally
+// minimal so the public API can grow conservatively over time.
 
 export { I18nProvider, useT, useLocale } from './i18n-provider.js'
 export { AdminProviders } from './admin-providers.js'

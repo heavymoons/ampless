@@ -30,7 +30,6 @@ The `format` field declares the format explicitly.
 
 ```json
 {
-  "siteId": "default",
   "postId": "post-001",
   "title": "Post title",
   "format": "tiptap",
@@ -43,7 +42,7 @@ The `format` field declares the format explicitly.
 |--------|--------------|---------------|
 | `tiptap` | tiptap JSON | WYSIWYG editor users |
 | `markdown` | Markdown string | Developers, git push workflow |
-| `html` | HTML string | WordPress migrants, legacy content |
+| `html` | HTML string | WordPress migrants, imported HTML content |
 
 #### Derived formats — cached in S3
 
@@ -80,9 +79,7 @@ Conversions may be lossy and require user confirmation before proceeding.
 
 One Amplify deployment = one site. To run multiple sites, deploy separate Amplify environments.
 
-The schema keeps a `siteId` column, but the value is always the literal `"default"` and is otherwise meaningless today — it's a forward-compat hook in case multi-site is ever re-introduced.
-
-An in-deploy multi-site mode existed previously (one deployment serving multiple domains via middleware host routing). It was removed because Amplify Hosting's CloudFront cache key doesn't include Host, so SSR responses could not be safely cached at the edge and the middleware had to force `Cache-Control: private, no-store`. The edge-cache cost on the read path turned out to be larger than the operational cost of deploying per-site (which every operator was already doing).
+This keeps the read path cacheable at the edge. Amplify Hosting's CloudFront cache key doesn't include Host, so a deployment that serves multiple domains can't safely cache SSR responses and has to force `Cache-Control: private, no-store`. Deploying per-site avoids that trade-off entirely.
 
 ### Media Management
 

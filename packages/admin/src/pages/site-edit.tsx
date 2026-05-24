@@ -15,8 +15,7 @@ interface Props {
  * directly to KvStore via the AppSync client; no Server Action needed.
  *
  * ampless runs one site per Amplify deployment. The route still takes a
- * `[siteId]` param for forward-compat with the existing URL structure,
- * but the value isn't used — a follow-up PR flattens the URL.
+ * `[siteId]` param in the URL structure, but the value isn't used.
  */
 export function createSiteEditPage(admin: Admin) {
   const { cmsConfig, t, loadSiteSettings } = admin

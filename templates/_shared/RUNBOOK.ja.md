@@ -24,7 +24,7 @@ ampless で構築したサイトで、ときどき必要になる運用作業の
 
 ### なぜ API キーなのか（Identity Pool ゲストロールではなく）？
 
-Amplify Gen 2 の `a.handler.custom` リゾルバーは `allow.guest()` や `allow.authenticated('identityPool')` をサポートしておらず、apiKey / userPool / lambda / group / owner のみが使用可能です。v0.1 では簡潔さを優先して API キーを選択しました。パブリック読み取りを Lambda 関数データソース（`a.handler.function`）に移行することは v0.2 の候補です。
+Amplify Gen 2 の `a.handler.custom` リゾルバーは `allow.guest()` や `allow.authenticated('identityPool')` をサポートしておらず、apiKey / userPool / lambda / group / owner のみが使用可能です。ampless では簡潔さを優先して API キーを選択しています。パブリック読み取りを Lambda 関数データソース（`a.handler.function`）に移行することは将来の選択肢です。
 
 ### 自動更新 — ローテーション手順は不要
 
@@ -87,11 +87,11 @@ aws cognito-idp admin-set-user-password \
 
 ### Post テーブルのバックアップからの復元
 
-DynamoDB のポイントインタイムリカバリ（PITR）は v0.1 の `defineData` では有効になっていません。AWS コンソール → DynamoDB → Tables → `<投稿テーブル名>` → Backups → Edit PITR から手動で有効化してください。有効化後は `aws dynamodb restore-table-to-point-in-time` で新しいテーブルに復元し、その後アイテムをライブテーブルに移行する作業が必要です。
+DynamoDB のポイントインタイムリカバリ（PITR）は `defineData` では有効になっていません。AWS コンソール → DynamoDB → Tables → `<投稿テーブル名>` → Backups → Edit PITR から手動で有効化してください。有効化後は `aws dynamodb restore-table-to-point-in-time` で新しいテーブルに復元し、その後アイテムをライブテーブルに移行する作業が必要です。
 
 ### 失敗したプラグインイベントの確認
 
-処理に失敗したプロセッサー呼び出しは、`amplify/backend.ts` で作成された共有イベント DLQ（`EventsDlq`）に送られます。SQS コンソールまたは `aws sqs receive-message --queue-url <dlq-url> --max-number-of-messages 10` でメッセージを確認してください。v0.1 には自動アラームがないため、定期的な手動確認を推奨します。あるいは `ApproximateNumberOfMessagesVisible` に CloudWatch アラームを設定してください。
+処理に失敗したプロセッサー呼び出しは、`amplify/backend.ts` で作成された共有イベント DLQ（`EventsDlq`）に送られます。SQS コンソールまたは `aws sqs receive-message --queue-url <dlq-url> --max-number-of-messages 10` でメッセージを確認してください。ampless にはデフォルトの自動アラームがないため、定期的な手動確認を推奨します。あるいは `ApproximateNumberOfMessagesVisible` に CloudWatch アラームを設定してください。
 
 ## カスタムドメイン
 
