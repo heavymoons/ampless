@@ -1,5 +1,12 @@
 # @ampless/backend
 
+## 1.0.0-alpha.25
+
+### Patch Changes
+
+- Updated dependencies [ee86dfd]
+  - @ampless/mcp-server@1.0.0-alpha.15
+
 ## 1.0.0-alpha.24
 
 ### Patch Changes
