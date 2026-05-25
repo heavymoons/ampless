@@ -282,13 +282,15 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
       actions: ['s3:PutObject', 's3:DeleteObject'],
       resources: [
         `${backend.storage.resources.bucket.bucketArn}/public/plugins/*`,
-        // Built-in cache: rebuildSiteSettingsCache writes the per-site
-        // JSON the public site reads. Without this entry the
-        // `site.settings.updated` handler S3 PutObject call fails
-        // silently (CloudWatch shows AccessDenied; the public site never
-        // sees theme.active overrides because the cache file never
-        // appears).
-        `${backend.storage.resources.bucket.bucketArn}/public/site-settings/*`,
+        // Built-in cache: rebuildSiteSettingsCache writes the single
+        // JSON file the public site reads. Exact-match resource —
+        // historically this was `public/site-settings/<siteId>.json`
+        // (multi-site era) and the wildcard pattern that worked then
+        // (`public/site-settings/*`) does NOT match the current
+        // single-file key `public/site-settings.json`. Wrong pattern
+        // fails the PutObject silently with AccessDenied, so the
+        // public site never sees admin-side theme / settings changes.
+        `${backend.storage.resources.bucket.bucketArn}/public/site-settings.json`,
       ],
     })
   )
