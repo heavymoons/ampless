@@ -35,7 +35,7 @@ templates/
 
 ## 技術スタック
 
-- **ランタイム:** Node.js >= 20
+- **ランタイム:** Node.js >= 22.13 (pnpm 11 が要求)
 - **言語:** TypeScript (ESM のみ)
 - **パッケージマネージャ:** pnpm (workspaces)
 - **ビルド:** tsup (パッケージごと)
