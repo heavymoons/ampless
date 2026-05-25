@@ -41,7 +41,7 @@ export default defineConfig({
 
 ## 動作要件
 
-- Node.js >= 20
+- Node.js >= 22
 - AWS Amplify Gen 2
 
 ## ライセンス
