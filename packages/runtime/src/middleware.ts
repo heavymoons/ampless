@@ -14,14 +14,21 @@
 // caches it in module scope (Lambda warm cache), and rewrites to the
 // appropriate internal handler:
 //
-//   themed                → no rewrite, served by app/[slug]/page.tsx
-//   no_layout HTML / static → /r/<slug>(/<path>), served by the unified
-//                             route handler at app/r/[slug]/[[...path]]/route.ts
+//   themed            → no rewrite, served by app/[slug]/page.tsx
+//   no_layout HTML    → /raw/<slug>, served by app/raw/[slug]/route.ts
+//   static bundle     → /static/<slug>(/<path>), served by
+//                       app/static/[slug]/[[...path]]/route.ts
 //
-// The `r/` segment is a Next.js implementation detail — the literal
-// folder is `r/` not `_/` because the App Router skips any path part
-// starting with `_` during route discovery. The browser URL stays
-// `/<slug>(/<path>)` throughout.
+// `raw` and `static` are Next.js implementation details — the
+// literal folders need a name that doesn't start with `_` (the App
+// Router skips any path part starting with `_` during route
+// discovery). The browser URL stays `/<slug>(/<path>)` throughout.
+//
+// Side effect: the two internal folder names are reserved — a user
+// post with slug `raw` or `static` would collide with the internal
+// rewrite target. Both names are added to `RESERVED_PREFIXES` so
+// middleware short-circuits before the lookup, and direct hits on
+// `/raw` or `/static` 404 instead of leaking the wrong content.
 //
 // Cache-Control is computed from `post.metadata.cache` (auto/deep/hot)
 // + `post.updatedAt` + `cms.config.cache.*` and set on the response.
@@ -238,8 +245,9 @@ const RESERVED_PREFIXES = new Set<string>([
   'sitemap.xml',
   'og',
   'tag',
-  // internal rewrite target — direct hits should not be middleware-driven
-  'r',
+  // internal rewrite targets — direct hits should not be middleware-driven
+  'raw',
+  'static',
 ])
 
 /**
@@ -248,10 +256,11 @@ const RESERVED_PREFIXES = new Set<string>([
  *  - AppSync flag fetch (`format` / `metadata` / `updatedAt`) per
  *    slug, with a 200-entry LRU keyed by slug, 60s TTL. Hot slugs
  *    cost zero queries for the cache lifetime.
- *  - Rewrite to `/r/<slug>(/<path>)` when the post is no_layout HTML
- *    (`format=html` + `metadata.no_layout=true`) or a static bundle
- *    (`format='static'`). Themed posts (default) get no rewrite —
- *    `app/[slug]/page.tsx` serves them directly.
+ *  - Rewrite to `/raw/<slug>` when the post is no_layout HTML
+ *    (`format=html` + `metadata.no_layout=true`).
+ *  - Rewrite to `/static/<slug>(/<path>)` when the post is a static
+ *    bundle (`format='static'`). Themed posts (default) get no
+ *    rewrite — `app/[slug]/page.tsx` serves them directly.
  *  - `Cache-Control` header computed from `post.metadata.cache` +
  *    `post.updatedAt` + `cms.config.cache.*` and set on the response.
  *  - `?previewTheme` / `?previewColorScheme` → `x-preview-theme` /
@@ -309,16 +318,16 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
     let response: NextResponse
     if (restPath.length === 0) {
       // Single-segment `/<slug>`. Three sub-cases:
-      //   - no_layout HTML  → rewrite to /r/<slug>
-      //   - static bundle   → rewrite to /r/<slug>
+      //   - no_layout HTML  → rewrite to /raw/<slug>
+      //   - static bundle   → rewrite to /static/<slug>
       //   - anything else   → themed render
       if (flags.format === 'html' && flags.metadata?.no_layout === true) {
-        url.pathname = `/r/${slug}`
+        url.pathname = `/raw/${slug}`
         response = NextResponse.rewrite(url, {
           request: { headers: requestHeaders },
         })
       } else if (flags.format === 'static') {
-        url.pathname = `/r/${slug}`
+        url.pathname = `/static/${slug}`
         response = NextResponse.rewrite(url, {
           request: { headers: requestHeaders },
         })
@@ -329,7 +338,7 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
       // Multi-segment `/<slug>/<path>`. Only static bundles are
       // legitimate here — themed posts have no sub-paths.
       if (flags.format === 'static') {
-        url.pathname = `/r/${slug}/${restPath.join('/')}`
+        url.pathname = `/static/${slug}/${restPath.join('/')}`
         response = NextResponse.rewrite(url, {
           request: { headers: requestHeaders },
         })

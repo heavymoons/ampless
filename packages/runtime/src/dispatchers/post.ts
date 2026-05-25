@@ -25,10 +25,10 @@ export type ThemePostMetadata = (props: Props) => Promise<Metadata>
  * in middleware. Middleware fetches `post.format` / `post.metadata` /
  * `post.updatedAt` from AppSync once per slug (Lambda-memory LRU, 60s
  * TTL) and rewrites the request to either this dispatcher (themed
- * render) or the unified route handler at `/r/<slug>(/...)` (no_layout
- * HTML or static bundle). That keeps the decision in one place and
- * avoids the dispatcher's extra AppSync round-trip when the post is a
- * themed render.
+ * render), `/raw/<slug>` (no_layout HTML), or `/static/<slug>(/...)`
+ * (static bundle). That keeps the decision in one place and avoids the
+ * dispatcher's extra AppSync round-trip when the post is a themed
+ * render.
  *
  * If the theme doesn't declare a Post component at all, returns
  * Next.js's notFound() (404).

@@ -36,7 +36,8 @@ project/
     tag/[tag]/page.tsx   # tag dispatcher
     feed.xml/route.ts    # feed dispatcher
     sitemap.xml/route.ts # sitemap dispatcher
-    r/[slug]/[[...path]]/route.ts  # internal: no_layout HTML + static bundles (middleware rewrite target)
+    raw/[slug]/route.ts            # internal: no_layout HTML (middleware rewrite target)
+    static/[slug]/[[...path]]/route.ts  # internal: static bundles (middleware rewrite target)
     layout.tsx           # sets <body data-theme={active}>
     globals.css          # default tokens + Tailwind base
     (admin)/             # admin app — theme-agnostic
@@ -48,8 +49,8 @@ project/
 
 1. The middleware (proxy) fetches `post.format` / `post.metadata` /
    `post.updatedAt` from AppSync for the requested slug. Themed posts
-   pass through; no_layout HTML and static bundles are rewritten to
-   `/r/<slug>(/<path>)`.
+   pass through; no_layout HTML is rewritten to `/raw/<slug>`, and
+   static bundles to `/static/<slug>(/<path>)`.
 2. The dispatcher (`app/[slug]/page.tsx`) reads `theme.active` from
    the S3 site-settings cache.
 3. The active theme module is looked up in `themes-registry.ts`, and
