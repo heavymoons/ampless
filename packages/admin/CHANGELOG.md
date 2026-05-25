@@ -1,5 +1,12 @@
 # @ampless/admin
 
+## 1.0.0-alpha.31
+
+### Patch Changes
+
+- Updated dependencies [cd92536]
+  - @ampless/runtime@1.0.0-alpha.17
+
 ## 1.0.0-alpha.30
 
 ### Patch Changes
