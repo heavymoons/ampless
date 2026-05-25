@@ -263,6 +263,12 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // the cache to S3 on update events). No write needed — settings are
   // written from the admin UI via AppSync.
   kvTable.grantReadData(trustedFn)
+  // PostTag: trusted processor owns the denormalized (tag × post)
+  // index, rebuilt from the Post stream on every mutation. Write
+  // access only — the public side reads via AppSync's listPostsByTag
+  // resolver against the same table.
+  const postTagTable = backend.data.resources.tables['PostTag']
+  postTagTable.grantWriteData(trustedFn)
   // S3 grant is bucket-wide for `public/plugins/*` rather than per-plugin
   // prefix. Rationale:
   //   1. Trusted plugins are first-party only (see ARCHITECTURE.md §4),
@@ -297,6 +303,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   trustedFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
   trustedFn.addEnvironment('AMPLESS_POST_TABLE', postTable.tableName)
   trustedFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
+  trustedFn.addEnvironment('AMPLESS_POSTTAG_TABLE', postTagTable.tableName)
 
   // 6. Untrusted processor: SQS only, zero AWS data permissions.
   const untrustedFn = backend.processorUntrusted.resources.lambda

@@ -5,7 +5,12 @@ import {
   SendMessageBatchCommand,
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs'
-import { detectContentEvents, type ContentEventType } from 'ampless'
+import {
+  detectContentEvents,
+  type ContentEventPayload,
+  type ContentEventType,
+  type PostIndexEventPayload,
+} from 'ampless'
 
 // Fail fast at cold-start if required env vars are missing — cheaper than
 // debugging cryptic SQS-not-found errors per invocation.
@@ -33,7 +38,10 @@ interface RawKvItem {
   sk?: string
 }
 
-type AmplessEventType = ContentEventType | 'site.settings.updated'
+type AmplessEventType =
+  | ContentEventType
+  | 'site.settings.updated'
+  | 'post.index.refresh'
 
 interface AmplessEvent {
   type: AmplessEventType
@@ -53,6 +61,18 @@ function tableNameFromArn(arn: string | undefined): string | null {
   return match ? match[1]! : null
 }
 
+function projectPost(raw: RawPost): ContentEventPayload | null {
+  if (!raw || !raw.postId || !raw.slug || !raw.title) return null
+  return {
+    postId: raw.postId,
+    slug: raw.slug,
+    title: raw.title,
+    status: (raw.status ?? 'draft') as ContentEventPayload['status'],
+    publishedAt: raw.publishedAt,
+    tags: raw.tags,
+  }
+}
+
 function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[] {
   const oldItem = record.dynamodb?.OldImage
     ? (unmarshall(record.dynamodb.OldImage as never) as RawPost)
@@ -61,12 +81,31 @@ function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEv
     ? (unmarshall(record.dynamodb.NewImage as never) as RawPost)
     : null
 
+  const events: AmplessEvent[] = []
+
+  // post.index.refresh: emitted on every Post mutation so the trusted
+  // processor can keep the denormalized PostTag index in sync. Carries
+  // both the previous and the next projection so the consumer doesn't
+  // need to read DynamoDB to compute the diff. Independent of the
+  // content.* events below — those are status-transition signals for
+  // plugins, this is an index-maintenance signal.
+  const previous = oldItem ? projectPost(oldItem) : null
+  const next = newItem ? projectPost(newItem) : null
+  if (previous || next) {
+    const indexPayload: PostIndexEventPayload = { previous, next }
+    events.push({
+      type: 'post.index.refresh',
+      payload: indexPayload as unknown as Record<string, unknown>,
+      timestamp,
+    })
+  }
+
   const types = detectContentEvents({
     eventName: record.eventName,
     oldStatus: oldItem?.status,
     newStatus: newItem?.status,
   })
-  if (types.length === 0) return []
+  if (types.length === 0) return events
 
   const item = newItem ?? oldItem ?? {}
   // Trim to the published event payload — drop body/format etc. to keep
@@ -79,7 +118,10 @@ function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEv
     publishedAt: item.publishedAt,
     tags: item.tags,
   }
-  return types.map((type) => ({ type, payload, timestamp }))
+  for (const type of types) {
+    events.push({ type, payload, timestamp })
+  }
+  return events
 }
 
 function emitKvEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[] {

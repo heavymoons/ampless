@@ -71,6 +71,14 @@ after フックは DynamoDB Streams + SQS を使い、
 | `user.login` | ログイン時 |
 | `user.created` | ユーザー作成時 |
 
+#### インデックス保守系
+
+| イベント | タイミング | ペイロード |
+|---------|-----------|-----------|
+| `post.index.refresh` | Post への任意の変更（INSERT / MODIFY / REMOVE） | `{ previous, next }` の content-event 射影。MODIFY では両方、INSERT では `previous` が null、REMOVE では `next` が null |
+
+`post.index.refresh` は trusted processor の built-in ハンドラー `rebuildPostTagsForPost` が処理し、前後の射影から（tag × `publishedAt#postId`）の差分を計算して直接 DynamoDB Put / Delete で `PostTag` 非正規化テーブルに反映します。これをイベントパイプラインに集約することで、書き込み経路（admin、MCP、将来の REST クライアント）は同期ヘルパーを呼ぶ必要がなくなり、Post を書けば Stream 経由で PostTag が自動的に追随します。ユーザープラグインも同じイベントを購読することでカスタムインデックス（検索、タグ別 sitemap など）を維持できます。
+
 ### フックの種類
 
 | フック | 実行方式 | 実行場所 | 用途 |

@@ -70,6 +70,14 @@ Concrete functionality such as social media posting is not built into the core; 
 | `user.login` | User login |
 | `user.created` | User created |
 
+#### Index-maintenance Events
+
+| Event | Trigger | Payload |
+|-------|---------|---------|
+| `post.index.refresh` | Any Post mutation (INSERT / MODIFY / REMOVE) | `{ previous, next }` content-event projections — both populated on MODIFY, `previous` null on INSERT, `next` null on REMOVE |
+
+`post.index.refresh` is consumed by the built-in `rebuildPostTagsForPost` handler in the trusted processor: it computes the (tag × `publishedAt#postId`) diff between the two projections and applies it to the denormalized `PostTag` table via direct DynamoDB Put / Delete. Centralising this in the event pipeline means write paths (admin, MCP, future REST clients) don't need to call a sync helper — every Post write that hits DynamoDB automatically triggers the corresponding PostTag refresh over the Stream. The same event is also exposed to user plugins for custom index maintenance (search, sitemaps with per-tag pages, etc.).
+
 ### Hook Types
 
 | Hook | Execution | Location | Use cases |

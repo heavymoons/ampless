@@ -51,18 +51,12 @@ function makeGraphql(getResult: unknown, mutateResult: unknown): {
         if (op.includes('listPosts')) {
           return listPostsResponse
         }
-        // After create/update we typically want to follow up with
-        // PostTag mutations — they go via the same client. Return a
-        // success-shaped object so syncPostTags doesn't blow up.
         if (op.includes('createPost')) {
           listPostsResponse = { listPosts: { items: [(mutateResult as { createPost: unknown }).createPost] } }
           return mutateResult
         }
         if (op.includes('updatePost')) {
           return mutateResult
-        }
-        if (op.includes('PostTag')) {
-          return {}
         }
         return {}
       },

@@ -5,8 +5,6 @@ import {
 } from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
-import { syncPostTags } from '../posttag.js'
-import { getPost } from './get-post.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -75,9 +73,6 @@ export async function updatePost(
   client: GraphqlClient,
   args: UpdatePostArgs
 ): Promise<Post> {
-  // Snapshot the old post so PostTag diff is correct.
-  const oldPost = await getPost(client, { postId: args.postId })
-
   const input: Record<string, unknown> = { postId: args.postId }
   if (args.slug !== undefined) input.slug = args.slug
   if (args.title !== undefined) input.title = args.title
@@ -93,7 +88,8 @@ export async function updatePost(
     updatePost: Parameters<typeof toCorePost>[0]
   }>(MUTATION, { input })
 
-  const updated = toCorePost(data.updatePost)
-  await syncPostTags(client, updated, oldPost)
-  return updated
+  // PostTag denormalized index is rebuilt by the trusted-processor
+  // Lambda from the Post DynamoDB stream — the post write here is
+  // enough to trigger it, no need to snapshot the old post first.
+  return toCorePost(data.updatePost)
 }
