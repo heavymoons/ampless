@@ -75,6 +75,14 @@ export interface Admin {
   // settings / theme passthroughs (require `ampless` opt; throw otherwise).
   loadSiteSettings(): Promise<EffectiveSiteSettings>
   loadThemeConfig(): Promise<EffectiveThemeConfig>
+  /**
+   * Fresh read of `theme.active` from the S3 site-settings cache,
+   * bypassing the Next.js fetch cache. Used by the theme-switch
+   * flow to poll until the trusted processor has propagated the
+   * KvStore write so the post-switch hard reload doesn't race the
+   * S3 rebuild.
+   */
+  readStoredActiveThemeFresh(): Promise<string | null>
 
   // media
   publicMediaUrl(input: string): string
@@ -149,6 +157,8 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
 
     loadSiteSettings: async () => (await resolveAmpless()).loadSiteSettings(),
     loadThemeConfig: async () => (await resolveAmpless()).loadThemeConfig(),
+    readStoredActiveThemeFresh: async () =>
+      (await resolveAmpless()).readStoredActiveThemeFresh(),
 
     publicMediaUrl: media.publicMediaUrl,
 

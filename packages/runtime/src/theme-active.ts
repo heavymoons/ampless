@@ -16,23 +16,49 @@ export interface ResolvedTheme {
 
 export interface ThemeActiveApi {
   resolveActiveTheme(): Promise<ResolvedTheme>
+  /**
+   * Read the stored `theme.active` value directly from the S3 cache
+   * with `cache: 'no-store'` — bypassing Next.js's fetch cache and
+   * any tag-based revalidation. Returns the raw stored name (which
+   * may be a theme that isn't in the registry) or `null` when the
+   * S3 file is missing / unreadable.
+   *
+   * Used by the admin theme-switch flow to poll until the trusted
+   * processor has propagated a KvStore write to S3, so the post-
+   * switch hard reload doesn't race the cache rebuild.
+   */
+  readStoredActiveThemeFresh(): Promise<string | null>
 }
 
 export function createThemeActive(
   registry: ThemesRegistry,
   storage: StorageApi
 ): ThemeActiveApi {
-  async function fetchActiveFromCache(): Promise<string | null> {
+  function settingsUrl(): string | null {
     if (!storage.isStorageConfigured()) return null
-    let url: string
     try {
-      url = storage.publicAssetUrl('public/site-settings.json')
+      return storage.publicAssetUrl('public/site-settings.json')
     } catch {
       return null
     }
+  }
+
+  async function fetchActiveFromCache(): Promise<string | null> {
+    const url = settingsUrl()
+    if (!url) return null
     const res = await fetch(url, {
       next: { revalidate: 60, tags: ['site-settings'] },
     })
+    if (!res.ok) return null
+    const flat = (await res.json()) as Record<string, unknown>
+    const v = flat['theme.active']
+    return typeof v === 'string' ? v : null
+  }
+
+  async function fetchActiveFresh(): Promise<string | null> {
+    const url = settingsUrl()
+    if (!url) return null
+    const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) return null
     const flat = (await res.json()) as Record<string, unknown>
     const v = flat['theme.active']
@@ -51,6 +77,8 @@ export function createThemeActive(
    * theme without committing the switch.
    */
   return {
+    readStoredActiveThemeFresh: () => fetchActiveFresh(),
+
     async resolveActiveTheme(): Promise<ResolvedTheme> {
       // Try to read the preview override from the request headers. Wrapped
       // in try/catch so non-request contexts (e.g. event handlers) don't
