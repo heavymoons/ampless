@@ -29,6 +29,7 @@ export interface ToolDefinition {
   description: string
   inputSchema: Record<string, unknown>
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>
+  destructive?: boolean
 }
 
 export const tools: ToolDefinition[] = [
@@ -69,6 +70,7 @@ export const tools: ToolDefinition[] = [
     inputSchema: deletePostSchema,
     handler: (args, ctx) =>
       deletePost(ctx.graphql, args as unknown as Parameters<typeof deletePost>[1]),
+    destructive: true,
   },
   {
     name: 'upload_media',
@@ -96,6 +98,7 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof uploadStaticBundle>[2],
       ),
+    destructive: true,
   },
   {
     name: 'upload_static_file',
@@ -118,6 +121,7 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof deleteStaticFile>[1],
       ),
+    destructive: true,
   },
   {
     name: 'commit_static_post',

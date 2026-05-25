@@ -130,8 +130,13 @@ If you're letting the AI generate post bodies, asking for markdown is usually ea
 ampless-mcp [options]
 
   --outputs <path>        Path to amplify_outputs.json (also AMPLESS_MCP_OUTPUTS)
+  --site-name <name>      Site display name for context (also AMPLESS_MCP_SITE_NAME; e.g. "mysite.net")
+  --site-url <url>        Site URL included in tool results (also AMPLESS_MCP_SITE_URL; optional)
+  --environment <env>     Deployment environment: prod | stg | dev (also AMPLESS_MCP_ENVIRONMENT; default "dev")
   --site-id <id>          Default siteId for queries (also AMPLESS_MCP_SITE_ID; default "default")
 ```
+
+When `--site-name` is set, the server name shown in MCP clients includes the site and environment (e.g. `@ampless/mcp-server [mysite.net/prod]`), tool descriptions are prefixed with `[mysite.net / prod]`, and results are wrapped in `{ site, result }`. Destructive tools (`delete_post`, `delete_static_file`, `upload_static_bundle`) require a `confirmSite` argument equal to the site name when `--environment prod` is set.
 
 Required env:
 
