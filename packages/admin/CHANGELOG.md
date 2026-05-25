@@ -1,5 +1,14 @@
 # @ampless/admin
 
+## 1.0.0-alpha.32
+
+### Patch Changes
+
+- Updated dependencies [2fba341]
+  - ampless@1.0.0-alpha.13
+  - @ampless/mcp-server@1.0.0-alpha.14
+  - @ampless/runtime@1.0.0-alpha.18
+
 ## 1.0.0-alpha.31
 
 ### Patch Changes
