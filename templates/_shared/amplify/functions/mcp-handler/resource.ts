@@ -3,6 +3,7 @@ import { defineFunction } from '@aws-amplify/backend'
 export const mcpHandler = defineFunction({
   name: 'mcp-handler',
   entry: './handler.ts',
+  runtime: 22,
   // Co-locate with the data stack so the function has the KvStore
   // table ARN available without cross-stack references at synth time.
   resourceGroupName: 'data',

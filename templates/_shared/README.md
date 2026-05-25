@@ -10,7 +10,7 @@ If you use an AI coding agent (Claude Code, Cursor, Codex, etc.) on this project
 
 ## Requirements
 
-- **Node.js 20+** and **npm**.
+- **Node.js 22+** and **npm**.
 - **AWS account.** Install the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then `aws configure` to set credentials + default region. The sandbox + production both deploy real AWS resources.
 - **GitHub account** for production hosting via AWS Amplify Hosting. The CLI deploy flow ([below](#option-1-cli-one-shot-recommended)) also needs the [`gh` CLI](https://cli.github.com/) authenticated via `gh auth login` (or a `GITHUB_TOKEN` env var with `repo` scope). The manual console flow doesn't need `gh`.
 

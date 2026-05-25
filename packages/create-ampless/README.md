@@ -69,7 +69,7 @@ If the apex domain is hosted in Route 53 in the same AWS account, Amplify will a
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22
 - AWS account + `aws configure` already set up (sandbox / pipeline-deploy talk to AWS directly)
 
 ## License
