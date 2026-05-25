@@ -1,6 +1,9 @@
 // Internal types shared across mcp-server modules.
 // Public types are re-exported from src/index.ts.
 
+import type { ResolvedSite } from './site.js'
+export type { ResolvedSite }
+
 export interface AmplifyOutputs {
   auth: {
     user_pool_id: string
@@ -24,6 +27,7 @@ export interface ResolvedConfig {
   outputs: AmplifyOutputs
   email: string
   password: string
+  site?: ResolvedSite
 }
 
 export interface AuthSession {

@@ -1,9 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { AmplifyOutputs, ResolvedConfig } from './types.js'
+import type { ResolvedSite } from './site.js'
 
 interface ParsedArgs {
   outputs?: string
+  siteName?: string
+  siteUrl?: string
+  environment?: string
+  siteId?: string
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -14,6 +19,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.outputs = argv[++i]
     } else if (arg.startsWith('--outputs=')) {
       out.outputs = arg.slice('--outputs='.length)
+    } else if (arg === '--site-name') {
+      out.siteName = argv[++i]
+    } else if (arg.startsWith('--site-name=')) {
+      out.siteName = arg.slice('--site-name='.length)
+    } else if (arg === '--site-url') {
+      out.siteUrl = argv[++i]
+    } else if (arg.startsWith('--site-url=')) {
+      out.siteUrl = arg.slice('--site-url='.length)
+    } else if (arg === '--environment') {
+      out.environment = argv[++i]
+    } else if (arg.startsWith('--environment=')) {
+      out.environment = arg.slice('--environment='.length)
+    } else if (arg === '--site-id') {
+      out.siteId = argv[++i]
+    } else if (arg.startsWith('--site-id=')) {
+      out.siteId = arg.slice('--site-id='.length)
     }
   }
   return out
@@ -56,9 +77,27 @@ export async function loadConfig(argv: string[] = process.argv.slice(2)): Promis
     throw new Error('mcp-server: outputs.data.url missing')
   }
 
+  const siteName = args.siteName ?? process.env.AMPLESS_MCP_SITE_NAME
+  let site: ResolvedSite | undefined
+  if (siteName) {
+    const rawEnv = args.environment ?? process.env.AMPLESS_MCP_ENVIRONMENT ?? 'dev'
+    if (rawEnv !== 'prod' && rawEnv !== 'stg' && rawEnv !== 'dev') {
+      throw new Error(
+        `mcp-server: --environment must be one of prod, stg, dev (got "${rawEnv}")`
+      )
+    }
+    site = {
+      name: siteName,
+      url: args.siteUrl ?? process.env.AMPLESS_MCP_SITE_URL,
+      environment: rawEnv,
+      siteId: args.siteId ?? process.env.AMPLESS_MCP_SITE_ID ?? 'default',
+    }
+  }
+
   return {
     outputs,
     email: requireEnv('AMPLESS_MCP_EMAIL'),
     password: requireEnv('AMPLESS_MCP_PASSWORD'),
+    site,
   }
 }

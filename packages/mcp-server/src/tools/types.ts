@@ -1,3 +1,6 @@
+import type { ResolvedSite } from '../site.js'
+export type { ResolvedSite }
+
 /**
  * Abstract contracts each tool handler depends on. Concrete
  * implementations live elsewhere:
@@ -51,4 +54,5 @@ export interface StorageClient {
 export interface ToolContext {
   graphql: GraphqlClient
   storage: () => StorageClient
+  site?: ResolvedSite
 }

@@ -130,8 +130,13 @@ AI に投稿本文を生成させる場合は、markdown を指定するのが�
 ampless-mcp [options]
 
   --outputs <path>        amplify_outputs.json へのパス（AMPLESS_MCP_OUTPUTS でも指定可）
+  --site-name <name>      コンテキスト用のサイト表示名（AMPLESS_MCP_SITE_NAME でも指定可、例: "mysite.net"）
+  --site-url <url>        ツール結果に含めるサイト URL（AMPLESS_MCP_SITE_URL でも指定可、省略可）
+  --environment <env>     デプロイ環境: prod | stg | dev（AMPLESS_MCP_ENVIRONMENT でも指定可、デフォルト "dev"）
   --site-id <id>          クエリのデフォルト siteId（AMPLESS_MCP_SITE_ID でも指定可、デフォルト "default"）
 ```
+
+`--site-name` を設定すると、MCP クライアントに表示されるサーバー名にサイトと環境が含まれ（例: `@ampless/mcp-server [mysite.net/prod]`）、ツールの description に `[mysite.net / prod]` が前置され、結果が `{ site, result }` でラップされます。`--environment prod` 設定時、破壊的ツール（`delete_post`、`delete_static_file`、`upload_static_bundle`）の呼び出しにはサイト名と一致する `confirmSite` 引数が必要です。
 
 必須の環境変数：
 

@@ -10,6 +10,7 @@ import { GraphqlClient } from './appsync.js'
 import { StorageClient } from './s3.js'
 import { tools, type ToolContext } from './tools/index.js'
 import type { ResolvedConfig } from './types.js'
+import { buildServerName, decorateToolListing, assertConfirmSite, wrapResult } from './site.js'
 
 export async function startServer(config: ResolvedConfig): Promise<void> {
   const auth = new CognitoAuth(config)
@@ -30,19 +31,16 @@ export async function startServer(config: ResolvedConfig): Promise<void> {
   const ctx: ToolContext = {
     graphql,
     storage,
+    site: config.site,
   }
 
   const server = new Server(
-    { name: '@ampless/mcp-server', version: '0.0.1' },
+    { name: buildServerName(config.site), version: '0.0.1' },
     { capabilities: { tools: {} } }
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
+    tools: decorateToolListing(tools, config.site),
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -51,12 +49,12 @@ export async function startServer(config: ResolvedConfig): Promise<void> {
       throw new Error(`Unknown tool: ${request.params.name}`)
     }
     try {
-      const result = await tool.handler(
-        (request.params.arguments ?? {}) as Record<string, unknown>,
-        ctx
-      )
+      const args = { ...(request.params.arguments ?? {}) } as Record<string, unknown>
+      assertConfirmSite(tool, args, config.site)
+      delete args['confirmSite']
+      const result = await tool.handler(args, ctx)
       return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(wrapResult(result, config.site), null, 2) }],
       }
     } catch (err) {
       return {
