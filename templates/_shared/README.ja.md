@@ -2,7 +2,7 @@
 > 
 # {{siteName}}
 
-このサイトは [ampless](https://github.com/heavymoons/ampless) で構築されています — AWS Amplify Gen 2（Cognito + DynamoDB + S3 + AppSync + Lambda）上で動くサーバーレス CMS、フロントエンドは Next.js 15。
+このサイトは [ampless](https://github.com/heavymoons/ampless) で構築されています — AWS Amplify Gen 2（Cognito + DynamoDB + S3 + AppSync + Lambda）上で動くサーバーレス CMS、フロントエンドは Next.js 16。
 
 この README は、サイト運営者として日常的に知っておくべき内容をまとめたものです。たまにやる運用手順（API キーのローテーション、バックアップ復元など）は [RUNBOOK.ja.md](./RUNBOOK.ja.md) に置いています。テーマごとのカスタマイズ詳細は `themes/<name>/README.ja.md` を参照してください。
 

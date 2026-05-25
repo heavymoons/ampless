@@ -35,7 +35,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@jsquash/webp": "^1.4.0"
+    "@jsquash/webp": "^1.5.0"
   },
   "keywords": [
     "cms",
