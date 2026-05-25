@@ -42,6 +42,7 @@
     "auto-sync-create-ampless-1779653835011",
     "auto-sync-create-ampless-1779664828350",
     "auto-sync-create-ampless-1779668634409",
+    "auto-sync-create-ampless-1779680687740",
     "awsjson-shared-utils",
     "body-always-json-encode",
     "consolidate-sandbox-scripts",
@@ -101,6 +102,7 @@
     "theme-dark-light-color-scheme",
     "underscore-route-unification",
     "upgrade-deletes-obsolete-files",
+    "upgrade-marked-18",
     "upgrade-output-english",
     "user-admin-pipeline-event-shape"
   ]
