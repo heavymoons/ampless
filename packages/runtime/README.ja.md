@@ -88,8 +88,10 @@ middleware はリクエストごとに AppSync から `post.format` /
 キャッシュした上で、適切な内部ハンドラーにリクエストを書き換えます。
 
 - 通常の投稿 → 書き換えなし、`app/[slug]/page.tsx` で配信
-- `metadata.no_layout: true` HTML / `format: 'static'` → `/r/<slug>(/<path>)`、
-  `app/r/[slug]/[[...path]]/route.ts` で配信
+- `metadata.no_layout: true` HTML → `/raw/<slug>`、
+  `app/raw/[slug]/route.ts` で配信
+- `format: 'static'` → `/static/<slug>(/<path>)`、
+  `app/static/[slug]/[[...path]]/route.ts` で配信
 
 また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
 `cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
@@ -100,7 +102,7 @@ middleware はリクエストごとに AppSync から `post.format` /
 
 - `@ampless/runtime` — `createAmpless`、ランタイム型、`renderBody`・`renderThemeCss`・フォーマットコンバーターの再エクスポート
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`、`defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createUnderscoreRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`、`createThemePostDispatcher`、`createThemeTagDispatcher`（それぞれ対応する `*Metadata` ファクトリーあり）
 
 ## テンプレートに残るもの

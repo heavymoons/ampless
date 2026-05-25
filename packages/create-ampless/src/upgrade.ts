@@ -51,6 +51,11 @@ const AMPLESS_RETIRED_PATHS: readonly string[] = [
   // Retired alongside the in-deploy multi-site drop.
   'lib/admin-site.ts',
   'lib/admin-site-client.ts',
+  // Split into app/raw/[slug]/route.ts + app/static/[slug]/[[...path]]/route.ts.
+  // The old unified internal handler at app/r/[slug]/[[...path]]/route.ts
+  // is no longer wired to anything (middleware rewrites to /raw or
+  // /static now).
+  'app/r/[slug]/[[...path]]/route.ts',
 ] as const
 
 const AMPLESS_PACKAGES = new Set([

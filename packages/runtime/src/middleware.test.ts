@@ -125,11 +125,11 @@ describe('createAmplessMiddleware — passthroughs', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('passes reserved prefixes (feed.xml, sitemap.xml, og, tag, r) through', async () => {
+  it('passes reserved prefixes (feed.xml, sitemap.xml, og, tag, raw, static) through', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
     const mw = createAmplessMiddleware(OPTS)
-    for (const path of ['/feed.xml', '/sitemap.xml', '/og/x', '/tag/hello', '/r/x']) {
+    for (const path of ['/feed.xml', '/sitemap.xml', '/og/x', '/tag/hello', '/raw/x', '/static/x']) {
       const res = (await mw(makeReq('x.example.com', path) as never)) as unknown as {
         kind: string
       }
@@ -158,7 +158,7 @@ describe('createAmplessMiddleware — routing by post flags', () => {
     expect(res.headers.get('Cache-Control')).toMatch(/max-age=300/)
   })
 
-  it('no_layout HTML: rewrites /<slug> → /r/<slug>', async () => {
+  it('no_layout HTML: rewrites /<slug> → /raw/<slug>', async () => {
     mockFetch(
       appsyncPayload({
         format: 'html',
@@ -171,10 +171,10 @@ describe('createAmplessMiddleware — routing by post flags', () => {
       makeReq('x.example.com', '/promo') as never,
     )) as unknown as { kind: string; rewrittenTo?: URL }
     expect(res.kind).toBe('rewrite')
-    expect(res.rewrittenTo?.pathname).toBe('/r/promo')
+    expect(res.rewrittenTo?.pathname).toBe('/raw/promo')
   })
 
-  it('static post: rewrites /<slug> → /r/<slug>', async () => {
+  it('static post: rewrites /<slug> → /static/<slug>', async () => {
     mockFetch(
       appsyncPayload({
         format: 'static',
@@ -187,10 +187,10 @@ describe('createAmplessMiddleware — routing by post flags', () => {
       makeReq('x.example.com', '/site') as never,
     )) as unknown as { kind: string; rewrittenTo?: URL }
     expect(res.kind).toBe('rewrite')
-    expect(res.rewrittenTo?.pathname).toBe('/r/site')
+    expect(res.rewrittenTo?.pathname).toBe('/static/site')
   })
 
-  it('static post: rewrites /<slug>/<path> → /r/<slug>/<path>', async () => {
+  it('static post: rewrites /<slug>/<path> → /static/<slug>/<path>', async () => {
     mockFetch(
       appsyncPayload({
         format: 'static',
@@ -203,7 +203,7 @@ describe('createAmplessMiddleware — routing by post flags', () => {
       makeReq('x.example.com', '/site/assets/style.css') as never,
     )) as unknown as { kind: string; rewrittenTo?: URL }
     expect(res.kind).toBe('rewrite')
-    expect(res.rewrittenTo?.pathname).toBe('/r/site/assets/style.css')
+    expect(res.rewrittenTo?.pathname).toBe('/static/site/assets/style.css')
   })
 
   it('themed post + sub-path: returns 404 (themed posts have no sub-paths)', async () => {

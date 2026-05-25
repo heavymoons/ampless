@@ -7,8 +7,9 @@
 // rename.
 //
 // See `@ampless/runtime/middleware` for behaviour details: AppSync
-// flag fetch + Lambda-memory LRU + `/r/<slug>(/<path>)` rewrite for
-// no_layout HTML / static bundles + per-post Cache-Control.
+// flag fetch + Lambda-memory LRU + `/raw/<slug>` rewrite for no_layout
+// HTML, `/static/<slug>(/<path>)` rewrite for static bundles, plus
+// per-post Cache-Control.
 
 import cmsConfig from './cms.config'
 import outputs from './amplify_outputs.json'

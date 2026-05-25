@@ -53,9 +53,8 @@ export type CacheStrategy = 'auto' | 'deep' | 'hot'
  * Well-known keys:
  *   - `no_layout`: when true, the public page is served as bare HTML
  *     (no theme chrome). Middleware rewrites the request to the
- *     unified internal route handler (`/r/<slug>`) for such posts
- *     and renders the body verbatim — no Next.js root layout, no
- *     theme chrome.
+ *     internal `/raw/<slug>` handler for such posts and renders the
+ *     body verbatim — no Next.js root layout, no theme chrome.
  *   - `cache`: see `CacheStrategy`. Overrides the default 'auto'
  *     cache strategy for this post. Independent of `no_layout` —
  *     applies uniformly to themed, no_layout, and static posts.

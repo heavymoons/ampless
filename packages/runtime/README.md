@@ -88,8 +88,10 @@ from AppSync (apiKey auth) on each request, caches the result in a
 rewrites the request to the right internal handler:
 
 - themed post → no rewrite, served by `app/[slug]/page.tsx`
-- `metadata.no_layout: true` HTML / `format: 'static'` → `/r/<slug>(/<path>)`,
-  served by `app/r/[slug]/[[...path]]/route.ts`
+- `metadata.no_layout: true` HTML → `/raw/<slug>`, served by
+  `app/raw/[slug]/route.ts`
+- `format: 'static'` → `/static/<slug>(/<path>)`, served by
+  `app/static/[slug]/[[...path]]/route.ts`
 
 It also computes `Cache-Control` from `post.metadata.cache` (auto /
 deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
@@ -100,7 +102,7 @@ See `docs/CONTENT.md` for the cache strategy contract.
 
 - `@ampless/runtime` — `createAmpless`, runtime types, and re-exports of `renderBody`, `renderThemeCss`, format converters
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`, `defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createUnderscoreRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`, `createThemePostDispatcher`, `createThemeTagDispatcher` (each with a matching `*Metadata` factory)
 
 ## What's still in the template

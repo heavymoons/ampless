@@ -31,7 +31,8 @@ project/
     tag/[tag]/page.tsx   # タグディスパッチャー
     feed.xml/route.ts    # フィードディスパッチャー
     sitemap.xml/route.ts # sitemap ディスパッチャー
-    r/[slug]/[[...path]]/route.ts  # 内部: no_layout HTML / static バンドル用（ミドルウェアの書き換え先）
+    raw/[slug]/route.ts            # 内部: no_layout HTML 用（ミドルウェアの書き換え先）
+    static/[slug]/[[...path]]/route.ts  # 内部: static バンドル用（ミドルウェアの書き換え先）
     layout.tsx           # <body data-theme={active}> を設定
     globals.css          # デフォルトトークン + Tailwind ベース
     (admin)/             # 管理アプリ — テーマ非依存
@@ -41,7 +42,7 @@ project/
 
 ## ランタイムモデル
 
-1. ミドルウェア（proxy）が AppSync からリクエストされた slug の `post.format` / `post.metadata` / `post.updatedAt` を取得します。テーマレンダリングはそのまま通過し、no_layout HTML や静的バンドルは `/r/<slug>(/<path>)` に書き換えられます。
+1. ミドルウェア（proxy）が AppSync からリクエストされた slug の `post.format` / `post.metadata` / `post.updatedAt` を取得します。テーマレンダリングはそのまま通過し、no_layout HTML は `/raw/<slug>`、静的バンドルは `/static/<slug>(/<path>)` に書き換えられます。
 2. ディスパッチャー（`app/[slug]/page.tsx`）が S3 サイト設定キャッシュから `theme.active` を読み取ります。
 3. アクティブなテーマモジュールを `themes-registry.ts` で検索し、`components.Post` をリクエストパラメーターと共にレンダリングします。
 4. ルートレイアウトが `<body data-theme="<active>">` をセットするため、マッチするテーマの `tokens.css` ブロックだけが適用されます。

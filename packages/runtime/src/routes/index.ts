@@ -1,4 +1,5 @@
 export { createOgRouteHandler, type OgRouteHandler } from './og.js'
 export { createSitemapRouteHandler, type SitemapRouteHandler } from './sitemap.js'
 export { createFeedRouteHandler, type FeedRouteHandler } from './feed.js'
-export { createUnderscoreRouteHandler, type UnderscoreRouteHandler } from './underscore.js'
+export { createRawRouteHandler, type RawRouteHandler } from './raw.js'
+export { createStaticRouteHandler, type StaticRouteHandler } from './static.js'
