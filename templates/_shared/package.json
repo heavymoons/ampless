@@ -30,7 +30,7 @@
     "@ampless/plugin-seo": "^0.2.0-alpha.14",
     "@ampless/plugin-webhook": "^0.2.0-alpha.14",
     "@ampless/admin": "^1.0.0-alpha.34",
-    "@ampless/backend": "^1.0.0-alpha.26",
+    "@ampless/backend": "^1.0.0-alpha.27",
     "@ampless/runtime": "^1.0.0-alpha.19",
     "@digital-go-jp/tailwind-theme-plugin": "^0.3.4",
     "ampless": "^1.0.0-alpha.14",
