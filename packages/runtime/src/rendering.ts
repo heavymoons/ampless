@@ -122,9 +122,9 @@ function tableCellAttrs(attrs: Record<string, unknown> | undefined): string {
 }
 
 function renderMarkdown(md: string): string {
-  // marked v14: parse は async: false で同期実行できるが、型は
+  // marked: parse は async: false で同期実行できるが、型は
   // `string | Promise<string>` を返すため as string でキャストする。
-  // sanitize は v14 で廃止。出力は信頼境界として扱う既存方針を維持。
+  // sanitize オプションは marked から廃止済み。出力は信頼境界として扱う既存方針を維持。
   return marked.parse(md, { gfm: true, breaks: false, async: false }) as string
 }
 
