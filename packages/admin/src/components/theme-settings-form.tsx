@@ -27,11 +27,18 @@ import { Button, Input, Label } from '@ampless/runtime/ui'
 import { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 import { useT, useLocale } from './i18n-provider.js'
 
-// How long to wait after a switch / save before forcing a hard reload
-// to pick up the rebuilt S3 cache. The trusted processor typically
-// finishes rebuilding `public/site-settings.json` within 5-10 seconds
-// of the KvStore write; this gives that pipeline some slack before we
-// re-fetch.
+// How long to wait after a manifest-field save before invalidating
+// the public-side fetch cache. The trusted processor typically
+// finishes rebuilding `public/site-settings.json` within 5–10 s of
+// the KvStore write; this gives that pipeline some slack before we
+// flag the tag stale (otherwise the immediate re-fetch would
+// repopulate the cache with the pre-save value).
+//
+// Theme-switch saves use a different path: they poll `pollActiveTheme`
+// for actual S3 propagation rather than waiting a fixed interval,
+// because the form hard-reloads after the switch and the user-visible
+// failure mode is "see the old theme for up to a minute" rather than
+// "see stale visitors' rendering for up to a minute".
 const CACHE_REBUILD_DELAY_MS = 8000
 
 interface ThemeOption {
@@ -52,6 +59,16 @@ interface Props {
    * Defaults to `'auto'` when not provided.
    */
   initialColorScheme?: ColorScheme
+  /**
+   * Server action passed in by the page factory: polls the S3 cache
+   * until `theme.active` matches `expected`, returns `true` on match
+   * or `false` after the page-side timeout (~30 s). The form uses it
+   * after a theme switch to defer the hard reload until S3 reflects
+   * the new value; otherwise the reload would race the trusted
+   * processor and the user would see the pre-switch theme for up to
+   * the public-side fetch cache TTL.
+   */
+  pollActiveTheme: (expected: string) => Promise<boolean>
 }
 
 interface ChangeState {
@@ -67,6 +84,7 @@ export function ThemeSettingsForm({
   themeOptions,
   initial,
   initialColorScheme,
+  pollActiveTheme,
 }: Props) {
   const router = useRouter()
   const t = useT()
@@ -119,15 +137,32 @@ export function ThemeSettingsForm({
     }, CACHE_REBUILD_DELAY_MS)
   }
 
-  function scheduleHardReload() {
-    setTimeout(async () => {
-      try {
-        await invalidateSiteSettingsCache()
-      } catch (err) {
-        console.warn('[theme] cache invalidation failed', err)
+  // Poll the S3 cache for processor propagation, then invalidate the
+  // public-side fetch cache and hard-reload. Polling avoids the old
+  // fixed-delay race where the reload could land before the trusted
+  // processor rebuilt `public/site-settings.json`, leaving the admin
+  // pinned to the pre-switch theme for up to the fetch cache TTL.
+  //
+  // Stays in the `switching` state for the entire poll so the button
+  // text reflects what's actually happening ("Switching…") instead
+  // of falling back to idle while the user is still waiting on AWS.
+  async function waitForPropagationThenReload(expected: string): Promise<void> {
+    try {
+      const ok = await pollActiveTheme(expected)
+      if (!ok) {
+        // Timeout. The reload still has to happen — at worst the user
+        // sees the old theme for up to a minute. Surface a hint so
+        // they know what's going on if they hit reload manually.
+        console.warn('[theme] propagation poll timed out; reloading anyway')
       }
-      window.location.reload()
-    }, CACHE_REBUILD_DELAY_MS)
+      await invalidateSiteSettingsCache()
+    } catch (err) {
+      console.warn('[theme] propagation poll / cache invalidation failed', err)
+    }
+    window.location.reload()
+    // Safety net: if the reload is somehow prevented (extension,
+    // navigation guard) release the spinner so the user isn't stuck.
+    setSwitching(false)
   }
 
   async function switchTheme(e: React.FormEvent) {
@@ -140,11 +175,12 @@ export function ThemeSettingsForm({
       await setSiteSetting('theme.active', pendingTheme)
       setOptimisticActive(pendingTheme)
       setInfo(t('theme.switched', { theme: pendingTheme }))
-      scheduleHardReload()
+      // Don't await — the reload tears the page down anyway. `switching`
+      // stays true until reload navigates away, which is the desired UX.
+      void waitForPropagationThenReload(pendingTheme)
     } catch (err) {
       console.error('[theme] switch failed', err)
       setError(err instanceof Error ? err.message : String(err))
-    } finally {
       setSwitching(false)
     }
   }

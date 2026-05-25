@@ -105,6 +105,13 @@ export interface Ampless {
   // settings + theme
   loadSiteSettings(): Promise<EffectiveSiteSettings>
   resolveActiveTheme(): Promise<ResolvedTheme>
+  /**
+   * Fresh-read of the stored `theme.active` value from S3, bypassing
+   * the Next.js fetch cache. Returns the raw stored name (no fallback
+   * to defaultTheme) or `null` when the cache file is missing. Used
+   * by the admin to poll for processor propagation after a switch.
+   */
+  readStoredActiveThemeFresh(): Promise<string | null>
   loadThemeConfig(): Promise<EffectiveThemeConfig>
 
   // metadata
@@ -156,6 +163,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
 
     loadSiteSettings: () => settings.loadSiteSettings(),
     resolveActiveTheme: () => themeActive.resolveActiveTheme(),
+    readStoredActiveThemeFresh: () => themeActive.readStoredActiveThemeFresh(),
     loadThemeConfig: () => themeConfig.loadThemeConfig(),
 
     postMetadata: (post) => seo.postMetadata(post),
