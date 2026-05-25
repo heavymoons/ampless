@@ -1,5 +1,12 @@
 # @ampless/plugin-webhook
 
+## 0.2.0-alpha.14
+
+### Patch Changes
+
+- Updated dependencies [25708c2]
+  - ampless@1.0.0-alpha.14
+
 ## 0.2.0-alpha.13
 
 ### Patch Changes
