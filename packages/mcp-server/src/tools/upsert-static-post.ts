@@ -7,7 +7,11 @@ import {
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { getPost } from './get-post.js'
-import { syncPostTags } from '../posttag.js'
+
+// PostTag denormalized index is rebuilt by the trusted-processor
+// Lambda directly off the Post DynamoDB stream — see
+// packages/backend/src/events/processor-trusted.ts
+// `rebuildPostTagsForPost`. No client-side sync needed.
 
 /**
  * Shared "find Post by slug → create if absent, otherwise update"
@@ -86,7 +90,6 @@ export async function upsertStaticPost(
     }>(UPDATE_MUTATION, { input })
 
     const updated = toCorePost(data.updatePost)
-    await syncPostTags(graphql, updated, existing)
     return { post: updated, created: false }
   }
 
@@ -123,6 +126,5 @@ export async function upsertStaticPost(
   }>(CREATE_MUTATION, { input })
 
   const created = toCorePost(data.createPost)
-  await syncPostTags(graphql, created, null)
   return { post: created, created: true }
 }

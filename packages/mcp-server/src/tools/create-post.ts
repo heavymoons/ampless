@@ -5,7 +5,6 @@ import {
 } from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
-import { syncPostTags } from '../posttag.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -100,7 +99,9 @@ export async function createPost(
     },
   })
 
-  const created = toCorePost(data.createPost)
-  await syncPostTags(client, created, null)
-  return created
+  // PostTag denormalized index is rebuilt by the trusted-processor
+  // Lambda from the Post DynamoDB stream (see
+  // packages/backend/src/events/processor-trusted.ts `rebuildPostTagsForPost`).
+  // No client-side sync needed — the write completing here is enough.
+  return toCorePost(data.createPost)
 }

@@ -21,8 +21,11 @@ import {
 // package compiles without depending on any particular template's
 // schema definition.
 //
-// PostTag is kept as a denormalized "posts by tag" index, maintained
-// from the admin client whenever a post's tags or publish state change.
+// PostTag (the denormalized "posts by tag" index) is maintained by the
+// trusted-processor Lambda directly off the Post DynamoDB stream —
+// admin writes Post and gets PostTag for free, no client-side sync.
+// See packages/backend/src/events/processor-trusted.ts
+// `rebuildPostTagsForPost`.
 
 interface DataPostRow {
   postId: string
@@ -58,19 +61,9 @@ interface PostModel {
   delete(args: { postId: string }): Promise<ModelResult<DataPostRow>>
 }
 
-interface PostTagModel {
-  create(args: Record<string, unknown>): Promise<ModelResult<unknown>>
-  update(args: Record<string, unknown>): Promise<ModelResult<unknown>>
-  delete(args: {
-    tag: string
-    publishedAtPostId: string
-  }): Promise<ModelResult<unknown>>
-}
-
 interface DataClient {
   models: {
     Post: PostModel
-    PostTag: PostTagModel
   }
 }
 
@@ -101,23 +94,6 @@ function toCorePost(p: DataPostRow): Post {
   }
 }
 
-interface PostTagEntry {
-  tag: string
-  publishedAtPostId: string
-}
-
-function postTagEntries(post: Post): PostTagEntry[] {
-  if (post.status !== 'published' || !post.publishedAt || !post.tags?.length) return []
-  return post.tags.map((tag) => ({
-    tag,
-    publishedAtPostId: `${post.publishedAt}#${post.postId}`,
-  }))
-}
-
-function entryKey(e: PostTagEntry): string {
-  return `${e.tag}|${e.publishedAtPostId}`
-}
-
 let installed = false
 
 /**
@@ -131,80 +107,6 @@ export function installAdminPostsProvider(): void {
   installed = true
 
   const client = generateClient() as unknown as DataClient
-
-  async function syncPostTags(post: Post, oldPost: Post | null): Promise<void> {
-    const oldEntries = oldPost ? postTagEntries(oldPost) : []
-    const newEntries = postTagEntries(post)
-
-    const oldKeys = new Set(oldEntries.map(entryKey))
-    const newKeys = new Set(newEntries.map(entryKey))
-
-    function fullRow(e: PostTagEntry) {
-      return {
-        tag: e.tag,
-        publishedAtPostId: e.publishedAtPostId,
-        postId: post.postId,
-        publishedAt: post.publishedAt!,
-        slug: post.slug,
-        title: post.title,
-        excerpt: post.excerpt,
-        tags: post.tags ?? [],
-      }
-    }
-
-    // Upsert: try update first, fall back to create on ConditionalCheckFailed.
-    // oldKeys alone isn't enough — a post can carry tags on the canonical row
-    // without having matching PostTag rows yet (e.g. tags were edited but the
-    // denormalized rows haven't been backfilled), in which case AppSync's
-    // `update` fails with `attribute_exists` not satisfied.
-    //
-    // Also covers the reverse: if a row was somehow orphaned (post deleted
-    // but PostTag not), a `create` finds the existing PK → fall back to update.
-    async function upsertPostTag(e: PostTagEntry) {
-      const row = fullRow(e)
-      const upd = await client.models.PostTag.update(row)
-      if (!upd.errors) return
-      // AppSync surfaces DynamoDB ConditionalCheckFailedException as an error
-      // with `errorType: 'DynamoDB:ConditionalCheckFailedException'` or a
-      // message containing "conditional request failed". Either way, the
-      // safest reaction is to fall back to create.
-      const cre = await client.models.PostTag.create(row)
-      if (cre.errors) {
-        // If create also failed conditionally (row exists but update couldn't
-        // touch it — auth?), surface the original update error.
-        throw new Error(upd.errors[0]?.message ?? 'PostTag.update failed')
-      }
-    }
-
-    // Remove entries that no longer apply (tag removed, unpublished, etc.).
-    await Promise.all(
-      oldEntries
-        .filter((e) => !newKeys.has(entryKey(e)))
-        .map((e) => client.models.PostTag.delete(e))
-    )
-
-    // Add brand-new entries (tag added, just published, etc.). Try create
-    // first; on conditional fail (orphan row left over), fall through to
-    // update.
-    await Promise.all(
-      newEntries
-        .filter((e) => !oldKeys.has(entryKey(e)))
-        .map(async (e) => {
-          const cre = await client.models.PostTag.create(fullRow(e))
-          if (!cre.errors) return
-          const upd = await client.models.PostTag.update(fullRow(e))
-          if (upd.errors)
-            throw new Error(cre.errors[0]?.message ?? 'PostTag.create failed')
-        })
-    )
-
-    // Update entries whose key didn't change but display fields might have
-    // (title/slug/excerpt/tags). Use upsert to tolerate posts where the
-    // expected PostTag rows aren't actually present.
-    await Promise.all(
-      newEntries.filter((e) => oldKeys.has(entryKey(e))).map(upsertPostTag)
-    )
-  }
 
   const provider: PostsProvider = {
     async list(opts: ListOptions = {}) {
@@ -248,15 +150,10 @@ export function installAdminPostsProvider(): void {
         ...(input.metadata !== undefined && { metadata: encodeAwsJson(input.metadata) }),
       })
       if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to create post')
-      const created = toCorePost(data)
-      await syncPostTags(created, null)
-      return created
+      return toCorePost(data)
     },
 
     async update(postId, patch) {
-      // Need the previous post snapshot to diff PostTag entries correctly.
-      const oldPost = await this.getById(postId)
-
       const { data, errors } = await client.models.Post.update({
         postId,
         ...(patch.slug !== undefined && { slug: patch.slug }),
@@ -270,17 +167,10 @@ export function installAdminPostsProvider(): void {
         ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
       })
       if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
-      const updated = toCorePost(data)
-      await syncPostTags(updated, oldPost)
-      return updated
+      return toCorePost(data)
     },
 
     async remove(postId) {
-      // Drop PostTag entries before the post itself disappears.
-      const oldPost = await this.getById(postId)
-      if (oldPost) {
-        await syncPostTags({ ...oldPost, status: 'draft' }, oldPost)
-      }
       const { errors } = await client.models.Post.delete({ postId })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to delete post')
     },

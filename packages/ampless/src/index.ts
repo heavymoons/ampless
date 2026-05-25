@@ -79,10 +79,12 @@ export type {
   ContentEventType,
   MediaEventType,
   SiteSettingsEventType,
+  PostIndexEventType,
   AmplessEvent,
   ContentEventPayload,
   MediaEventPayload,
   SiteSettingsEventPayload,
+  PostIndexEventPayload,
   EventPayloadOf,
   StreamEventName,
 } from './events.js'

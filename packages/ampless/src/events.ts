@@ -16,7 +16,25 @@ export type MediaEventType = 'media.uploaded' | 'media.deleted'
 
 export type SiteSettingsEventType = 'site.settings.updated'
 
-export type EventType = ContentEventType | MediaEventType | SiteSettingsEventType
+/**
+ * Emitted on every Post mutation (INSERT / MODIFY / REMOVE) with both
+ * the previous and the next projection of the row. Drives index-style
+ * derivation: the built-in trusted-processor handler uses it to keep
+ * the `PostTag` denormalized index in sync without making every write
+ * path (admin, MCP, future REST clients) remember to call a helper.
+ *
+ * Plugins that maintain their own indexes (custom search, sitemaps
+ * with per-tag pages, etc.) can subscribe through the same hook
+ * surface as the other event types — the diff payload is already in
+ * the right shape for "compute add/remove/update".
+ */
+export type PostIndexEventType = 'post.index.refresh'
+
+export type EventType =
+  | ContentEventType
+  | MediaEventType
+  | SiteSettingsEventType
+  | PostIndexEventType
 
 /** Minimal projection of a Post item carried in events (no body, to keep payloads small). */
 export interface ContentEventPayload {
@@ -42,13 +60,26 @@ export interface MediaEventPayload {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SiteSettingsEventPayload {}
 
+/**
+ * Diff payload for `post.index.refresh`. `previous` is null on INSERT;
+ * `next` is null on REMOVE; both populated on MODIFY. Subscribers
+ * compute the add / remove / update set from this — see the trusted
+ * processor's `rebuildPostTags` handler for the canonical example.
+ */
+export interface PostIndexEventPayload {
+  previous: ContentEventPayload | null
+  next: ContentEventPayload | null
+}
+
 export type EventPayloadOf<T extends EventType> = T extends ContentEventType
   ? ContentEventPayload
   : T extends MediaEventType
     ? MediaEventPayload
     : T extends SiteSettingsEventType
       ? SiteSettingsEventPayload
-      : never
+      : T extends PostIndexEventType
+        ? PostIndexEventPayload
+        : never
 
 export interface AmplessEvent<T extends EventType = EventType> {
   type: T

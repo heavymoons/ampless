@@ -1,7 +1,12 @@
 import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import {
+  DynamoDBDocumentClient,
+  DeleteCommand,
+  PutCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb'
 import {
   formatPublicAssetUrl,
   type AmplessEvent,
@@ -9,7 +14,9 @@ import {
   type Config,
   type PluginRuntimeContext,
   type Post,
+  type PostIndexEventPayload,
 } from 'ampless'
+import { computePostTagDiff } from './posttag-sync.js'
 
 export interface CreateProcessorTrustedHandlerOpts {
   /**
@@ -76,6 +83,7 @@ export function createProcessorTrustedHandler(
   const BUCKET = requireEnv('AMPLESS_BUCKET_NAME')
   const POST_TABLE = requireEnv('AMPLESS_POST_TABLE')
   const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
+  const POSTTAG_TABLE = requireEnv('AMPLESS_POSTTAG_TABLE')
   // AWS_REGION is always set by the Lambda runtime; require it so a
   // misconfigured deploy fails at cold start instead of producing wrong
   // regional URLs at runtime.
@@ -135,6 +143,46 @@ export function createProcessorTrustedHandler(
         return formatPublicAssetUrl(BUCKET, REGION, objectKey)
       },
     }
+  }
+
+  // --- Built-in: PostTag denormalized index ---
+  //
+  // For each Post mutation the dispatcher emits a `post.index.refresh`
+  // event carrying both the previous and next projection. This handler
+  // delegates the diff math to `computePostTagDiff` (pure, unit-tested
+  // in `posttag-sync.test.ts`) and applies the result via direct
+  // DynamoDB — faster than going through AppSync and a narrower IAM
+  // grant than full GraphQL mutate access on the PostTag model.
+  //
+  // Centralising the logic here means write paths (admin, MCP tools,
+  // future REST clients) don't need to call a sync helper — any Post
+  // write that hits DynamoDB is automatically followed by a PostTag
+  // rebuild via the Stream pipeline.
+  async function rebuildPostTagsForPost(payload: PostIndexEventPayload): Promise<void> {
+    const { deletes, puts } = computePostTagDiff(payload)
+    await Promise.all([
+      ...deletes.map((key) =>
+        ddb.send(
+          new DeleteCommand({
+            TableName: POSTTAG_TABLE,
+            Key: key,
+          })
+        )
+      ),
+      ...puts.map((item) =>
+        ddb.send(
+          new PutCommand({
+            TableName: POSTTAG_TABLE,
+            Item: item,
+          })
+        )
+      ),
+    ])
+    const postId = payload.next?.postId ?? payload.previous?.postId ?? '(unknown)'
+    console.log(
+      `[posttag-sync] postId=${postId} ` +
+        `removed=${deletes.length} upserted=${puts.length}`
+    )
   }
 
   // --- Built-in: site settings cache ---
@@ -206,6 +254,18 @@ export function createProcessorTrustedHandler(
           await rebuildSiteSettingsCache()
         } catch (err) {
           console.error('[trusted-processor] site-settings-cache rebuild failed', err)
+          throw err
+        }
+      }
+
+      // Built-in: refresh the PostTag denormalized index. Runs before
+      // user plugins so theme code that reads tag pages sees the
+      // up-to-date index when reacting to content.* events.
+      if (parsed.type === 'post.index.refresh') {
+        try {
+          await rebuildPostTagsForPost(parsed.payload as unknown as PostIndexEventPayload)
+        } catch (err) {
+          console.error('[trusted-processor] posttag-sync failed', err)
           throw err
         }
       }
