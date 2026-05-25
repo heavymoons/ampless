@@ -1,5 +1,12 @@
 # @ampless/plugin-seo
 
+## 0.2.0-alpha.12
+
+### Patch Changes
+
+- Updated dependencies [6b46669]
+  - ampless@1.0.0-alpha.12
+
 ## 0.2.0-alpha.11
 
 ### Patch Changes
