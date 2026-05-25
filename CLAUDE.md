@@ -35,7 +35,7 @@ templates/
 
 ## Tech Stack
 
-- **Runtime:** Node.js >= 20
+- **Runtime:** Node.js >= 22.13 (required by pnpm 11)
 - **Language:** TypeScript (ESM only)
 - **Package manager:** pnpm (workspaces)
 - **Build:** tsup (per-package)
