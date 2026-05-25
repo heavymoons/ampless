@@ -1,2 +1,14 @@
 packages:
   - "packages/*"
+
+# pnpm 10+ blocks unapproved postinstall scripts by default. Map each
+# package to true/false to opt in or out. The format is the one written
+# by `pnpm approve-builds`.
+#   - sharp: native image-processing binaries used by media uploads
+#     (admin) and OG-image generation (plugin-og-image).
+#   - esbuild: bundler binary used transitively by tsup / vitest.
+# core-js stays off — its postinstall is just a thank-you message.
+allowBuilds:
+  core-js: false
+  esbuild: true
+  sharp: true
