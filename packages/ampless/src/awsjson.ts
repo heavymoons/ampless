@@ -26,9 +26,8 @@
  *     from DynamoDB (the path used by the trusted processor and the
  *     MCP Lambda).
  *
- * `decodeAwsJson` tolerates both: pass strings through `JSON.parse`,
- * everything else as-is, fall back to the raw string on parse errors
- * so bare-string rows aren't lost.
+ * `decodeAwsJson` handles both: pass strings through `JSON.parse`,
+ * everything else as-is.
  */
 
 /**
@@ -43,13 +42,9 @@ export function encodeAwsJson(value: unknown): string {
 /**
  * Deserialise an AWSJSON value from a GraphQL / DynamoDB read.
  * Tolerates both the wire-string shape and the auto-unmarshalled
- * native value. Returns the raw string when `JSON.parse` rejects it.
+ * native value. Throws if the string is not valid JSON.
  */
 export function decodeAwsJson(value: unknown): unknown {
   if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+  return JSON.parse(value)
 }

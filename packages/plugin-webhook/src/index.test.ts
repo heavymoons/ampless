@@ -36,7 +36,7 @@ describe('webhookPlugin', () => {
   })
 
   it('exposes hooks for every content.* event by default', () => {
-    const plugin = webhookPlugin({ url: 'https://example.com/hook' })
+    const plugin = webhookPlugin({ endpoints: [{ url: 'https://example.com/hook' }] })
     const eventTypes = Object.keys(plugin.hooks ?? {}).sort()
     expect(eventTypes).toEqual(
       [
@@ -57,7 +57,7 @@ describe('webhookPlugin', () => {
   })
 
   it('POSTs the JSON envelope to a single endpoint', async () => {
-    const plugin = webhookPlugin({ url: 'https://example.com/hook' })
+    const plugin = webhookPlugin({ endpoints: [{ url: 'https://example.com/hook' }] })
     await plugin.hooks!['content.published']!(SAMPLE_EVENT, PLUGIN_CTX)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]!
@@ -72,7 +72,7 @@ describe('webhookPlugin', () => {
   })
 
   it('attaches the X-Ampless-Signature header when a secret is set', async () => {
-    const plugin = webhookPlugin({ url: 'https://example.com/hook', secret: 'shh' })
+    const plugin = webhookPlugin({ endpoints: [{ url: 'https://example.com/hook', secret: 'shh' }] })
     await plugin.hooks!['content.published']!(SAMPLE_EVENT, PLUGIN_CTX)
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
     expect(headers['X-Ampless-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/)
@@ -80,7 +80,7 @@ describe('webhookPlugin', () => {
   })
 
   it('omits the signature header when no secret is set', async () => {
-    const plugin = webhookPlugin({ url: 'https://example.com/hook' })
+    const plugin = webhookPlugin({ endpoints: [{ url: 'https://example.com/hook' }] })
     await plugin.hooks!['content.published']!(SAMPLE_EVENT, PLUGIN_CTX)
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
     expect(headers['X-Ampless-Signature']).toBeUndefined()
@@ -113,7 +113,7 @@ describe('webhookPlugin', () => {
 
   it('throws (so SQS retries) when an endpoint returns non-2xx', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }))
-    const plugin = webhookPlugin({ url: 'https://example.com/hook' })
+    const plugin = webhookPlugin({ endpoints: [{ url: 'https://example.com/hook' }] })
     await expect(
       plugin.hooks!['content.published']!(SAMPLE_EVENT, PLUGIN_CTX)
     ).rejects.toThrow(/500/)

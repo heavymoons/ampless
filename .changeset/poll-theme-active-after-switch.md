@@ -6,14 +6,10 @@
 Replace the blind 8-second post-switch timer in the admin theme-
 switcher with active polling against the S3 site-settings cache.
 
-After the user clicks "Switch theme," the form now waits until the
+After the user clicks "Switch theme," the form waits until the
 trusted processor has actually rebuilt `public/site-settings.json`
 with the new `theme.active` value before invalidating the public-
-side cache tag and hard-reloading. The old design fired a fixed
-8 s `setTimeout` and then reloaded — if the processor happened to
-take longer (cold-start Lambdas, slow DDB read), the reload landed
-before S3 reflected the change and the admin showed the pre-switch
-theme for up to the Next.js fetch cache TTL (~60 s).
+side cache tag and hard-reloading.
 
 New plumbing:
 

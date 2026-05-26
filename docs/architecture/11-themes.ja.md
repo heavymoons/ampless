@@ -2,159 +2,142 @@
 > 
 ## 11. テーマ
 
-### 設計思想
+### 設計方針
 
-テーマはプラグインと同じ枠組みで扱う。
-管理画面からのインストール・切り替え・プレビューに対応し、npm や git push を不要にする。
+テーマは公開側のレンダリング全体を担う：ページコンポーネント、メタデータ生成、RSS / sitemap ルート、そして管理 UI に出るカスタマイズ項目。テーマはプロジェクトリポジトリ内のコードとして同梱され、ランタイムにバンドルをインストールする方式ではない。インストール済みテーマ間の切り替えは管理 UI でワンクリック、新しいテーマの**追加**はコード変更。
 
-テーマ = レイアウト（テンプレート構造）+ スタイル（CSS）+ カスタマイズスキーマ。
+管理 UI はテーマとは独立した別物（shadcn/ui + Tailwind、テーマ非依存）。ここで「テーマ」と呼ぶのは公開サイトの見た目だけを統括する。
 
-### テーマの構成要素
+### テーマの構成
+
+テーマは 2 つの値を `index.ts` から export する：
 
 ```typescript
-// @ampless/theme-blog
+// themes/blog/manifest.ts — カスタマイズ可能なフィールド
+import { defineTheme } from 'ampless'
 export default defineTheme({
-  apiVersion: 1,
-  name: 'Blog',
-  description: 'シンプルなブログテーマ',
-  thumbnail: '/themes/blog/thumbnail.png',
-
-  // カスタマイズ可能な項目を宣言 → 管理画面が UI を自動生成
-  configSchema: {
-    primaryColor: { type: 'color', default: '#3b82f6', label: 'メインカラー' },
-    fontFamily: { type: 'select', options: ['sans', 'serif', 'mono'], default: 'sans', label: 'フォント' },
-    logo: { type: 'image', label: 'ロゴ' },
-    showSidebar: { type: 'boolean', default: true, label: 'サイドバー表示' },
-  },
-
-  layouts: { default, post, list },
-  slots: ['head', 'before-content', 'after-content', 'sidebar', 'footer'],
+  name: 'blog',
+  label: { en: 'Blog', ja: 'ブログ' },
+  fields: [
+    { key: 'primary', type: 'color', default: 'oklch(0.205 0 0)', cssVar: '--primary',
+      label: { en: 'Primary color', ja: 'プライマリカラー' } },
+    // ...
+  ],
 })
 ```
 
-### テーマの配布とインストール
-
-プラグインの配布方式（§9）と同じ仕組みに乗る。
-
-| 方式 | ユーザー | 操作 |
-|------|---------|------|
-| **管理画面から** | 非開発者 | テーマ一覧から選んで「適用」。npm/git 不要 |
-| **npm install** | 開発者 | `npm install @ampless/theme-docs` → git push |
-| **eject** | 上級者 | `npx ampless eject-theme` でローカルコピーに切り替え |
-
-管理画面からのインストール:
-
-```
-管理画面「テーマ変更」
-  → テーマ一覧（サムネイルプレビュー付き）
-  → テーマパッケージを S3 にダウンロード
-  → DynamoDB にテーマ設定を保存
-  → 次のリクエストから新テーマで描画
-```
-
-テーマは管理者のみがインストール可能（role: admin）。
-信頼済みコードとして扱い、プラグインの trust_level によるサンドボックスは適用しない。
-
-### テーマの切り替えとプレビュー
-
-実際のコンテンツを使って、複数テーマを見比べてから適用できる。
-
-```
-┌─────────────────────────────────────────────┐
-│ テーマ設定                                    │
-├──────────┬──────────────────────────────────┤
-│          │                                    │
-│ テーマ選択 │   ┌────────────────────────┐     │
-│ ● Blog   │   │                          │     │
-│ ○ Docs   │   │    iframe プレビュー       │     │
-│ ○ Corp   │   │  （実際のコンテンツ表示）   │     │
-│          │   │                          │     │
-│ カスタマイズ│   └────────────────────────┘     │
-│ 色: [■]  │                                    │
-│ フォント   │              [テーマを適用]        │
-│ ロゴ      │                                    │
-└──────────┴──────────────────────────────────┘
-```
-
-- プレビューは iframe + URL パラメータでテーマを指定（管理者セッションのみ）
-- カスタマイズ項目を変えるたびに iframe がリアルタイム更新
-- 「テーマを適用」を押すまで公開サイトには反映されない
-
 ```typescript
-// middleware.ts
-export function middleware(request: NextRequest) {
-  const theme = request.nextUrl.searchParams.get('theme')
-  const preview = request.nextUrl.searchParams.get('preview')
+// themes/blog/index.ts — ランタイムモジュール
+import { defineThemeModule } from 'ampless'
+import manifest from './manifest'
+import BlogHome from './pages/home'
+import BlogPost, { generatePostMetadata } from './pages/post'
+import BlogTag from './pages/tag'
+import { blogFeedHandler, blogSitemapHandler } from './pages/feed'
 
-  if (preview && isAdminSession(request)) {
-    request.headers.set('x-theme', theme)
-  }
-}
-```
-
-### キャッシュ戦略
-
-テーマの描画結果は Next.js ISR でキャッシュし、テーマ Lambda の呼び出しを最小化する。
-
-```
-初回アクセス → テーマで描画 → HTML キャッシュ（ISR）
-以降のアクセス → キャッシュから配信
-コンテンツ更新 → DynamoDB Stream → SQS → キャッシュ再生成
-テーマ変更   → 全ページのキャッシュを無効化 → 順次再生成
-```
-
-### 管理画面の UI
-
-管理画面自体はテーマと独立。shadcn/ui + Tailwind で構成。
-
-| 領域 | 技術 | 理由 |
-|------|------|------|
-| 管理画面 `(admin)/` | shadcn/ui + Tailwind | フォーム・テーブル・ダイアログ等が揃っている |
-| 公開サイト `(public)/` | テーマ依存（Tailwind ベース） | テーマごとにデザインが異なる |
-
-### スロット（挿入ポイント）
-
-テーマはプラグインがコンテンツを差し込める**スロット**を宣言する。
-
-```tsx
-// テーマ側: 記事ページ
-export default function PostPage({ post }) {
-  return (
-    <article>
-      <Slot name="before-content" />
-      <PostBody content={post.body} />
-      <Slot name="after-content" />
-      <Slot name="sidebar" />
-    </article>
-  )
-}
-```
-
-```typescript
-// プラグイン側: AdSense
-export default definePlugin({
-  slots: {
-    'after-content': (props) => <AdSenseUnit slot="XXXXXXX" />,
-  }
+export default defineThemeModule({
+  name: 'blog',
+  manifest,
+  components: { Home: BlogHome, Post: BlogPost, Tag: BlogTag },
+  metadata: { Post: generatePostMetadata },
+  routes: { feed: blogFeedHandler, sitemap: blogSitemapHandler },
 })
 ```
 
-GA スクリプト、AdSense、関連記事ウィジェット等はすべてスロットの仕組みに乗る。
-`head` スロットは `<head>` へのスクリプト・メタタグ挿入に使用。
+- **`defineTheme()`** はカスタマイズフィールドを定義する。管理 UI がそれからフォームを自動生成し、上書き値を KvStore の `theme.<key>` に保存する。
+- **`defineThemeModule()`** は公開 dispatcher が消費する。`Home` は必須、`Post` / `Tag` と `feed` / `sitemap` ルートは任意 — 未提供の面に対しては dispatcher が 404 を返す。
 
-### 用途別テーマ
+型定義は [`packages/ampless/src/theme.ts`](../../packages/ampless/src/theme.ts)。
 
-| テーマ | ターゲット | 説明 |
-|--------|-----------|------|
-| `@ampless/theme-blog` | 個人/企業ブログ | テキスト主体。シンプル |
-| `@ampless/theme-docs` | ドキュメントサイト | サイドバーナビ。Nextra/Docusaurus 風 |
-| `@ampless/theme-corporate` | 企業サイト + ブログ | LP + ブログの複合 |
+### themes-registry
 
-外部のテーマ作者も同じ `defineTheme()` 規約に従えば、管理画面から自動的にインストール・カスタマイズ可能。
+各プロジェクトには `themes-registry.ts`（`create-ampless --upgrade` で再生成される）があり、インストール済みテーマモジュールを全部 import して map と `DEFAULT_THEME` 定数を公開する。`@ampless/runtime` は毎リクエストここから active テーマを解決する。
 
-### v1 方針
-- v0.1: `@ampless/theme-blog` のみ。`configSchema` による CSS 変数カスタマイズ
-- v0.2: テーマ切り替え・プレビュー、`@ampless/theme-docs` 追加
-- v1.0: eject 対応、外部テーマ対応
+### active テーマの解決
+
+active テーマ名は KvStore の `theme.active`（`pk='siteconfig', sk='theme.active'`）に保存される。trusted イベントプロセッサが KvStore のサイト設定変更を毎回 `public/site-settings.json` にミラーするので、公開サイトはそこから `theme.active` を読む。
+
+```
+管理 UI が KvStore の theme.active を更新（AppSync mutation）
+  → DynamoDB Stream → SQS-trusted → processor-trusted
+    → public/site-settings.json を再生成
+      → 公開サイトが次リクエストで { 'theme.active': 'dads' } を読む
+        → resolveActiveTheme() → themes-registry['dads']
+```
+
+`resolveActiveTheme()` ([`packages/runtime/src/theme-active.ts`](../../packages/runtime/src/theme-active.ts)) は S3 読み取りを `next.revalidate: 60` でキャッシュしているので、管理側変更は CDK 再デプロイなしで約 60 秒で反映される。registry にないテーマ名 / 欠落は `DEFAULT_THEME` にフォールバックする。
+
+### テーマカスタマイズ
+
+`defineTheme().fields` で使える型：
+
+| `type` | 保存形式 | レンダリング |
+|---|---|---|
+| `color` | CSS カラー文字列または `light-dark(L, D)` ペア | `:root { --<cssVar>: <value> }` をインライン注入 |
+| `length` | `<n><unit>`（px / rem / em / % / vh / vw） | 同上 — CSS 変数 |
+| `text` | サニタイズ済み文字列（制御文字と `<>` を削除） | テンプレートが `loadThemeConfig()` 経由で読む |
+| `select` / `fontFamily` | 宣言済みオプションのどれか | CSS 変数（fontFamily はテンプレ読み込み） |
+| `image` | URL（`javascript:` / `vbscript:` は拒否） | テンプレート読み込み |
+| `linkList` | `{ label, url }` の JSON 配列（`tag:<name>` 形式も含む） | テンプレート読み込み。ナビメニュー、フッター、サイドバーグループに使う |
+
+`cssVar` が設定されたフィールドは全公開ページに `:root { ... }` インラインブロックとして埋め込まれる。`cssVar` のないフィールドはテンプレート側が `loadThemeConfig()` で受け取る。検証はサーバサイドで `validateThemeValue` が実施するので、管理フォームからの不正値がページの CSS や `:root` ブロックを壊すことはない。
+
+### テーマ切り替えとプレビュー（管理 UI）
+
+管理画面の Site → Theme で、インストール済みテーマを切り替え、適用前にライブ iframe でプレビューできる。
+
+```
+┌────────────────────────────────────────────────┐
+│ Site → Theme                                    │
+├────────────────┬───────────────────────────────┤
+│ インストール済：│  ┌──────────────────────┐    │
+│ ● blog (active)│  │  /?previewTheme=dads │    │
+│ ○ corporate    │  │  (iframe)            │    │
+│ ○ dads         │  └──────────────────────┘    │
+│ ○ docs         │                                │
+│ ○ landing      │  Customize: primary [■]       │
+│ ○ minimal      │             accent  [■]       │
+│                │                                │
+│                │             [Apply Theme]     │
+└────────────────┴───────────────────────────────┘
+```
+
+- プレビュー URL：`/?previewTheme=<name>&previewColorScheme=<light|dark>`。middleware がクエリを読んで rewrite 後のリクエストに `x-preview-theme` ヘッダを付け、`resolveActiveTheme()` がそれを honour する。public な訪問者はそのクエリを叩いても、ヘッダ付与は管理画面の iframe コンテキストでのみ起きるため影響しない。
+- 「Apply Theme」は `setSiteSetting('theme.active', name)` を呼んだあと、trusted プロセッサが S3 へ伝播し終えるまで `readStoredActiveThemeFresh` で S3 キャッシュをポーリングする — 切り替え後の hard reload がキャッシュ再生成と race しないように。
+
+### キャッシュ
+
+テーマは事前レンダーしない。毎リクエストでテーマのサーバコンポーネントが走り、`metadata.cache` + `cms.config.cache.*` から計算された `Cache-Control` ヘッダ付きでレスポンスする（詳細は [03-content-management.md](./03-content-management.md#キャッシュ戦略)）。繰り返しトラフィックは CDN が吸収し、テーマ Lambda は CDN miss かクールダウン明けにだけ再実行される。
+
+テーマ出力に対する ISR キャッシュはない。テーマ切り替えは S3 上の `theme.active` を書き換えるだけで、次の CDN miss リクエストから新テーマが拾われる。ページ単位のキャッシュ無効化パスは不要。
+
+### スロット / プラグイン注入
+
+テーマは汎用の「slot」挿入点を公開していない。プラグインがページに注入する経路は固定で：
+
+- `siteMetadata` / `metadata` — `<head>` 用のコンテンツ（title、OG、RSS link）。
+- `ogImage` — `app/og/[slug]/route.ts` ルートが消費する JSX レンダラを提供。
+- `writePublicAsset` — テーマが `<head>` から参照する静的アセット（RSS フィード、sitemap）を書き出す。
+
+特定プラグインの出力を本文中に差し込みたい（例：タイトルと本文の間に AdSense ユニットを入れたい）場合は、テーマコンポーネント側が配置を決める。テーマ非依存の「before-content」スロットのような仕組みはない。
+
+### 現在出荷されているテーマ
+
+6 つすべてが `templates/<theme>/` に住んでおり、`create-ampless` がユーザリポジトリにコピーする。
+
+| ディレクトリ | 用途 |
+|---|---|
+| `blog` | 個人 / 企業ブログ。ニュートラル系モノクロ。 |
+| `corporate` | 企業サイト + ブログ。トップは LP 風、posts セクション付き。 |
+| `dads` | デジタル庁デザインシステム（dads Tailwind プラグイン）。公共・公益機関向け。 |
+| `docs` | ドキュメント / ハンドブック。サイドバーナビ、タグ別一覧、ディープリンクしやすい。 |
+| `landing` | シングルページの LP。投稿はセクションとして出てくる。 |
+| `minimal` | ヘッドレス指向のミニマム構成。スタイルがほぼなく、カスタムビルドの土台向け。 |
+
+プロジェクトローカルでテーマをカスタマイズする方法は `templates/_shared/THEMES.md` を参照。
+
+### 管理 UI とテーマ
+
+管理アプリ（`(admin)/admin/*` ルート）は意図的にテーマ非依存。どのテーマが active であっても shadcn/ui + Tailwind のビルドは同じ。管理画面内のサイト furniture（左 rail、トップバー）は `@ampless/runtime/ui` から共有し、テーマ側の site chrome で意味のある部分は同じ実装を使う。テーマが管理画面のスタイルを上書きすることはない。
 
 ---

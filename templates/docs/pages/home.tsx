@@ -1,8 +1,6 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { loadThemeConfig } from '@/lib/theme-config'
+import { ampless } from '@/lib/ampless'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
@@ -13,9 +11,9 @@ import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar
 // page until the user arranges static pages.
 export default async function DocsHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(),
-    loadThemeConfig(),
-    listPublishedPosts({ limit: 12 }),
+    ampless.loadSiteSettings(),
+    ampless.loadThemeConfig(),
+    ampless.listPublishedPosts({ limit: 12 }),
   ])
   const posts = postsResult.items
 

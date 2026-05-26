@@ -23,10 +23,7 @@ export interface WebhookEndpoint {
 }
 
 export interface WebhookPluginOptions {
-  endpoints?: WebhookEndpoint[]
-  /** Backwards-compatible single-endpoint shortcut. */
-  url?: string
-  secret?: string
+  endpoints: WebhookEndpoint[]
 }
 
 const ALL_CONTENT_EVENTS: EventType[] = [
@@ -42,8 +39,8 @@ const ALL_CONTENT_EVENTS: EventType[] = [
  * whenever a subscribed event fires. Runs in the untrusted Lambda — it
  * needs no AWS data access, only outbound HTTPS.
  */
-export default function webhookPlugin(options: WebhookPluginOptions = {}): AmplessPlugin {
-  const endpoints = normalizeEndpoints(options)
+export default function webhookPlugin(options: WebhookPluginOptions): AmplessPlugin {
+  const endpoints = options.endpoints
 
   // Build a hooks map covering every distinct event any endpoint cares
   // about. Endpoint-level filtering happens inside the dispatcher.
@@ -68,12 +65,6 @@ export default function webhookPlugin(options: WebhookPluginOptions = {}): Ample
   })
 }
 
-function normalizeEndpoints(options: WebhookPluginOptions): WebhookEndpoint[] {
-  const list: WebhookEndpoint[] = []
-  if (options.url) list.push({ url: options.url, secret: options.secret })
-  if (options.endpoints) list.push(...options.endpoints)
-  return list
-}
 
 async function dispatch(endpoints: WebhookEndpoint[], event: AmplessEvent): Promise<void> {
   const body = JSON.stringify({

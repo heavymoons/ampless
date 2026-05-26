@@ -1,13 +1,12 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 import { TagList } from '@/components/tag-list'
-import { t } from '@/lib/i18n'
 
 export default async function MinimalHome(_: ThemeRouteContext) {
-  const settings = await loadSiteSettings()
-  const { items: posts } = await listPublishedPosts()
+  const settings = await ampless.loadSiteSettings()
+  const { items: posts } = await ampless.listPublishedPosts()
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
@@ -19,7 +18,7 @@ export default async function MinimalHome(_: ThemeRouteContext) {
       </header>
 
       {posts.length === 0 ? (
-        <p className="text-gray-500">{t('public.noPosts')}</p>
+        <p className="text-gray-500">{admin.t('public.noPosts')}</p>
       ) : (
         <ul className="space-y-8">
           {posts.map((post) => (

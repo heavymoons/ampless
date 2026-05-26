@@ -10,7 +10,7 @@
 ## Why ampless
 
 - **AWS-native.** Runs entirely on Amplify Gen 2 — Cognito for auth, DynamoDB for content, S3 for media, Lambda for plugins, AppSync for queries. No extra moving parts.
-- **AI-first.** The MCP server (`@ampless/mcp-server`) lets Claude Desktop, Cursor, Claude Code and anything else that speaks MCP read and write your posts directly.
+- **AI-first.** The MCP server lets Claude, Cursor, Claude Code and anything else that speaks MCP read and write your posts via HTTP transport with Bearer token authentication issued from the admin UI.
 - **Plugin-friendly.** Trust-level-segregated Lambdas (`untrusted` / `trusted`) execute event hooks without giving every plugin access to your data.
 - **TypeScript-first.** Everything from `cms.config.ts` to event handlers is typed end-to-end.
 
@@ -58,7 +58,7 @@ When you're ready to publish, the CLI's `--mount` mode wires the directory you'v
 | [`@ampless/plugin-seo`](./packages/plugin-seo) | OGP / Twitter / canonical metadata + `sitemap.xml` |
 | [`@ampless/plugin-rss`](./packages/plugin-rss) | RSS 2.0 `/feed.xml` |
 | [`@ampless/plugin-webhook`](./packages/plugin-webhook) | POST events to external URLs (HMAC-signed) |
-| [`@ampless/mcp-server`](./packages/mcp-server) | MCP server for Claude Desktop / Cursor / Claude Code |
+| [`@ampless/mcp-server`](./packages/mcp-server) | MCP tool registry (internal, used by `@ampless/backend` HTTP MCP handler) |
 
 ## Plugins in `cms.config.ts`
 

@@ -1,19 +1,25 @@
-import type { ResolvedSite } from '../site.js'
-export type { ResolvedSite }
+/**
+ * Site context passed from the HTTP transport into each tool call.
+ * The mcp-handler Lambda resolves this from the MCP access token.
+ */
+export interface ResolvedSite {
+  name: string
+  url?: string
+  environment: 'prod' | 'stg' | 'dev'
+  siteId: string
+}
 
 /**
  * Abstract contracts each tool handler depends on. Concrete
- * implementations live elsewhere:
+ * implementations live in `@ampless/backend`'s mcp-handler Lambda:
  *
- *   - Stdio CLI: `src/appsync.ts` (Cognito-id-token bearer) and
- *     `src/s3.ts` (default-credential-chain S3 client).
- *   - HTTP transport: `@ampless/admin/api/mcp` wraps the consumer's
- *     existing `generateClient<Schema>()` + S3 client.
+ *   - `mcp-graphql-client.ts` — AppSync GraphQL client (Bearer token)
+ *   - `mcp-storage-client.ts` — S3 client for media operations
  *
- * Both routes satisfy these interfaces structurally (no `implements`
- * needed) — TypeScript's structural typing checks the shape on the
- * call site. Tools never instantiate these themselves; the caller
- * passes a ready `ToolContext` into `dispatchToolCall`.
+ * Both satisfy these interfaces structurally (no `implements` needed)
+ * — TypeScript's structural typing checks the shape on the call site.
+ * Tools never instantiate these themselves; the caller passes a ready
+ * `ToolContext` into `dispatchToolCall`.
  */
 export interface GraphqlClient {
   query<T>(operation: string, variables?: Record<string, unknown>): Promise<T>

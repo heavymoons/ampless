@@ -27,8 +27,7 @@ After:
 Wins:
 
 - One reserved URL namespace (`/_/`) instead of two (`/raw/` + the
-  unprefixed slug-with-path pattern that previously competed with
-  normal post routing).
+  unprefixed slug-with-path pattern that conflicted with normal post routing).
 - Static-bundle bundles no longer collide with normal post slugs.
 - LLM-facing docs (`get_schema` notes, MCP tool descriptions) only
   have to teach one URL pattern.

@@ -1,20 +1,18 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPostsByTag } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { loadThemeConfig } from '@/lib/theme-config'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
-import { t } from '@/lib/i18n'
 
 export default async function DadsTag({ params }: ThemeRouteContext<{ tag: string }>) {
   const { tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings, theme] = await Promise.all([
-    listPostsByTag(decodedTag, { limit: 50 }),
-    loadSiteSettings(),
-    loadThemeConfig(),
+    ampless.listPostsByTag(decodedTag, { limit: 50 }),
+    ampless.loadSiteSettings(),
+    ampless.loadThemeConfig(),
   ])
   if (posts.length === 0) notFound()
 
@@ -36,12 +34,12 @@ export default async function DadsTag({ params }: ThemeRouteContext<{ tag: strin
             href="/"
             className="text-[var(--primary)] underline-offset-4 hover:underline"
           >
-            {t('public.home')}
+            {admin.t('public.home')}
           </Link>
         </nav>
 
         <header className="mb-10">
-          <p className="text-sm text-[var(--muted-foreground)]">{t('public.tagLabel')}</p>
+          <p className="text-sm text-[var(--muted-foreground)]">{admin.t('public.tagLabel')}</p>
           <h1 className="text-3xl font-bold tracking-tight">#{decodedTag}</h1>
         </header>
 

@@ -1,4 +1,4 @@
-import { publicAssetUrl } from '@/lib/storage'
+import { ampless } from '@/lib/ampless'
 
 interface Ctx {
   request: Request
@@ -7,7 +7,7 @@ interface Ctx {
 // /sitemap.xml proxy — plugin-seo regenerates the sitemap on every
 // content event and writes it to `public/plugins/seo/sitemap.xml`.
 export async function minimalSitemapHandler(_ctx: Ctx): Promise<Response> {
-  const url = publicAssetUrl('public/plugins/seo/sitemap.xml')
+  const url = ampless.publicAssetUrl('public/plugins/seo/sitemap.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

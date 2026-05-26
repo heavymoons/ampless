@@ -1,22 +1,22 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
-import { validateColorScheme } from '@ampless/runtime'
+import { renderThemeCss, validateColorScheme } from '@ampless/runtime'
+import { getDictionary } from '@ampless/admin'
+import { I18nProvider } from '@ampless/admin/components'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 import { Providers } from './providers'
-import { siteMetadata } from '@/lib/seo'
-import { loadThemeConfig, renderThemeCss } from '@/lib/theme-config'
-import { getLocale, getDictionary } from '@/lib/i18n'
-import { I18nProvider } from '@/components/i18n-provider'
 import './globals.css'
 
 export async function generateMetadata(): Promise<Metadata> {
-  return siteMetadata()
+  return ampless.siteMetadata()
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const h = await headers()
-  const theme = await loadThemeConfig()
+  const theme = await ampless.loadThemeConfig()
   const themeCss = renderThemeCss(theme.cssVars)
-  const locale = getLocale()
+  const locale = admin.locale
   const dict = getDictionary(locale)
   // `data-color-scheme` pins the visitor to light or dark regardless
   // of their system `prefers-color-scheme`. `'auto'` (the default)

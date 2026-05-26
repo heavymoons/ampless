@@ -16,28 +16,11 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 
 ---
 
-### v0.1 (済 — 内部リリース)
-
-- [x] CLI ウィザード (`npx create-ampless@latest`)
-- [x] Core ライブラリ（コンテンツ CRUD、プラグインコントラクト、共通ユーティリティ）
-- [x] 管理画面（コンテンツ CRUD、tiptap エディタ、メディアアップロード）
-- [x] ブログテーマ（`templates/blog`）
-- [x] Cognito 認証（email + password、forgot-password フロー）
-- [x] MCP Server（`@ampless/mcp-server`、stdio transport、Cognito SRP authn、7 tools）
-- [x] コアプラグイン: SEO（sitemap.xml + OGP）、RSS（feed.xml）、Webhook（HMAC 署名 POST）
-- [x] trust_level 別 Lambda 基盤（untrusted / trusted、DynamoDB Streams → SQS）
-- [x] AppSync API key 自動更新ジョブ（月次 EventBridge → UpdateApiKey）
-- [x] editor 信頼モデルの仕様化（`unfiltered_html` ライク）
-
----
-
 ### v0.x (進行中 — ドッグフードを通じて積み上げ)
 
 ドッグフード対象サイトを ampless で立てるために必要な機能を優先順に。粒度ごとに changeset を切り、まとまった単位で v0.x → v0.(x+1) に bump する運用。
 
 #### シングルサイトモデル + エッジキャッシュ（最優先）
-- [x] 1 デプロイ複数ドメイン振り分け（マルチサイトモード）を撤去。1 Amplify デプロイ = 1 サイトに固定
-- [x] 内部のルーティング階層をフラット化（ルート相対パスに統一）
 - [ ] CloudFront キャッシュ戦略: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュを活用し Lambda 起動回数を削減（Amplify Hosting の内部 CloudFront は cache key に Host を含めず Cache Policy / Lambda@Edge も触れないため、1 デプロイ = 1 サイトに固定するのが最も素直）
 - [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
 
@@ -48,8 +31,6 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 - [ ] テーマ切り替え + iframe プレビュー（管理画面上）
 
 #### MCP / AI 連携の拡張
-- [ ] MCP HTTP transport（`.mcp.json` に PAT を貼って使う一般的な流儀）
-- [ ] MCP アクセストークン発行 UI（管理画面）
 - [ ] AI プロバイダ抽象レイヤー
 - [ ] 校正 / 要約 プラグイン
 

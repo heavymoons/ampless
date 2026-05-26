@@ -2,50 +2,52 @@
 > 
 ## 9. Plugin Distribution and Installation
 
-### Method A: Build-time (Core Plugins)
+### Build-time Installation (current model)
 
-Distributed as npm packages. Bundled at build time.
+Plugins are distributed as npm packages and bundled into the deployed Lambda artifacts at build time. Activation is a single line in the project's `cms.config.ts`:
 
 ```bash
-npm install @ampless/plugin-seo
+pnpm add @ampless/plugin-seo @ampless/plugin-rss
 ```
 
 ```typescript
-// amplify/plugins.ts
-import { defineCmsPlugins } from 'ampless';
-export const plugins = defineCmsPlugins([
-  '@ampless/plugin-seo',
-  '@ampless/plugin-contact-form',
-]);
+// cms.config.ts
+import { defineConfig } from 'ampless'
+import seoPlugin from '@ampless/plugin-seo'
+import rssPlugin from '@ampless/plugin-rss'
+
+export default defineConfig({
+  site: { name: '...', url: '...' },
+  plugins: [
+    seoPlugin({ /* ... */ }),
+    rssPlugin({ /* ... */ }),
+  ],
+})
 ```
 
-git push → Amplify auto-build and deploy.
+A subsequent `git push` triggers Amplify Hosting's auto-build and deploys the updated Lambdas. The trusted / untrusted Lambdas each filter `plugins` down to their own `trust_level` and bind the matching event hooks at handler init.
 
-Advantages: npm version management, lockfile, and security auditing work as-is.
-Disadvantages: Every addition triggers a deployment. Non-developers cannot operate independently.
+**Implications**
 
-### Method B: Runtime (Third-party Plugins)
+- npm version management, lockfiles, and security auditing apply unchanged.
+- Adding or removing a plugin requires redeploying the site.
+- Non-developer install (admin UI "click to install") is not possible in this model — installing is a code change.
 
-Installed from the admin UI. Plugin code is stored in S3 and loaded dynamically at Lambda execution time.
+The trade-off is deliberate: ampless's target is dogfood-grade sites operated by their owner, where a CDK redeploy is acceptable and the alternative (loading arbitrary JS at runtime) is a much larger sandbox-design problem.
 
-```
-Admin UI "Add Plugin"
-  → Upload bundled JS to S3
-  → Register manifest in DynamoDB
-  → At Lambda execution: fetch code from S3
-  → Execute via new Function() (in the appropriate Lambda for the trust_level)
-```
+### First-party plugins
 
-Caching strategy:
-1. In-memory cache within Lambda (retained across warm starts)
-2. /tmp file cache (fast even on cold starts)
-3. Fetch from S3 (only on a completely fresh first execution)
+Shipped from this monorepo, published under `@ampless/` on npm:
 
-Plugin authors distribute as a single bundled JS file using esbuild or similar.
+- `@ampless/plugin-seo` — per-post and site-level SEO metadata. trusted.
+- `@ampless/plugin-rss` — generates `public/plugins/rss/feed.xml` on content publish. trusted.
+- `@ampless/plugin-og-image` — dynamic OG-image rendering at request time. untrusted (renders inside the public Next.js process, no AWS data permissions needed).
+- `@ampless/plugin-webhook` — outbound webhook delivery on content events. untrusted.
 
-### v1 Policy
-- Core plugins use Method A (npm)
-- Third-party plugins use Method B (S3 + runtime loading)
-- Hybrid operation combining both methods
+### Runtime / marketplace installation
+
+Admin-UI-driven install (upload bundle → fetch from S3 → execute in Lambda at runtime) is **not implemented**. The sandbox story for "load arbitrary JS into a trusted Lambda at runtime" is the open question: doing it inside a shared trusted Lambda is unacceptable, doing it in a per-plugin Lambda requires capability-based dynamic IAM. That work sits on the [roadmap](./14-roadmap.md) and is explicitly not a v1.0 deliverable.
+
+Until that lands, third-party plugins distribute the same way first-party ones do: as npm packages that the site operator adds to their own repo.
 
 ---

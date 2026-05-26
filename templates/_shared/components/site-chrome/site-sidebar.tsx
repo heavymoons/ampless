@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { parseLinkList, isTagListUrl } from 'ampless'
-import { listPostsByTag } from '@/lib/posts-public'
+import { ampless } from '@/lib/ampless'
 
 interface Props {
   links: string | undefined
@@ -27,7 +27,7 @@ export async function SiteSidebar({ links, className }: Props) {
     items.map(async (item) => {
       const tagRef = isTagListUrl(item.url)
       if (!tagRef) return { type: 'link' as const, label: item.label, url: item.url }
-      const { items: posts } = await listPostsByTag(tagRef.tag, { limit: 50 })
+      const { items: posts } = await ampless.listPostsByTag(tagRef.tag, { limit: 50 })
       return {
         type: 'tagSection' as const,
         label: item.label,

@@ -10,11 +10,6 @@ existing Stream → SQS → trusted-processor pipeline. Every Post
 write now triggers an automatic PostTag refresh, regardless of the
 write path (admin UI, MCP tools, future REST clients).
 
-Previously each write path called its own `syncPostTags` helper
-(one in `@ampless/admin`, one in `@ampless/mcp-server`). Any future
-write path had to remember to call the same helper, and a failed
-sync left posts saved but the public tag pages stale.
-
 New plumbing:
 
 - **`ampless`**: new `PostIndexEventType` / `PostIndexEventPayload`
@@ -50,9 +45,3 @@ this is fine — the public side already has its own
 60-second fetch cache TTL on `public/site-settings.json`, and tag
 pages are not edit-then-immediately-view surfaces.
 
-Migration: alpha break. After deploying this version the trusted
-Lambda's IAM role needs the new `PostTag` grant — running
-`npx ampx sandbox` once will refresh the policy. Stale PostTag
-rows from before the deploy are not auto-cleaned, but the next
-edit on each affected post will heal them through the same
-diff logic.

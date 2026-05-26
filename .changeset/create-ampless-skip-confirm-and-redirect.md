@@ -6,9 +6,9 @@ Two `--mount` / `--deploy` polish fixes surfaced while mounting an existing
 project onto a renamed GitHub slug:
 
 1. `--skip-confirm` now correctly suppresses the "Repository visibility"
-   `select` prompt in `gatherDeployOptions`. Previously the prompt fired
-   even with `--skip-confirm` because the guard only short-circuited when
-   `--github-private` was explicitly passed.
+   `select` prompt in `gatherDeployOptions`. The guard now short-circuits
+   when `--skip-confirm` is set, not only when `--github-private` is
+   explicitly passed.
 
 2. `ghRepoExists` now uses `gh repo view --json nameWithOwner` and
    compares the resolved name to the requested slug. GitHub keeps a

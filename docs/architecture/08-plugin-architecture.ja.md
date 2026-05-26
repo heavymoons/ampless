@@ -2,268 +2,137 @@
 > 
 ## 8. プラグインアーキテクチャ
 
-### 設計思想
-EmDash が V8 isolate でプラグインをサンドボックス化しているのに対し、
-本 CMS は **AWS IAM をサンドボックスとして活用**する。
-Lambda 関数レベルの分離 + IAM ポリシーによる権限制御で、
-isolated-vm 等のランタイムサンドボックスを不要にする。
+### 設計方針
 
-### trust_level 別 Lambda 構成
+ampless のプラグインは、自身の `trust_level` に対応するイベント処理 Lambda の中で動く。サンドボックスは **Lambda の IAM 実行ロール**であり、V8 isolate でも `vm.Script` ラッパーでもない。プロセス内 JS サンドボックスは存在しない。untrusted コードは IAM ロールが空の Lambda で走り、trusted コードは trusted 層に必要な権限だけが付いた Lambda で走る。
 
-3 段階の信頼レベルごとに専用の Lambda 関数を用意する。
+V8 isolate サンドボックスのような細粒度 capability を捨てて、AWS ネイティブの分離を取った形。推論しやすく、ネイティブバイナリ依存もなく、`--no-node-snapshot` フラグもコンテナイメージ Lambda も不要。
 
-#### untrusted（信用できないプラグイン）
+### プラグイン契約
 
-- **IAM 権限**: なし（ゼロ）
-- **できること**: 純粋な JS 実行のみ。入力テキストの変換・加工
-- **できないこと**: AWS リソースへのアクセス全般
-- **用途**: Markdown 装飾、文字数カウント、OGP テキスト生成
-- **メモリ**: 128-256MB
-- **防御**: new Function() でグローバルオブジェクト（process, require 等）を隠蔽
-
-```javascript
-function executePlugin(code, cmsApi) {
-  const safeScope = {
-    process: undefined,
-    require: undefined,
-    global: undefined,
-    globalThis: undefined,
-    Buffer: undefined,
-    cms: cmsApi
-  };
-  const keys = Object.keys(safeScope);
-  const values = Object.values(safeScope);
-  const fn = new Function(...keys, `"use strict";\n${code}`);
-  return fn(...values);
-}
-```
-
-#### trusted（まあまあ信用できるプラグイン）
-
-- **IAM 権限**: content テーブル読み取り、S3 public 読み取り、plugin-data 自分の PK 読み取り
-- **できること**: 公開コンテンツの参照、メディアファイルの読み取り、自分のプラグインデータ読み取り
-- **できないこと**: 書き込み、S3 private アクセス、外部サービス連携
-- **用途**: SEO メタタグ生成、関連記事表示、サイトマップ生成、RSS
-- **メモリ**: 256-512MB
-
-#### privileged（すごく信用できるプラグイン）
-
-- **IAM 権限**: capabilities 宣言に基づく動的生成ポリシー
-- **できること**: メール送信、フォームデータ保存、外部 API 連携等
-- **できないこと**: 宣言していない capability の操作
-- **用途**: お問い合わせフォーム、メール通知、Analytics 連携、決済
-- **メモリ**: 512MB
-
-```json
-{
-  "name": "contact-form",
-  "version": "1.0.0",
-  "trust_level": "privileged",
-  "capabilities": ["ses:SendEmail", "plugin-data:write", "s3:private:write"]
-}
-```
-
-capabilities からIAMポリシーを動的に組み立てる:
+プラグインは `definePlugin()`（[`packages/ampless/src/plugin.ts`](../../packages/ampless/src/plugin.ts)）の結果を export するだけのプレーンな TS モジュール：
 
 ```typescript
-function buildPluginPolicy(pluginName: string, capabilities: string[]) {
-  const statements = [];
+export interface AmplessPlugin {
+  name: string
+  apiVersion: 1
+  trust_level: 'untrusted' | 'trusted' | 'privileged'
 
-  for (const cap of capabilities) {
-    switch (cap) {
-      case 'ses:SendEmail':
-        statements.push({
-          actions: ['ses:SendEmail'],
-          resources: ['arn:aws:ses:*:*:identity/noreply@example.com']
-        });
-        break;
-      case 'plugin-data:write':
-        statements.push({
-          actions: ['dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:DeleteItem'],
-          resources: ['arn:aws:dynamodb:*:*:table/ampless-plugin-data'],
-          condition: { 'dynamodb:LeadingKeys': [`plugin#${pluginName}`] }
-        });
-        break;
-      case 's3:private:write':
-        statements.push({
-          actions: ['s3:GetObject', 's3:PutObject'],
-          resources: [`arn:aws:s3:::ampless-bucket/private/plugins/${pluginName}/*`]
-        });
-        break;
-    }
-  }
+  // イベントフック — trust_level に対応する Lambda が SQS から受けて実行
+  hooks?: { [K in EventType]?: (event, ctx) => Promise<void> }
 
-  return statements;
+  // 投稿・サイトレベルのメタデータ — 純関数、リクエスト時に呼ばれる
+  metadata?(post: Post, site): PluginMetadata
+  siteMetadata?(site): PluginMetadata
+
+  // 動的 OG 画像 — リクエスト時に Next.js ImageResponse でレンダリング
+  ogImage?: OgImageConfig
 }
 ```
 
-### API 仕様バージョン
-
-プラグインとテーマの仕様（definePlugin / defineTheme の API）にはバージョンを付与する。
-ampless コアが仕様を破壊的変更する際にインクリメントする。
+これらの面を任意に組み合わせる。有効化はプロジェクトの `cms.config.ts` に 1 行：
 
 ```typescript
-// ampless コアが現在サポートする仕様バージョン
-const SUPPORTED_PLUGIN_API_VERSIONS = [1]
-const SUPPORTED_THEME_API_VERSIONS = [1]
+plugins: [
+  seoPlugin({ /* ... */ }),
+  rssPlugin({ /* ... */ }),
+]
 ```
 
-プラグイン・テーマ側は `apiVersion` を宣言する:
+### trust_level
+
+#### `untrusted`
+
+- **IAM**：SQS 受信のみ。データ系の AWS 権限はゼロ。
+- **ランタイムコンテキスト**：`listPublishedPosts()` と `writePublicAsset()` はいずれも throw する。
+- **できること**：純 JS と外向き HTTP（Lambda の egress は通る）。
+- **用途**：Webhook 配送、in-process のコンテンツ変換、OG 画像テンプレ描画（実際の描画は untrusted Lambda ではなく公開 Next.js プロセス内で行う）。
+- **ファーストパーティ例**：`@ampless/plugin-og-image`、`@ampless/plugin-webhook`。
+
+#### `trusted`
+
+- **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
+- **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{plugin}/{key}` への書き込み。
+- **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持。
+- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`。
+
+trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーをプラグイン名でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。厳密な per-plugin 分離は[ロードマップ](./14-roadmap.md)の「プラグイン 1 つ = Lambda 1 つ + capability ベース IAM」案件。
+
+#### `privileged`
+
+予約。契約上 `trust_level: 'privileged'` は受け取れるが、現状 privileged 用の Lambda は用意されていない。想定される将来形：
+
+- privileged プラグイン 1 つにつき 1 Lambda。
+- プラグインが capability リストを宣言し、CDK がそれを IAM ポリシーに展開する。
+- 用途：メール送信（SES）、独自テーブルへのフォーム投稿保存、外部の有料 API 呼び出し、private S3 プレフィックスへのアクセス。
+
+trusted / untrusted の運用が固まり、実需が出た時点で着手する。
+
+### プラグインがどこで動くか
+
+| 面 | 実行場所 | 発火タイミング |
+|---|---|---|
+| `hooks` | `processor-trusted` / `processor-untrusted` Lambda（`trust_level` 別） | SQS メッセージ到着時 — つまり元の DynamoDB 書き込みの後 |
+| `metadata` / `siteMetadata` | 公開 Next.js プロセス（リクエストスレッド） | テーマコンポーネント / `generateMetadata()` 内 |
+| `ogImage` | 公開 Next.js プロセス — `app/og/[slug]/route.ts` 等 | OG 画像 URL がリクエストされたとき |
+
+`hooks` がプラグインの非同期面、`metadata` / `siteMetadata` / `ogImage` が同期面で、後者は公開サイト内で動き、AWS データ権限を持たない（純関数か、渡された値だけを読む）。
+
+### プラグインの状態保存
+
+プラグインは 3 つの仕組みで状態を保持する。どれも「プラグイン 1 つに DynamoDB テーブル 1 つ」ではない：
+
+| 仕組み | 場所 / 形 | 用途 |
+|---|---|---|
+| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス |
+| `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） |
+| `cms.config.ts` のコンストラクタ引数 | プラグイン factory の引数 | デプロイに焼き込む静的設定 |
+
+`private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
+
+### S3 レイアウト
+
+```
+s3://<bucket>/
+  public/
+    media/YYYY/MM/<epoch>-<name>          ← アップロードされたメディア
+    plugins/{plugin}/{key}                ← trusted プラグインの成果物（writePublicAsset）
+    static/{slug}/<file>                  ← format: 'static' 投稿のバンドル
+    site-settings.json                    ← サイト設定キャッシュ
+```
+
+`public/` 以下はバケットポリシー（あるいはメディアの場合は `/api/media/...` プロキシ）から読める。プラグインの書き込みは trusted ランタイムコンテキストにより `public/plugins/{plugin}/{key}` に限定される。
+
+### API バージョニング
+
+プラグインは `apiVersion: 1` を宣言する。ampless は理解できないバージョンを拒否する。現状は 1 のみがサポートされており、このフィールドは将来の forward-compat 用フックであって、現時点で分岐に使われてはいない。
 
 ```typescript
-// プラグイン
-export default definePlugin({
-  apiVersion: 1,
-  name: 'seo-plugin',
-  trust_level: 'trusted',
-  ...
-})
-
-// テーマ
-export default defineTheme({
-  apiVersion: 1,
-  name: 'Blog',
-  ...
-})
+export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ... }
 ```
 
-コアは `apiVersion` を見てロード方法を分岐する。
-古い仕様も一定期間サポートし、非対応の場合は明確なエラーを出す。
+### プラグインマニフェスト（npm 公開プラグイン）
 
-```typescript
-function loadPlugin(manifest) {
-  if (!SUPPORTED_PLUGIN_API_VERSIONS.includes(manifest.apiVersion)) {
-    throw new Error(
-      `Plugin "${manifest.name}" requires apiVersion ${manifest.apiVersion}, ` +
-      `but this version of ampless supports: ${SUPPORTED_PLUGIN_API_VERSIONS.join(', ')}`
-    )
-  }
-  // apiVersion に応じたロード処理
-}
-```
+サードパーティプラグインは通常の npm tarball として公開し、factory を default export する。「マニフェスト」は factory が返すランタイムオブジェクトそのもので、別に JSON マニフェストファイルは置かない。
 
-### プラグインマニフェスト
+### Lambda メモリ設定
 
-```json
-{
-  "apiVersion": 1,
-  "name": "seo-plugin",
-  "trust_level": "trusted",
-  "description": "メタタグと OGP を自動生成",
-  "entry": "bundle.js"
-}
-```
+| Lambda | メモリ | 備考 |
+|---|---|---|
+| `processor-untrusted` | 256 MB | 純 JS + 外向き HTTP には十分。 |
+| `processor-trusted` | 512 MB | 組み込みハンドラ + trusted 層プラグインを SQS バッチ内で直列実行するため余裕を持たせる。 |
+| `mcp-handler` | 512 MB | Lambda Function URL + AppSync SigV4 + S3 PutObject。 |
 
-### Lambda メモリ設定の方針
-- 128MB は AWS が最低限の処理にしか推奨しておらず、CPU が極端に少ない
-- 128MB と 512MB でコストが同じ（実行時間短縮で GB-seconds が相殺）ケースが多い
-- untrusted: 256MB / trusted: 256-512MB / privileged: 512MB を基本とする
-- コールドスタートは Node.js で 200-400ms 程度。CMSプラグイン用途では問題にならない
-  - アクセスが多い → Lambda がウォーム状態を維持（コールドスタート発生率 1% 未満）
-  - アクセスが少ない → 数百 ms の遅延は許容範囲
+Node.js 22 の cold start は 200〜400 ms 程度で、CMS ワークロードでは無視できる。
 
-### ランタイムサンドボックスについて（v1 では不採用）
-- isolated-vm は Node.js 20+ で `--no-node-snapshot` フラグが必要
-  → Lambda マネージドランタイムでは起動フラグを制御できず、コンテナイメージ Lambda 必須
-  → コールドスタート悪化、メンテナンスモード、ネイティブバイナリビルドの問題
-- v1 では IAM による分離で十分と判断
-- v2 以降でマーケットプレイス公開時に quickjs-emscripten 等を検討
+### 外向きネットワーク
 
-### プラグインのデータストレージ
+untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（untrusted）はこれに依存する。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
 
-プラグインが独自のデータを保存する仕組みを提供する。
-プラグインごとに新しい DynamoDB テーブルを作成するのではなく、
-共用テーブルと S3 パス分離で対応する。
+### 採用しなかった案
 
-#### S3 バケット設計
-
-```
-s3://ampless-bucket/
-  public/                         ← パブリックアクセス可（バケットポリシーで公開）
-    media/                        ← メディアファイル（画像・動画）
-    plugins/{pluginName}/         ← プラグインの公開ファイル
-  private/                        ← Lambda からのみアクセス可
-    plugins/{pluginName}/         ← プラグインの非公開データ
-```
-
-| パス | アクセス | 用途例 |
-|------|---------|--------|
-| `public/media/` | next/image 経由（デフォルト）または直接 S3 URL | アップロード画像（next/image）、動画・PDF（S3直接） |
-| `public/plugins/{name}/` | 直接 S3 URL | OGP 画像、サイトマップ、RSS、CSS/JS ウィジェット |
-| `private/plugins/{name}/` | Lambda のみ | フォーム送信データ、API キー、設定ファイル |
-
-`public/` 以下はバケットポリシーで公開する。
-メディアの配信方式は `cms.config.ts` の `media.delivery` で切り替え可能（詳細は §3 メディア管理を参照）。
-動画・PDF など大容量ファイルは Lambda の 6MB 制限を避けるため常に直接 S3 URL で配信する。
-
-```json
-{
-  "Effect": "Allow",
-  "Principal": "*",
-  "Action": "s3:GetObject",
-  "Resource": "arn:aws:s3:::ampless-bucket/public/*"
-}
-```
-
-将来 CloudFront を S3 の前に追加する場合も、パス構造を変えずに対応できる。
-
-注: Amplify Storage はデフォルトで pre-signed URL（署名付き一時 URL）を使うが、
-CMS のメディア配信には永続的な URL が必要なため、`public/` パスは明示的にパブリック化する。
-
-#### DynamoDB 共用テーブル（plugin-data）
-
-プラグイン固有のデータは共用テーブルに保存する。
-PK にプラグイン名を含め、IAM の条件キーで行レベルのアクセス制御を行う。
-
-```
-ampless-plugin-data テーブル
-  PK: "plugin#{pluginName}"
-  SK: プラグインが自由に決める
-  data: JSON
-```
-
-```json
-{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#001", "data": {"name": "田中", "email": "..."}}
-{"PK": "plugin#contact-form", "SK": "submission#2026-04-04#002", "data": {"name": "鈴木", "email": "..."}}
-{"PK": "plugin#analytics",    "SK": "pageview#2026-04-04",       "data": {"count": 1234}}
-```
-
-IAM ポリシーで自分の PK のみアクセス可能に制限:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem"],
-  "Resource": "arn:aws:dynamodb:*:*:table/ampless-plugin-data",
-  "Condition": {
-    "ForAllValues:StringLike": {
-      "dynamodb:LeadingKeys": ["plugin#contact-form"]
-    }
-  }
-}
-```
-
-#### 専用テーブル作成を避ける理由
-- テーブル作成は CDK デプロイ（= git push）が必要で、管理画面からのインストール（B 方式）と相性が悪い
-- AWS アカウントあたりのテーブル数にソフトリミットがある（デフォルト 2,500）
-- プラグイン削除時の cleanup が複雑になる
-- 共用テーブルの Single Table Design は DynamoDB のベストプラクティス
-
-#### trust_level 別アクセス権限
-
-| trust_level | DynamoDB (plugin-data) | S3 public/ | S3 private/ |
-|-------------|----------------------|------------|-------------|
-| untrusted | 不可 | 不可 | 不可 |
-| trusted | 読み取り（自分の PK） | 読み取り（自分のパス） | 不可 |
-| privileged | 読み書き（自分の PK） | 読み書き（自分のパス） | 読み書き（自分のパス） |
-
-trusted が S3 public を読めるのは、そもそも HTTP で公開されているデータだから。
-private はセンシティブなデータを含むため privileged のみ。
-
-### 外部通信の制御
-- untrusted/trusted Lambda はデフォルトでインターネットアクセス可能
-- 対策案: VPC プライベートサブネットに配置（NAT なし）→ 完全遮断
-- 現実的判断: プラグインが読めるのは公開コンテンツのみであり、漏洩の実害が小さい
-  → v1 では VPC 制限なし。privileged のみ必要に応じて VPC 配置を検討
+- **`isolated-vm` / V8 isolate サンドボックス。** Node ≥ 20 で `--no-node-snapshot` が必要 → コンテナイメージ Lambda が必要 → cold start 劣化、メンテ負荷、ネイティブバイナリビルドが付いてくる。IAM ベース分離を代替として選んだ。
+- **`quickjs-emscripten` 等のプロセス内サンドボックス。** 将来のマーケットプレイス層で検討する案件で、今は使わない。
+- **プラグイン専用 DynamoDB テーブル。** アカウントあたり 2,500 テーブルというソフトリミット、インストールごとに CDK デプロイが要る、削除時のクリーンアップが複雑、といった問題がある。現行プラグインの要件は KvStore + S3 で足りている。
 
 ---

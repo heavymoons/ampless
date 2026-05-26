@@ -289,13 +289,12 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
       resources: [
         `${backend.storage.resources.bucket.bucketArn}/public/plugins/*`,
         // Built-in cache: rebuildSiteSettingsCache writes the single
-        // JSON file the public site reads. Exact-match resource —
-        // historically this was `public/site-settings/<siteId>.json`
-        // (multi-site era) and the wildcard pattern that worked then
-        // (`public/site-settings/*`) does NOT match the current
-        // single-file key `public/site-settings.json`. Wrong pattern
-        // fails the PutObject silently with AccessDenied, so the
-        // public site never sees admin-side theme / settings changes.
+        // JSON file the public site reads. Exact-match resource — a
+        // wildcard like `public/site-settings/*` would NOT match the
+        // single-file key `public/site-settings.json` and the
+        // PutObject would fail silently with AccessDenied, so the
+        // public site would never see admin-side theme / settings
+        // changes.
         `${backend.storage.resources.bucket.bucketArn}/public/site-settings.json`,
       ],
     })
