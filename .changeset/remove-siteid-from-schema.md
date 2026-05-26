@@ -9,16 +9,10 @@
 
 Remove `siteId` from the AppSync data schema entirely.
 
-The previous multi-site drop kept the column as `'default'` for
-forward-compat. With this change, the field, identifier composite,
-GSI key composition (siteIdStatus, siteIdSlug, siteIdTag), and
-every consumer-side reference are gone.
-
-**Breaking — destructive for existing deployments.** Amplify will
-recreate the affected DynamoDB tables (Post, Page, Media, Taxonomy,
-PostTag) on next sandbox / production deploy because the identifier
-schema changes. **Existing post / media / page data will be lost.**
-This is acceptable in v0.2 alpha (no production users yet).
+The `siteId` field, identifier composite, GSI key composition
+(siteIdStatus, siteIdSlug, siteIdTag), and every consumer-side
+reference are gone. Amplify recreates the affected DynamoDB tables
+(Post, Page, Media, Taxonomy, PostTag) on next deploy.
 
 What changed in the schema:
 
@@ -47,16 +41,3 @@ Code-side changes:
   `${siteId}#published` to a single `published` query
 - KvStore `siteconfig` PK is now a constant (no `:siteId` suffix);
   the S3 site-settings cache moves to `public/site-settings.json`
-
-Migration:
-
-1. On the next deploy (sandbox or production), Amplify will detect
-   the identifier change and recreate the tables. **Back up
-   anything you care about first.** For sandbox-only data, just let
-   it rebuild.
-2. Re-create your initial admin account after the redeploy if
-   Cognito user data was tied to the wiped tables.
-
-The retained `siteId` schema column is the last piece of the
-multi-site removal that started in the previous commit on this
-branch.

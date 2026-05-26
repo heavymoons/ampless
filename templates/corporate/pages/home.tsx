@@ -1,23 +1,21 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts, getPublishedPost } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { loadThemeConfig } from '@/lib/theme-config'
-import { renderBody } from '@/lib/posts'
+import { renderBody } from '@ampless/runtime'
+import { ampless } from '@/lib/ampless'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 
 export default async function CorporateHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(),
-    loadThemeConfig(),
-    listPublishedPosts({ limit: 8 }),
+    ampless.loadSiteSettings(),
+    ampless.loadThemeConfig(),
+    ampless.listPublishedPosts({ limit: 8 }),
   ])
 
   // Top-story embed between hero and news. Filtered out of news to
   // avoid duplication. Skipped silently if missing / unpublished.
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
+  const featured = featuredSlug ? await ampless.getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items

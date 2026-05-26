@@ -1,26 +1,24 @@
 import Link from 'next/link'
 import { formatDate, parseLinkList, type ThemeRouteContext } from 'ampless'
-import { listPublishedPosts, getPublishedPost } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { loadThemeConfig } from '@/lib/theme-config'
-import { renderBody } from '@/lib/posts'
+import { renderBody } from '@ampless/runtime'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 import { TagList } from '@/components/tag-list'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
-import { t } from '@/lib/i18n'
 
 export default async function BlogHome(_: ThemeRouteContext) {
   const [settings, theme, postsResult] = await Promise.all([
-    loadSiteSettings(),
-    loadThemeConfig(),
-    listPublishedPosts(),
+    ampless.loadSiteSettings(),
+    ampless.loadThemeConfig(),
+    ampless.listPublishedPosts(),
   ])
 
   // Featured (pinned) post: render the body inline above the list,
   // then drop the same slug from the feed so it doesn't show twice.
   // Missing / unpublished slugs return null and the section is skipped.
   const featuredSlug = theme.values.featuredSlug?.trim()
-  const featured = featuredSlug ? await getPublishedPost(featuredSlug) : null
+  const featured = featuredSlug ? await ampless.getPublishedPost(featuredSlug) : null
   const posts = featured
     ? postsResult.items.filter((p) => p.slug !== featured.slug)
     : postsResult.items
@@ -69,7 +67,7 @@ export default async function BlogHome(_: ThemeRouteContext) {
         )}
 
         {posts.length === 0 ? (
-          !featured && <p className="text-gray-500">{t('public.noPosts')}</p>
+          !featured && <p className="text-gray-500">{admin.t('public.noPosts')}</p>
         ) : (
           <ul className="space-y-8">
             {posts.map((post) => (

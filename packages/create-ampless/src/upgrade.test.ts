@@ -367,29 +367,7 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     expect(result.obsoleteRemoved).not.toContain('app/api/posts/route.ts')
   })
 
-  // 7. Retired files: deletes a retired file listed in AMPLESS_RETIRED_PATHS
-  it('deletes a retired file listed in AMPLESS_RETIRED_PATHS', async () => {
-    mkdirSync(join(projectDir, 'lib'), { recursive: true })
-    writeFileSync(join(projectDir, 'lib', 'admin-site.ts'), '// obsolete admin site shim')
-
-    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
-
-    expect(existsSync(join(projectDir, 'lib', 'admin-site.ts'))).toBe(false)
-    expect(result.obsoleteRemoved).toContain('lib/admin-site.ts')
-  })
-
-  // 8. Retired files dry-run: reports retired files but does not delete them
-  it('dry-run: reports retired files but does not delete them', async () => {
-    mkdirSync(join(projectDir, 'lib'), { recursive: true })
-    writeFileSync(join(projectDir, 'lib', 'admin-site.ts'), '// obsolete admin site shim')
-
-    const result = await runUpgradeIn(projectDir, templateDir, { dryRun: true, noInstall: true })
-
-    expect(existsSync(join(projectDir, 'lib', 'admin-site.ts'))).toBe(true)
-    expect(result.obsoleteRemoved).toContain('lib/admin-site.ts')
-  })
-
-  // 9. Retired files whitelist: leaves an unrelated file in lib/ alone
+  // 7. Retired files whitelist: leaves an unrelated file in lib/ alone
   it('leaves an unrelated file in lib/ alone', async () => {
     mkdirSync(join(projectDir, 'lib'), { recursive: true })
     writeFileSync(join(projectDir, 'lib', 'my-custom-helper.ts'), '// user custom helper')

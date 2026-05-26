@@ -1,16 +1,15 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { listPostsByTag } from '@/lib/posts-public'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { t } from '@/lib/i18n'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 
 export default async function MinimalTag({ params }: ThemeRouteContext<{ tag: string }>) {
   const { tag } = await params
   const decodedTag = decodeURIComponent(tag)
   const [{ items: posts }, settings] = await Promise.all([
-    listPostsByTag(decodedTag, { limit: 50 }),
-    loadSiteSettings(),
+    ampless.listPostsByTag(decodedTag, { limit: 50 }),
+    ampless.loadSiteSettings(),
   ])
 
   if (posts.length === 0) notFound()
@@ -18,11 +17,11 @@ export default async function MinimalTag({ params }: ThemeRouteContext<{ tag: st
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <nav className="mb-8">
-        <Link href="/" className="text-sm text-gray-500 hover:underline">{t('public.home')}</Link>
+        <Link href="/" className="text-sm text-gray-500 hover:underline">{admin.t('public.home')}</Link>
       </nav>
 
       <header className="mb-12 border-b pb-6">
-        <p className="text-sm text-gray-500">{t('public.tagLabel')}</p>
+        <p className="text-sm text-gray-500">{admin.t('public.tagLabel')}</p>
         <h1 className="text-4xl font-bold tracking-tight">#{decodedTag}</h1>
       </header>
 

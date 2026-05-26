@@ -190,9 +190,29 @@ Bind a domain to your Amplify Hosting app in **Domain management** — Amplify p
 
 ## AI integration (MCP)
 
-ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor / Claude Code / anything that speaks MCP can read and write your posts.
+ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor / Claude Code / anything that speaks MCP can read and write your posts via HTTP transport with Bearer token authentication.
 
-- **Local / sandbox** — install once globally: `npx -y @ampless/mcp-server@alpha` with the path to your `amplify_outputs.json`.
+**Setup:**
+
+1. Go to `/admin/mcp-tokens` in your admin UI and issue a Bearer token (`amk_...`).
+2. Find the `mcp-handler` Lambda Function URL in your Amplify console or `amplify_outputs.json`.
+3. Add an entry to your MCP client's config (`.mcp.json` at the project root, `claude_desktop_config.json`, etc.):
+
+```json
+{
+  "mcpServers": {
+    "ampless": {
+      "url": "https://<function-url-id>.lambda-url.<region>.on.aws/",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer amk_..."
+      }
+    }
+  }
+}
+```
+
+See [docs/architecture/04-access-layer-mcp.md](./docs/architecture/04-access-layer-mcp.md) for the full MCP setup and token management guide.
 
 ## Updating ampless
 

@@ -12,10 +12,6 @@ inside top-level dirs like `lib/`. Current entries:
 - `lib/admin-site.ts`
 - `lib/admin-site-client.ts`
 
-Both were the multi-site cookie / selector shim files left behind
-when PR #93 dropped multi-site. Downstream operators previously had
-to delete them by hand to make `npm run build` pass.
-
 Files in this list are deleted unconditionally — if you've added
 your own code to one of them, move it elsewhere before running
 upgrade.

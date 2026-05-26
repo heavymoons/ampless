@@ -1,15 +1,9 @@
 // Wired-up ampless runtime instance. Single source of truth for the
 // public-side library — every route handler, dispatcher, and theme
-// component imports the `ampless` value from here.
-//
-// L1 architectural change (runtime extraction): public-side
-// behaviour now lives in `@ampless/runtime`. This module wires the
+// component imports the `ampless` value from here. Public-side
+// behaviour lives in `@ampless/runtime`; this module wires the
 // project's `amplify_outputs.json`, `cms.config`, and themes registry
 // into a single `Ampless` instance.
-//
-// Admin-side modules (post providers, kv-provider, auth, etc.) stay
-// in `templates/_shared/lib/` for now — they move into `@ampless/admin`
-// in L2.
 
 import outputs from '../amplify_outputs.json'
 import cmsConfig from '@/cms.config'

@@ -190,9 +190,29 @@ Amplify Hosting アプリの **Domain management** からドメインをバイ�
 
 ## AI 連携（MCP）
 
-ampless は MCP（Model Context Protocol）サーバーを同梱しているので、Claude Desktop / Cursor / Claude Code など MCP に対応した AI クライアントから投稿の読み書きができます。
+ampless は HTTP トランスポート + Bearer トークン認証による MCP（Model Context Protocol）サーバーを同梱しているので、Claude Desktop / Cursor / Claude Code など MCP に対応した AI クライアントから投稿の読み書きができます。
 
-- **ローカル / sandbox** — グローバルに 1 度入れる: `npx -y @ampless/mcp-server@alpha` に `amplify_outputs.json` のパスを渡す
+**セットアップ手順:**
+
+1. 管理画面の `/admin/mcp-tokens` にアクセスし、Bearer トークン（`amk_...`）を発行する。
+2. Amplify コンソールまたは `amplify_outputs.json` で `mcp-handler` Lambda の Function URL を確認する。
+3. MCP クライアントの設定ファイル（プロジェクトルートの `.mcp.json`、`claude_desktop_config.json` など）にエントリを追加する：
+
+```json
+{
+  "mcpServers": {
+    "ampless": {
+      "url": "https://<function-url-id>.lambda-url.<region>.on.aws/",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer amk_..."
+      }
+    }
+  }
+}
+```
+
+MCP のセットアップとトークン管理の詳細については [docs/architecture/04-access-layer-mcp.md](./docs/architecture/04-access-layer-mcp.md) を参照してください。
 
 ## ampless の更新
 

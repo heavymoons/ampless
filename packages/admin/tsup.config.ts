@@ -16,14 +16,6 @@ import { defineConfig } from 'tsup'
 //   `TypeError: Class extends value undefined is not a constructor or null`
 // (react-image-crop's ReactCrop is the typical trigger).
 //
-// Prior attempts (kept for future maintainers' awareness):
-// 1. `rollup-plugin-preserve-directives` — calls a rollup plugin
-//    API tsup doesn't fully implement (`renderChunk.call`).
-// 2. `esbuild-plugin-preserve-directives` — peer-dep / ESM-export
-//    mismatch with our esbuild version.
-// 3. Consumer-side shim `'use client'` — works for thin
-//    re-export shims but admin/pages must stay server components
-//    (they `await headers()` etc.).
 const preserveDirectives: Plugin = {
   name: 'preserve-directives',
   setup(build) {

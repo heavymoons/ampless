@@ -1,11 +1,11 @@
-import { publicAssetUrl } from '@/lib/storage'
+import { ampless } from '@/lib/ampless'
 
 interface Ctx {
   request: Request
 }
 
 export async function dadsSitemapHandler(_ctx: Ctx): Promise<Response> {
-  const url = publicAssetUrl('public/plugins/seo/sitemap.xml')
+  const url = ampless.publicAssetUrl('public/plugins/seo/sitemap.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

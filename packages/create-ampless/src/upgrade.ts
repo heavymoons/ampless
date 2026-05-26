@@ -39,24 +39,11 @@ const AMPLESS_MANAGED_APP_PATHS: readonly string[] = [
 ] as const
 
 /**
- * かつて ampless によってユーザーのプロジェクトに配置されていたが、
- * その後廃止された個別のファイル。アップグレード時にユーザーのプロジェクトに
- * 存在する場合は自動削除されます。
- *
- * **削除は無条件** — ユーザーがこれらのファイルに独自コードを書き足していても
- * 削除されます。アンドゥ可能性は git に依存。retired リストに加える時点で
- * 「ampless が完全に所有していたファイル」のみであることを確認すること。
+ * ampless が以前ユーザーのプロジェクトに配置していたが、現在は廃止された
+ * 個別ファイル。アップグレード時に存在すれば無条件で削除されます。
+ * 追加するファイルは「ampless が完全に所有していた」ものに限定すること。
  */
-const AMPLESS_RETIRED_PATHS: readonly string[] = [
-  // Retired alongside the in-deploy multi-site drop.
-  'lib/admin-site.ts',
-  'lib/admin-site-client.ts',
-  // Split into app/raw/[slug]/route.ts + app/static/[slug]/[[...path]]/route.ts.
-  // The old unified internal handler at app/r/[slug]/[[...path]]/route.ts
-  // is no longer wired to anything (middleware rewrites to /raw or
-  // /static now).
-  'app/r/[slug]/[[...path]]/route.ts',
-] as const
+const AMPLESS_RETIRED_PATHS: readonly string[] = [] as const
 
 const AMPLESS_PACKAGES = new Set([
   'ampless',

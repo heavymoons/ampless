@@ -189,15 +189,12 @@ export function splitDomain(
 
 /**
  * Rewrite the scaffold defaults in `cms.config.ts` to reflect the
- * deployed domain. One change, idempotent and only applied when the
- * scaffold placeholder is still present (so mount-mode users who
- * already customized the file are not clobbered):
+ * deployed domain. Idempotent and only applied when the scaffold
+ * placeholder is still present (so mount-mode users who already
+ * customized the file are not clobbered).
  *
- *  1. `site.url`: `'http://localhost:3000'` → `'https://<fullDomain>'`.
- *
- * (Previously this also injected a `sites: { default: { domains: ... } }`
- * block for multi-site routing — that's gone now. One Amplify deployment
- * = one site, so the host is implicit.)
+ * Updates `site.url` from `'http://localhost:3000'` to
+ * `'https://<fullDomain>'`.
  *
  * Returns the set of mutations made. Callers can use this for logging;
  * the function never throws on a missing or already-customized file.

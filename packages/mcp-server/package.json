@@ -1,29 +1,20 @@
 {
   "name": "@ampless/mcp-server",
   "version": "1.0.0-alpha.17",
-  "description": "MCP server for ampless — lets AI agents (Claude Desktop, Cursor, Claude Code) read and write posts and media via AppSync",
+  "private": true,
+  "description": "MCP tool registry shared by @ampless/backend mcp-handler Lambda. Internal package; not published to npm.",
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "ampless-mcp": "dist/index.js"
-  },
   "exports": {
-    ".": {
+    "./tools": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./tools": {
-      "import": "./dist/tools/index.js",
-      "types": "./dist/tools/index.d.ts"
     }
   },
   "files": [
     "dist",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/heavymoons/ampless.git",
@@ -38,17 +29,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@aws-sdk/client-s3": "^3.1053.0",
-    "amazon-cognito-identity-js": "^6.3.16",
     "ampless": "workspace:*",
     "fflate": "^0.8.3"
   },
   "keywords": [
     "ampless",
     "mcp",
-    "ai",
-    "claude",
-    "cms"
+    "tools"
   ]
 }

@@ -12,8 +12,7 @@ per-post Cache-Control strategy. Plus the URL flatten.
 
 Public URLs collapse to `/<slug>` and `/<slug>/<path>` only. The
 `/_/<slug>` reserved prefix is gone. The internal file system also
-flattens: `app/site/[siteId]/...` → `app/...` (the `[siteId]`
-segment was always `'default'` after v0.2 alpha multi-site removal).
+flattens: `app/site/[siteId]/...` → `app/...`.
 
 Middleware now fetches `post.format` + `post.metadata` +
 `post.updatedAt` from AppSync (apiKey auth, single small GraphQL
@@ -62,10 +61,7 @@ Breaking changes:
 - `/_/<slug>` no longer works. Bookmarks / external links to the
   reserved underscore namespace will 404. (v0.2 alpha — no external
   link weight to preserve.)
-- `app/site/[siteId]/` files moved to `app/` directly. Custom code
-  inside the old `site/[siteId]/` subtree must be moved by hand —
-  `create-ampless upgrade` cleans up the obsolete files but doesn't
-  copy user-authored content out.
+- `app/site/[siteId]/` files moved to `app/` directly. `create-ampless upgrade` cleans up the obsolete files but doesn't copy user-authored content out.
 - `ThemeRouteContext.params` no longer carries `siteId`. Themes that
   read `siteId` from `params` must drop the field (the value was
   always `'default'`).

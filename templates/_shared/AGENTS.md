@@ -43,22 +43,24 @@ standard copy-and-edit flow, Claude Design handoff, AI-assisted
 implementation, responsive visual QA, Markdown styling expectations,
 and the common failure modes — see [THEMES.md](./THEMES.md).
 
-## MCP server (`@ampless/mcp-server`)
+## MCP server (HTTP transport)
 
-Lets agents query and modify post content directly. Tools exposed: `list_posts`, `get_post`, `create_post`, `update_post`, `delete_post`, `upload_media`, `get_schema`.
+Lets agents query and modify post content directly via the `mcp-handler` Lambda. Tools exposed: `list_posts`, `get_post`, `create_post`, `update_post`, `delete_post`, `upload_media`, `get_schema`, `upload_static_bundle`, `list_static_files`, `delete_static_file`, `get_site_context`.
 
 Registration:
 
-Add to `.mcp.json` at the project root:
+1. Issue a Bearer token from `/admin/mcp-tokens` in the admin UI.
+2. Find the `mcp-handler` Function URL in the Amplify console or `amplify_outputs.json`.
+3. Add to `.mcp.json` at the project root:
+
 ```json
 {
   "mcpServers": {
     "ampless": {
-      "command": "npx",
-      "args": ["-y", "@ampless/mcp-server", "--outputs", "./amplify_outputs.json"],
-      "env": {
-        "AMPLESS_MCP_EMAIL": "<your-admin-email>",
-        "AMPLESS_MCP_PASSWORD": "<your-admin-password>"
+      "url": "https://<function-url-id>.lambda-url.<region>.on.aws/",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer amk_..."
       }
     }
   }

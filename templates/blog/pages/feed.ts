@@ -1,4 +1,4 @@
-import { publicAssetUrl } from '@/lib/storage'
+import { ampless } from '@/lib/ampless'
 
 interface Ctx {
   request: Request
@@ -7,7 +7,7 @@ interface Ctx {
 // /feed.xml proxy — plugin-rss regenerates the feed on content events
 // and writes it to `public/plugins/rss/feed.xml`.
 export async function blogFeedHandler(_ctx: Ctx): Promise<Response> {
-  const url = publicAssetUrl('public/plugins/rss/feed.xml')
+  const url = ampless.publicAssetUrl('public/plugins/rss/feed.xml')
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok) {
     return new Response(

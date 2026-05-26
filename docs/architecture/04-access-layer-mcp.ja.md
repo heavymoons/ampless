@@ -1,221 +1,185 @@
 > English: [04-access-layer-mcp.md](./04-access-layer-mcp.md)
 > 
-## 4. アクセス層とMCP
+## 4. アクセスレイヤと MCP
 
-### 設計思想
+### 設計方針
 
-コンテンツへのアクセス経路は複数あるが、ビジネスロジックは Core ライブラリに集約する。
-各インターフェースは Core を呼ぶだけの薄いアダプタとする。
+永続化は DynamoDB + S3 で、その手前に AppSync GraphQL を 1 本だけ置く。クライアント（管理画面 / MCP HTTP ハンドラ / 公開サイト）はすべてこの AppSync エンドポイントに向かって、それぞれ別の認証モードで接続する。CRUD を担う独立サービスは存在しない。
 
 ```
-管理画面 (Next.js)  ─┐
-REST / GraphQL API  ─┤─→  Core (packages/ampless)  ─→  DynamoDB / S3
-MCP Server          ─┘
+管理画面 (Next.js)    → AppSync (Cognito User Pool, admin/editor グループ) →┐
+MCP Lambda (HTTP)     → AppSync (IAM / SigV4、resource auth 経由)             ├→ DynamoDB / S3
+公開サイト / テーマ    → AppSync (apiKey, カスタムリゾルバが draft を除外)    ─┘
 ```
 
-### Core ライブラリ (`packages/ampless`)
-
-すべての CRUD 操作、権限チェック、フォーマット変換を提供する。
-
-```typescript
-// packages/ampless/src/core.ts
-interface AuthContext {
-  userId: string
-  role: 'reader' | 'editor' | 'admin'
-  source: 'cognito' | 'api-key' | 'mcp'
-}
-
-// すべての操作が AuthContext を受け取る
-function getPost(auth: AuthContext, siteId: string, postId: string) { ... }
-function updatePost(auth: AuthContext, siteId: string, postId: string, data: ...) { ... }
-function listPosts(auth: AuthContext, siteId: string, options?: ListOptions) { ... }
-```
+`ampless` パッケージ自体は CRUD ロジックを持たない。型定義、テーマ / プラグイン契約、フォーマット変換ヘルパー、そして管理画面 / ランタイムが Amplify Data クライアントとテストフィクスチャを差し替えできるよう小さな `PostsProvider` インターフェース ([`packages/ampless/src/core.ts`](../../packages/ampless/src/core.ts)) のみを公開している。
 
 ### 認証
 
-Cognito のパスワードレス認証をデフォルトとする。
-
-#### ログインフロー
-
-```
-メールアドレス入力 → Cognito がワンタイムコード送信 → コード入力 → ログイン完了
-```
-
-- パスワード管理不要。セキュリティリスクを下げる
-- Cognito の `CUSTOM_AUTH` フロー + Lambda トリガーで実装
-- 将来的にパスキー対応も検討可能
-
-#### Amplify Auth 設定
+標準の Cognito **email + password** 認証（SRP）。Amplify Auth ([`packages/backend/src/auth/index.ts`](../../packages/backend/src/auth/index.ts)) でフローを組み立てているだけで、カスタム認証フローは使っていない。
 
 ```typescript
-// amplify/auth/resource.ts
-export const auth = defineAuth({
+// @ampless/backend → amplify/auth/resource.ts 経由で解決
+defineAuth({
   loginWith: { email: true },
   groups: ['ampless-admin', 'ampless-editor', 'ampless-reader'],
   triggers: {
-    postConfirmation: defineFunction({ name: 'post-confirmation' }),
+    postConfirmation: defineFunction({ /* 最初のユーザを admin に昇格 */ }),
   },
 })
 ```
 
-Cognito ユーザーグループは `groups` に定義するだけで自動作成される。
+ログイン UI ([`packages/admin/src/components/login-view.tsx`](../../packages/admin/src/components/login-view.tsx)) は Cognito の標準モードをカバー：
+
+| モード | 用途 |
+|---|---|
+| `signIn` | email + password でログイン |
+| `signUp` | 新規アカウント作成 → 確認コード送信 |
+| `confirm` | 受信した確認コードを入力してメール確認 |
+| `forgot` | パスワード再設定メールを送信 |
+| `reset` | 受信したコードで新パスワードを設定 |
+
+magic link や WebAuthn などのパスワードレスは現状使っていない。後で採用する場合も `defineAuth` の設定変更だけで済むため、設計の作り直しは不要。
+
+#### Cognito ユーザーグループ
+
+3 つのグループを宣言。管理 UI が「ロール」として扱うのは最初の 2 つだけで、`ampless-reader` は admin/editor に昇格していないアカウントの暗黙的な状態。
+
+| グループ | 説明 |
+|---|---|
+| `ampless-admin` | 全権限：ユーザ管理、サイト設定、プラグイン管理、MCP トークン発行 |
+| `ampless-editor` | コンテンツの作成・編集・削除。**信頼された主体**として扱う（後述） |
+| `ampless-reader` | 未昇格アカウントのデフォルト。管理 UI へのアクセス権はなく、公開サイトは API キー経由で読むため、現状は将来用のプレースホルダ |
 
 #### 初期セットアップ
 
 ```
-1. npx create-ampless@latest でプロジェクト生成
-2. デプロイ後、初回アクセス時にセットアップ画面を表示
-3. 管理者のメールアドレスを入力
-4. ワンタイムコードで認証 → 最初のユーザーが自動的に admin グループに所属
-5. 以降のユーザーは admin が招待しない限り管理画面にアクセスできない
+1. `npx create-ampless@latest` でプロジェクト生成
+2. `npx ampx sandbox`（開発）か Amplify Hosting（本番）でデプロイ
+3. 管理画面のログイン画面で sign up → Cognito が確認コードをメール送信
+4. コードを入力。post-confirmation トリガが admin グループが空かを確認し、
+   空ならこのユーザを `ampless-admin` に昇格させる
+5. 以降の sign up は reader 状態でランディングし、admin が手動で昇格する必要がある
 ```
 
-最初のユーザーの admin 自動登録は Post Confirmation Lambda トリガーで実装:
-
-```typescript
-// amplify/auth/post-confirmation.ts
-export async function handler(event) {
-  const cognito = new CognitoIdentityProviderClient({})
-
-  // admin グループが空 = 最初のユーザー → admin に追加
-  const group = await cognito.send(new ListUsersInGroupCommand({
-    UserPoolId: event.userPoolId,
-    GroupName: 'ampless-admin',
-  }))
-
-  if (group.Users.length === 0) {
-    await cognito.send(new AdminAddUserToGroupCommand({
-      UserPoolId: event.userPoolId,
-      Username: event.userName,
-      GroupName: 'ampless-admin',
-    }))
-  }
-
-  return event
-}
-```
+post-confirmation トリガ ([`packages/backend/src/auth/post-confirmation.ts`](../../packages/backend/src/auth/post-confirmation.ts)) は**最初の 1 人だけ**を admin に昇格させ、それ以降の管理は admin の手作業に任せる。
 
 #### ユーザー管理
 
-管理画面のユーザー管理ページから Cognito の Admin API を直接操作する。
-自前のユーザーテーブルは持たない。
+管理画面 → Users で Cognito ユーザを一覧し、admin がユーザのロールを `admin` / `editor` / `none` の間で切り替える。ページは AppSync の `listAdminUsers` / `setAdminUserRole` を呼び、これらは user-admin Lambda ([`packages/backend/src/auth/user-admin.ts`](../../packages/backend/src/auth/user-admin.ts)) にバインドされる。Lambda は Cognito の Admin API（`ListUsers` / `AdminAddUserToGroup` / `AdminRemoveUserFromGroup`）を直接呼ぶので、独自のユーザテーブルは保持しない。
 
-| 操作 | 誰ができるか | Cognito API |
-|------|------------|-------------|
-| 初期 admin 登録 | 最初のセットアップ時のみ | Post Confirmation トリガー |
-| ユーザー招待 | admin | `AdminCreateUser`（招待メール自動送信） |
-| role 付与・変更 | admin | `AdminAddUserToGroup` / `AdminRemoveUserFromGroup` |
-| ユーザー一覧 | admin | `ListUsers` |
-| ユーザー削除 | admin | `AdminDeleteUser` |
-| 自分のログイン | 招待済みユーザー | 通常の認証フロー |
+| 操作 | 主体 | 仕組み |
+|---|---|---|
+| 初期 admin の自動付与 | 初期セットアップのみ | post-confirmation トリガ |
+| サインアップ | 任意（または invite された人） | Cognito sign-up + メール確認 |
+| ロール変更 | admin | `setAdminUserRole` → Cognito の `AdminAddUserToGroup` / `AdminRemoveUserFromGroup` |
+| ユーザ一覧 | admin | `listAdminUsers` → Cognito の `ListUsers` |
+| 自己昇格 | （ブロック） | `listAdminUsers` / `setAdminUserRole` の GraphQL op が `ampless-admin` 必須 |
 
-Cognito の Admin API は IAM で保護されており、ブラウザから直接は叩けない。
-Server Actions / API Route 経由でのみアクセスする。
+#### 権限境界
 
-#### セキュリティ対策
+サーバ側の書き込みは必ず Cognito グループ認可（admin / editor）か、MCP Lambda の IAM ロールのいずれかを通る。AppSync の認可を迂回するパスはない。
 
-管理画面の全操作（Server Actions / API Route）で認証・認可チェックを必須とする。
-
-```typescript
-// 全 Server Action の先頭で実行
-async function requireAdmin() {
-  const session = await getServerSession()
-  if (!session) throw new Error('Unauthorized')
-  if (!session.groups.includes('ampless-admin')) throw new Error('Forbidden')
-  return session
-}
-```
-
-| リスク | 対策 |
-|--------|------|
-| 未認証ユーザーがアクセス | 全 Server Action で認証チェック |
-| editor が admin 操作を実行 | role チェック |
-| 自分で自分を admin 昇格 | Cognito グループ変更は admin のみ |
-| 最後の admin を削除 | admin グループが空になる操作をブロック |
-
-#### Cognito ユーザーグループ
-
-| Cognito グループ | role | 説明 |
-|-----------------|------|------|
-| `ampless-admin` | admin | 全権限。ユーザー管理、サイト設定、プラグイン管理 |
-| `ampless-editor` | editor | コンテンツの作成・編集・削除 |
-| `ampless-reader` | reader | 公開コンテンツの読み取り（API 利用者向け） |
-
-### 権限モデル
-
-| role | できること |
-|------|----------|
-| `reader` | 公開コンテンツの読み取り |
-| `editor` | コンテンツの作成・編集・削除 |
-| `admin` | サイト設定、プラグイン管理、ユーザー管理 |
-
-認証ソースに関わらず、role ベースで統一的に制御する。
-
-| ソース | 認証方法 | role の決定 |
-|--------|---------|------------|
-| 管理画面 | Cognito ワンタイムコード | Cognito ユーザーグループから |
-| REST API | API キー | キー発行時に設定 |
-| MCP | MCP アクセストークン | トークン発行時に設定 |
+| ソース | 認証モード | 実効ロール |
+|---|---|---|
+| 管理 UI | Cognito User Pool | `cognito:groups`（`admin` または `editor`） |
+| 公開サイト / テーマコンポーネント | AppSync API キー | 読み取り専用。`listPublishedPosts` / `getPublishedPost` / `listPostsByTag` のカスタムリゾルバのみ（draft は除外） |
+| MCP HTTP ハンドラ | IAM SigV4（`allow.resource(mcpHandler)`） | resource grant の範囲では admin 相当 |
 
 #### editor の信頼モデル（仕様）
 
-ampless では `editor` は **信頼された主体（trusted principal）** として扱う。WordPress の `unfiltered_html` capability と同じ思想で、**editor は記事本文として任意の HTML / JavaScript を保存できる**ことを設計上の仕様とする。
+ampless は `editor` を**信頼された主体**として扱う。WordPress の `unfiltered_html` capability と同じ思想で、**editor は投稿本文に任意の HTML / JavaScript を保存できる** — これは明示的な設計判断。
 
-具体的には:
+具体的には：
 
-- Post の `body` フィールドはサーバ側でサニタイズしない
-  - `format: 'tiptap' | 'markdown' | 'html'` の全フォーマットでサニタイズなし
-  - tiptap 属性（`href`, `src`, `alt`, `title` 等）の値もサニタイズなし
-  - `<script>` タグや `javascript:` URI、属性ブレイクアウト経由のイベントハンドラ注入を含めて、editor が書いたものはそのまま保存され、公開ページで `dangerouslySetInnerHTML` 経由でレンダリングされる
-- 結果として editor は、公開記事を閲覧する **任意のブラウザ（admin の閲覧を含む）で任意の JavaScript を実行できる**
-- これは editor の権限境界を「コンテンツの CRUD」に閉じない設計判断であり、CMS としての表現自由度（埋め込みウィジェット、独自スクリプトを使うキャンペーンページ、HTML メールテンプレート、等）を優先したトレードオフ
+- Post の `body` フィールドはサーバサイドでサニタイズしない
+  - `format: 'tiptap' | 'markdown' | 'html'` のいずれもサニタイズなし
+  - tiptap の属性（`href`、`src`、`alt`、`title` 等）もサニタイズなし
+  - `<script>` タグ、`javascript:` URI、属性のブレイクアウトによる event handler 注入は、いずれもそのまま保存され、サーバサイドレンダラ ([`packages/runtime/src/rendering.ts`](../../packages/runtime/src/rendering.ts)) で HTML として描画される
+- 結果として editor は**公開投稿を閲覧している任意のブラウザ（管理者ブラウザを含む）で任意の JavaScript を実行できる**
+- これは「editor を CRUD 専用に縛らず、埋め込みウィジェット・カスタムスクリプト付きキャンペーンページ・HTML メールテンプレ等の表現自由度を優先する」ための意図的な選択
 
-**運用上の含意:**
+**運用上の含意：**
 
-- **editor 権限を渡す相手は admin と同等に信頼できる人物に限る。** 信頼できないユーザーには editor ではなく `reader` のみを与える、または別 Cognito User Pool（別 Amplify 環境）に分離する。
-- editor が悪意を持った場合に得られる権限の上限は `admin` と等価とみなしてよい（editor は公開記事から admin の Cognito JWT を localStorage 経由で奪取し、AppSync を admin として操作できる）。
-- このトレードオフを変えたい運用者向けに、v0.2 以降で **opt-in のサニタイズプラグイン**（DOMPurify ベース）を提供予定。スキーマ自体は変えず、プラグイン側で `before:content.update` フックを介して body を書き換える形にする。
+- **editor 権限は admin と同等の信頼が置ける人にだけ付与する。** 信用しきれないユーザは reader 状態のままにするか、別の Cognito User Pool（別の Amplify デプロイ）に隔離する。
+- editor が悪意を持って動いた場合の権限上界は admin 相当。公開投稿経由で admin の Cognito JWT を localStorage から窃取し、AppSync を admin として叩ける。
+- このトレードオフを変えたい運用向けには、**opt-in のサニタイズプラグイン**（DOMPurify ベース）を計画中。スキーマを変えずに `before:content.update` フックで本文を書き換える方式で、WordPress 的な editor サンドボックスを再現する。
 
-**セキュリティレビューでの取り扱い:**
+**セキュリティレビューでの扱い：**
 
-editor 権限を持つ攻撃者を脅威モデルに含める指摘（editor → admin の権限昇格、stored XSS による JWT 漏洩、`format: 'html'` の任意スクリプト保存など）は、**仕様であって脆弱性ではない**。レビュー時はこれらの経路を仕様として明示的に除外し、以下を脆弱性として扱う:
+editor を脅威モデルに含む指摘（stored XSS による editor → admin 昇格、JWT 漏洩、`format: 'html'` 経由の任意 `<script>` 等）は**仕様であって脆弱性ではない**。レビューでは明示的に除外し、実際の脆弱性として扱うのは：
 
-- 認証されていない（または `reader` のみの）主体が editor 相当の書き込みを行えてしまう経路
-- サーバー側のエラーが書き込み整合性を壊す経路（DynamoDB トランザクションの破綻、denormalized GSI キーの race による不整合など）
-- admin / 運用者を経由しないサーバ側 RCE、シークレット漏洩、IAM 昇格
+- 未認証主体が editor 相当の書き込みを行えるパス
+- サーバ側エラーで書き込み整合性が壊れるもの（DynamoDB トランザクション破綻、非正規化 GSI キーのレース起因の破損、dispatcher が DLQ なしでイベントを取りこぼす等）
+- admin / operator を介さない RCE、シークレット漏洩、IAM 権限昇格
 
-### MCP Server (`packages/mcp-server`)
+### MCP サーバ — トランスポートとツールレジストリ
 
-AI エージェント（Claude 等）からコンテンツを操作するための MCP インターフェース。
+MCP は **HTTP 専用**。構成は 2 パッケージに分かれる：
 
 ```
 packages/
-  ampless/        ← Core（共通ビジネスロジック）
-  mcp-server/     ← MCP アダプタ（Core に依存）
+  mcp-server/         — ツールレジストリ（private、Lambda にバンドル）
+  backend/
+    src/functions/
+      mcp-handler.ts          — Lambda エントリ。HTTP + JSON-RPC + Bearer 認証
+      mcp-graphql-client.ts   — ツール用 AppSync クライアント（SigV4）
+      mcp-storage-client.ts   — ツール用 S3 クライアント
+      mcp-static-bundle.ts    — バンドル系ツールが共有する zip 展開
 ```
 
-#### MCP Tools（予定）
+#### HTTP トランスポート ([`packages/backend/src/functions/mcp-handler.ts`](../../packages/backend/src/functions/mcp-handler.ts))
 
-| Tool | role | 説明 |
-|------|------|------|
-| `list_posts` | reader | 記事一覧の取得 |
-| `get_post` | reader | 記事の取得（format 指定可） |
-| `create_post` | editor | 記事の作成 |
-| `update_post` | editor | 記事の更新 |
-| `delete_post` | editor | 記事の削除 |
-| `upload_media` | editor | メディアファイルのアップロード |
-| `get_schema` | reader | コンテンツスキーマの取得 |
-| `manage_site` | admin | サイト設定の変更 |
-| `manage_plugins` | admin | プラグインのインストール・設定 |
+Lambda Function URL + Bearer トークン認証。ワイヤフォーマットは JSON-RPC 2.0。`initialize` / `tools/list` / `tools/call` の 3 動詞だけを自前でハンドリングする（Lambda 環境で MCP SDK を起動するのは過剰）。
 
-#### MCP と trust_level の関係
+```
+MCP クライアント → Lambda Function URL に HTTPS POST
+               Authorization: Bearer amk_<base64url>
+                 └── SHA-256 ハッシュ → McpToken テーブルを GetItem（admin-only モデル）
+                       └── 不一致 / 失効 / 期限切れは reject
+                             └── dispatchToolCall (@ampless/mcp-server/tools)
+                                   ├── AppSync を SigV4 (IAM) で叩く
+                                   └── S3 を Lambda 実行ロールで叩く
+```
 
-MCP Server 自体は ampless Core を直接呼ぶため、プラグインの trust_level とは独立。
-MCP のアクセストークンに紐づく role で権限を制御する。
+- **トークン形式：** `amk_` プレフィックス + base64url エンコードされた乱数。
+- **保管：** 平文トークンの SHA-256 hex のみを保存。検証は `McpToken` テーブルへの `GetItem` 1 回で済み、認証パスで AppSync を経由しない。
+- **発行：** 管理画面 `/admin/mcp-tokens` から。McpToken モデルは admin-only なので editor は発行できない。
+- **実効認可：** トークン自体にロールは載っていない。Lambda の IAM ロールがセキュリティ境界。スキーマの `allow.resource(mcpHandler).to(['query', 'mutate'])` により、ハンドラは Post / Page / PostTag / Media に対して admin 相当のアクセス権を持つ。したがって **MCP トークンを所持していること = admin 相当の CMS アクセス**。発行は慎重に。
+- **ペイロード上限：** Function URL の呼び出しサイズ上限は base64 展開後で約 6 MB。大きな静的バンドルは差分系ツール（`upload_static_file` / `commit_static_post`）に分割する。
 
-### v1 方針
-- 管理画面と MCP Server は同じ Core ライブラリを使う
-- REST API は v0.2 以降で追加
-- MCP Server は v0.1 から提供（AI ファーストの差別化ポイント）
+#### ツールレジストリ ([`packages/mcp-server`](../../packages/mcp-server))
+
+`@ampless/mcp-server` は **internal library**（`private: true`、npm 公開なし）。ツール定義のレジストリと `dispatchToolCall(name, args, ctx)` を公開する。Lambda 側が `ToolContext`（GraphQL クライアント、S3 クライアント、site context）を注入する設計なので、レジストリはトランスポートを知らない。
+
+```typescript
+import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
+```
+
+#### MCP ツール
+
+現行レジストリは 11 個のツールを提供 ([`packages/mcp-server/src/tools/index.ts`](../../packages/mcp-server/src/tools/index.ts))：
+
+| ツール | 説明 |
+|---|---|
+| `list_posts` | ステータスフィルタとページネーション付きで投稿一覧 |
+| `get_post` | slug / postId で 1 件取得 |
+| `create_post` | 投稿を新規作成（`format` ∈ tiptap / markdown / html、`static` は拒否） |
+| `update_post` | 投稿を更新 |
+| `delete_post` | 投稿を削除し、`PostTag` 行もクリーンアップ |
+| `upload_media` | base64 バイト列を `public/media/YYYY/MM/` にアップロードして Media レコードを作成 |
+| `get_schema` | CMS のコンテンツスキーマ（`static` 投稿の注記つき）を返す |
+| `upload_static_bundle` | zip 1 発で送る形のバンドルアップロード。展開・検証・S3 プレフィックス置換・manifest 上書きを atomic に |
+| `upload_static_file` | `public/static/<slug>/` 配下に 1 ファイルずつ差分アップロード |
+| `delete_static_file` | `public/static/<slug>/` 配下のファイルを差分削除 |
+| `commit_static_post` | S3 プレフィックスを再スキャンして Post の manifest を再構築（差分編集後の "save" ステップ） |
+
+`create_post` / `update_post` は `format=static` を**意図的に拒否**して manifest と S3 のズレを防ぎ、static 系のエントリポイントはバンドル系ツールに一本化している。
+
+### 方針
+
+- 管理 UI、公開サイト、MCP Lambda は**同じ** AppSync スキーマを読み書きする。違うのは認証モードだけ。
+- MCP トランスポートは HTTP 専用。
+- ファーストクラスの REST API はスコープ外。MCP 以外のマシン向けエンドポイントが必要なら AppSync を直接叩く。
 
 ---

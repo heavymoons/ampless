@@ -16,28 +16,11 @@ WordPress compatibility scope is **WXR data import only**; plugin / theme / Gute
 
 ---
 
-### v0.1 (done — internal release)
-
-- [x] CLI wizard (`npx create-ampless@latest`)
-- [x] Core library (content CRUD, plugin contract, shared utilities)
-- [x] Admin UI (content CRUD, tiptap editor, media upload)
-- [x] Blog theme (`templates/blog`)
-- [x] Cognito auth (email + password, forgot-password flow)
-- [x] MCP Server (`@ampless/mcp-server`, stdio transport, Cognito SRP authn, 7 tools)
-- [x] Core plugins: SEO (sitemap.xml + OGP), RSS (feed.xml), Webhook (HMAC-signed POST)
-- [x] trust_level Lambda infrastructure (untrusted / trusted, DynamoDB Streams → SQS)
-- [x] AppSync API key auto-renewal job (monthly EventBridge → UpdateApiKey)
-- [x] editor trust model specified (`unfiltered_html`-like)
-
----
-
 ### v0.x (in progress — accumulated through dogfooding)
 
 Features needed to run dogfood sites on ampless, in priority order. Each changesets cut at a granular level, bumped from v0.x → v0.(x+1) when a meaningful unit is ready.
 
 #### Single-site model + edge caching (top priority)
-- [x] Drop in-deploy multi-site support. One Amplify deployment = one site
-- [x] Flatten internal routing tree to root-relative paths
 - [ ] CloudFront cache strategy: emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations (Amplify Hosting's internal CloudFront doesn't include Host in the cache key and users cannot modify Cache Policy / Lambda@Edge, so the cleanest path is to make every deployment serve a single site)
 - [ ] Amplify Hosting custom domain operations guide (DNS / SSL / adding separate domain procedure)
 
@@ -48,8 +31,6 @@ Features needed to run dogfood sites on ampless, in priority order. Each changes
 - [ ] Theme switching + iframe preview (in admin UI)
 
 #### MCP / AI Integration
-- [ ] MCP HTTP transport (standard practice of pasting a PAT into `.mcp.json`)
-- [ ] MCP access token issuance UI (admin panel)
 - [ ] AI provider abstraction layer
 - [ ] Proofreading / summarization plugins
 

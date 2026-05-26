@@ -43,22 +43,24 @@
 レスポンシブの目視確認、Markdown 要素のデザイン方針、よくある失敗
 — は [THEMES.ja.md](./THEMES.ja.md) を参照する。
 
-## MCP サーバー（`@ampless/mcp-server`）
+## MCP サーバー（HTTP トランスポート）
 
-エージェントが投稿コンテンツを直接クエリ・編集できる。公開ツール: `list_posts`、`get_post`、`create_post`、`update_post`、`delete_post`、`upload_media`、`get_schema`。
+エージェントが `mcp-handler` Lambda 経由で投稿コンテンツを直接クエリ・編集できる。公開ツール: `list_posts`、`get_post`、`create_post`、`update_post`、`delete_post`、`upload_media`、`get_schema`、`upload_static_bundle`、`list_static_files`、`delete_static_file`、`get_site_context`。
 
 登録方法:
 
-プロジェクトルートの `.mcp.json` に追加する:
+1. 管理画面の `/admin/mcp-tokens` で Bearer トークンを発行する。
+2. Amplify コンソールまたは `amplify_outputs.json` で `mcp-handler` の Function URL を確認する。
+3. プロジェクトルートの `.mcp.json` に追加する：
+
 ```json
 {
   "mcpServers": {
     "ampless": {
-      "command": "npx",
-      "args": ["-y", "@ampless/mcp-server", "--outputs", "./amplify_outputs.json"],
-      "env": {
-        "AMPLESS_MCP_EMAIL": "<your-admin-email>",
-        "AMPLESS_MCP_PASSWORD": "<your-admin-password>"
+      "url": "https://<function-url-id>.lambda-url.<region>.on.aws/",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer amk_..."
       }
     }
   }

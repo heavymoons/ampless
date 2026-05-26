@@ -2,32 +2,29 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { renderBody } from '@/lib/posts'
+import { renderBody } from '@ampless/runtime'
+import { ampless } from '@/lib/ampless'
+import { admin } from '@/lib/admin'
 import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
-import { postMetadata } from '@/lib/seo'
-import { loadSiteSettings } from '@/lib/site-settings'
-import { loadThemeConfig } from '@/lib/theme-config'
-import { getPublishedPost } from '@/lib/posts-public'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
-import { t } from '@/lib/i18n'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
 export async function generatePostMetadata({ params }: PostCtx): Promise<Metadata> {
   const { slug } = await params
-  const post = await getPublishedPost(slug)
+  const post = await ampless.getPublishedPost(slug)
   if (!post) return {}
-  return postMetadata(post)
+  return ampless.postMetadata(post)
 }
 
 export default async function DadsPost({ params }: PostCtx) {
   const { slug } = await params
   const [post, settings, theme] = await Promise.all([
-    getPublishedPost(slug),
-    loadSiteSettings(),
-    loadThemeConfig(),
+    ampless.getPublishedPost(slug),
+    ampless.loadSiteSettings(),
+    ampless.loadThemeConfig(),
   ])
   if (!post) notFound()
 
@@ -54,7 +51,7 @@ export default async function DadsPost({ params }: PostCtx) {
             href="/"
             className="text-[var(--primary)] underline-offset-4 hover:underline"
           >
-            {t('public.back')}
+            {admin.t('public.back')}
           </Link>
         </nav>
 

@@ -2,50 +2,52 @@
 > 
 ## 9. プラグインの配布とインストール
 
-### A方式: ビルドタイム（コアプラグイン）
+### ビルド時インストール（現行モデル）
 
-npm パッケージとして配布。ビルド時にバンドルされる。
+プラグインは npm パッケージとして配布し、デプロイ時に Lambda の成果物にバンドルする。有効化はプロジェクトの `cms.config.ts` に 1 行：
 
 ```bash
-npm install @ampless/plugin-seo
+pnpm add @ampless/plugin-seo @ampless/plugin-rss
 ```
 
 ```typescript
-// amplify/plugins.ts
-import { defineCmsPlugins } from 'ampless';
-export const plugins = defineCmsPlugins([
-  '@ampless/plugin-seo',
-  '@ampless/plugin-contact-form',
-]);
+// cms.config.ts
+import { defineConfig } from 'ampless'
+import seoPlugin from '@ampless/plugin-seo'
+import rssPlugin from '@ampless/plugin-rss'
+
+export default defineConfig({
+  site: { name: '...', url: '...' },
+  plugins: [
+    seoPlugin({ /* ... */ }),
+    rssPlugin({ /* ... */ }),
+  ],
+})
 ```
 
-git push → Amplify 自動ビルド・デプロイ。
+その後 `git push` すると Amplify Hosting の自動ビルドが走り、更新後の Lambda がデプロイされる。trusted / untrusted の各 Lambda は `plugins` 配列を自分の `trust_level` でフィルタし、ハンドラ初期化時に該当イベントフックを bind する。
 
-利点: npm のバージョン管理・lockfile・セキュリティ監査がそのまま使える。
-欠点: 追加のたびにデプロイが走る。非開発者には操作できない。
+**含意**
 
-### B方式: ランタイム（サードパーティプラグイン）
+- npm の version 管理・lockfile・セキュリティ監査がそのまま使える。
+- プラグインの追加・削除はサイト再デプロイを伴う。
+- 「管理 UI でクリックしてインストール」は本モデルでは不可能（インストール = コード変更）。
 
-管理画面からインストール。プラグインコードを S3 に保存し、Lambda 実行時に動的ロード。
+このトレードオフは意図的：ampless のターゲットは「サイト運営者自身がドッグフードする規模のサイト」で、CDK 再デプロイは許容される。代替案（任意 JS をランタイムにロード）はサンドボックス設計の難問になる。
 
-```
-管理画面「プラグイン追加」
-  → バンドル済みJSを S3 にアップロード
-  → マニフェストを DynamoDB に登録
-  → Lambda 実行時に S3 からコード取得
-  → new Function() で実行（trust_level に応じた Lambda で）
-```
+### ファーストパーティプラグイン
 
-キャッシュ戦略:
-1. Lambda メモリ内キャッシュ（ウォームスタート間で保持）
-2. /tmp ファイルキャッシュ（コールドスタートでも高速）
-3. S3 から取得（完全初回のみ）
+本モノレポから出荷し、npm 上で `@ampless/` 配下に公開：
 
-プラグイン開発者は esbuild 等でバンドル済み単一 JS ファイルとして配布。
+- `@ampless/plugin-seo` — 投稿単位とサイト単位の SEO メタデータ。trusted。
+- `@ampless/plugin-rss` — 公開イベント時に `public/plugins/rss/feed.xml` を生成。trusted。
+- `@ampless/plugin-og-image` — リクエスト時に OG 画像を動的描画。untrusted（公開 Next.js プロセス内で描画するので AWS データ権限は不要）。
+- `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。untrusted。
 
-### v1 方針
-- コアプラグインは A 方式（npm）
-- サードパーティプラグインは B 方式（S3 + ランタイムロード）
-- 両方式を組み合わせたハイブリッド運用
+### ランタイム / マーケットプレイス型インストール
+
+管理 UI からの「バンドルをアップロード → S3 に置く → Lambda 実行時にフェッチして実行」というインストールは**未実装**。「trusted 相当の Lambda にランタイムで任意 JS をロードする」サンドボックス設計が未解決の課題で、共有 trusted Lambda 内でやるのは認められず、プラグイン 1 つに Lambda 1 つを割り当てるなら capability ベースの動的 IAM が必要になる。これは[ロードマップ](./14-roadmap.md)項目で、v1.0 のスコープには明示的に含めない。
+
+それまでサードパーティプラグインもファーストパーティと同じ配布形式 — サイト運営者が自分のリポジトリに npm パッケージを追加する — を取る。
 
 ---
