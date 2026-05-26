@@ -63,9 +63,34 @@ export type CacheStrategy = 'auto' | 'deep' | 'hot'
  * are free to store their own per-post state here (e.g. SEO overrides,
  * feature flags, A/B variants).
  */
+/**
+ * Per-file metadata recorded on a static post. The static route
+ * reads this to decide whether to stream the bytes back through
+ * Lambda (small files → cached by CloudFront) or to 302-redirect
+ * to a presigned URL (large files → bypass the Lambda response
+ * size envelope). Populated by `upload_static_bundle` /
+ * `commit_static_post` at upload time so the read path never
+ * issues a HEAD round-trip.
+ *
+ * `body.files` (the manifest's flat list) stays the source of truth
+ * for "what's in the bundle"; this map is purely a delivery hint and
+ * may be sparse when older bundles predate the migration.
+ */
+export interface StaticPostFileMeta {
+  size: number
+  mimeType: string
+}
+
 export interface PostMetadata {
   no_layout?: boolean
   cache?: CacheStrategy
+  /**
+   * For `format: 'static'` posts only. Keyed by the bundle-relative
+   * path (same shape as `body.files` entries). Older bundles may
+   * lack this map — readers MUST treat a missing entry as
+   * "fall back to a HEAD lookup".
+   */
+  files?: Record<string, StaticPostFileMeta>
   [key: string]: unknown
 }
 
@@ -101,12 +126,26 @@ export interface Page {
   publishedAt?: string
 }
 
+/**
+ * Asset metadata recorded on the Media row. Currently the only
+ * well-known key is `etag` (the S3 object ETag, captured at upload
+ * time so the media-proxy route can emit it back to the client
+ * without a HEAD round-trip). Free-form by design — themes and
+ * plugins can add their own keys (image dimensions, EXIF strip
+ * status, etc.) without a schema change.
+ */
+export interface MediaMetadata {
+  etag?: string
+  [key: string]: unknown
+}
+
 export interface Media {
   mediaId: string
   src: string
   mimeType: string
   size: number
   delivery: 'nextjs' | 's3-direct'
+  metadata?: MediaMetadata
 }
 
 export type ImageDisplay = 'inline' | 'lightbox'

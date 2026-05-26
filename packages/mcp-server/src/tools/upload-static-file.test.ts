@@ -11,7 +11,7 @@ function makeStorage(): {
     storage: {
       async putObject(key, body, contentType) {
         puts.push({ key, body, contentType })
-        return `https://test.s3.us-east-1.amazonaws.com/${key}`
+        return { url: `https://test.s3.us-east-1.amazonaws.com/${key}` }
       },
       async deleteObject() {},
       async listObjects() {

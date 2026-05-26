@@ -34,13 +34,34 @@ export interface StorageObject {
   lastModified?: string
 }
 
+export interface PutObjectResult {
+  /**
+   * Public URL of the stored object (same format both routes use:
+   * https://{bucket}.s3.{region}.amazonaws.com/{key}).
+   */
+  url: string
+  /**
+   * S3 ETag of the stored bytes when the underlying client surfaces
+   * it. Captured at upload time so the Media DynamoDB row can record
+   * it and the media-proxy route can later passthrough it as a
+   * response header (enabling conditional GETs from CDN clients).
+   * Optional because not all `StorageClient` impls have access to
+   * the raw S3 response.
+   */
+  etag?: string
+}
+
 export interface StorageClient {
   /**
    * Upload `body` to the bucket at `key` with `contentType`. Returns
-   * the public URL of the stored object (same format both routes use:
-   * https://{bucket}.s3.{region}.amazonaws.com/{key}).
+   * the public URL and (when available) the S3 ETag of the stored
+   * object.
    */
-  putObject(key: string, body: Uint8Array, contentType: string): Promise<string>
+  putObject(
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): Promise<PutObjectResult>
 
   /**
    * Remove the object at `key`. Implementations should treat a missing

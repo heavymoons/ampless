@@ -71,7 +71,8 @@ A handful of derived assets *are* materialised in S3, but they're maintained by 
 
 - Body shape: `{ entrypoint, files, uploadedAt }` (`StaticPostBody` in [`packages/ampless/src/types.ts`](../../packages/ampless/src/types.ts)).
 - File bytes live at `public/static/<slug>/...` in S3.
-- Public URL surface: middleware rewrites `/<slug>` to the entrypoint and `/<slug>/<path>` to any internal file ([`packages/runtime/src/middleware.ts`](../../packages/runtime/src/middleware.ts), [`packages/runtime/src/routes/static.ts`](../../packages/runtime/src/routes/static.ts)).
+- Per-file size + mimeType lives on `post.metadata.files` (`{ [path]: { size, mimeType } }`) so the static delivery route can stream small files back through Lambda without a HEAD round-trip on first read. The upload tools (`upload_static_bundle`, `commit_static_post`, and the browser `uploadBundle`) populate this map automatically; legacy bundles that predate the field fall back to an Amplify SSR HEAD (cached in-process for 5 minutes).
+- Public URL surface: middleware rewrites `/<slug>` to the entrypoint and `/<slug>/<path>` to any internal file ([`packages/runtime/src/middleware.ts`](../../packages/runtime/src/middleware.ts), [`packages/runtime/src/routes/static.ts`](../../packages/runtime/src/routes/static.ts)). Small files (<=6 MB) are streamed back through the Lambda response so Amplify Hosting's CloudFront edge cache can serve repeat reads; larger files fall back to a 302 presigned redirect. The route never sets `Cache-Control` itself — middleware overlays it from `post.metadata.cache` + `post.updatedAt`.
 - Hard validation rule: every reference inside HTML/CSS/SVG must be **relative**. Absolute (`/foo`) and protocol-relative (`//cdn/foo`) paths are rejected at upload time so the bundle stays portable. Validation logic and entrypoint heuristics are shared between admin and MCP via [`packages/ampless/src/static-bundle.ts`](../../packages/ampless/src/static-bundle.ts).
 - Upload entrypoints:
   - Admin UI: [`StaticUploader`](../../packages/admin/src/components/static-uploader.tsx) (drag in a zip).
@@ -85,7 +86,7 @@ Per-post metadata controls how the theme wraps the rendered body. The dispatch d
 |---|---|---|---|
 | themed (default) | `/<slug>` | (no rewrite) | `app/[slug]/page.tsx` → theme `components.Post` |
 | `metadata.no_layout: true` | `/<slug>` | `/raw/<slug>` | `app/raw/[slug]/route.ts` — bare HTML, no theme chrome |
-| `format: 'static'` | `/<slug>` and `/<slug>/<path>` | `/static/<slug>(/...)` | `app/static/[slug]/[[...path]]/route.ts` — presigned S3 redirect |
+| `format: 'static'` | `/<slug>` and `/<slug>/<path>` | `/static/<slug>(/...)` | `app/static/[slug]/[[...path]]/route.ts` — stream-back (small files) or 302 presigned (>6 MB) |
 
 `raw` and `static` are reserved slugs as a consequence.
 
@@ -143,8 +144,10 @@ export default defineConfig({
 
 | Method | URL example | Behaviour |
 |--------|------------|-----------|
-| `nextjs` (default) | `/api/media/2026/04/photo.jpg` | Admin route handler ([`media-proxy.ts`](../../packages/admin/src/api/media-proxy.ts)) requests a short-lived S3 presigned URL via Amplify SSR and 302-redirects the browser to it. Bucket stays private. |
+| `nextjs` (default) | `/api/media/2026/04/photo.jpg` | The admin route handler ([`media-proxy.ts`](../../packages/admin/src/api/media-proxy.ts)) fetches the object from S3 via a short-lived presigned URL and streams the bytes back through the Lambda response with `Cache-Control: public, max-age=31536000, immutable`. CloudFront caches the response so repeat visitors don't re-invoke Lambda. Files larger than 6 MB fall back to a 302 presigned redirect (CloudFront miss, but the response stays under the Lambda buffered-response cap). The bucket stays private. Asset metadata (size, mimeType, etag) is read from the Media DynamoDB row via the public-keyed `getMediaBySrc` custom query so the route skips a HEAD round-trip on warm reads. Orphan / legacy assets without a Media row fall back to an Amplify SSR `getProperties` HEAD (memoised in-process for 5 minutes). |
 | `s3-direct` | `https://<bucket>.s3.<region>.amazonaws.com/public/media/...` | Direct S3 URL. Requires the bucket's public-read policy to be active. Suitable when fronting with a CDN. |
+
+The Media schema carries a free-form `metadata` JSON column alongside `size` and `mimeType`, plus a `bySrc` secondary index that lets the public `getMediaBySrc(src)` AppSync query resolve a row in one O(1) Query. Both the browser admin uploads (`/admin/media` gallery + the editor's image picker) and the MCP `upload_media` tool create a Media row on every successful upload, recording `metadata.etag` from the S3 PutObject response so the media-proxy can passthrough `ETag` headers without a HEAD round-trip. The `getMediaBySrc` query uses `allow.publicApiKey()` (same auth model as the public post queries — Amplify Gen 2 custom handlers don't accept `allow.guest()`) and returns only a narrow `PublicMedia` projection (`{ src, size, mimeType, metadata }`) so no other Media fields leak to guests.
 
 URL resolution lives in [`publicMediaUrl`](../../packages/admin/src/lib/media.ts). The function reads `cms.config.media.delivery` and the project's `amplify_outputs.json` to assemble the right URL; templates re-export it from `lib/media.ts` so theme components only call `publicMediaUrl(src)`.
 

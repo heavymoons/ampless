@@ -11,7 +11,7 @@ function makeStorage(initial: StorageObject[] = []): {
   return {
     storage: {
       async putObject(key) {
-        return key
+        return { url: key }
       },
       async deleteObject(key) {
         deletes.push(key)

@@ -21,7 +21,8 @@ WordPress compatibility scope is **WXR data import only**; plugin / theme / Gute
 Features needed to run dogfood sites on ampless, in priority order. Each changesets cut at a granular level, bumped from v0.x → v0.(x+1) when a meaningful unit is ready.
 
 #### Single-site model + edge caching (top priority)
-- [ ] CloudFront cache strategy: emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations (Amplify Hosting's internal CloudFront doesn't include Host in the cache key and users cannot modify Cache Policy / Lambda@Edge, so the cleanest path is to make every deployment serve a single site)
+- [x] CloudFront cache strategy for **asset bytes**: `/api/media/...` and static-bundle `/<slug>/<path>` routes stream the S3 object back through the Lambda response (instead of 302-redirecting to a presigned URL) so Amplify Hosting's CloudFront edge cache absorbs repeat reads. Files larger than 6 MB still fall back to the 302 presigned path. Asset metadata (size, mimeType) is persisted in the Media DynamoDB row + `post.metadata.files` so the read path skips a HEAD round-trip.
+- [ ] CloudFront cache strategy for **themed post HTML responses**: emit `Cache-Control: public, s-maxage=...` on SSR responses to leverage CloudFront caching → reduce Lambda invocations (Amplify Hosting's internal CloudFront doesn't include Host in the cache key and users cannot modify Cache Policy / Lambda@Edge, so the cleanest path is to make every deployment serve a single site)
 - [ ] Amplify Hosting custom domain operations guide (DNS / SSL / adding separate domain procedure)
 
 #### Themes / Visual Customization

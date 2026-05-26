@@ -17,13 +17,14 @@ export interface AmplessResolverPaths {
   listPublishedPosts: string
   getPublishedPost: string
   listPostsByTag: string
+  getMediaBySrc: string
 }
 
 /**
  * Default AppSync JS resolver paths. AppSync resolves these strings at
  * CDK synth time relative to the file that calls `defineData` — i.e.
- * the user's `amplify/data/resource.ts`. Templates ship the three
- * resolver files at exactly these paths.
+ * the user's `amplify/data/resource.ts`. Templates ship the resolver
+ * files at exactly these paths.
  *
  * Users with a non-default layout (e.g. moving the resolvers under a
  * `resolvers/` subdir) pass overrides through `amplessSchemaModels(a, {
@@ -33,6 +34,7 @@ export const DEFAULT_RESOLVER_PATHS: AmplessResolverPaths = {
   listPublishedPosts: './list-published-posts.js',
   getPublishedPost: './get-published-post.js',
   listPostsByTag: './list-posts-by-tag.js',
+  getMediaBySrc: './get-media-by-src.js',
 }
 
 export interface AmplessSchemaModelsOpts {
@@ -156,8 +158,22 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         mimeType: a.string().required(),
         size: a.integer(),
         delivery: a.string(),
+        // Free-form per-asset metadata (JSON). Currently used to
+        // memoise the S3 ETag for stream-back routes; future use
+        // for image dimensions, EXIF strip status, etc. Kept loose
+        // because the field is read by routes that only need a few
+        // hints (no schema-level commitment).
+        metadata: a.json(),
       })
       .identifier(['mediaId'])
+      // Secondary index on `src` lets the media-proxy route resolve
+      // a Media row in one O(1) Query rather than scanning. The
+      // src is the S3 key (`public/media/...`) and is unique across
+      // the table — uploads use a timestamp-prefixed naming scheme.
+      // The `getMediaBySrc` custom resolver below targets this index
+      // by its explicit name.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .secondaryIndexes((index: any) => [index('src').name('bySrc')])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         allow.groups(['ampless-admin', 'ampless-editor']),
@@ -286,6 +302,19 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       nextToken: a.string(),
     }),
 
+    // Minimal Media projection for the public-facing `getMediaBySrc`
+    // query. Decoupling from the `Media` model lets the custom
+    // resolver bypass the model-level (admin/editor only) auth check
+    // on fields, and intentionally keeps `mediaId` / `delivery` /
+    // anything else off the wire — guests only need `size` /
+    // `mimeType` / `metadata` for the stream-back read path.
+    PublicMedia: a.customType({
+      src: a.string().required(),
+      size: a.integer(),
+      mimeType: a.string(),
+      metadata: a.json(),
+    }),
+
     // Public read endpoints — guard against draft leakage via custom resolvers.
     // Custom handlers (`a.handler.custom`) only support apiKey / userPool /
     // lambda / group / owner auth. `allow.guest()` (Cognito Identity Pool
@@ -350,6 +379,35 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         a.handler.custom({
           dataSource: a.ref('PostTag'),
           entry: resolverPaths.listPostsByTag,
+        })
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .authorization((allow: any) => [
+        allow.publicApiKey(),
+        allow.groups(['ampless-admin', 'ampless-editor']),
+      ]),
+
+    // Public Media lookup by S3 key. Called by the `/api/media/...`
+    // route handler so guests can resolve `{ size, mimeType, metadata }`
+    // and the route can stream the bytes back with the right headers
+    // (and skip a HEAD round-trip on cold reads). The custom JS
+    // resolver targets the Media table's `bySrc` GSI directly so the
+    // lookup is one O(1) Query.
+    //
+    // Auth: `allow.publicApiKey()` — same model as the post queries
+    // above. `a.handler.custom` doesn't accept `allow.guest()` in
+    // Amplify Gen 2, so the API key (auto-renewed every 365 days) is
+    // the standard public-read channel. The resolver returns only the
+    // narrow `PublicMedia` projection — no `mediaId` / `delivery` /
+    // anything else leaks to guests.
+    getMediaBySrc: a
+      .query()
+      .arguments({ src: a.string().required() })
+      .returns(a.ref('PublicMedia'))
+      .handler(
+        a.handler.custom({
+          dataSource: a.ref('Media'),
+          entry: resolverPaths.getMediaBySrc,
         })
       )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

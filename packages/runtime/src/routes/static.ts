@@ -1,7 +1,13 @@
 import { createServerRunner } from '@aws-amplify/adapter-nextjs'
 import { cookies } from 'next/headers'
 import { getUrl } from 'aws-amplify/storage/server'
+import type { PostMetadata, StaticPostFileMeta } from 'ampless'
 import type { Ampless } from '../index.js'
+import {
+  streamS3Object,
+  type ResolvedAssetMeta,
+  type StreamS3Options,
+} from '../stream-s3.js'
 
 interface Ctx {
   params: Promise<{ slug: string; path?: string[] }>
@@ -26,15 +32,13 @@ export type StaticRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
  * the bundle resolve correctly — `<img src="img.png">` must resolve
  * to `/<slug>/img.png`, not the site root.
  *
- * Trust model: assets are served via short-lived S3 presigned URLs;
- * the bucket stays private.
+ * Trust model: the bucket stays private. Small files (<=6 MB) are
+ * streamed back through the Lambda response so CloudFront caches
+ * them; larger files fall back to a short-lived S3 presigned redirect.
  *
  * Cache-Control: deliberately omitted from the responses here.
  * Middleware computes the strategy from `metadata.cache` +
- * `post.updatedAt` and sets it on the rewritten response. The 302
- * presigned redirects also rely on S3's own headers for the actual
- * asset bytes — adding a stale-while-revalidate window on the 302
- * would risk serving an expired presign to repeat visitors.
+ * `post.updatedAt` and overlays it on the rewritten response.
  */
 export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
   // createServerRunner is expensive (parses outputs, builds resource
@@ -57,6 +61,12 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
       return new Response('Not Found', { status: 404 })
     }
 
+    const metadata: PostMetadata | undefined = post.metadata
+    const filesMeta: Record<string, StaticPostFileMeta> | undefined =
+      metadata && typeof metadata.files === 'object' && metadata.files !== null
+        ? (metadata.files as Record<string, StaticPostFileMeta>)
+        : undefined
+
     if (restSegments.length === 0) {
       const url = new URL(request.url)
       if (!url.pathname.endsWith('/')) {
@@ -70,15 +80,12 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
         typeof body?.entrypoint === 'string' && body.entrypoint
           ? body.entrypoint
           : 'index.html'
-      const presignedUrl = await signStaticAsset({
+      return serveStaticAsset({
         runWithAmplifyServerContext,
         slug,
         rest: entrypoint,
+        filesMeta,
       })
-      if (!presignedUrl) {
-        return new Response('Not Found', { status: 404 })
-      }
-      return Response.redirect(presignedUrl, 302)
     }
 
     // Reject traversal / null bytes / cross-segment slashes — same
@@ -102,53 +109,86 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
       return new Response('Not Found', { status: 404 })
     }
 
-    const presignedUrl = await signStaticAsset({
+    return serveStaticAsset({
       runWithAmplifyServerContext,
       slug,
       rest,
+      filesMeta,
     })
-    if (!presignedUrl) {
-      return new Response('Not Found', { status: 404 })
-    }
-    return Response.redirect(presignedUrl, 302)
   }
+}
+
+interface ServeStaticAssetArgs {
+  runWithAmplifyServerContext: ReturnType<typeof createServerRunner>['runWithAmplifyServerContext']
+  slug: string
+  rest: string
+  filesMeta: Record<string, StaticPostFileMeta> | undefined
+}
+
+/**
+ * Resolve the S3 key, look up persisted size/mimeType, and hand off
+ * to the stream-back helper. Small files are streamed back so
+ * CloudFront caches the response; larger files fall back to a 302
+ * presigned redirect. The route never sets Cache-Control on the
+ * response — middleware overlays it from `post.metadata.cache` +
+ * `post.updatedAt`.
+ *
+ * TODO(stream-s3): backfill `post.metadata.files` for legacy bundles
+ * uploaded before the metadata-on-write migration. Today they fall
+ * through to a HEAD via Amplify SSR (cached in the per-Lambda LRU),
+ * but a one-shot migration would drop the cold-start HEAD entirely.
+ */
+async function serveStaticAsset({
+  runWithAmplifyServerContext,
+  slug,
+  rest,
+  filesMeta,
+}: ServeStaticAssetArgs): Promise<Response> {
+  const key = `public/static/${slug}/${rest}`
+  const persisted = filesMeta?.[rest]
+  const meta: ResolvedAssetMeta | undefined = persisted
+    ? { size: persisted.size, mimeType: persisted.mimeType }
+    : undefined
+
+  const opts: StreamS3Options = {
+    meta,
+    presignedUrlFor: (k) => signStaticAsset({ runWithAmplifyServerContext, key: k }),
+  }
+
+  return runWithAmplifyServerContext({
+    nextServerContext: { cookies },
+    operation: (ctx) => streamS3Object(ctx, key, opts),
+  })
 }
 
 interface SignStaticAssetArgs {
   runWithAmplifyServerContext: ReturnType<typeof createServerRunner>['runWithAmplifyServerContext']
-  slug: string
-  rest: string
+  key: string
 }
 
 /**
- * Sign a 1-hour presigned URL for `public/static/<slug>/<rest>`.
- * Returns null when the object is missing or any Amplify-layer error
- * occurs — distinguishing the two reliably isn't possible through
- * Amplify's wrapper (both surface as throws). Callers turn null into
- * a 404; check CloudWatch / Sentry for transport-layer failures.
+ * Sign a 1-hour presigned URL for the given S3 key. Returns null on
+ * any Amplify-layer error (NoSuchKey + transport errors both surface
+ * as throws through the SSR wrapper). Callers turn null into a 404;
+ * check CloudWatch / Sentry for transport-layer failures.
  */
 async function signStaticAsset({
   runWithAmplifyServerContext,
-  slug,
-  rest,
+  key,
 }: SignStaticAssetArgs): Promise<string | null> {
-  const objectPath = `public/static/${slug}/${rest}`
   try {
     return await runWithAmplifyServerContext({
       nextServerContext: { cookies },
       operation: async (amplifyContext) => {
         const result = await getUrl(amplifyContext, {
-          path: objectPath,
+          path: key,
           options: { expiresIn: 60 * 60 },
         })
         return result.url.toString()
       },
     })
   } catch (err) {
-    console.error(
-      `[static-route] presign failed for ${objectPath}:`,
-      err,
-    )
+    console.error(`[static-route] presign failed for ${key}:`, err)
     return null
   }
 }

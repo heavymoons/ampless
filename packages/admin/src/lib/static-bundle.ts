@@ -2,6 +2,7 @@ import JSZip from 'jszip'
 import { uploadData, list, remove } from 'aws-amplify/storage'
 import {
   type StaticPostBody,
+  type StaticPostFileMeta,
   type ExtractedFile,
   type ValidationIssue,
   type BundleExtractResult,
@@ -79,12 +80,28 @@ export interface UploadOptions {
   onProgress?: (uploaded: number, total: number) => void
 }
 
+export interface UploadBundleResult {
+  /** The Post `body` manifest (entrypoint + sorted file list + timestamp). */
+  body: StaticPostBody
+  /**
+   * Per-file size / mimeType map. Lands in `post.metadata.files` so
+   * the static delivery route can stream small files back through
+   * Lambda without a HEAD round-trip.
+   */
+  filesMeta: Record<string, StaticPostFileMeta>
+}
+
 /**
  * Wipe the existing prefix, then upload every file. Order matters —
  * doing the prefix clear first means a re-upload always replaces
  * (not merges) the bundle, so removed files don't linger in S3.
+ *
+ * Returns both the manifest (for `post.body`) and a per-file size /
+ * mimeType map (for `post.metadata.files`). Callers wire the latter
+ * into the metadata blob alongside the existing `no_layout` / `cache`
+ * keys.
  */
-export async function uploadBundle(opts: UploadOptions): Promise<StaticPostBody> {
+export async function uploadBundle(opts: UploadOptions): Promise<UploadBundleResult> {
   if (opts.files.length === 0) {
     throw new Error('Bundle is empty.')
   }
@@ -106,7 +123,9 @@ export async function uploadBundle(opts: UploadOptions): Promise<StaticPostBody>
 
   const prefix = bundlePrefix(opts.slug)
   let uploaded = 0
+  const filesMeta: Record<string, StaticPostFileMeta> = {}
   for (const f of opts.files) {
+    const mimeType = mimeTypeFor(f.path)
     const task = uploadData({
       path: `${prefix}${f.path}`,
       data: f.data,
@@ -114,17 +133,21 @@ export async function uploadBundle(opts: UploadOptions): Promise<StaticPostBody>
       // it directly when serving the file via the public bucket URL.
       // (The runtime route handler overrides it for the proxied path,
       // but tooling that hits S3 directly benefits from a correct CT.)
-      options: { contentType: mimeTypeFor(f.path) },
+      options: { contentType: mimeType },
     })
     await task.result
+    filesMeta[f.path] = { size: f.data.byteLength, mimeType }
     uploaded += f.data.byteLength
     opts.onProgress?.(uploaded, totalBytes)
   }
 
   return {
-    entrypoint,
-    files: opts.files.map((f) => f.path).sort(),
-    uploadedAt: new Date().toISOString(),
+    body: {
+      entrypoint,
+      files: opts.files.map((f) => f.path).sort(),
+      uploadedAt: new Date().toISOString(),
+    },
+    filesMeta,
   }
 }
 

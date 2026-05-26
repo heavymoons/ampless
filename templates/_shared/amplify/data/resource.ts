@@ -20,8 +20,9 @@ import { customSchemaModels } from './resource.custom.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Ampless's built-in models (Post / Page / Media / Taxonomy / PostTag /
-// KvStore) plus the three public-read custom queries
-// (listPublishedPosts / getPublishedPost / listPostsByTag).
+// KvStore) plus the public-read custom queries
+// (listPublishedPosts / getPublishedPost / listPostsByTag /
+// getMediaBySrc).
 //
 // Add project-specific models in `amplify/data/resource.custom.ts` —
 // that file is never overwritten by `create-ampless upgrade`.
@@ -29,6 +30,7 @@ const resolverPaths = {
   listPublishedPosts: resolve(__dirname, 'list-published-posts.js'),
   getPublishedPost: resolve(__dirname, 'get-published-post.js'),
   listPostsByTag: resolve(__dirname, 'list-posts-by-tag.js'),
+  getMediaBySrc: resolve(__dirname, 'get-media-by-src.js'),
 }
 
 const schema = a

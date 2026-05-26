@@ -5,6 +5,7 @@ import {
   validateBundle,
   type PostMetadata,
   type StaticPostBody,
+  type StaticPostFileMeta,
 } from 'ampless'
 import type { GraphqlClient, StorageClient } from './types.js'
 import { extractZipFromBuffer } from './static-bundle-extract.js'
@@ -131,18 +132,30 @@ export async function uploadStaticBundle(
     await storage.deleteObject(obj.key)
   }
 
-  // 5. Upload every file with the correct MIME.
+  // 5. Upload every file with the correct MIME. Track per-file
+  //    size + mimeType so the Post row's metadata.files map lets the
+  //    static route skip a HEAD round-trip on first read.
   let uploadedFiles = 0
+  const filesMeta: Record<string, StaticPostFileMeta> = {}
   for (const f of files) {
-    await storage.putObject(`${prefix}${f.path}`, f.data, mimeTypeFor(f.path))
+    const mimeType = mimeTypeFor(f.path)
+    await storage.putObject(`${prefix}${f.path}`, f.data, mimeType)
+    filesMeta[f.path] = { size: f.data.byteLength, mimeType }
     uploadedFiles += 1
   }
 
-  // 6. Build the manifest and upsert the Post row.
+  // 6. Build the manifest and upsert the Post row. The per-file size /
+  //    mimeType map lands in `metadata.files` (alongside any caller-
+  //    supplied metadata keys) so the static delivery route can stream
+  //    back small files without a HEAD.
   const body: StaticPostBody = {
     entrypoint,
     files: files.map((f) => f.path).sort(),
     uploadedAt: new Date().toISOString(),
+  }
+  const mergedMetadata: PostMetadata | Record<string, unknown> = {
+    ...(args.metadata ?? {}),
+    files: filesMeta,
   }
   const { post } = await upsertStaticPost(graphql, slug, body, {
     title: args.title,
@@ -151,7 +164,7 @@ export async function uploadStaticBundle(
     publishedAt: args.publishedAt,
     excerpt: args.excerpt,
     tags: args.tags,
-    metadata: args.metadata,
+    metadata: mergedMetadata,
   })
 
   return { post, bundle: body, uploadedFiles }

@@ -26,7 +26,7 @@ export function createMcpStorageClient(opts: CreateMcpStorageClientOpts): Storag
   const client = new S3Client({ region: opts.region })
   return {
     async putObject(key, body, contentType) {
-      await client.send(
+      const res = await client.send(
         new PutObjectCommand({
           Bucket: opts.bucket,
           Key: key,
@@ -34,7 +34,15 @@ export function createMcpStorageClient(opts: CreateMcpStorageClientOpts): Storag
           ContentType: contentType,
         })
       )
-      return formatPublicAssetUrl(opts.bucket, opts.region, key)
+      // S3 returns ETag wrapped in double quotes — strip them so the
+      // value matches what `getProperties` / `If-None-Match` clients
+      // produce. May be undefined on rare SSE configurations; callers
+      // treat that as "no etag available".
+      const etag = res.ETag ? res.ETag.replace(/^"|"$/g, '') : undefined
+      return {
+        url: formatPublicAssetUrl(opts.bucket, opts.region, key),
+        etag,
+      }
     },
     async deleteObject(key) {
       await client.send(

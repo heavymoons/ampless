@@ -19,6 +19,7 @@ import type {
   AmplessOutputs,
   EffectiveSiteSettings,
   EffectiveThemeConfig,
+  ResolvedMedia,
 } from '@ampless/runtime'
 import {
   resolveLocale,
@@ -86,6 +87,14 @@ export interface Admin {
 
   // media
   publicMediaUrl(input: string): string
+  /**
+   * Look up the Media DynamoDB row for the given S3 key. Used by the
+   * `/api/media/...` route handler so the stream-back path can skip a
+   * HEAD round-trip on cold reads. Returns null for orphan / legacy
+   * assets (caller falls back to a HEAD via Amplify SSR). Requires
+   * the `ampless` opt — throws if it wasn't supplied.
+   */
+  getMediaBySrc(src: string): Promise<ResolvedMedia | null>
 
   // shape for handing to page / API factories
   readonly outputs: AmplessOutputs
@@ -161,6 +170,7 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
       (await resolveAmpless()).readStoredActiveThemeFresh(),
 
     publicMediaUrl: media.publicMediaUrl,
+    getMediaBySrc: async (src) => (await resolveAmpless()).getMediaBySrc(src),
 
     outputs,
     cmsConfig,

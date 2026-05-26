@@ -14,11 +14,13 @@ export type { ListOptions, CreatePostInput, PostsProvider } from './core.js'
 export type {
   Post,
   PostMetadata,
+  StaticPostFileMeta,
   CacheStrategy,
   CacheConfig,
   StaticPostBody,
   Page,
   Media,
+  MediaMetadata,
   Config,
   AuthContext,
   Role,

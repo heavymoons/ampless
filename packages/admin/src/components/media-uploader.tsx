@@ -7,16 +7,23 @@ import type { ProcessOptions } from 'ampless/media'
 import { Button, Input } from '@ampless/runtime/ui'
 import { Trash2, Copy, Check, FileText, Code2 } from 'lucide-react'
 import { publicMediaUrl } from '../lib/media.js'
+import { createMediaRow } from '../lib/upload.js'
 import { getMediaProcessingDefaults } from '../lib/admin-config-client.js'
 import { ImageUploadDialog } from './image-upload-dialog.js'
 import { useT } from './i18n-provider.js'
 
 // uploadData has overloads (path-based, key-based) that return different
 // TransferTask shapes; cancel + result are common to both, so type only
-// what we use.
+// what we use. The resolved result carries the size + eTag emitted by
+// S3 PutObject — captured here so we can stamp them onto the Media
+// DynamoDB row alongside the upload.
+interface UploadResultItem {
+  size?: number
+  eTag?: string
+}
 interface UploadTask {
   cancel(): void
-  result: Promise<unknown>
+  result: Promise<UploadResultItem>
 }
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|avif|svg|bmp|tiff?)$/i
@@ -129,8 +136,18 @@ export function MediaUploader() {
         data: processed.blob,
         options: { contentType: processed.mime },
       })
-      uploadTaskRef.current = task
-      await task.result
+      uploadTaskRef.current = task as unknown as UploadTask
+      const item = (await task.result) as UploadResultItem
+      // Persist a Media DynamoDB row so the public media-proxy route
+      // can stream the bytes back without a HEAD round-trip. Errors
+      // are logged inside createMediaRow and don't fail the upload
+      // (the file is already in S3 and usable).
+      await createMediaRow({
+        src: path,
+        mimeType: processed.mime,
+        size: item.size ?? processed.blob.size,
+        etag: item.eTag,
+      })
       await refresh()
     } catch (err) {
       if (isCancelError(err) || token.cancelled) {

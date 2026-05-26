@@ -5,7 +5,7 @@ import type { GraphqlClient, StorageClient, StorageObject } from './types.js'
 function makeStorage(initial: StorageObject[]): StorageClient {
   return {
     async putObject(key) {
-      return key
+      return { url: key }
     },
     async deleteObject() {},
     async listObjects(prefix) {
