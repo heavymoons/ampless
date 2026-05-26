@@ -86,7 +86,13 @@ npm run sandbox
 npm run copy-theme
 ```
 
-独自テーマを作る場合: 既存テーマをコピーから始める（`cp -R themes/blog themes/your-theme`）→ `manifest.ts`、`tokens.css`、`pages/*.tsx` を編集 → `themes-registry.ts` に追加。フルガイド: [docs/THEMES.ja.md](https://github.com/heavymoons/ampless/blob/main/docs/THEMES.ja.md) ([English](https://github.com/heavymoons/ampless/blob/main/docs/THEMES.md))
+インストール済みテーマを `npm run update-ampless` で上書きされない形でカスタマイズしたい場合は、`my-` プレフィックス付きにコピーする:
+
+```bash
+npm run copy-theme blog my-blog
+```
+
+テーマカスタマイズの実務ガイド — ベーステーマの選び方、コピー / 編集 / 切り替えの標準フロー、Claude Design からの反映、AI を使った実装、レスポンシブ確認、Markdown 要素のスタイリング、よくある失敗 — はこのプロジェクト内の [THEMES.ja.md](./THEMES.ja.md)（[English](./THEMES.md)）に集約しています。
 
 ## プラグイン
 

@@ -86,7 +86,13 @@ To install another official theme into this project:
 npm run copy-theme
 ```
 
-To author your own theme: copy an existing one as a starting point (`cp -R themes/blog themes/your-theme`), edit `manifest.ts`, `tokens.css`, and `pages/*.tsx`, then add it to `themes-registry.ts`. Full guide: [docs/THEMES.md](https://github.com/heavymoons/ampless/blob/main/docs/THEMES.md) ([日本語](https://github.com/heavymoons/ampless/blob/main/docs/THEMES.ja.md)).
+To customize an installed theme without losing the customization on `npm run update-ampless`, copy it under the `my-` prefix:
+
+```bash
+npm run copy-theme blog my-blog
+```
+
+The full working guide for theme customization — base-theme selection, the standard copy / edit / activate flow, Claude Design handoff, AI-assisted implementation, responsive QA, Markdown styling, and the common pitfalls — lives in [THEMES.md](./THEMES.md) (and [THEMES.ja.md](./THEMES.ja.md)) right in this project.
 
 ## Plugins
 

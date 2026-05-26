@@ -36,25 +36,12 @@
 - `.amplify/` — Amplify CLI の作業ディレクトリ。
 - `pnpm-lock.yaml` / `package-lock.json` — パッケージマネージャーに任せる。
 
-## テーマのカスタマイズ（標準的な手順）
+## テーマのカスタマイズ
 
-1. 公式テーマをコピーする:
-   ```bash
-   npm run copy-theme blog my-blog
-   ```
-   `my-` プレフィックスがついているコピーは `npm run update-ampless` で上書きされない。ターゲット名が `my-` で始まらない場合、コマンドは実行を拒否する。
-
-2. 以下の優先順位で編集する:
-   - `themes/my-blog/tokens.css` — 色、タイポグラフィ、スペーシング（`[data-theme='my-blog']` スコープの CSS カスタムプロパティ）。
-   - `themes/my-blog/manifest.ts` — 管理 UI（`/admin/sites/<id>/theme`）に公開するフィールドの宣言。
-   - `themes/my-blog/pages/` — レイアウト / 構造（Next.js ページモジュール: フィード、サイトマップ、投稿テンプレート）。
-
-3. テーマを有効化する: `/admin/sites/<siteId>/theme` を開き、`my-blog` を選択する。テーマ切り替えはランタイム設定 — 再デプロイは不要。
-
-4. 動作確認:
-   ```bash
-   npm run dev   # http://localhost:3000
-   ```
+テーマのカスタマイズ手順 — ベーステーマの選び方、`themes/my-*/`
+へのコピーフロー、Claude Design からの反映、AI 支援の実装、
+レスポンシブの目視確認、Markdown 要素のデザイン方針、よくある失敗
+— は [THEMES.ja.md](./THEMES.ja.md) を参照する。
 
 ## MCP サーバー（`@ampless/mcp-server`）
 
@@ -99,6 +86,7 @@ UI / テーマを変更した場合、型チェックだけを根拠にタスク
 
 ## 参照先
 
+- `THEMES.ja.md` — テーマカスタマイズの実務ガイド（ベーステーマの選び方、Claude Design からの反映、AI への依頼、ブラウザ確認、Markdown 要素のスタイリング、よくある失敗）。
 - `README.ja.md` — サイト運営者向けの日常利用ガイド。
 - `RUNBOOK.ja.md` — 定期的な運用手順（キーローテーション、バックアップ復元など）。
 - `themes/<name>/README.ja.md` — テーマごとのカスタマイズ詳細。
