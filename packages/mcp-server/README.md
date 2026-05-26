@@ -3,9 +3,9 @@
 
 # @ampless/mcp-server
 
-Internal MCP tool registry for [ampless](https://github.com/heavymoons/ampless).
+MCP tool registry for [ampless](https://github.com/heavymoons/ampless).
 
-**This package is not published to npm and is not intended for direct installation.** It is a workspace-internal library consumed by `@ampless/backend`'s `mcp-handler` Lambda via the `./tools` subpath export.
+**No direct install needed.** This package is consumed by `@ampless/backend`'s `mcp-handler` Lambda via the `./tools` subpath export, and arrives transitively when you install `@ampless/admin` or `@ampless/backend`.
 
 ## How it fits together
 

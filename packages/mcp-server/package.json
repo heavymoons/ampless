@@ -1,8 +1,10 @@
 {
   "name": "@ampless/mcp-server",
   "version": "1.0.0-alpha.18",
-  "private": true,
-  "description": "MCP tool registry shared by @ampless/backend mcp-handler Lambda. Internal package; not published to npm.",
+  "description": "MCP tool registry shared by @ampless/backend mcp-handler Lambda. Installed transitively via @ampless/admin / @ampless/backend; no direct install needed.",
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "type": "module",
   "exports": {
