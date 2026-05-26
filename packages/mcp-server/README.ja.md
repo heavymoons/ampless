@@ -3,9 +3,9 @@
 
 # @ampless/mcp-server
 
-[ampless](https://github.com/heavymoons/ampless) 向け MCP ツールレジストリ（内部パッケージ）。
+[ampless](https://github.com/heavymoons/ampless) 向け MCP ツールレジストリ。
 
-**このパッケージは npm に公開されておらず、直接インストールして使うものではありません。** `@ampless/backend` の `mcp-handler` Lambda が `./tools` サブパスエクスポート経由でインポートする、ワークスペース内部専用のライブラリです。
+**直接インストールする必要はありません。** `@ampless/backend` の `mcp-handler` Lambda が `./tools` サブパスエクスポート経由で使い、`@ampless/admin` / `@ampless/backend` を入れると推移的に付いてきます。
 
 ## 全体の構成
 
