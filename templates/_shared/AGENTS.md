@@ -36,25 +36,12 @@ This file is written for AI coding agents (Claude Code, Cursor, Codex, etc.). Fo
 - `.amplify/` — Amplify CLI working directory.
 - `pnpm-lock.yaml` / `package-lock.json` — let the package manager update these.
 
-## Customising a theme (the standard flow)
+## Theme customization
 
-1. Copy an official theme:
-   ```bash
-   npm run copy-theme blog my-blog
-   ```
-   The `my-` prefix marks the copy as user-owned so `npm run update-ampless` leaves it alone. The target name must start with `my-` or the command refuses to run.
-
-2. Edit in this priority order:
-   - `themes/my-blog/tokens.css` — colours, typography, spacing (CSS custom properties scoped under `[data-theme='my-blog']`).
-   - `themes/my-blog/manifest.ts` — declare which fields are exposed in the admin UI (`/admin/sites/<id>/theme`).
-   - `themes/my-blog/pages/` — layout / structure (Next.js page modules: feed, sitemap, post templates).
-
-3. Activate the theme: open `/admin/sites/<siteId>/theme` and select `my-blog`. Theme switching is a runtime setting — no redeploy needed.
-
-4. Verify:
-   ```bash
-   npm run dev   # http://localhost:3000
-   ```
+For theme customization workflows — choosing a base theme, the
+standard copy-and-edit flow, Claude Design handoff, AI-assisted
+implementation, responsive visual QA, Markdown styling expectations,
+and the common failure modes — see [THEMES.md](./THEMES.md).
 
 ## MCP server (`@ampless/mcp-server`)
 
@@ -99,6 +86,7 @@ Do not report a task complete based solely on type checks if a UI/theme was modi
 
 ## See also
 
+- `THEMES.md` — theme customization workflows (base-theme selection, Claude Design handoff, AI prompts, browser QA, Markdown styling, common pitfalls).
 - `README.md` — day-to-day usage for site owners.
 - `RUNBOOK.md` — occasional ops procedures (key rotation, backup restore, etc.).
 - `themes/<name>/README.md` — per-theme customization details.
