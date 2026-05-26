@@ -231,7 +231,7 @@ export function PostForm({ post }: PostFormProps) {
 
     try {
       const tags = parseTags(tagsInput)
-      const metadata = buildMetadata()
+      let metadata = buildMetadata()
       const finalSlug = slug || slugify(title)
 
       // For static posts, push the pending bundle to S3 before saving
@@ -242,13 +242,21 @@ export function PostForm({ post }: PostFormProps) {
       let nextBody: unknown = body
       if (format === 'static') {
         if (pendingBundle) {
-          nextBody = await uploadBundle({
+          const result = await uploadBundle({
             slug: finalSlug,
             files: pendingBundle.files,
             entrypoint: pendingBundle.entrypoint,
           })
+          nextBody = result.body
+          // Stamp the per-file size / mimeType map onto the post
+          // metadata so the static delivery route can stream small
+          // files back without a HEAD round-trip on first read.
+          metadata = { ...(metadata ?? {}), files: result.filesMeta }
         } else if (initialStaticBody) {
           nextBody = initialStaticBody
+          // Edit without a new bundle: preserve any existing
+          // metadata.files map (already on `metadata` via
+          // buildMetadata's spread of post.metadata).
         } else {
           throw new Error(t('posts.form.static.noBundle'))
         }

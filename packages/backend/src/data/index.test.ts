@@ -83,14 +83,16 @@ describe('amplessSchemaModels', () => {
         'McpToken',
         'PublicPost',
         'PublicPostConnection',
+        'PublicMedia',
         'listPublishedPosts',
         'getPublishedPost',
         'listPostsByTag',
+        'getMediaBySrc',
       ].sort()
     )
   })
 
-  it('uses the default resolver paths for the three public queries', () => {
+  it('uses the default resolver paths for the public queries', () => {
     const { a, calls } = makeFakeBuilder()
     amplessSchemaModels(a)
     // `a.handler.custom({ entry: '...' })` shows up as a method call on
@@ -102,6 +104,7 @@ describe('amplessSchemaModels', () => {
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.listPublishedPosts)
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.getPublishedPost)
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.listPostsByTag)
+    expect(entries).toContain(DEFAULT_RESOLVER_PATHS.getMediaBySrc)
   })
 
   it('honors per-resolver path overrides', () => {

@@ -21,7 +21,8 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 ドッグフード対象サイトを ampless で立てるために必要な機能を優先順に。粒度ごとに changeset を切り、まとまった単位で v0.x → v0.(x+1) に bump する運用。
 
 #### シングルサイトモデル + エッジキャッシュ（最優先）
-- [ ] CloudFront キャッシュ戦略: SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュを活用し Lambda 起動回数を削減（Amplify Hosting の内部 CloudFront は cache key に Host を含めず Cache Policy / Lambda@Edge も触れないため、1 デプロイ = 1 サイトに固定するのが最も素直）
+- [x] **アセット bytes 向け** CloudFront キャッシュ戦略：`/api/media/...` と静的バンドルの `/<slug>/<path>` ルートが S3 オブジェクトを Lambda レスポンスとして stream back するようになり（旧実装の 302 presigned リダイレクトではなく）、Amplify Hosting の CloudFront エッジキャッシュが repeat read を吸収する。6 MB 超のファイルは引き続き 302 presigned 経路にフォールバック。アセットメタ（size / mimeType）は Media DynamoDB 行と `post.metadata.files` に永続化し、読み出し側で HEAD を回避する。
+- [ ] **テーマ付き投稿 HTML レスポンス向け** CloudFront キャッシュ戦略：SSR レスポンスに `Cache-Control: public, s-maxage=...` を出して CloudFront キャッシュを活用し Lambda 起動回数を削減（Amplify Hosting の内部 CloudFront は cache key に Host を含めず Cache Policy / Lambda@Edge も触れないため、1 デプロイ = 1 サイトに固定するのが最も素直）
 - [ ] Amplify Hosting カスタムドメインの運用ガイド（DNS / SSL / 別ドメイン追加手順）
 
 #### テーマ / 見た目カスタマイズ

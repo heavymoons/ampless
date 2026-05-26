@@ -28,6 +28,11 @@ import {
   type ListPostsResult,
 } from './posts.js'
 import {
+  createMediaApi,
+  type MediaApi,
+  type ResolvedMedia,
+} from './media.js'
+import {
   createSiteSettings,
   type SiteSettingsApi,
   type EffectiveSiteSettings,
@@ -61,6 +66,11 @@ export type {
   PublicPostConnectionShape,
 } from './posts.js'
 export type {
+  MediaApi,
+  ResolvedMedia,
+  PublicMediaShape,
+} from './media.js'
+export type {
   SiteSettingsApi,
   EffectiveSiteSettings,
 } from './site-settings.js'
@@ -88,6 +98,15 @@ export {
   tiptapToMarkdown,
   htmlToMarkdown,
 } from './rendering.js'
+export {
+  streamS3Object,
+  streamS3ObjectWithRunner,
+  _resetStreamS3Cache,
+} from './stream-s3.js'
+export type {
+  ResolvedAssetMeta,
+  StreamS3Options,
+} from './stream-s3.js'
 
 export interface CreateAmplessOpts {
   outputs: AmplessOutputs
@@ -101,6 +120,14 @@ export interface Ampless {
   listPublishedPosts(opts?: ListPostsOptions): Promise<ListPostsResult>
   getPublishedPost(slug: string): Promise<Post | null>
   listPostsByTag(tag: string, opts?: ListPostsByTagOptions): Promise<ListPostsResult>
+
+  // media row resolution (server-side, public apiKey authMode)
+  /**
+   * Look up the Media DynamoDB row by S3 key. Returns `null` for
+   * orphan / legacy assets (which the media-proxy route falls back
+   * to a HEAD lookup for). Failures are logged and surface as null.
+   */
+  getMediaBySrc(src: string): Promise<ResolvedMedia | null>
 
   // settings + theme
   loadSiteSettings(): Promise<EffectiveSiteSettings>
@@ -133,6 +160,7 @@ export interface Ampless {
 
   // sub-APIs (escape hatch for advanced wiring)
   readonly posts: PostsApi
+  readonly media: MediaApi
   readonly settings: SiteSettingsApi
   readonly seo: SeoApi
   readonly themeActive: ThemeActiveApi
@@ -151,6 +179,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
   const { outputs, cmsConfig, themes } = opts
   const storage = createStorage(outputs)
   const posts = createPostsApi(outputs)
+  const media = createMediaApi(outputs)
   const settings = createSiteSettings(cmsConfig, storage)
   const seo = createSeo(cmsConfig, settings)
   const themeActive = createThemeActive(themes, storage)
@@ -160,6 +189,8 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     listPublishedPosts: (o) => posts.listPublishedPosts(o),
     getPublishedPost: (slug) => posts.getPublishedPost(slug),
     listPostsByTag: (tag, o) => posts.listPostsByTag(tag, o),
+
+    getMediaBySrc: (src) => media.getMediaBySrc(src),
 
     loadSiteSettings: () => settings.loadSiteSettings(),
     resolveActiveTheme: () => themeActive.resolveActiveTheme(),
@@ -180,6 +211,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     themes,
 
     posts,
+    media,
     settings,
     seo,
     themeActive,

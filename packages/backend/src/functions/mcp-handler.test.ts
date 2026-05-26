@@ -236,9 +236,10 @@ describe('mcp-handler', () => {
   it('tools/call upload_media dispatches via storage.putObject and creates a Media row', async () => {
     mockValidTokenLookup()
     const base64Data = Buffer.from('fake-image-bytes').toString('base64')
-    mockPutObject.mockResolvedValueOnce(
-      'https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1234-photo.jpg'
-    )
+    mockPutObject.mockResolvedValueOnce({
+      url: 'https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1234-photo.jpg',
+      etag: 'abc123',
+    })
     mockGraphqlQuery.mockResolvedValueOnce({
       createMedia: {
         mediaId: 'media-123',
@@ -246,6 +247,7 @@ describe('mcp-handler', () => {
         mimeType: 'image/jpeg',
         size: 16,
         delivery: 'nextjs',
+        metadata: '{"etag":"abc123"}',
       },
     })
     const res = await handler(
@@ -285,7 +287,9 @@ describe('mcp-handler', () => {
   it('tools/call upload_media with minimal base64 (single byte) decodes correctly', async () => {
     mockValidTokenLookup()
     const singleByte = Buffer.from([0xff]).toString('base64') // '/w=='
-    mockPutObject.mockResolvedValueOnce('https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1-tiny.bin')
+    mockPutObject.mockResolvedValueOnce({
+      url: 'https://test-bucket.s3.us-east-1.amazonaws.com/public/media/2026/05/1-tiny.bin',
+    })
     mockGraphqlQuery.mockResolvedValueOnce({
       createMedia: {
         mediaId: 'media-1',
@@ -293,6 +297,7 @@ describe('mcp-handler', () => {
         mimeType: 'application/octet-stream',
         size: 1,
         delivery: 'nextjs',
+        metadata: '{}',
       },
     })
     const res = await handler(

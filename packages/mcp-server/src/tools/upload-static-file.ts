@@ -82,6 +82,6 @@ export async function uploadStaticFile(
 
   const contentType = args.contentType ?? mimeTypeFor(filename)
   const key = `${bundlePrefix(args.slug)}${filename}`
-  const url = await storage.putObject(key, body, contentType)
-  return { key, url, size: body.length }
+  const { url } = await storage.putObject(key, body, contentType)
+  return { key, url, size: body.length, contentType }
 }

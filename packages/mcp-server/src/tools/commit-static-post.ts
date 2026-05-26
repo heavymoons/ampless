@@ -1,8 +1,10 @@
 import {
   bundlePrefix,
+  mimeTypeFor,
   pickDefaultEntrypoint,
   type PostMetadata,
   type StaticPostBody,
+  type StaticPostFileMeta,
 } from 'ampless'
 import type { GraphqlClient, StorageClient } from './types.js'
 import { upsertStaticPost } from './upsert-static-post.js'
@@ -80,11 +82,20 @@ export async function commitStaticPost(
   }
 
   // Strip the prefix so the manifest stores bundle-relative paths
-  // (matches what extractZipFromBuffer / uploadBundle write).
-  const relPaths = objects
-    .map((o) => o.key.slice(prefix.length))
-    .filter((p) => p !== '')
-    .sort()
+  // (matches what extractZipFromBuffer / uploadBundle write). We
+  // also rebuild the per-file size + mimeType map from the
+  // ListObjectsV2 output — size lands in `StorageObject.size`,
+  // mimeType is derived from the extension (same heuristic the
+  // putObject path uses).
+  const filesMeta: Record<string, StaticPostFileMeta> = {}
+  const relPaths: string[] = []
+  for (const obj of objects) {
+    const rel = obj.key.slice(prefix.length)
+    if (rel === '') continue
+    relPaths.push(rel)
+    filesMeta[rel] = { size: obj.size, mimeType: mimeTypeFor(rel) }
+  }
+  relPaths.sort()
 
   const entrypoint =
     args.entrypoint ?? pickDefaultEntrypoint(relPaths.map((p) => ({ path: p })))
@@ -100,6 +111,15 @@ export async function commitStaticPost(
     uploadedAt: new Date().toISOString(),
   }
 
+  // Merge caller-supplied metadata with the rebuilt files map. The
+  // caller's metadata wins on overlapping keys EXCEPT `files`,
+  // which is always overwritten — the whole point of
+  // `commit_static_post` is to resync from S3.
+  const mergedMetadata: PostMetadata | Record<string, unknown> = {
+    ...(args.metadata ?? {}),
+    files: filesMeta,
+  }
+
   const { post, created } = await upsertStaticPost(graphql, slug, body, {
     title: args.title,
     postId: args.postId,
@@ -107,7 +127,7 @@ export async function commitStaticPost(
     status: args.status,
     publishedAt: args.publishedAt,
     tags: args.tags,
-    metadata: args.metadata,
+    metadata: mergedMetadata,
   })
 
   return { post, bundle: body, created }

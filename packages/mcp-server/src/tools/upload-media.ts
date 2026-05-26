@@ -1,3 +1,4 @@
+import { encodeAwsJson, type MediaMetadata } from 'ampless'
 import type { GraphqlClient, StorageClient } from './types.js'
 import { buildMediaKey } from './media-key.js'
 
@@ -9,6 +10,7 @@ const MUTATION = /* GraphQL */ `
       mimeType
       size
       delivery
+      metadata
     }
   }
 `
@@ -45,7 +47,15 @@ export async function uploadMedia(
 ) {
   const body = Buffer.from(args.base64Data, 'base64')
   const key = buildMediaKey(args.filename)
-  const url = await storage.putObject(key, body, args.mimeType)
+  const putResult = await storage.putObject(key, body, args.mimeType)
+
+  // Record the S3 ETag in the Media row so the public media-proxy
+  // route can passthrough it as a response header (enables 304
+  // revalidation from CDN clients). Skipped silently when the
+  // storage client didn't surface one — the Media row still works,
+  // just without the etag hint.
+  const metadata: MediaMetadata = {}
+  if (putResult.etag) metadata.etag = putResult.etag
 
   const mediaId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const data = await graphql.query<{
@@ -55,6 +65,7 @@ export async function uploadMedia(
       mimeType: string
       size: number | null
       delivery: string | null
+      metadata: unknown
     }
   }>(MUTATION, {
     input: {
@@ -63,8 +74,9 @@ export async function uploadMedia(
       mimeType: args.mimeType,
       size: body.length,
       delivery: 'nextjs',
+      metadata: encodeAwsJson(metadata),
     },
   })
 
-  return { media: data.createMedia, url }
+  return { media: data.createMedia, url: putResult.url }
 }

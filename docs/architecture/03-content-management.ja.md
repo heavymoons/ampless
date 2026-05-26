@@ -71,7 +71,8 @@ Post / Page は `format` フィールドを持ち、`body` カラムは JSON だ
 
 - body 形式：`{ entrypoint, files, uploadedAt }`（[`packages/ampless/src/types.ts`](../../packages/ampless/src/types.ts) の `StaticPostBody`）。
 - ファイル実体は S3 の `public/static/<slug>/...` に置かれる。
-- 公開 URL：middleware が `/<slug>` をエントリポイントへ、`/<slug>/<path>` を内部ファイルへ rewrite する ([`packages/runtime/src/middleware.ts`](../../packages/runtime/src/middleware.ts)、[`packages/runtime/src/routes/static.ts`](../../packages/runtime/src/routes/static.ts))。
+- ファイル単位の size + mimeType は `post.metadata.files`（`{ [path]: { size, mimeType } }`）に持たせる。静的配信ルートはこれを参照することで、初回読み出し時に HEAD を打たずに小さいファイルを Lambda 経由で stream back できる。アップロード系ツール（`upload_static_bundle`、`commit_static_post`、ブラウザ側 `uploadBundle`）はこのマップを自動で埋める。フィールドが無い旧バンドルは Amplify SSR の HEAD にフォールバック（プロセス内 LRU で 5 分キャッシュ）。
+- 公開 URL：middleware が `/<slug>` をエントリポイントへ、`/<slug>/<path>` を内部ファイルへ rewrite する ([`packages/runtime/src/middleware.ts`](../../packages/runtime/src/middleware.ts)、[`packages/runtime/src/routes/static.ts`](../../packages/runtime/src/routes/static.ts))。6 MB 以下のファイルは Lambda レスポンスとして bytes を stream back し、Amplify Hosting の CloudFront エッジキャッシュが repeat read を肩代わりする。6 MB 超のファイルは 302 presigned redirect にフォールバック。`Cache-Control` はルート側では設定せず、middleware が `post.metadata.cache` + `post.updatedAt` から計算した値を overlay する。
 - 厳格な制約：HTML/CSS/SVG の中の参照は**必ず相対パス**でなければならない。`/foo` のような絶対パスや `//cdn/foo` のような protocol-relative はアップロード時に拒否される。検証ロジックとエントリポイント推定は管理画面と MCP で共有 ([`packages/ampless/src/static-bundle.ts`](../../packages/ampless/src/static-bundle.ts))。
 - 投入経路：
   - 管理画面：[`StaticUploader`](../../packages/admin/src/components/static-uploader.tsx)（zip をドラッグ）。
@@ -85,7 +86,7 @@ Post / Page は `format` フィールドを持ち、`body` カラムは JSON だ
 |---|---|---|---|
 | themed（デフォルト） | `/<slug>` | （rewrite なし） | `app/[slug]/page.tsx` → テーマの `components.Post` |
 | `metadata.no_layout: true` | `/<slug>` | `/raw/<slug>` | `app/raw/[slug]/route.ts` — テーマ chrome なしの素の HTML |
-| `format: 'static'` | `/<slug>` と `/<slug>/<path>` | `/static/<slug>(/...)` | `app/static/[slug]/[[...path]]/route.ts` — S3 presigned URL に redirect |
+| `format: 'static'` | `/<slug>` と `/<slug>/<path>` | `/static/<slug>(/...)` | `app/static/[slug]/[[...path]]/route.ts` — 小さいファイルは stream back、6 MB 超は 302 presigned |
 
 そのため `raw` と `static` は予約済み slug となる。
 
@@ -143,8 +144,10 @@ export default defineConfig({
 
 | 方式 | URL 例 | 振る舞い |
 |------|--------|----------|
-| `nextjs`（デフォルト） | `/api/media/2026/04/photo.jpg` | 管理画面のルートハンドラ ([`media-proxy.ts`](../../packages/admin/src/api/media-proxy.ts)) が Amplify SSR 経由で S3 presigned URL を短時間で発行し、302 リダイレクトで返す。バケットは非公開のまま。 |
+| `nextjs`（デフォルト） | `/api/media/2026/04/photo.jpg` | 管理画面のルートハンドラ ([`media-proxy.ts`](../../packages/admin/src/api/media-proxy.ts)) が短期 presigned URL 経由で S3 からオブジェクトを取得し、`Cache-Control: public, max-age=31536000, immutable` を付けて Lambda レスポンスとして bytes を stream back する。同じ URL への 2 回目以降のアクセスは CloudFront のエッジキャッシュが返すので Lambda は起動しない。6 MB 超のファイルは 302 presigned リダイレクトにフォールバック（CloudFront miss だが Lambda buffered-response 上限を超えないため必要な救済策）。バケットは非公開のまま。アセットのメタ情報（size / mimeType / etag）は公開向け `getMediaBySrc` カスタムクエリ経由で Media DynamoDB 行から取得し、ウォームリードでは HEAD ラウンドトリップを省略する。Media 行が未登録のアセット（孤立 / レガシー）は Amplify SSR の `getProperties` HEAD にフォールバック（プロセス内 LRU で 5 分キャッシュ）。 |
 | `s3-direct` | `https://<bucket>.s3.<region>.amazonaws.com/public/media/...` | S3 を直接参照。バケットの公開 read ポリシーが必要。前段に CDN を置く構成向き。 |
+
+Media スキーマは `size` / `mimeType` に加えて自由形式の `metadata` JSON カラムと、公開向け `getMediaBySrc(src)` AppSync クエリが 1 回の O(1) Query で行を引けるよう `bySrc` セカンダリインデックスを持つ。ブラウザ管理画面のアップロード（`/admin/media` ギャラリーとエディタの画像ピッカー）と MCP `upload_media` ツールはどちらもアップロード成功時に Media 行を作成し、S3 PutObject の戻り値から `metadata.etag` を記録する。これにより media-proxy は HEAD を発行せずに `ETag` ヘッダをそのまま返せる。`getMediaBySrc` クエリは `allow.publicApiKey()` を使う（公開向けポストクエリと同じ認証モデル — Amplify Gen 2 のカスタムハンドラは `allow.guest()` を受け付けない）。返却型は `PublicMedia`（`{ src, size, mimeType, metadata }`）に絞ってあるので、ゲストに他の Media フィールドが漏れることはない。
 
 URL 解決は [`publicMediaUrl`](../../packages/admin/src/lib/media.ts) に集約されており、`cms.config.media.delivery` と `amplify_outputs.json` を見て URL を組み立てる。テンプレートはこれを `lib/media.ts` から再エクスポートしているので、テーマ側は `publicMediaUrl(src)` を呼ぶだけでよい。
 
