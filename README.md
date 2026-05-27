@@ -101,6 +101,25 @@ Either way the first deploy takes 10–20 minutes (CloudFormation provisions Cog
 
 Prerequisites for the CLI flow: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`aws configure`) and [GitHub CLI](https://cli.github.com/) (`gh auth login`) authenticated, or supply `--github-token` directly. Full details land in the scaffolded project's `README.md` ("Requirements" + "Deploying to production").
 
+## Authoring plugins
+
+Want to ship your own plugin? The hands-on walkthrough lives in
+[`packages/ampless/docs/plugin-author-guide.md`](./packages/ampless/docs/plugin-author-guide.md)
+(also available in Japanese as `plugin-author-guide.ja.md`). The
+same file ships inside the `ampless` npm tarball and is copied into
+every scaffolded project at `docs/plugin-author-guide.md`, so
+external authors can read it without checking out this repo.
+
+It covers the Phase 1 + Phase 2 surfaces — descriptor-based head /
+body injection, admin-managed `settings.public` values via
+`ctx.setting<T>()`, async event hooks, the three trust levels, and
+publishing to npm. The bundled GA4 / RSS / SEO / Webhook plugins are
+the working examples it references.
+
+The design rationale stays in
+[`docs/architecture/08-plugin-architecture.md`](./docs/architecture/08-plugin-architecture.md);
+the author guide focuses on what to write and where to put it.
+
 ## Editor trust model (read this before granting `editor` access)
 
 ampless treats `ampless-editor` as a trusted principal — same shape as WordPress's `unfiltered_html` capability. Editors can store arbitrary HTML / JavaScript in post bodies and the public site renders it verbatim. The full spec is in [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md); the short version is **don't grant `editor` to anyone you wouldn't also grant `admin`**.

@@ -239,6 +239,13 @@ export default defineConfig({
     'src/components/posts-list-view.tsx',
     'src/components/users-list-view.tsx',
     'src/components/mcp-tokens-view.tsx',
+    // Same rationale as the *-view.tsx entries: the form is a client
+    // component imported by `src/pages/plugins.tsx` (a server-side
+    // factory). Without a dedicated entry, esbuild inlines the form
+    // into `dist/pages/index.js`, and preserveDirectives correctly
+    // re-prepends `'use client'` to that file — breaking every other
+    // server factory re-exported from the same entry.
+    'src/components/plugin-settings-form.tsx',
   ],
   format: ['esm'],
   dts: true,

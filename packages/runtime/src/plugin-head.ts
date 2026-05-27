@@ -29,13 +29,16 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react'
-import type {
-  AmplessPlugin,
-  Config,
-  PluginPublicRenderContext,
-  PublicHeadDescriptor,
-  PublicBodyDescriptor,
+import {
+  isValidPluginKey,
+  resolvePluginSettings,
+  type AmplessPlugin,
+  type Config,
+  type PluginPublicRenderContext,
+  type PublicHeadDescriptor,
+  type PublicBodyDescriptor,
 } from 'ampless'
+import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 
 // Same guard as seo.ts — accept anything that looks like a plugin
 // manifest (`apiVersion` is the cheapest discriminator and exists on
@@ -45,10 +48,16 @@ function isPlugin(p: unknown): p is AmplessPlugin {
 }
 
 export interface PluginHeadApi {
-  /** React children safe to drop into `<head>`. */
-  renderHead(): ReactNode
+  /**
+   * React children safe to drop into `<head>`. Async because admin-
+   * managed settings are read from S3 on the first call per request.
+   * Within a single request both `renderHead` and `renderBodyEnd` share
+   * the same fetched snapshot via Next.js fetch dedup on the
+   * `site-settings` cache tag.
+   */
+  renderHead(): Promise<ReactNode>
   /** React children safe to drop just before `</body>`. */
-  renderBodyEnd(): ReactNode
+  renderBodyEnd(): Promise<ReactNode>
 }
 
 // Attribute allowlist for `attrs` on script/iframe descriptors. Any
@@ -311,9 +320,34 @@ function dedupeAndKey(entries: RenderedEntry[]): ReactElement[] {
 
 type Renderer<D> = (d: D, label: string, idx: number) => RenderedEntry | null
 
+/**
+ * Build a per-plugin `PluginPublicRenderContext` whose `setting<T>`
+ * accessor is bound to that plugin's resolved settings snapshot.
+ * The same context is handed to both `publicHead` and `publicBodyEnd`
+ * for a single request — see `createPluginHead.renderHead/renderBodyEnd`.
+ */
+function makeCtx(
+  plugin: AmplessPlugin,
+  site: Config['site'],
+  snapshot: PluginSettingsSnapshot
+): PluginPublicRenderContext {
+  const instanceId = plugin.instanceId ?? plugin.name
+  const stored = snapshot.get(instanceId) ?? {}
+  const resolved = resolvePluginSettings(plugin.settings, stored)
+  return {
+    site,
+    setting<T = unknown>(key: string): T | undefined {
+      if (!isValidPluginKey(key)) return undefined
+      const v = resolved[key]
+      return v === undefined ? undefined : (v as T)
+    },
+  }
+}
+
 function collectFor<D>(
   plugins: readonly AmplessPlugin[],
-  ctx: PluginPublicRenderContext,
+  site: Config['site'],
+  snapshot: PluginSettingsSnapshot,
   surface: (p: AmplessPlugin) => ((c: PluginPublicRenderContext) => readonly D[]) | undefined,
   renderOne: Renderer<D>
 ): ReactNode {
@@ -321,6 +355,7 @@ function collectFor<D>(
   for (const plugin of plugins) {
     const factory = surface(plugin)
     if (!factory) continue
+    const ctx = makeCtx(plugin, site, snapshot)
     let descriptors: readonly D[]
     try {
       // The factory is a method on the plugin object; rebind via
@@ -354,19 +389,45 @@ function collectFor<D>(
  * pass logs a single dev warning when two plugins share an
  * `instanceId ?? name`; everything else happens at render time so
  * descriptors reflect per-request site config.
+ *
+ * `pluginSettings` (Phase 2) is the runtime accessor that pulls
+ * admin-managed `settings.public` values from the S3 site-settings
+ * cache. Within a single request we fetch once via `loadAll()` and
+ * bind a per-plugin `ctx.setting(key)` accessor before invoking
+ * either `publicHead` or `publicBodyEnd`.
  */
-export function createPluginHead(cmsConfig: Config): PluginHeadApi {
+export function createPluginHead(
+  cmsConfig: Config,
+  pluginSettings: PluginSettingsApi
+): PluginHeadApi {
   const plugins = (cmsConfig.plugins ?? []).filter(isPlugin)
 
   // Constructor-time integrity checks. Cheaper here than per render,
   // and the warning lines plugin authors care about appear once at
   // startup instead of buried in render output.
+  //
+  // Plugin instances with an invalid `instanceId` are dropped from
+  // the registered list, not skipped only per-render — the SK pattern
+  // `plugins.<instanceId>.<key>` can't survive a dotted/slash/scope
+  // id, so silently ignoring at every render would mask the misuse.
+  const validPlugins: AmplessPlugin[] = []
   const seenNamespaces = new Set<string>()
   for (const plugin of plugins) {
     const ns = plugin.instanceId ?? plugin.name
     const label = plugin.instanceId
       ? `${plugin.name}#${plugin.instanceId}`
       : plugin.name
+
+    // Reject invalid namespace at the runtime boundary. The instance
+    // wouldn't be addressable by admin / processor anyway — better
+    // surface the misconfiguration than render something that can't
+    // be edited.
+    if (!isValidPluginKey(ns)) {
+      warn(
+        `${label}: plugin namespace "${ns}" violates ${`/^[a-zA-Z0-9_-]+$/`}. Use a simple identifier (letters / digits / "-" / "_"). Skipping plugin.`
+      )
+      continue
+    }
 
     // Duplicate namespaces — distinct plugin instances should declare
     // distinct `instanceId`s.
@@ -376,6 +437,23 @@ export function createPluginHead(cmsConfig: Config): PluginHeadApi {
       )
     }
     seenNamespaces.add(ns)
+
+    // Validate settings field keys (Phase 2). Invalid field keys
+    // can't round-trip through DDB SK / S3 cache, so we drop them
+    // here with a warning rather than letting admin save them and
+    // wonder why nothing took effect. The field stays in the
+    // manifest at the type level — but the runtime treats it as
+    // missing.
+    if (plugin.settings?.public) {
+      for (const field of plugin.settings.public) {
+        if (!isValidPluginKey(field.key)) {
+          warn(
+            `${label}: settings.public field key "${field.key}" violates ${`/^[a-zA-Z0-9_-]+$/`}. The field will not be readable through ctx.setting(). Rename the field key.`
+          )
+        }
+      }
+    }
+    validPlugins.push(plugin)
 
     // Capability vs implementation mismatch. We only check the head/
     // body surfaces this module is actually responsible for; other
@@ -407,18 +485,22 @@ export function createPluginHead(cmsConfig: Config): PluginHeadApi {
   }
 
   return {
-    renderHead() {
+    async renderHead(): Promise<ReactNode> {
+      const snapshot = await pluginSettings.loadAll()
       return collectFor<PublicHeadDescriptor>(
-        plugins,
-        { site: cmsConfig.site },
+        validPlugins,
+        cmsConfig.site,
+        snapshot,
         (p) => p.publicHead,
         renderHeadDescriptor
       )
     },
-    renderBodyEnd() {
+    async renderBodyEnd(): Promise<ReactNode> {
+      const snapshot = await pluginSettings.loadAll()
       return collectFor<PublicBodyDescriptor>(
-        plugins,
-        { site: cmsConfig.site },
+        validPlugins,
+        cmsConfig.site,
+        snapshot,
         (p) => p.publicBodyEnd,
         renderBodyDescriptor
       )

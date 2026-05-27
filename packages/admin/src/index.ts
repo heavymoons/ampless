@@ -85,6 +85,18 @@ export interface Admin {
    */
   readStoredActiveThemeFresh(): Promise<string | null>
 
+  /**
+   * Phase 2 admin-managed plugin settings reader. Returns the
+   * currently-stored field map for one plugin instance (keyed by
+   * field `key`, not the full SK). The `/admin/plugins` page
+   * factory uses this to pre-fill its form. Resolves through the
+   * `ampless` opt so it works in server components — reads the same
+   * public S3 cache (`public/site-settings.json`) the public runtime
+   * uses, rather than going through the admin's client-only KvStore
+   * provider.
+   */
+  loadPluginPublicSettings(instanceId: string): Promise<Record<string, unknown>>
+
   // media
   publicMediaUrl(input: string): string
   /**
@@ -168,6 +180,15 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     loadThemeConfig: async () => (await resolveAmpless()).loadThemeConfig(),
     readStoredActiveThemeFresh: async () =>
       (await resolveAmpless()).readStoredActiveThemeFresh(),
+
+    // Server-safe path: load through ampless.pluginSettings (S3 cache
+    // via guest-readable site-settings.json), not through the
+    // client-only KvStore provider. Server Components call this from
+    // `createPluginsPage` to pre-fill the form.
+    loadPluginPublicSettings: async (instanceId: string) => {
+      const snapshot = await (await resolveAmpless()).pluginSettings.loadAll()
+      return snapshot.get(instanceId) ?? {}
+    },
 
     publicMediaUrl: media.publicMediaUrl,
     getMediaBySrc: async (src) => (await resolveAmpless()).getMediaBySrc(src),

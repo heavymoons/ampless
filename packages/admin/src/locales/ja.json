@@ -33,6 +33,7 @@
     "posts": "記事",
     "media": "メディア",
     "sites": "サイト",
+    "plugins": "プラグイン",
     "users": "ユーザー",
     "mcpTokens": "MCP トークン",
     "viewSite": "サイトを表示",
@@ -279,6 +280,18 @@
       "passwordTooShort": "パスワードは8文字以上必要です。",
       "userExists": "このメールアドレスのアカウントは既に存在します。"
     }
+  },
+  "plugins": {
+    "title": "プラグイン設定",
+    "description": "インストール済みプラグインの管理値を編集します。約10秒以内に公開サイトに反映されます(S3キャッシュ再生成)。",
+    "noConfigurablePlugins": "設定可能なプラグインはありません。",
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "保存しました。約10秒以内に公開サイトに反映されます。",
+    "saveError": "保存に失敗しました",
+    "invalidValue": "不正な値が含まれています — ハイライトされた項目を修正してください。",
+    "resetToDefault": "デフォルトに戻す",
+    "resetDone": "保存値をクリアしました。マニフェストのデフォルト値が使用されます。"
   },
   "mcpTokens": {
     "title": "MCP トークン",

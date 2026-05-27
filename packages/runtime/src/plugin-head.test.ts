@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { isValidElement, Fragment, type ReactElement } from 'react'
 import { definePlugin, type Config, type PublicHeadDescriptor } from 'ampless'
 import { createPluginHead } from './plugin-head.js'
+import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+
+// Stub `PluginSettingsApi` so tests run without S3 — every call
+// returns the snapshot we hand in. `emptySettings` covers the
+// majority of cases that don't exercise settings at all.
+function makeSettings(snapshot: PluginSettingsSnapshot = new Map()): PluginSettingsApi {
+  return {
+    async loadAll() {
+      return snapshot
+    },
+  }
+}
+const emptySettings = makeSettings()
 
 const site: Config['site'] = {
   name: 'Test',
@@ -34,13 +47,13 @@ describe('createPluginHead', () => {
     warnSpy.mockRestore()
   })
 
-  it('returns null when no plugins are registered', () => {
-    const head = createPluginHead(makeConfig([]))
-    expect(head.renderHead()).toBeNull()
-    expect(head.renderBodyEnd()).toBeNull()
+  it('returns null when no plugins are registered', async () => {
+    const head = createPluginHead(makeConfig([]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
   })
 
-  it('renders both a script and an inline script for a single plugin', () => {
+  it('renders both a script and an inline script for a single plugin', async () => {
     const plugin = definePlugin({
       name: 'demo',
       apiVersion: 1,
@@ -62,8 +75,8 @@ describe('createPluginHead', () => {
         ] satisfies PublicHeadDescriptor[]
       },
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    const els = childrenOf(head.renderHead())
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
     expect(els).toHaveLength(2)
     expect(els[0]!.type).toBe('script')
     expect(els[0]!.props).toMatchObject({
@@ -78,7 +91,7 @@ describe('createPluginHead', () => {
     })
   })
 
-  it('drops a script descriptor with a javascript: scheme and warns', () => {
+  it('drops a script descriptor with a javascript: scheme and warns', async () => {
     const plugin = definePlugin({
       name: 'evil',
       apiVersion: 1,
@@ -94,8 +107,8 @@ describe('createPluginHead', () => {
         ] satisfies PublicHeadDescriptor[]
       },
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    const els = childrenOf(head.renderHead())
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
     expect(els).toHaveLength(1)
     expect(els[0]!.props).toMatchObject({ src: 'https://cdn.example.com/ok.js' })
     expect(warnSpy).toHaveBeenCalled()
@@ -103,7 +116,7 @@ describe('createPluginHead', () => {
     expect(messages.some((m: string) => m.includes('unsafe src "javascript:alert(1)"'))).toBe(true)
   })
 
-  it('drops an inlineScript missing its id and warns', () => {
+  it('drops an inlineScript missing its id and warns', async () => {
     const plugin = definePlugin({
       name: 'no-id',
       apiVersion: 1,
@@ -116,13 +129,13 @@ describe('createPluginHead', () => {
         ]
       },
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    expect(head.renderHead()).toBeNull()
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(messages.some((m: string) => m.includes('missing required "id"'))).toBe(true)
   })
 
-  it('keeps the last descriptor when two share the same id and warns', () => {
+  it('keeps the last descriptor when two share the same id and warns', async () => {
     const plugin = definePlugin({
       name: 'dupe',
       apiVersion: 1,
@@ -142,8 +155,8 @@ describe('createPluginHead', () => {
         ] satisfies PublicHeadDescriptor[]
       },
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    const els = childrenOf(head.renderHead())
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
     expect(els).toHaveLength(1)
     expect((els[0]!.props as { dangerouslySetInnerHTML: { __html: string } }).dangerouslySetInnerHTML.__html).toBe(
       '/* second */'
@@ -152,7 +165,7 @@ describe('createPluginHead', () => {
     expect(messages.some((m: string) => m.includes('duplicate descriptor id "shared"'))).toBe(true)
   })
 
-  it('preserves cms.config.plugins order across multiple plugins', () => {
+  it('preserves cms.config.plugins order across multiple plugins', async () => {
     const a = definePlugin({
       name: 'a',
       apiVersion: 1,
@@ -169,8 +182,8 @@ describe('createPluginHead', () => {
         { type: 'meta', name: 'plugin', content: 'b' },
       ] satisfies PublicHeadDescriptor[],
     })
-    const head = createPluginHead(makeConfig([a, b]))
-    const els = childrenOf(head.renderHead())
+    const head = createPluginHead(makeConfig([a, b]), emptySettings)
+    const els = childrenOf(await head.renderHead())
     expect(els).toHaveLength(2)
     expect(els[0]!.props).toMatchObject({ content: 'a' })
     expect(els[1]!.props).toMatchObject({ content: 'b' })
@@ -189,7 +202,7 @@ describe('createPluginHead', () => {
       trust_level: 'untrusted',
       instanceId: 'shared',
     })
-    createPluginHead(makeConfig([p1, p2]))
+    createPluginHead(makeConfig([p1, p2]), emptySettings)
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(messages.some((m: string) => m.includes('duplicate plugin namespace "shared"'))).toBe(true)
   })
@@ -202,7 +215,7 @@ describe('createPluginHead', () => {
       capabilities: ['publicHead'],
       // intentionally no publicHead
     })
-    createPluginHead(makeConfig([plugin]))
+    createPluginHead(makeConfig([plugin]), emptySettings)
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(
       messages.some((m: string) => m.includes('declares capability "publicHead" but no `publicHead` implementation'))
@@ -219,7 +232,7 @@ describe('createPluginHead', () => {
         { type: 'meta', name: 'x', content: 'y' },
       ] satisfies PublicHeadDescriptor[],
     })
-    createPluginHead(makeConfig([plugin]))
+    createPluginHead(makeConfig([plugin]), emptySettings)
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(
       messages.some((m: string) => m.includes('implements `publicHead` but "publicHead" is not in declared capabilities'))
@@ -235,14 +248,14 @@ describe('createPluginHead', () => {
         { type: 'meta', name: 'x', content: 'y' },
       ] satisfies PublicHeadDescriptor[],
     })
-    createPluginHead(makeConfig([plugin]))
+    createPluginHead(makeConfig([plugin]), emptySettings)
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(
       messages.some((m: string) => m.includes('not in declared capabilities'))
     ).toBe(false)
   })
 
-  it('drops `nonce` from attrs (Phase 1 scopes nonce out, CSP RFP owns it)', () => {
+  it('drops `nonce` from attrs (Phase 1 scopes nonce out, CSP RFP owns it)', async () => {
     const plugin = definePlugin({
       name: 'noncey',
       apiVersion: 1,
@@ -257,8 +270,8 @@ describe('createPluginHead', () => {
         },
       ] satisfies PublicHeadDescriptor[],
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    const els = childrenOf(head.renderHead())
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
     expect(els).toHaveLength(1)
     expect(els[0]!.props).toMatchObject({ crossorigin: 'anonymous' })
     expect(els[0]!.props).not.toHaveProperty('nonce')
@@ -266,7 +279,7 @@ describe('createPluginHead', () => {
     expect(messages.some((m: string) => m.includes('attr "nonce" not in allowlist'))).toBe(true)
   })
 
-  it('renders body-end iframe descriptors with allow-listed attrs', () => {
+  it('renders body-end iframe descriptors with allow-listed attrs', async () => {
     const plugin = definePlugin({
       name: 'gtm',
       apiVersion: 1,
@@ -283,8 +296,8 @@ describe('createPluginHead', () => {
         },
       ],
     })
-    const head = createPluginHead(makeConfig([plugin]))
-    const els = childrenOf(head.renderBodyEnd())
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderBodyEnd())
     expect(els).toHaveLength(1)
     expect(els[0]!.type).toBe('iframe')
     expect(els[0]!.props).toMatchObject({
@@ -292,5 +305,174 @@ describe('createPluginHead', () => {
       sandbox: 'allow-scripts',
       'data-tracking': 'gtm',
     })
+  })
+
+  it('ctx.setting() falls back to manifest default when snapshot is empty', async () => {
+    const plugin = definePlugin({
+      name: 'ga4',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      settings: {
+        public: [
+          {
+            type: 'text',
+            key: 'measurementId',
+            label: 'mid',
+            pattern: '^$|^G-[A-Z0-9]+$',
+            default: 'G-DEFAULT',
+          },
+        ],
+      },
+      publicHead(ctx) {
+        const id = ctx.setting<string>('measurementId') ?? ''
+        return id
+          ? [
+              {
+                type: 'meta',
+                name: 'ga4-id',
+                content: id,
+              },
+            ]
+          : []
+      },
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.props).toMatchObject({ content: 'G-DEFAULT' })
+  })
+
+  it('ctx.setting() reads stored snapshot value over the default', async () => {
+    const plugin = definePlugin({
+      name: 'ga4',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      settings: {
+        public: [
+          {
+            type: 'text',
+            key: 'measurementId',
+            label: 'mid',
+            pattern: '^$|^G-[A-Z0-9]+$',
+            default: 'G-DEFAULT',
+          },
+        ],
+      },
+      publicHead(ctx) {
+        const id = ctx.setting<string>('measurementId') ?? ''
+        return [{ type: 'meta', name: 'ga4-id', content: id }]
+      },
+    })
+    const snapshot: PluginSettingsSnapshot = new Map([
+      ['ga4', { measurementId: 'G-OVERRIDE' }],
+    ])
+    const head = createPluginHead(makeConfig([plugin]), makeSettings(snapshot))
+    const els = childrenOf(await head.renderHead())
+    expect(els[0]!.props).toMatchObject({ content: 'G-OVERRIDE' })
+  })
+
+  it('ctx.setting() returns empty string from stored snapshot (disable semantic)', async () => {
+    // Critical: storing '' must NOT fall back to constructor default
+    // — admin uses this to disable a plugin without rewriting
+    // cms.config.ts. Mirrors the GA4 dogfood scenario in the spec.
+    const plugin = definePlugin({
+      name: 'ga4',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      settings: {
+        public: [
+          {
+            type: 'text',
+            key: 'measurementId',
+            label: 'mid',
+            pattern: '^$|^G-[A-Z0-9]+$',
+            default: 'G-DEFAULT',
+          },
+        ],
+      },
+      publicHead(ctx) {
+        const id = ctx.setting<string>('measurementId') ?? ''
+        if (!id) return []
+        return [{ type: 'meta', name: 'ga4-id', content: id }]
+      },
+    })
+    const snapshot: PluginSettingsSnapshot = new Map([
+      ['ga4', { measurementId: '' }],
+    ])
+    const head = createPluginHead(makeConfig([plugin]), makeSettings(snapshot))
+    expect(await head.renderHead()).toBeNull()
+  })
+
+  it('drops plugins with invalid instanceId and warns', () => {
+    const plugin = definePlugin({
+      name: 'analytics',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      instanceId: 'foo.bar',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        { type: 'meta', name: 'x', content: 'y' },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('plugin namespace "foo.bar"'))
+    ).toBe(true)
+  })
+
+  it('warns when settings.public field key violates pattern', () => {
+    const plugin = definePlugin({
+      name: 'demo',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      settings: {
+        public: [
+          {
+            type: 'text',
+            key: 'bad.key',
+            label: 'b',
+            default: 'v',
+          },
+        ],
+      },
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('settings.public field key "bad.key"'))
+    ).toBe(true)
+  })
+
+  it('passes the same ctx.setting bindings to both publicHead and publicBodyEnd', async () => {
+    const seen: string[] = []
+    const plugin = definePlugin({
+      name: 'both',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody'],
+      settings: {
+        public: [
+          { type: 'text', key: 'k', label: 'k', default: 'D' },
+        ],
+      },
+      publicHead(ctx) {
+        seen.push(`head:${ctx.setting<string>('k')}`)
+        return []
+      },
+      publicBodyEnd(ctx) {
+        seen.push(`body:${ctx.setting<string>('k')}`)
+        return []
+      },
+    })
+    const snapshot: PluginSettingsSnapshot = new Map([['both', { k: 'V' }]])
+    const head = createPluginHead(makeConfig([plugin]), makeSettings(snapshot))
+    await head.renderHead()
+    await head.renderBodyEnd()
+    expect(seen).toEqual(['head:V', 'body:V'])
   })
 })

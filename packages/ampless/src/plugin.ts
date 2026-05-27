@@ -59,13 +59,27 @@ export type ScriptStrategy = 'afterInteractive' | 'lazyOnload'
 
 /**
  * Context passed to `publicHead` / `publicBodyEnd`. Phase 1 carries
- * only the site-wide config block; per-route and per-post context lands
- * in Phase 4 (`plugin-per-post-rfp.md`). Plugin settings are read from
- * the factory closure today — Phase 2 (`plugin-settings-rfp.md`) adds
- * an admin-managed accessor here.
+ * only the site-wide config block. Phase 2 adds the `setting()`
+ * accessor for admin-managed `settings.public` values; per-route /
+ * per-post context lands in Phase 4 (`plugin-per-post-rfp.md`).
  */
 export interface PluginPublicRenderContext {
   site: Config['site']
+  /**
+   * Resolve a public setting value for the active plugin instance.
+   * Returns `stored ?? manifest.default ?? undefined`. Stored values
+   * are read at request time from the DDB → S3 site-settings cache
+   * pipeline. Bound by the runtime when the plugin declares
+   * `settings.public` — plugins without a manifest can still call
+   * this, in which case it always returns `undefined`.
+   *
+   * The generic type is a convenience cast: the runtime does not
+   * coerce values, so callers should pick `T` to match the field's
+   * declared type (`text` → `string`, `number` → `number`, etc.).
+   * Validation at admin save time guarantees stored values match the
+   * field's declared shape, so the cast is safe in practice.
+   */
+  setting<T = unknown>(key: string): T | undefined
 }
 
 /**
@@ -228,6 +242,121 @@ export interface OgImageConfig {
   render(ctx: OgImageRenderContext): Promise<unknown> | unknown
 }
 
+// --- Settings manifest (Phase 2) ----------------------------------
+//
+// `AmplessPlugin.settings.public` declares the admin-editable fields
+// a plugin instance exposes. Values are stored under
+//   pk = 'siteconfig', sk = `plugins.<instanceId>.<key>`
+// and surfaced to `publicHead` / `publicBodyEnd` via
+// `ctx.setting<T>(key)`. See docs/architecture/08-plugin-architecture.md
+// "Plugin State Storage" and packages/ampless/src/plugin-settings.ts
+// for the validation / resolution helpers.
+
+/**
+ * Shared shape for every `PluginSettingField` variant. `T` is the
+ * decoded value type (string for text-like fields, number for number,
+ * boolean for boolean, etc.). All variants share `key` / `label` /
+ * `default` / `required`; type-specific constraints (e.g. `pattern`,
+ * `min`, `options`) live on the discriminated branches.
+ */
+interface PluginFieldBase<T> {
+  /**
+   * Storage key. Stored as `plugins.<instanceId>.<key>`. Must match
+   * `PLUGIN_KEY_PATTERN` (`/^[a-zA-Z0-9_-]+$/`) so the `pk.sk` dotted
+   * separator survives. Violations are skipped + warned by the
+   * runtime/admin normalization pass.
+   */
+  key: string
+  label: LocalizedString
+  description?: LocalizedString
+  /** Used by the runtime when no admin-stored value is present. */
+  default?: T
+  /**
+   * When true, an empty / undefined value is rejected at save time
+   * and the resolver returns `undefined`. When false (default),
+   * string-like fields accept empty string as a valid "disabled"
+   * value while non-string fields still reject empty strings.
+   */
+  required?: boolean
+  /** Optional UI grouping (mirrors `ThemeField.group`). */
+  group?: LocalizedString
+}
+
+export interface PluginTextField extends PluginFieldBase<string> {
+  type: 'text'
+  maxLength?: number
+  /** RegExp source (e.g. `'^G-[A-Z0-9]+$'`). Validated against
+   *  non-empty values; empty string skips the check. */
+  pattern?: string
+  /** Placeholder for the admin input. */
+  placeholder?: string
+}
+
+export interface PluginTextareaField extends PluginFieldBase<string> {
+  type: 'textarea'
+  maxLength?: number
+  placeholder?: string
+  /** Rendered rows hint for the admin textarea. */
+  rows?: number
+}
+
+export interface PluginBooleanField extends PluginFieldBase<boolean> {
+  type: 'boolean'
+}
+
+export interface PluginNumberField extends PluginFieldBase<number> {
+  type: 'number'
+  min?: number
+  max?: number
+  step?: number
+}
+
+export interface PluginSelectField extends PluginFieldBase<string> {
+  type: 'select'
+  options: ReadonlyArray<{ value: string; label: LocalizedString }>
+}
+
+export interface PluginUrlField extends PluginFieldBase<string> {
+  type: 'url'
+  placeholder?: string
+  /** When true, relative paths (`/foo`, `./foo`) pass validation; default true. */
+  allowRelative?: boolean
+}
+
+export interface PluginCodeField extends PluginFieldBase<string> {
+  type: 'code'
+  /** Display-only language label (e.g. `'js'`, `'css'`, `'html'`). */
+  language?: string
+  maxLength?: number
+  placeholder?: string
+  rows?: number
+}
+
+export interface PluginJsonField extends PluginFieldBase<unknown> {
+  type: 'json'
+  placeholder?: string
+  rows?: number
+}
+
+export type PluginSettingField =
+  | PluginTextField
+  | PluginTextareaField
+  | PluginBooleanField
+  | PluginNumberField
+  | PluginSelectField
+  | PluginUrlField
+  | PluginCodeField
+  | PluginJsonField
+
+/**
+ * Per-plugin settings declaration. Phase 2 implements `public`;
+ * `secret` is reserved for Phase 6a (admin-only storage; never reaches
+ * the public runtime).
+ */
+export interface PluginSettingsManifest {
+  public?: readonly PluginSettingField[]
+}
+
 export interface AmplessPlugin {
   name: string
   /** Plugin API version. Currently 1; future versions will be additive. */
@@ -255,6 +384,15 @@ export interface AmplessPlugin {
    * continue to work unchanged.
    */
   capabilities?: readonly PluginCapability[]
+  /**
+   * Public, admin-editable settings (Phase 2). Each declared field is
+   * stored under `pk='siteconfig', sk='plugins.<instanceId>.<key>'`,
+   * mirrored to S3 via the trusted processor, and surfaced to
+   * `publicHead` / `publicBodyEnd` via `ctx.setting<T>(key)`. Plugins
+   * without an admin UI continue to work — they just don't have a
+   * `settings` block.
+   */
+  settings?: PluginSettingsManifest
   /** Async event hooks. Run in trust_level-matched Lambda. */
   hooks?: {
     [K in EventType]?: PluginEventHandler<K>
