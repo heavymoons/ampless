@@ -127,6 +127,13 @@ export function PluginSettingsForm({
     }
     return { values, touched: {}, invalid: {} }
   })
+  // Tracks which fields currently have an explicit DDB row. Drives
+  // the "Reset to default" button visibility: shown iff the field has
+  // a stored value. Updated on save (add) / reset (remove) so the UI
+  // matches reality without remounting the form.
+  const [storedKeys, setStoredKeys] = useState<Set<string>>(
+    () => new Set(Object.keys(initialValues))
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
@@ -163,6 +170,12 @@ export function PluginSettingsForm({
         touched: { ...prev.touched, [field.key]: false },
         invalid: { ...prev.invalid, [field.key]: false },
       }))
+      setStoredKeys((prev) => {
+        if (!prev.has(field.key)) return prev
+        const next = new Set(prev)
+        next.delete(field.key)
+        return next
+      })
       setInfo(t('plugins.resetDone'))
       scheduleCacheInvalidation()
     } catch (err) {
@@ -179,6 +192,7 @@ export function PluginSettingsForm({
 
     const newInvalid: Record<string, boolean> = {}
     const writes: Array<Promise<unknown>> = []
+    const writtenKeys: string[] = []
 
     for (const field of fields) {
       if (!state.touched[field.key]) continue
@@ -195,6 +209,7 @@ export function PluginSettingsForm({
       // default goes through the explicit "Reset" button.
       if (parsed === null) continue
       writes.push(setPluginPublicSetting(instanceId, field, parsed))
+      writtenKeys.push(field.key)
     }
 
     if (Object.keys(newInvalid).length > 0) {
@@ -209,6 +224,13 @@ export function PluginSettingsForm({
       setInfo(t('plugins.saved'))
       // Clear touched so the next save round only writes new edits.
       setState((prev) => ({ ...prev, touched: {}, invalid: {} }))
+      if (writtenKeys.length > 0) {
+        setStoredKeys((prev) => {
+          const next = new Set(prev)
+          for (const k of writtenKeys) next.add(k)
+          return next
+        })
+      }
       scheduleCacheInvalidation()
     } catch (err) {
       console.error('[plugin] save failed', err)
@@ -235,10 +257,7 @@ export function PluginSettingsForm({
           invalid={!!state.invalid[field.key]}
           onChange={(v) => update(field.key, v)}
           onReset={() => void reset(field)}
-          hasStoredValue={Object.prototype.hasOwnProperty.call(
-            initialValues,
-            field.key
-          )}
+          hasStoredValue={storedKeys.has(field.key)}
         />
       ))}
 

@@ -29,28 +29,15 @@ export function pluginSettingKey(instanceId: string, fieldKey: string): string {
   return `plugins.${instanceId}.${fieldKey}`
 }
 
-/** Loaded existing values for one plugin instance. Keys are field
- *  `key`s (not the full SK). */
-export async function loadPluginPublicSettings(
-  instanceId: string
-): Promise<Record<string, unknown>> {
-  if (!isValidPluginKey(instanceId)) return {}
-  const store = getKvStore()
-  // KvStore.query walks `pk = siteconfig` rows. We filter client-side
-  // to `plugins.<instanceId>.*` so the API matches `loadSiteSettings`
-  // (which already runs against the same partition and is cached
-  // shape-side by AppSync per-request).
-  const items = await store.query<unknown>(SITE_CONFIG_PK)
-  const prefix = `plugins.${instanceId}.`
-  const out: Record<string, unknown> = {}
-  for (const item of items) {
-    if (!item.sk.startsWith(prefix)) continue
-    const fieldKey = item.sk.slice(prefix.length)
-    if (!fieldKey || fieldKey.includes('.')) continue
-    out[fieldKey] = item.value
-  }
-  return out
-}
+// NOTE: a previous version of this file exported a client-side
+// `loadPluginPublicSettings()` that queried KvStore directly. Server
+// Components can't call it (no admin KvStore provider on the server,
+// and the file is `'use client'`), so `Admin.loadPluginPublicSettings`
+// in `../index.ts` now goes through `ampless.pluginSettings.loadAll()`
+// (S3 cache, server-safe). If a future client flow needs to re-read
+// after save, add a thin client wrapper here — but the form currently
+// keeps its own in-state copy of the user's edits, so no re-read is
+// required.
 
 /**
  * Save (insert / update) one public setting. Validates the raw input

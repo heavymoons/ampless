@@ -30,7 +30,6 @@ import {
 import { createMedia } from './lib/media.js'
 import { createAmplifyServer, type AmplifyServer } from './lib/amplify-server.js'
 import { createAuthServer, type ServerSession } from './lib/auth-server.js'
-import { loadPluginPublicSettings } from './lib/plugin-settings.js'
 
 export { getDictionary, translate, resolveLocale } from './lib/i18n.js'
 export type { AdminLocaleStrings, Locale, Dictionary } from './lib/i18n.js'
@@ -179,7 +178,14 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     readStoredActiveThemeFresh: async () =>
       (await resolveAmpless()).readStoredActiveThemeFresh(),
 
-    loadPluginPublicSettings,
+    // Server-safe path: load through ampless.pluginSettings (S3 cache
+    // via guest-readable site-settings.json), not through the
+    // client-only KvStore provider. Server Components call this from
+    // `createPluginsPage` to pre-fill the form.
+    loadPluginPublicSettings: async (instanceId: string) => {
+      const snapshot = await (await resolveAmpless()).pluginSettings.loadAll()
+      return snapshot.get(instanceId) ?? {}
+    },
 
     publicMediaUrl: media.publicMediaUrl,
     getMediaBySrc: async (src) => (await resolveAmpless()).getMediaBySrc(src),

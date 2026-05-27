@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setKvStore, type KvStore, type KvItem } from 'ampless'
 import type { PluginSettingField } from 'ampless'
 import {
-  loadPluginPublicSettings,
   setPluginPublicSetting,
   deletePluginPublicSetting,
   pluginSettingKey,
@@ -118,21 +117,9 @@ describe('deletePluginPublicSetting', () => {
   })
 })
 
-describe('loadPluginPublicSettings', () => {
-  it('returns rows scoped to one instance, keyed by field key', async () => {
-    await kv.store.put('siteconfig', 'plugins.ga4.measurementId', 'G-AAA')
-    await kv.store.put('siteconfig', 'plugins.ga4.enabled', true)
-    await kv.store.put('siteconfig', 'plugins.webhook.endpoint', 'https://x')
-    await kv.store.put('siteconfig', 'site.name', 'My Blog')
-    const result = await loadPluginPublicSettings('ga4')
-    expect(result).toEqual({ measurementId: 'G-AAA', enabled: true })
-  })
-
-  it('returns empty object for an unknown instance', async () => {
-    expect(await loadPluginPublicSettings('nobody')).toEqual({})
-  })
-
-  it('returns empty object for an invalid instanceId (no DDB query)', async () => {
-    expect(await loadPluginPublicSettings('bad.id')).toEqual({})
-  })
-})
+// `loadPluginPublicSettings` was removed from this client-side module.
+// Server Components call `Admin.loadPluginPublicSettings(instanceId)`
+// which goes through `ampless.pluginSettings.loadAll()` (S3 cache).
+// The settings-snapshot grouping logic lives in
+// `packages/runtime/src/plugin-settings.ts` and is covered by
+// `packages/runtime/src/plugin-settings.test.ts`.
