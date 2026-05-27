@@ -119,11 +119,24 @@ export function PluginSettingsForm({
   const t = useT()
   const locale = useLocale()
 
+  // Display value priority: stored DDB value → manifest.default →
+  // empty string. Showing the default in the input box (when no
+  // stored row exists) makes it obvious what the public runtime is
+  // currently using, and surfaces e.g. GA4's "empty = disable"
+  // semantics — the user can see the `G-...` ID their constructor
+  // injected and intentionally blank it. The default value remains
+  // a *display* default only: `storedKeys` stays empty, so Reset is
+  // hidden and a touched-then-saved field is what triggers a write.
+  function defaultDisplay(field: PluginSettingField): string {
+    return field.default !== undefined ? stringify(field, field.default) : ''
+  }
   const [state, setState] = useState<FormState>(() => {
     const values: Record<string, string> = {}
     for (const field of fields) {
       const has = Object.prototype.hasOwnProperty.call(initialValues, field.key)
-      values[field.key] = has ? stringify(field, initialValues[field.key]) : ''
+      values[field.key] = has
+        ? stringify(field, initialValues[field.key])
+        : defaultDisplay(field)
     }
     return { values, touched: {}, invalid: {} }
   })
@@ -162,11 +175,11 @@ export function PluginSettingsForm({
     setInfo(null)
     try {
       await deletePluginPublicSetting(instanceId, field)
-      // Clear the in-form value back to empty so the placeholder /
-      // default takes over visually. Also clear `touched` for this
-      // field so the next save() doesn't re-write it.
+      // Restore the manifest default in the input so the user sees
+      // what the public runtime is now using. Clear `touched` for
+      // this field so the next save() doesn't re-write it.
       setState((prev) => ({
-        values: { ...prev.values, [field.key]: '' },
+        values: { ...prev.values, [field.key]: defaultDisplay(field) },
         touched: { ...prev.touched, [field.key]: false },
         invalid: { ...prev.invalid, [field.key]: false },
       }))

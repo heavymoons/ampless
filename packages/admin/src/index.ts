@@ -89,8 +89,11 @@ export interface Admin {
    * Phase 2 admin-managed plugin settings reader. Returns the
    * currently-stored field map for one plugin instance (keyed by
    * field `key`, not the full SK). The `/admin/plugins` page
-   * factory uses this to pre-fill its form. Independent of the
-   * runtime — does not require the `ampless` opt.
+   * factory uses this to pre-fill its form. Resolves through the
+   * `ampless` opt so it works in server components — reads the same
+   * public S3 cache (`public/site-settings.json`) the public runtime
+   * uses, rather than going through the admin's client-only KvStore
+   * provider.
    */
   loadPluginPublicSettings(instanceId: string): Promise<Record<string, unknown>>
 
