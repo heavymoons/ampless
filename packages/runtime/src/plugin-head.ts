@@ -60,7 +60,12 @@ const ALLOWED_ATTRS = new Set([
   'referrerpolicy',
   'integrity',
   'fetchpriority',
-  'nonce', // accepted today; full propagation happens with the CSP nonce RFP
+  // `nonce` is intentionally NOT in the allowlist for Phase 1. CSP
+  // nonce propagation is scoped out of Phase 1 (see spec §7); attrs
+  // shouldn't let plugins smuggle nonces past the design decision.
+  // The CSP nonce RFP will reintroduce it through `cspNonce` on
+  // PluginPublicRenderContext + `inlineScript.nonce: 'auto'`, not via
+  // the `attrs` bag.
   'loading', // iframe lazy-loading
   'sandbox', // iframe sandbox attribute
   'allow', // iframe permissions policy
@@ -116,7 +121,7 @@ function applyAttrs(
   for (const [k, v] of Object.entries(attrs)) {
     if (!isAllowedAttr(k)) {
       warn(
-        `${ownerLabel}: attr "${k}" not in allowlist (data-* / crossorigin / referrerpolicy / integrity / fetchpriority / nonce / loading / sandbox / allow / allowfullscreen). skipping.`
+        `${ownerLabel}: attr "${k}" not in allowlist (data-* / crossorigin / referrerpolicy / integrity / fetchpriority / loading / sandbox / allow / allowfullscreen). skipping.`
       )
       continue
     }
@@ -353,18 +358,52 @@ function collectFor<D>(
 export function createPluginHead(cmsConfig: Config): PluginHeadApi {
   const plugins = (cmsConfig.plugins ?? []).filter(isPlugin)
 
-  // Detect duplicate plugin namespaces once at construction. Doing
-  // this per-render would either be wasteful or require remembering
-  // state.
+  // Constructor-time integrity checks. Cheaper here than per render,
+  // and the warning lines plugin authors care about appear once at
+  // startup instead of buried in render output.
   const seenNamespaces = new Set<string>()
   for (const plugin of plugins) {
     const ns = plugin.instanceId ?? plugin.name
+    const label = plugin.instanceId
+      ? `${plugin.name}#${plugin.instanceId}`
+      : plugin.name
+
+    // Duplicate namespaces — distinct plugin instances should declare
+    // distinct `instanceId`s.
     if (seenNamespaces.has(ns)) {
       warn(
         `duplicate plugin namespace "${ns}" detected in cms.config.plugins. Set distinct \`instanceId\` on each instance to disambiguate.`
       )
     }
     seenNamespaces.add(ns)
+
+    // Capability vs implementation mismatch. We only check the head/
+    // body surfaces this module is actually responsible for; other
+    // capabilities (`metadata`, `eventHooks`, etc.) live elsewhere
+    // and own their own consistency checks.
+    const caps = plugin.capabilities
+    if (caps) {
+      if (caps.includes('publicHead') && !plugin.publicHead) {
+        warn(
+          `${label}: declares capability "publicHead" but no \`publicHead\` implementation. Drop the capability or add the function.`
+        )
+      }
+      if (caps.includes('publicBody') && !plugin.publicBodyEnd) {
+        warn(
+          `${label}: declares capability "publicBody" but no \`publicBodyEnd\` implementation. Drop the capability or add the function.`
+        )
+      }
+      if (plugin.publicHead && !caps.includes('publicHead')) {
+        warn(
+          `${label}: implements \`publicHead\` but "publicHead" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
+        )
+      }
+      if (plugin.publicBodyEnd && !caps.includes('publicBody')) {
+        warn(
+          `${label}: implements \`publicBodyEnd\` but "publicBody" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
+        )
+      }
+    }
   }
 
   return {

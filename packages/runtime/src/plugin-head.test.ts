@@ -194,6 +194,78 @@ describe('createPluginHead', () => {
     expect(messages.some((m: string) => m.includes('duplicate plugin namespace "shared"'))).toBe(true)
   })
 
+  it('warns when capabilities declare publicHead but no implementation exists', () => {
+    const plugin = definePlugin({
+      name: 'liar',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      // intentionally no publicHead
+    })
+    createPluginHead(makeConfig([plugin]))
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('declares capability "publicHead" but no `publicHead` implementation'))
+    ).toBe(true)
+  })
+
+  it('warns when publicHead is implemented but the capability is not declared', () => {
+    const plugin = definePlugin({
+      name: 'quiet',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['metadata'], // declares something else
+      publicHead: () => [
+        { type: 'meta', name: 'x', content: 'y' },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    createPluginHead(makeConfig([plugin]))
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('implements `publicHead` but "publicHead" is not in declared capabilities'))
+    ).toBe(true)
+  })
+
+  it('does not warn about capabilities when none are declared (legacy plugins)', () => {
+    const plugin = definePlugin({
+      name: 'legacy',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      publicHead: () => [
+        { type: 'meta', name: 'x', content: 'y' },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    createPluginHead(makeConfig([plugin]))
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('not in declared capabilities'))
+    ).toBe(false)
+  })
+
+  it('drops `nonce` from attrs (Phase 1 scopes nonce out, CSP RFP owns it)', () => {
+    const plugin = definePlugin({
+      name: 'noncey',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'script',
+          id: 'with-nonce',
+          src: 'https://cdn.example.com/x.js',
+          attrs: { nonce: 'abc123', crossorigin: 'anonymous' },
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]))
+    const els = childrenOf(head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.props).toMatchObject({ crossorigin: 'anonymous' })
+    expect(els[0]!.props).not.toHaveProperty('nonce')
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('attr "nonce" not in allowlist'))).toBe(true)
+  })
+
   it('renders body-end iframe descriptors with allow-listed attrs', () => {
     const plugin = definePlugin({
       name: 'gtm',

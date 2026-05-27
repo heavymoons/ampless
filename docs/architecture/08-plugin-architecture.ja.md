@@ -70,7 +70,7 @@ plugins: [
 | `publicHead` | `<head>` への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `metadata` | 既存の `metadata()` / `siteMetadata()` 経路 | `untrusted` 以上 |
-| `eventHooks` | 既存の async event hooks (`hooks`) | `trusted` 以上 |
+| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（既存 `@ampless/plugin-webhook` が untrusted で hooks を使う実装と整合） |
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 

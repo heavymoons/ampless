@@ -70,7 +70,7 @@ Active capabilities (implemented):
 | `publicHead` | `<head>` descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `publicBody` | `<body>`-end descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `metadata` | existing `metadata()` / `siteMetadata()` surfaces | `untrusted` and up |
-| `eventHooks` | existing async event hooks (`hooks`) | `trusted` and up |
+| `eventHooks` | existing async event hooks (`hooks`) | `untrusted` and up (matches the existing `@ampless/plugin-webhook`, which runs in the untrusted Lambda) |
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
