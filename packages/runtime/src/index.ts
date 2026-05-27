@@ -41,6 +41,11 @@ import {
 import { createSeo, type SeoApi } from './seo.js'
 import { createPluginHead, type PluginHeadApi } from './plugin-head.js'
 import {
+  createPluginSettings,
+  type PluginSettingsApi,
+  type PluginSettingsSnapshot,
+} from './plugin-settings.js'
+import {
   createThemeActive,
   type ThemeActiveApi,
   type ThemesRegistry,
@@ -79,6 +84,8 @@ export type {
 export type { SeoApi } from './seo.js'
 export { createPluginHead } from './plugin-head.js'
 export type { PluginHeadApi } from './plugin-head.js'
+export { createPluginSettings } from './plugin-settings.js'
+export type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 export type {
   ThemeActiveApi,
   ThemesRegistry,
@@ -149,11 +156,16 @@ export interface Ampless {
   postMetadata(post: Post): Promise<Metadata>
   siteMetadata(): Promise<Metadata>
 
-  // descriptor-based plugin head/body injection (Phase 1).
-  // Drop the return values directly inside `<head>` / before
-  // `</body>` in the root layout — see templates/_shared/app/layout.tsx.
-  publicHead(): ReactNode
-  publicBodyEnd(): ReactNode
+  // descriptor-based plugin head/body injection (Phase 1) +
+  // admin-managed `settings.public` accessor (Phase 2). Both methods
+  // are async because they read from the S3 site-settings cache to
+  // resolve `ctx.setting(key)`; Next.js dedupes the underlying fetch
+  // within a single request, so calling both per layout is a single
+  // network round trip. Drop the return values directly inside
+  // `<head>` / before `</body>` in the root layout — see
+  // templates/_shared/app/layout.tsx.
+  publicHead(): Promise<ReactNode>
+  publicBodyEnd(): Promise<ReactNode>
 
   // rendering
   renderBody(post: Post): string
@@ -177,6 +189,7 @@ export interface Ampless {
   readonly themeConfig: ThemeConfigApi
   readonly storageApi: StorageApi
   readonly pluginHead: PluginHeadApi
+  readonly pluginSettings: PluginSettingsApi
 }
 
 /**
@@ -193,7 +206,8 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
   const media = createMediaApi(outputs)
   const settings = createSiteSettings(cmsConfig, storage)
   const seo = createSeo(cmsConfig, settings)
-  const pluginHead = createPluginHead(cmsConfig)
+  const pluginSettings = createPluginSettings(storage)
+  const pluginHead = createPluginHead(cmsConfig, pluginSettings)
   const themeActive = createThemeActive(themes, storage)
   const themeConfig = createThemeConfig(themeActive, storage)
 
@@ -233,6 +247,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     themeConfig,
     storageApi: storage,
     pluginHead,
+    pluginSettings,
   }
 }
 

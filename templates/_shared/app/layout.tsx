@@ -14,7 +14,15 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const h = await headers()
-  const theme = await ampless.loadThemeConfig()
+  // Resolve theme, plugin head + body in parallel. `publicHead` and
+  // `publicBodyEnd` both fetch the S3 site-settings cache to bind
+  // `ctx.setting()`; Next.js fetch dedupe collapses that into a
+  // single round trip when the two run on the same request.
+  const [theme, pluginHead, pluginBodyEnd] = await Promise.all([
+    ampless.loadThemeConfig(),
+    ampless.publicHead(),
+    ampless.publicBodyEnd(),
+  ])
   const themeCss = renderThemeCss(theme.cssVars)
   const locale = admin.locale
   const dict = getDictionary(locale)
@@ -45,12 +53,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             against the static defaults. Validated values only — see
             ampless `validateThemeValue`. */}
         {themeCss && <style dangerouslySetInnerHTML={{ __html: themeCss }} />}
-        {/* Descriptor-based plugin head injection (Phase 1). Each
+        {/* Descriptor-based plugin head injection (Phase 1+2). Each
             active plugin's `publicHead()` runs validation here; the
             output is a `<Fragment>` of `<script>` / `<meta>` / `<link>`
             / `<noscript>` elements. Placed after the theme style so
-            plugin-emitted overrides win on the rare collision. */}
-        {ampless.publicHead()}
+            plugin-emitted overrides win on the rare collision.
+            Awaited via Promise.all above so admin-managed
+            `settings.public` values flow into ctx.setting() before
+            render. */}
+        {pluginHead}
       </head>
       {/* `data-theme` selects which theme's `tokens.css` block matches.
           The active theme is resolved from `theme.active` site setting,
@@ -61,10 +72,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </I18nProvider>
         </Providers>
-        {/* Descriptor-based body-end injection (Phase 1). GTM
+        {/* Descriptor-based body-end injection (Phase 1+2). GTM
             no-script iframe / chat widgets / analytics tail snippets
-            land here. */}
-        {ampless.publicBodyEnd()}
+            land here. Awaited above so the same ctx.setting()
+            snapshot powers both head + body. */}
+        {pluginBodyEnd}
       </body>
     </html>
   )

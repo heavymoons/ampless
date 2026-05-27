@@ -101,6 +101,24 @@ CLI が GitHub repo 作成 (`gh` CLI 認証または `GITHUB_TOKEN` が必要)�
 
 CLI フローの前提条件: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`aws configure`) と [GitHub CLI](https://cli.github.com/) (`gh auth login`) を認証済みにしておくか、`--github-token` を直接渡すこと。詳細は scaffold 後のプロジェクトの `README.ja.md` (「必要なもの」+「本番デプロイ」セクション) に。
 
+## プラグインを書く
+
+自分でプラグインを書きたい場合は、実装ハンドブック
+[`packages/ampless/docs/plugin-author-guide.ja.md`](./packages/ampless/docs/plugin-author-guide.ja.md)
+を参照してください (英語版は `plugin-author-guide.md`)。同じファイルは
+`ampless` の npm tarball に同梱され、scaffold したサイトリポジトリの
+`docs/plugin-author-guide.ja.md` にもコピーされるので、外部の作者は
+このレポを clone せずに読めます。
+
+Phase 1 + Phase 2 のサーフェスを網羅しています — descriptor ベースの
+head / body 注入、`ctx.setting<T>()` 経由の admin 管理
+`settings.public` 値、非同期イベントフック、3 段階の trust level、
+npm 公開。GA4 / RSS / SEO / Webhook の同梱プラグインが参照する動作
+サンプルです。
+
+設計の経緯は [`docs/architecture/08-plugin-architecture.ja.md`](./docs/architecture/08-plugin-architecture.ja.md)
+に集約。作者ガイド側は何をどこに書くかにフォーカスしています。
+
 ## エディタートラストモデル（`editor` 権限を付与する前に必ずお読みください）
 
 ampless は `ampless-editor` を信頼済みプリンシパルとして扱います — WordPress の `unfiltered_html` ケイパビリティと同じ位置づけです。エディターは投稿本文に任意の HTML / JavaScript を格納でき、公開サイトはそれをそのままレンダリングします。詳細な仕様は [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md) を参照してください。要約すると、**`admin` を付与してもよいと思える相手にのみ `editor` を付与してください**。

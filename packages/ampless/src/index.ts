@@ -62,7 +62,23 @@ export type {
   PluginPublicRenderContext,
   PublicHeadDescriptor,
   PublicBodyDescriptor,
+  PluginSettingsManifest,
+  PluginSettingField,
+  PluginTextField,
+  PluginTextareaField,
+  PluginBooleanField,
+  PluginNumberField,
+  PluginSelectField,
+  PluginUrlField,
+  PluginCodeField,
+  PluginJsonField,
 } from './plugin.js'
+export {
+  PLUGIN_KEY_PATTERN,
+  isValidPluginKey,
+  validatePluginSettingValue,
+  resolvePluginSettings,
+} from './plugin-settings.js'
 export { extractFirstImageUrl } from './post-images.js'
 export {
   DEFAULT_ENTRYPOINT,

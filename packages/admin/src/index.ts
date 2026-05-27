@@ -30,6 +30,7 @@ import {
 import { createMedia } from './lib/media.js'
 import { createAmplifyServer, type AmplifyServer } from './lib/amplify-server.js'
 import { createAuthServer, type ServerSession } from './lib/auth-server.js'
+import { loadPluginPublicSettings } from './lib/plugin-settings.js'
 
 export { getDictionary, translate, resolveLocale } from './lib/i18n.js'
 export type { AdminLocaleStrings, Locale, Dictionary } from './lib/i18n.js'
@@ -84,6 +85,15 @@ export interface Admin {
    * S3 rebuild.
    */
   readStoredActiveThemeFresh(): Promise<string | null>
+
+  /**
+   * Phase 2 admin-managed plugin settings reader. Returns the
+   * currently-stored field map for one plugin instance (keyed by
+   * field `key`, not the full SK). The `/admin/plugins` page
+   * factory uses this to pre-fill its form. Independent of the
+   * runtime — does not require the `ampless` opt.
+   */
+  loadPluginPublicSettings(instanceId: string): Promise<Record<string, unknown>>
 
   // media
   publicMediaUrl(input: string): string
@@ -168,6 +178,8 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
     loadThemeConfig: async () => (await resolveAmpless()).loadThemeConfig(),
     readStoredActiveThemeFresh: async () =>
       (await resolveAmpless()).readStoredActiveThemeFresh(),
+
+    loadPluginPublicSettings,
 
     publicMediaUrl: media.publicMediaUrl,
     getMediaBySrc: async (src) => (await resolveAmpless()).getMediaBySrc(src),

@@ -11,6 +11,7 @@ import {
   Globe,
   Users,
   Key,
+  Puzzle,
   LogOut,
   ExternalLink,
   Menu,
@@ -34,6 +35,7 @@ const navItems: readonly NavItem[] = [
   // ampless runs one site per deployment, so this links directly to
   // the single site's settings page instead of a list landing.
   { href: '/admin/sites/default', key: 'sidebar.sites', icon: Globe },
+  { href: '/admin/plugins', key: 'sidebar.plugins', icon: Puzzle },
   { href: '/admin/users', key: 'sidebar.users', icon: Users, adminOnly: true },
   { href: '/admin/mcp-tokens', key: 'sidebar.mcpTokens', icon: Key, adminOnly: true },
 ] as const

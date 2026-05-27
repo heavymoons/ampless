@@ -33,6 +33,7 @@
     "posts": "Posts",
     "media": "Media",
     "sites": "Sites",
+    "plugins": "Plugins",
     "users": "Users",
     "mcpTokens": "MCP tokens",
     "viewSite": "View site",
@@ -279,6 +280,18 @@
       "passwordTooShort": "Password must be at least 8 characters.",
       "userExists": "An account with this email already exists."
     }
+  },
+  "plugins": {
+    "title": "Plugin Settings",
+    "description": "Edit admin-managed values for installed plugins. Changes propagate to the public site within ~10 seconds (S3 cache rebuild).",
+    "noConfigurablePlugins": "No installed plugins expose configurable settings.",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved. Public site refreshes within ~10 seconds.",
+    "saveError": "Save failed",
+    "invalidValue": "One or more values are invalid — fix highlighted fields and try again.",
+    "resetToDefault": "Reset to default",
+    "resetDone": "Stored value cleared. Falling back to the manifest default."
   },
   "mcpTokens": {
     "title": "MCP tokens",
