@@ -1,6 +1,6 @@
 {
   "name": "ampless",
-  "version": "1.0.0-alpha.16",
+  "version": "1.0.0-alpha.17",
   "description": "Serverless CMS for AWS Amplify",
   "license": "MIT",
   "type": "module",
