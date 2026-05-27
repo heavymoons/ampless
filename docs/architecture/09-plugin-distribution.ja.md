@@ -44,6 +44,14 @@ export default defineConfig({
 - `@ampless/plugin-og-image` — リクエスト時に OG 画像を動的描画。untrusted（公開 Next.js プロセス内で描画するので AWS データ権限は不要）。
 - `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。untrusted。
 
+ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。直近は descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加:
+
+- `@ampless/plugin-analytics-ga4` — Google Analytics 4（untrusted、Phase 1）。
+- `@ampless/plugin-gtm` — Google Tag Manager（untrusted、Phase 3）。
+- `@ampless/plugin-plausible`、`@ampless/plugin-cookie-consent` 等 — Phase 3 ドッグフード候補。
+
+既存の `seo` / `rss` は Phase 3 で新 capability + descriptor 面に移行する（[docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md)、未起票）。既存挙動は後方互換のデフォルトとして維持する。
+
 ### ランタイム / マーケットプレイス型インストール
 
 管理 UI からの「バンドルをアップロード → S3 に置く → Lambda 実行時にフェッチして実行」というインストールは**未実装**。「trusted 相当の Lambda にランタイムで任意 JS をロードする」サンドボックス設計が未解決の課題で、共有 trusted Lambda 内でやるのは認められず、プラグイン 1 つに Lambda 1 つを割り当てるなら capability ベースの動的 IAM が必要になる。これは[ロードマップ](./14-roadmap.md)項目で、v1.0 のスコープには明示的に含めない。

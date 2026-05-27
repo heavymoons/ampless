@@ -10,13 +10,25 @@ V8 isolate サンドボックスのような細粒度 capability を捨てて、
 
 ### プラグイン契約
 
-プラグインは `definePlugin()`（[`packages/ampless/src/plugin.ts`](../../packages/ampless/src/plugin.ts)）の結果を export するだけのプレーンな TS モジュール：
+プラグインは `definePlugin()`（[`packages/ampless/src/plugin.ts`](../../packages/ampless/src/plugin.ts)）の結果を export するだけのプレーンな TS モジュール。目標形：
 
 ```typescript
 export interface AmplessPlugin {
   name: string
   apiVersion: 1
   trust_level: 'untrusted' | 'trusted' | 'privileged'
+
+  // インストール単位の namespace。デフォルトは `name`。
+  // 同じプラグインを複数 instance（例: GTM 2 container）登録するときに分ける。
+  instanceId?: string
+
+  // admin UI 用の表示名。
+  displayName?: LocalizedString
+
+  // 宣言された capability リスト。runtime は宣言と実装の不一致で warning を出し、
+  // `cms.config.ts` の `allowCapabilities` が危険 capability
+  // (admin page / server route / secrets 等) のゲートになる。
+  capabilities?: readonly PluginCapability[]
 
   // イベントフック — trust_level に対応する Lambda が SQS から受けて実行
   hooks?: { [K in EventType]?: (event, ctx) => Promise<void> }
@@ -25,10 +37,18 @@ export interface AmplessPlugin {
   metadata?(post: Post, site): PluginMetadata
   siteMetadata?(site): PluginMetadata
 
+  // 宣言的な head/body 注入。ReactNode ではなく descriptor 配列を返す。
+  // 公開 Next.js プロセスが request 時に validation + render する。
+  // Phase 1 (策定中 — docs/tmp/plugin-extension-spec.md 参照)。
+  publicHead?(ctx): readonly PublicHeadDescriptor[]
+  publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
+
   // 動的 OG 画像 — リクエスト時に Next.js ImageResponse でレンダリング
   ogImage?: OgImageConfig
 }
 ```
+
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` は **Phase 1 拡張**にあたるフィールドで、型追加は Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) の範囲。既存ファーストパーティプラグイン (`seo` / `rss` / `og-image` / `webhook`) はこれらを宣言しなくても動作し続ける。
 
 これらの面を任意に組み合わせる。有効化はプロジェクトの `cms.config.ts` に 1 行：
 
@@ -38,6 +58,33 @@ plugins: [
   rssPlugin({ /* ... */ }),
 ]
 ```
+
+### Capability モデル
+
+`capabilities` はプラグインが何をしたいかの宣言。runtime / admin がバリデーション、UI ラベル、危険機能のゲートに使う。
+
+実装済み or Phase 1 で実装される capability:
+
+| capability | 意味 | 既定許可 trust_level |
+|---|---|---|
+| `publicHead` | `<head>` への descriptor 注入 (Phase 1) | `untrusted` 以上 |
+| `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1) | `untrusted` 以上 |
+| `metadata` | 既存の `metadata()` / `siteMetadata()` 経路 | `untrusted` 以上 |
+| `eventHooks` | 既存の async event hooks (`hooks`) | `trusted` 以上 |
+
+予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
+
+`adminSettings` (Phase 2) · `schema` (Phase 4) · `writePublicAsset` (Phase 3) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
+
+「危険」カテゴリ (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) は、プラグインパッケージ側で宣言されていても `cms.config.ts` 側で明示許可しないと有効化されない:
+
+```typescript
+plugins: [
+  somePrivilegedPlugin({ ... }, { allowCapabilities: ['serverRoute', 'secretSettings'] }),
+]
+```
+
+これで「うっかり入れた npm パッケージが admin ルートを増やす」「secret を読む」を防ぐ。
 
 ### trust_level
 
@@ -56,7 +103,7 @@ plugins: [
 - **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持。
 - **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`。
 
-trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーをプラグイン名でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。厳密な per-plugin 分離は[ロードマップ](./14-roadmap.md)の「プラグイン 1 つ = Lambda 1 つ + capability ベース IAM」案件。
+trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーをプラグイン名でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。Phase 3 で `writePublicAsset` を正式化するときもこの分離方針を維持する: **IAM は processor 全体の prefix のみ強制、plugin instance 単位の prefix は runtime context 層で強制**（trusted processor が各 plugin に namespace 付きの storage handle を渡し、prefix 違反は throw）。プラグインごとに Lambda を分離して capability ベース IAM を発行する大規模再設計は[ロードマップ](./14-roadmap.md)に残るが、Phase 3 のドッグフードで runtime 層の強制が不十分と判明した場合のみ着手する。
 
 #### `privileged`
 
@@ -74,21 +121,37 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 |---|---|---|
 | `hooks` | `processor-trusted` / `processor-untrusted` Lambda（`trust_level` 別） | SQS メッセージ到着時 — つまり元の DynamoDB 書き込みの後 |
 | `metadata` / `siteMetadata` | 公開 Next.js プロセス（リクエストスレッド） | テーマコンポーネント / `generateMetadata()` 内 |
+| `publicHead` / `publicBodyEnd` | 公開 Next.js プロセス — root layout | サイト全体描画時。投稿単位の head 注入は Phase 4 で予定の `publicHeadForPost` で扱う |
 | `ogImage` | 公開 Next.js プロセス — `app/og/[slug]/route.ts` 等 | OG 画像 URL がリクエストされたとき |
 
-`hooks` がプラグインの非同期面、`metadata` / `siteMetadata` / `ogImage` が同期面で、後者は公開サイト内で動き、AWS データ権限を持たない（純関数か、渡された値だけを読む）。
+`hooks` がプラグインの非同期面、`metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` が同期面で、後者は公開サイト内で動き、AWS データ権限を持たない（純関数か、渡された値だけを読む）。同期面はプラグインの `trust_level` IAM ロールの影響を受けない。IAM ロールが効くのは `hooks` だけ。
+
+### Descriptor ベースの head/body 注入
+
+`publicHead` / `publicBodyEnd` は **descriptor 配列** を返す。`ReactNode` は返さない。descriptor のホワイトリスト:
+
+- `script`（外部 `src`、`strategy` は `afterInteractive` / `lazyOnload` のみ許可）
+- `inlineScript`（id 必須、body 文字列。CSP nonce 連携は別 RFP で）
+- `meta`、`link`、`noscript`
+- `iframe`（body 側のみ）
+
+URL スキーム denylist、`attrs` allowlist、`id` 重複の扱いは runtime 層の validation 時に強制する。任意 `ReactNode` を安全 API では提供しない — それを許すと SSR 時の任意コード実行が暗黙の安全境界になり、untrusted の前提が崩れる。プロジェクトローカルなプラグインでどうしても必要なケースは、将来 Phase 6b で `developer.headElements`（opt-in capability）として別経路で提供する。
+
+descriptor の完全な型定義と validation contract は [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md) に集約。
 
 ### プラグインの状態保存
 
-プラグインは 3 つの仕組みで状態を保持する。どれも「プラグイン 1 つに DynamoDB テーブル 1 つ」ではない：
+プラグインは複数の仕組みで状態を保持する。どれも「プラグイン 1 つに DynamoDB テーブル 1 つ」ではない：
 
-| 仕組み | 場所 / 形 | 用途 |
-|---|---|---|
-| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス |
-| `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） |
-| `cms.config.ts` のコンストラクタ引数 | プラグイン factory の引数 | デプロイに焼き込む静的設定 |
+| 仕組み | 場所 / 形 | 用途 | ステータス |
+|---|---|---|---|
+| `cms.config.ts` のコンストラクタ引数 | プラグイン factory の引数 | デプロイに焼き込む静的設定 | 現行（Phase 1） |
+| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス | `trusted` 限定。Phase 3 で capability と namespace 強制を正式化（現状は runtime context 層で強制、IAM grant は `public/plugins/*` のバケットワイルドカード） |
+| `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） | 現行 |
+| admin 管理の public settings | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'`、 S3 `public/site-settings.json` にミラー | admin が `/admin/plugins` から編集する値。公開 Next.js プロセスから同期読み出し可能。**`loadSiteSettings()` を拡張せず、`loadPluginPublicSettings(instanceId)` を別 API として提供** | Planned (Phase 2) |
+| admin 管理の secret settings | TBD — admin-only AppSync model `PluginSecret` か Secrets Manager / SSM | API キー、署名 secret 等。公開 runtime には絶対に出さない | Planned (Phase 6a) |
 
-`private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
+上記以外で `private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
 
 ### S3 レイアウト
 

@@ -10,13 +10,25 @@ This trades the fine-grained capability surface of a V8-isolate sandbox for AWS-
 
 ### Plugin Contract
 
-Plugins are plain TypeScript modules that export the result of `definePlugin()` ([`packages/ampless/src/plugin.ts`](../../packages/ampless/src/plugin.ts)). The shape:
+Plugins are plain TypeScript modules that export the result of `definePlugin()` ([`packages/ampless/src/plugin.ts`](../../packages/ampless/src/plugin.ts)). The target shape:
 
 ```typescript
 export interface AmplessPlugin {
   name: string
   apiVersion: 1
   trust_level: 'untrusted' | 'trusted' | 'privileged'
+
+  // Per-install namespace. Defaults to `name`. Distinguishes multiple
+  // instances of the same plugin (e.g. two GTM containers).
+  instanceId?: string
+
+  // Human-readable label for admin UI.
+  displayName?: LocalizedString
+
+  // Declared capability list. Runtime warns on declaration-vs-implementation
+  // mismatch; `cms.config.ts` `allowCapabilities` gates dangerous capabilities
+  // (admin pages / server routes / secrets / etc.).
+  capabilities?: readonly PluginCapability[]
 
   // Event hooks — run in the trust_level-matched Lambda from SQS.
   hooks?: { [K in EventType]?: (event, ctx) => Promise<void> }
@@ -25,10 +37,18 @@ export interface AmplessPlugin {
   metadata?(post: Post, site): PluginMetadata
   siteMetadata?(site): PluginMetadata
 
+  // Declarative head/body injection — descriptor arrays, not ReactNode.
+  // Validated and rendered by the runtime at request time, in the public
+  // Next.js process. Phase 1 (in design — see docs/tmp/plugin-extension-spec.md).
+  publicHead?(ctx): readonly PublicHeadDescriptor[]
+  publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
+
   // Dynamic OG image — rendered at request time via Next.js ImageResponse.
   ogImage?: OgImageConfig
 }
 ```
+
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` are the **Phase 1 extension** to the contract — type additions are part of the Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)). Existing first-party plugins (`seo`, `rss`, `og-image`, `webhook`) continue to work without declaring these fields.
 
 A plugin combines any of these surfaces. Activation is a single line in the project's `cms.config.ts`:
 
@@ -38,6 +58,33 @@ plugins: [
   rssPlugin({ /* ... */ }),
 ]
 ```
+
+### Capability Model
+
+`capabilities` lists what the plugin wants to do. Runtime and admin use the list for validation, UI labels, and gating dangerous features.
+
+Active capabilities (implemented or in Phase 1):
+
+| capability | meaning | default-allowed trust_level |
+|---|---|---|
+| `publicHead` | `<head>` descriptor injection (Phase 1) | `untrusted` and up |
+| `publicBody` | `<body>`-end descriptor injection (Phase 1) | `untrusted` and up |
+| `metadata` | existing `metadata()` / `siteMetadata()` surfaces | `untrusted` and up |
+| `eventHooks` | existing async event hooks (`hooks`) | `trusted` and up |
+
+Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
+
+`adminSettings` (Phase 2) · `schema` (Phase 4) · `writePublicAsset` (Phase 3) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
+
+Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
+
+```typescript
+plugins: [
+  somePrivilegedPlugin({ ... }, { allowCapabilities: ['serverRoute', 'secretSettings'] }),
+]
+```
+
+This is what prevents a casually-installed npm package from silently adding admin routes or reading secrets.
 
 ### Trust Levels
 
@@ -56,7 +103,7 @@ plugins: [
 - **Use cases**: SEO metadata, RSS feed generation, sitemap rebuild, custom index maintenance.
 - **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`.
 
-The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context already namespaces keys by plugin name so a plugin can't write to a sibling's prefix without bypassing it. Strict per-plugin isolation is on the [roadmap](./14-roadmap.md) via plugin-per-Lambda with capability-based IAM.
+The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context namespaces keys by plugin name so a plugin can't write to a sibling's prefix without bypassing it. The Phase 3 `writePublicAsset` formalisation keeps this split: **IAM enforces the processor-wide prefix; plugin-instance prefix enforcement stays at the runtime context layer** (the trusted processor hands each plugin a namespaced storage handle that throws on prefix violation). Plugin-per-Lambda with capability-based IAM is the bigger redesign on the [roadmap](./14-roadmap.md), only invoked if Phase 3 dogfood shows the runtime-layer enforcement is insufficient.
 
 #### `privileged`
 
@@ -74,21 +121,37 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 |---|---|---|
 | `hooks` | `processor-trusted` or `processor-untrusted` Lambda (per `trust_level`) | SQS message arrives — i.e. after the originating DynamoDB write |
 | `metadata` / `siteMetadata` | Public Next.js process (request thread) | Inside theme components / `generateMetadata()` |
+| `publicHead` / `publicBodyEnd` | Public Next.js process — root layout | Site-wide render. Per-post head injection uses the planned `publicHeadForPost` (Phase 4) |
 | `ogImage` | Public Next.js process — typically `app/og/[slug]/route.ts` | When an OG-image URL is requested |
 
-`hooks` is the async side of plugins. `metadata` / `siteMetadata` / `ogImage` are the sync side and execute inside the public site, with no AWS data permissions — they're pure or read-only over what's already passed in.
+`hooks` is the async side of plugins. `metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` are the sync side and execute inside the public site, with no AWS data permissions — they're pure or read-only over what's already passed in. None of these sync surfaces are affected by the plugin's `trust_level` IAM role; the role only governs `hooks`.
+
+### Descriptor-based Head/Body Injection
+
+`publicHead` and `publicBodyEnd` return **descriptor arrays**, never `ReactNode`. The descriptor whitelist is:
+
+- `script` (external `src`, allowed `strategy`: `afterInteractive` / `lazyOnload`)
+- `inlineScript` (id-required, body string; CSP nonce integration is deferred to a future RFP)
+- `meta`, `link`, `noscript`
+- `iframe` (body only)
+
+URL scheme denylist, `attrs` allowlist, and duplicate-`id` handling are enforced at validation time in the runtime layer. Returning arbitrary `ReactNode` is intentionally not offered in the safe API — that would re-open SSR-time arbitrary code execution as the implicit safety boundary, defeating the point. If a developer needs that for a project-local plugin, the future `developer.headElements` surface (Phase 6b, opt-in capability) is the planned escape hatch.
+
+Full descriptor types and the validation contract live in [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md).
 
 ### Plugin State Storage
 
-Plugins persist state through three mechanisms — none of them is a dedicated per-plugin DynamoDB table:
+Plugins persist state through several mechanisms — none of them is a dedicated per-plugin DynamoDB table:
 
-| Mechanism | Path / shape | Use |
-|---|---|---|
-| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | Rendered assets the public site fetches: RSS feed, sitemap XML, JSON indexes |
-| `KvStore` (admin/editor-write via AppSync) | DynamoDB row `pk='pluginstate:{plugin}:...'` with optional TTL | Small state the plugin needs to read back later (counters, last-run timestamps) |
-| `cms.config.ts` constructor args | Plugin factory arguments | Static configuration baked into the deploy |
+| Mechanism | Path / shape | Use | Status |
+|---|---|---|---|
+| `cms.config.ts` constructor args | Plugin factory arguments | Static configuration baked into the deploy | Current (Phase 1) |
+| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | Rendered assets the public site fetches: RSS feed, sitemap XML, JSON indexes | `trusted` only; Phase 3 formalises the capability + namespace enforcement (currently enforced at the runtime context level — IAM grant is bucket-wide on `public/plugins/*`) |
+| `KvStore` (admin/editor-write via AppSync) | DynamoDB row `pk='pluginstate:{plugin}:...'` with optional TTL | Small state the plugin needs to read back later (counters, last-run timestamps) | Current |
+| Admin-managed public settings | DynamoDB `pk='siteconfig'`, `sk='plugins.<instanceId>.<fieldKey>'`, mirrored to S3 `public/site-settings.json` | Values an admin edits from `/admin/plugins`; sync-readable from the public Next.js process. **Read via `loadPluginPublicSettings(instanceId)`, not by extending `loadSiteSettings()`** | Planned (Phase 2) |
+| Admin-managed secret settings | TBD — `PluginSecret` admin-only AppSync model or Secrets Manager / SSM | API keys, signing secrets, etc. Never reach the public runtime | Planned (Phase 6a) |
 
-There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If a plugin needs private storage, that's part of what the privileged tier will eventually grant.
+There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If a plugin needs private storage outside the above, that's part of what the privileged tier will eventually grant.
 
 ### S3 Layout
 
