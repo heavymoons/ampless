@@ -35,6 +35,16 @@ Features needed to run dogfood sites on ampless, in priority order. Each changes
 - [ ] AI provider abstraction layer
 - [ ] Proofreading / summarization plugins
 
+#### Plugin Extension (dogfood-driven, phased)
+Phased work tracked in [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md). Each phase ships at least one bundled plugin that exercises the new surface, then the next phase starts.
+
+- [ ] Phase 1: descriptor-based head/body injection + `capabilities` / `instanceId` / `displayName` on `AmplessPlugin`. First plugin: `@ampless/plugin-analytics-ga4` (settings via `cms.config.ts`). Spec: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
+- [ ] Phase 2: admin-managed public settings (`/admin/plugins`, S3 cache mirror). GA4 settings migrate to the admin UI
+- [ ] Phase 3: trust-level dogfood — GTM / Plausible / cookie-consent (untrusted) + migrate existing `seo` / `rss` to the new capability surface (trusted). Formalises `writePublicAsset` namespace enforcement at the runtime context layer
+- [ ] Phase 4: per-post head injection API → JSON-LD schema plugin
+- [ ] Phase 5: external (out-of-monorepo) plugin npm-install proof
+- [ ] Phase 6+ (each is its own RFP): secret settings storage, developer-extension capabilities (`adminPage` / `serverRoute` / `contentFields` / ...)
+
 #### Content
 - [ ] Markdown / HTML canonical support (first-class treatment of non-tiptap formats in editing)
 - [ ] before hooks (validation / rewriting by plugins)

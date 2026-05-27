@@ -44,6 +44,14 @@ Shipped from this monorepo, published under `@ampless/` on npm:
 - `@ampless/plugin-og-image` — dynamic OG-image rendering at request time. untrusted (renders inside the public Next.js process, no AWS data permissions needed).
 - `@ampless/plugin-webhook` — outbound webhook delivery on content events. untrusted.
 
+The first-party set is being expanded along the plugin extension roadmap ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)). Near-term additions exercise the descriptor-based head/body injection API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)):
+
+- `@ampless/plugin-analytics-ga4` — Google Analytics 4 (untrusted, Phase 1).
+- `@ampless/plugin-gtm` — Google Tag Manager (untrusted, Phase 3).
+- `@ampless/plugin-plausible`, `@ampless/plugin-cookie-consent`, etc. — Phase 3 dogfood candidates.
+
+The existing `seo` / `rss` plugins migrate to the new capability + descriptor surface in Phase 3 ([docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md), pending) while keeping their existing behaviour as backward-compatible defaults.
+
 ### Runtime / marketplace installation
 
 Admin-UI-driven install (upload bundle → fetch from S3 → execute in Lambda at runtime) is **not implemented**. The sandbox story for "load arbitrary JS into a trusted Lambda at runtime" is the open question: doing it inside a shared trusted Lambda is unacceptable, doing it in a per-plugin Lambda requires capability-based dynamic IAM. That work sits on the [roadmap](./14-roadmap.md) and is explicitly not a v1.0 deliverable.
