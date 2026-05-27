@@ -71,6 +71,19 @@ pnpm changeset        # Create a changeset for versioning
 - Multi-package PRs list every affected package in the same changeset frontmatter.
 - Pure repo-level changes (root `README.md`, CI config, `CLAUDE.md`, top-level `docs/`) don't need a changeset — they don't ship in any tarball.
 - The Version Packages bot opens the release PR from accumulated changesets; merging it triggers the npm publish workflow. Forgetting a changeset means the fix never reaches users.
+- **New packages need a `packages/<pkg>/CHANGELOG.md`** at creation time (even just `# @ampless/<pkg>`). `changesets/action` reads it when assembling the Version Packages PR body and crashes with `ENOENT` if missing.
+
+### Don't run `changeset version` locally during feature-PR work
+
+Only CI runs `pnpm changeset version` / `pnpm version-packages` / `pnpm release` / `pnpm changeset pre exit|enter`. Running them locally during a feature PR rewrites `.changeset/pre.json`'s `changesets` array, and if you then commit that pre.json with your `.md` still on disk, the merged state on `main` looks "already consumed" to changesets/action — **no Version Packages PR opens** for your changeset and your bump is silently dropped. We've hit this twice (#135, #139) before locking down the rule.
+
+Safe local commands while iterating:
+
+- `pnpm changeset` — interactive scaffold for a new `.md`
+- Hand-edit `.changeset/<slug>.md`
+- `pnpm changeset status` — read-only, shows what bumps *would* happen
+
+If a stale `.changeset/pre.json` slips through and the symptom shows up (Release workflow says `No changesets found` and no VP PR appears), the fix is a one-line PR that removes the stale entry from `pre.json` without touching the `.md`. Full operational details and recovery steps live in [docs/release-workflow.md](./docs/release-workflow.md).
 
 ## Documentation Language Policy
 
