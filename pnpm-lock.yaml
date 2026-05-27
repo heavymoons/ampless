@@ -233,6 +233,12 @@ importers:
         specifier: workspace:*
         version: link:../ampless
 
+  packages/plugin-gtm:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-og-image:
     dependencies:
       '@jsquash/avif':
@@ -254,6 +260,12 @@ importers:
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
+
+  packages/plugin-plausible:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
 
   packages/plugin-rss:
     dependencies:

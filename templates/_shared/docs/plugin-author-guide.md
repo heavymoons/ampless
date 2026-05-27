@@ -575,6 +575,8 @@ a normal npm package:
 Worked examples to crib from:
 
 - [`packages/plugin-analytics-ga4`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-analytics-ga4) — descriptor-based, Phase 2 settings.
+- [`packages/plugin-gtm`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-gtm) — uses both `publicHead` (loader inline script) and `publicBodyEnd` (`<noscript>` iframe fallback) with the container ID admin-edited.
+- [`packages/plugin-plausible`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-plausible) — single `<script>` descriptor with `data-*` attrs and a required URL field (self-hosted Plausible override).
 - [`packages/plugin-rss`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-rss) — trusted, async event hooks + `writePublicAsset`.
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`.
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook with outbound HTTP.

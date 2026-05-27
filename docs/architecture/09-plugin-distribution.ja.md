@@ -43,14 +43,15 @@ export default defineConfig({
 - `@ampless/plugin-rss` — 公開イベント時に `public/plugins/rss/feed.xml` を生成。trusted。
 - `@ampless/plugin-og-image` — リクエスト時に OG 画像を動的描画。untrusted（公開 Next.js プロセス内で描画するので AWS データ権限は不要）。
 - `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。untrusted。
-- `@ampless/plugin-analytics-ga4` — Phase 1 の descriptor API で `<head>` に GA4 のスニペットを注入。untrusted（公開 Next.js プロセスで動くので AWS データ権限は不要）。
+- `@ampless/plugin-analytics-ga4` — descriptor API + admin 管理設定で `<head>` に GA4 のスニペットを注入。untrusted（公開 Next.js プロセスで動くので AWS データ権限は不要）。
+- `@ampless/plugin-gtm` — Google Tag Manager の head + body 注入（`<head>` にローダー script、`<body>` 末尾に `<noscript>` iframe フォールバック）。コンテナ ID は `/admin/plugins` から編集可能。untrusted。
+- `@ampless/plugin-plausible` — Plausible Analytics の head 注入（プライバシー重視、cookie 不使用）。サイトドメインとスクリプト URL は `/admin/plugins` から編集可能。`scriptUrl` はデフォルトでホスト版 plausible.io を指すが、self-hosted へ上書き可能。untrusted。
 
 ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。後続も descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加:
 
-- `@ampless/plugin-gtm` — Google Tag Manager（untrusted、Phase 3）。
-- `@ampless/plugin-plausible`、`@ampless/plugin-cookie-consent` 等 — Phase 3 ドッグフード候補。
+- `@ampless/plugin-cookie-consent` — Phase 3b ドッグフード候補。`publicBodyEnd` + 反復可能な settings field を叩く。
 
-既存の `seo` / `rss` は Phase 3 で新 capability + descriptor 面に移行する（[docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md)、未起票）。既存挙動は後方互換のデフォルトとして維持する。
+既存の `seo` / `rss` は Phase 3c で新 capability + descriptor 面に移行する（[docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md)、未起票）。既存挙動は後方互換のデフォルトとして維持する。
 
 ### ランタイム / マーケットプレイス型インストール
 

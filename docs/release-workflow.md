@@ -106,6 +106,26 @@ This has happened before — see [#135](https://github.com/heavymoons/ampless/pu
 
 Verified in [#136](https://github.com/heavymoons/ampless/pull/136). Worth grepping for at PR-review time when a new `packages/<pkg>/` folder appears.
 
+## Pitfall: incomplete wiring when adding a new plugin package
+
+**Symptom**: A new `@ampless/plugin-<x>` package builds and publishes, but downstream sites scaffolded with `create-ampless` don't pick it up, or `npx create-ampless@latest upgrade` doesn't keep its version in sync, or the Release workflow crashes with the `CHANGELOG.md` ENOENT above.
+
+**Cause**: Adding a plugin touches six places. Missing any one of them leaves the plugin "almost shipped" — the npm tarball exists but the rest of the pipeline acts like it's not there. This list comes from real fixes:
+
+- `#136` ([heavymoons/ampless#136](https://github.com/heavymoons/ampless/pull/136)) — first GA4 publish crashed because `CHANGELOG.md` was missing.
+- `#142` ([heavymoons/ampless#142](https://github.com/heavymoons/ampless/pull/142)) — GA4 wasn't in the template `package.json`, so scaffolded sites never installed it.
+
+**Checklist** when adding `packages/<plugin>/`:
+
+1. **`packages/<plugin>/CHANGELOG.md`** — create with minimum `# @ampless/<plugin>` content. **Do not** add it to `files` in `package.json`; the npm tarball should not include it (existing plugins follow this convention).
+2. **`packages/create-ampless/src/upgrade.ts`** — add the package name to the `AMPLESS_PACKAGES` set so `create-ampless upgrade` keeps the version in sync with subsequent ampless releases.
+3. **`templates/_shared/package.json`** — add the plugin to `dependencies` (use a placeholder `^0.1.0-alpha.0` range; `scripts/sync-template-versions.mjs` will rewrite it to the real version after the first publish).
+4. **`templates/_shared/cms.config.ts`** — add a commented-out registration example next to the existing opt-in plugins (skip this step only if the plugin is mandatory and should ship registered).
+5. **`docs/architecture/09-plugin-distribution.md`** + `.ja.md` — add the plugin to the first-party list with its `trust_level` and a one-line description.
+6. **`packages/ampless/docs/plugin-author-guide.md`** + `.ja.md` — add the plugin to the "worked examples" link list in §12. Then copy both files into `templates/_shared/docs/` so the scaffold copy stays byte-for-byte in sync (there's no CI check for this yet).
+
+If you forget #1, the Release workflow crashes loudly; #2–#6 fail silently and only surface when a downstream user is confused about why the plugin isn't installable / discoverable. Grep for `@ampless/plugin-` in the diff at PR-review time when a new `packages/plugin-*/` folder appears.
+
 ## Pitfall: forgetting the changeset entirely
 
 **Symptom**: PR merges, Release workflow runs, no version bump happens, and a downstream consumer's `npm install` doesn't get your fix.

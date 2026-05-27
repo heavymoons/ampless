@@ -106,6 +106,26 @@ pnpm changeset status
 
 [#136](https://github.com/heavymoons/ampless/pull/136) で検証済み。PR レビュー時に新しい `packages/<pkg>/` フォルダが出てきたら grep で確認すると安全。
 
+## 落とし穴: 新規 plugin パッケージ追加時の配線漏れ
+
+**症状**: 新規 `@ampless/plugin-<x>` パッケージは build / publish できているのに、`create-ampless` で scaffold したサイトに入らない、または `npx create-ampless@latest upgrade` でバージョンが追従しない、あるいは Release workflow が前述の `CHANGELOG.md` ENOENT で crash する。
+
+**原因**: plugin 追加は 6 箇所触る必要がある。どれか 1 つでも欠けると「ほぼ ship した」状態 — npm tarball は存在するのにパイプラインの残りが「無いもの」として扱う。このリストは過去の実 fix から来ている:
+
+- `#136` ([heavymoons/ampless#136](https://github.com/heavymoons/ampless/pull/136)) — 初回 GA4 publish が `CHANGELOG.md` 不在で crash
+- `#142` ([heavymoons/ampless#142](https://github.com/heavymoons/ampless/pull/142)) — GA4 が template の `package.json` に未登録で、scaffold したサイトに永久に入らなかった
+
+**チェックリスト** — `packages/<plugin>/` を新規追加する時:
+
+1. **`packages/<plugin>/CHANGELOG.md`** — 最小 `# @ampless/<plugin>` を作る。**`package.json` の `files` には含めない** — npm tarball に CHANGELOG.md を入れない既存 plugin の慣習に合わせる。
+2. **`packages/create-ampless/src/upgrade.ts`** — `AMPLESS_PACKAGES` set にパッケージ名を追加。`create-ampless upgrade` で後続の ampless リリースとバージョン同期される。
+3. **`templates/_shared/package.json`** — `dependencies` に追加（仮 `^0.1.0-alpha.0` でよい。初回 publish 後に `scripts/sync-template-versions.mjs` が実バージョンに書き換える）。
+4. **`templates/_shared/cms.config.ts`** — 既存 opt-in plugin の隣にコメントアウト済みの register 例を追加（mandatory plugin で初回から登録 ship したい場合のみスキップ）。
+5. **`docs/architecture/09-plugin-distribution.md`** + `.ja.md` — first-party 一覧に追加。`trust_level` と 1 行説明を付ける。
+6. **`packages/ampless/docs/plugin-author-guide.md`** + `.ja.md` — §12「参考実装」のリンク集に追加。両ファイルを `templates/_shared/docs/` 配下にコピーして scaffold 側を byte-for-byte 同期する（CI check は未実装なので人手）。
+
+#1 を忘れると Release workflow が派手に crash、#2〜#6 は silent fail で downstream user が「なんで plugin が入らないんだ / 検索しても出ないんだ」と困った時点で初めて顕在化する。PR review 時に `packages/plugin-*/` フォルダが新規で出てきたら diff 内の `@ampless/plugin-` を grep して 6 箇所揃っているかを確認。
+
 ## 落とし穴: changeset を忘れる
 
 **症状**: PR が merge され Release workflow も走るが、バージョン bump が起きず、下流 consumer の `npm install` に修正が届かない。

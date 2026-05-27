@@ -2,6 +2,8 @@ import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
 // import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
+// import gtmPlugin from '@ampless/plugin-gtm'
+// import plausiblePlugin from '@ampless/plugin-plausible'
 // import webhookPlugin from '@ampless/plugin-webhook'
 // import ogImagePlugin, { loadFontFromUrl } from '@ampless/plugin-og-image'
 
@@ -76,6 +78,21 @@ export default defineConfig({
     //
     // analyticsGa4Plugin({
     //   measurementId: '', // 'G-XXXXXXXX' to enable
+    // }),
+    //
+    // Google Tag Manager. Like GA4, the container ID is editable from
+    // `/admin/plugins` after deploy. Tags fire via GTM's own trigger model.
+    //
+    // gtmPlugin({
+    //   containerId: '', // 'GTM-XXXXXXX' to enable
+    // }),
+    //
+    // Plausible Analytics (privacy-focused, typically no cookie consent
+    // required). `domain` matches the registered Plausible site.
+    // `scriptUrl` defaults to plausible.io; override for self-hosted.
+    //
+    // plausiblePlugin({
+    //   domain: '', // 'example.com' to enable
     // }),
     //
     // Per-post OG images: SNS crawlers hit `/og/<slug>` and we render

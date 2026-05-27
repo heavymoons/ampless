@@ -40,7 +40,7 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 
 - [x] Phase 1: descriptor ベースの head/body 注入 + `AmplessPlugin` への `capabilities` / `instanceId` / `displayName` 追加。同梱第 1 弾: `@ampless/plugin-analytics-ga4`（設定は `cms.config.ts` 直書き）。仕様: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
 - [x] Phase 2: admin 管理の public settings（`/admin/plugins`、S3 cache ミラー）。GA4 の設定を admin UI に移行。プラグイン作者ガイドを新規ドキュメントとして `ampless` tarball + scaffold コピーで配布開始
-- [ ] Phase 3: trust-level ドッグフード — GTM / Plausible / cookie-consent（untrusted）+ 既存 `seo` / `rss` を新 capability 面に移行（trusted）。`writePublicAsset` の namespace 強制を runtime context 層で正式化
+- [ ] Phase 3: trust-level ドッグフード。Phase 3a 完了 — `@ampless/plugin-gtm` + `@ampless/plugin-plausible`（untrusted）を新規バンドルプラグインとして ship、Phase 1/2 の descriptor + admin 設定 API を実物で叩く。Phase 3b（cookie-consent + `PluginRepeatableField`）と Phase 3c（`writePublicAsset` の namespace 強制を runtime context 層で正式化 + 既存 `seo` / `rss` の新 capability 面への移行）は未対応
 - [ ] Phase 4: per-post head 注入 API → JSON-LD schema プラグイン
 - [ ] Phase 5: モノレポ外プラグインの npm install 検証
 - [ ] Phase 6+（各々独立 RFP）: secret settings 保存先、developer 拡張 capability (`adminPage` / `serverRoute` / `contentFields` / ...)
