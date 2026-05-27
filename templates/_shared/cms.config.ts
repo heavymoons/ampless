@@ -1,6 +1,7 @@
 import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
+// import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
 // import webhookPlugin from '@ampless/plugin-webhook'
 // import ogImagePlugin, { loadFontFromUrl } from '@ampless/plugin-og-image'
 
@@ -66,6 +67,15 @@ export default defineConfig({
     //       events: ['content.published', 'content.unpublished', 'content.deleted'],
     //     },
     //   ],
+    // }),
+    //
+    // Google Analytics 4. Once registered here, the measurement ID can be
+    // edited from `/admin/plugins` without a redeploy — the constructor
+    // value below is just the initial default. Pass an empty string to
+    // disable the GA tag entirely. See packages/ampless/docs/plugin-author-guide.md.
+    //
+    // analyticsGa4Plugin({
+    //   measurementId: '', // 'G-XXXXXXXX' to enable
     // }),
     //
     // Per-post OG images: SNS crawlers hit `/og/<slug>` and we render
