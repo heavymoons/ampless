@@ -39,7 +39,7 @@ export interface AmplessPlugin {
 
   // 宣言的な head/body 注入。ReactNode ではなく descriptor 配列を返す。
   // 公開 Next.js プロセスが request 時に validation + render する。
-  // Phase 1 (策定中 — docs/tmp/plugin-extension-spec.md 参照)。
+  // Phase 1 (実装済み — docs/tmp/plugin-extension-spec.md 参照)。
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
 
@@ -63,14 +63,14 @@ plugins: [
 
 `capabilities` はプラグインが何をしたいかの宣言。runtime / admin がバリデーション、UI ラベル、危険機能のゲートに使う。
 
-実装済み or Phase 1 で実装される capability:
+実装済み capability:
 
 | capability | 意味 | 既定許可 trust_level |
 |---|---|---|
-| `publicHead` | `<head>` への descriptor 注入 (Phase 1) | `untrusted` 以上 |
-| `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1) | `untrusted` 以上 |
+| `publicHead` | `<head>` への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
+| `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `metadata` | 既存の `metadata()` / `siteMetadata()` 経路 | `untrusted` 以上 |
-| `eventHooks` | 既存の async event hooks (`hooks`) | `trusted` 以上 |
+| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（既存 `@ampless/plugin-webhook` が untrusted で hooks を使う実装と整合） |
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 

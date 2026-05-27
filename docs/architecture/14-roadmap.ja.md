@@ -38,7 +38,7 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 #### プラグイン拡張（dogfood 駆動の段階導入）
 進行管理は [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)。各 Phase で新 surface を実装で叩く同梱プラグインを 1 つ以上 ship、次 Phase に進む。
 
-- [ ] Phase 1: descriptor ベースの head/body 注入 + `AmplessPlugin` への `capabilities` / `instanceId` / `displayName` 追加。同梱第 1 弾: `@ampless/plugin-analytics-ga4`（設定は `cms.config.ts` 直書き）。仕様: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
+- [x] Phase 1: descriptor ベースの head/body 注入 + `AmplessPlugin` への `capabilities` / `instanceId` / `displayName` 追加。同梱第 1 弾: `@ampless/plugin-analytics-ga4`（設定は `cms.config.ts` 直書き）。仕様: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
 - [ ] Phase 2: admin 管理の public settings（`/admin/plugins`、S3 cache ミラー）。GA4 の設定を admin UI に移行
 - [ ] Phase 3: trust-level ドッグフード — GTM / Plausible / cookie-consent（untrusted）+ 既存 `seo` / `rss` を新 capability 面に移行（trusted）。`writePublicAsset` の namespace 強制を runtime context 層で正式化
 - [ ] Phase 4: per-post head 注入 API → JSON-LD schema プラグイン

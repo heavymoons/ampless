@@ -18,6 +18,7 @@
 
 import type { Post, Config, ThemeManifest } from 'ampless'
 import type { Metadata } from 'next'
+import type { ReactNode } from 'react'
 import type { AmplessOutputs } from './outputs.js'
 import { createStorage, type StorageApi } from './storage.js'
 import {
@@ -38,6 +39,7 @@ import {
   type EffectiveSiteSettings,
 } from './site-settings.js'
 import { createSeo, type SeoApi } from './seo.js'
+import { createPluginHead, type PluginHeadApi } from './plugin-head.js'
 import {
   createThemeActive,
   type ThemeActiveApi,
@@ -75,6 +77,8 @@ export type {
   EffectiveSiteSettings,
 } from './site-settings.js'
 export type { SeoApi } from './seo.js'
+export { createPluginHead } from './plugin-head.js'
+export type { PluginHeadApi } from './plugin-head.js'
 export type {
   ThemeActiveApi,
   ThemesRegistry,
@@ -145,6 +149,12 @@ export interface Ampless {
   postMetadata(post: Post): Promise<Metadata>
   siteMetadata(): Promise<Metadata>
 
+  // descriptor-based plugin head/body injection (Phase 1).
+  // Drop the return values directly inside `<head>` / before
+  // `</body>` in the root layout — see templates/_shared/app/layout.tsx.
+  publicHead(): ReactNode
+  publicBodyEnd(): ReactNode
+
   // rendering
   renderBody(post: Post): string
   renderThemeCss(cssVars: Record<string, string>): string
@@ -166,6 +176,7 @@ export interface Ampless {
   readonly themeActive: ThemeActiveApi
   readonly themeConfig: ThemeConfigApi
   readonly storageApi: StorageApi
+  readonly pluginHead: PluginHeadApi
 }
 
 /**
@@ -182,6 +193,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
   const media = createMediaApi(outputs)
   const settings = createSiteSettings(cmsConfig, storage)
   const seo = createSeo(cmsConfig, settings)
+  const pluginHead = createPluginHead(cmsConfig)
   const themeActive = createThemeActive(themes, storage)
   const themeConfig = createThemeConfig(themeActive, storage)
 
@@ -200,6 +212,9 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     postMetadata: (post) => seo.postMetadata(post),
     siteMetadata: () => seo.siteMetadata(),
 
+    publicHead: () => pluginHead.renderHead(),
+    publicBodyEnd: () => pluginHead.renderBodyEnd(),
+
     renderBody: (post) => renderBody(post),
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),
 
@@ -217,6 +232,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     themeActive,
     themeConfig,
     storageApi: storage,
+    pluginHead,
   }
 }
 

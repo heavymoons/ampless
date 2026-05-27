@@ -43,10 +43,10 @@ export default defineConfig({
 - `@ampless/plugin-rss` — 公開イベント時に `public/plugins/rss/feed.xml` を生成。trusted。
 - `@ampless/plugin-og-image` — リクエスト時に OG 画像を動的描画。untrusted（公開 Next.js プロセス内で描画するので AWS データ権限は不要）。
 - `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。untrusted。
+- `@ampless/plugin-analytics-ga4` — Phase 1 の descriptor API で `<head>` に GA4 のスニペットを注入。untrusted（公開 Next.js プロセスで動くので AWS データ権限は不要）。
 
-ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。直近は descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加:
+ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。後続も descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加:
 
-- `@ampless/plugin-analytics-ga4` — Google Analytics 4（untrusted、Phase 1）。
 - `@ampless/plugin-gtm` — Google Tag Manager（untrusted、Phase 3）。
 - `@ampless/plugin-plausible`、`@ampless/plugin-cookie-consent` 等 — Phase 3 ドッグフード候補。
 

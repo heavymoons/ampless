@@ -39,7 +39,7 @@ export interface AmplessPlugin {
 
   // Declarative head/body injection — descriptor arrays, not ReactNode.
   // Validated and rendered by the runtime at request time, in the public
-  // Next.js process. Phase 1 (in design — see docs/tmp/plugin-extension-spec.md).
+  // Next.js process. Phase 1 (implemented — see docs/tmp/plugin-extension-spec.md).
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
 
@@ -63,14 +63,14 @@ plugins: [
 
 `capabilities` lists what the plugin wants to do. Runtime and admin use the list for validation, UI labels, and gating dangerous features.
 
-Active capabilities (implemented or in Phase 1):
+Active capabilities (implemented):
 
 | capability | meaning | default-allowed trust_level |
 |---|---|---|
-| `publicHead` | `<head>` descriptor injection (Phase 1) | `untrusted` and up |
-| `publicBody` | `<body>`-end descriptor injection (Phase 1) | `untrusted` and up |
+| `publicHead` | `<head>` descriptor injection (Phase 1, implemented) | `untrusted` and up |
+| `publicBody` | `<body>`-end descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `metadata` | existing `metadata()` / `siteMetadata()` surfaces | `untrusted` and up |
-| `eventHooks` | existing async event hooks (`hooks`) | `trusted` and up |
+| `eventHooks` | existing async event hooks (`hooks`) | `untrusted` and up (matches the existing `@ampless/plugin-webhook`, which runs in the untrusted Lambda) |
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 

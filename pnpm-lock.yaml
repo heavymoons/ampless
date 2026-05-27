@@ -227,6 +227,12 @@ importers:
         specifier: ^0.8.3
         version: 0.8.3
 
+  packages/plugin-analytics-ga4:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-og-image:
     dependencies:
       '@jsquash/avif':

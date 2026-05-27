@@ -57,6 +57,11 @@ export type {
   OgImageConfig,
   OgImageFont,
   OgImageRenderContext,
+  PluginCapability,
+  ScriptStrategy,
+  PluginPublicRenderContext,
+  PublicHeadDescriptor,
+  PublicBodyDescriptor,
 } from './plugin.js'
 export { extractFirstImageUrl } from './post-images.js'
 export {

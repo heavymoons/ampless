@@ -1,0 +1,43 @@
+{
+  "name": "@ampless/plugin-analytics-ga4",
+  "version": "0.1.0",
+  "description": "Google Analytics 4 plugin for ampless",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-analytics-ga4"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-analytics-ga4#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "analytics",
+    "ga4",
+    "google-analytics"
+  ]
+}
