@@ -189,6 +189,20 @@ export default seoPlugin({/* config */}) // resolves to { apiVersion: 1, name: '
 
 Third-party plugin packages publish a normal npm tarball with their factory exported as default. The "manifest" lives in the runtime object returned by the factory call; there is no separate JSON manifest file.
 
+### Plugin-to-plugin coupling
+
+There is **no formal cross-plugin dependency mechanism** (no `dependsOn` field, no plugin registry lookup, no shared settings access between plugins). The current design stance is **loose coupling only** — plugins that need to interact do so through shared client-side globals (`window.dataLayer`, `window.gtag`, etc.) populated by a base plugin and read by augmenting plugins. Augmenting plugins must assume neither the order nor the presence of any base plugin and silently no-op when the global is missing — that's what makes the loose-coupling design correct without a dependency declaration. The defensive form for the GA4 event example is something like:
+
+```js
+if (Array.isArray(window.dataLayer)) {
+  window.dataLayer.push({ event: 'newsletter_signup' })
+}
+```
+
+A bare `window.dataLayer.push(...)` would throw when GA4 hasn't (yet) been loaded.
+
+This matches how WordPress / Google Tag Manager extensions interoperate in practice and keeps the plugin contract simple. Formalising tight coupling (`dependsOn` for ordering, cross-plugin setting access, typed runtime bridge between plugins) is **deferred until a real first-party plugin needs it** — speculative APIs in this area would have to make non-trivial decisions about multi-instance targeting, trust-level traversal, failure modes, and cycle detection, and we don't yet have the use cases to ground those decisions.
+
 ### Lambda Memory Configuration
 
 | Lambda | Memory | Notes |

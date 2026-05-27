@@ -186,6 +186,20 @@ export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ..
 
 サードパーティプラグインは通常の npm tarball として公開し、factory を default export する。「マニフェスト」は factory が返すランタイムオブジェクトそのもので、別に JSON マニフェストファイルは置かない。
 
+### プラグイン間の結合
+
+**正式な cross-plugin 依存機構は設けていない**（`dependsOn` フィールド無し、plugin 同士を引く registry 無し、plugin 間で settings を共有する API 無し）。現状の設計方針は **loose coupling のみ** — 連携が必要なプラグインは、基盤プラグインが populate する client-side global（`window.dataLayer` / `window.gtag` 等）を経由して動く。augmenting plugin 側は **plugin の順序も存在も前提にせず、欠けていたら silently no-op** する書き方を取る — これが依存宣言なしに loose coupling 設計が成立する根拠。GA4 カスタムイベント例の defensive 形は次のような感じ:
+
+```js
+if (Array.isArray(window.dataLayer)) {
+  window.dataLayer.push({ event: 'newsletter_signup' })
+}
+```
+
+裸の `window.dataLayer.push(...)` は GA4 未ロード時に throw するので避ける。
+
+これは WordPress / Google Tag Manager の拡張同士が実運用で連携する形と同じで、プラグイン契約をシンプルに保つ。`dependsOn` による順序保証、plugin 間 settings 参照、typed runtime ブリッジといった tight coupling の正式化は **first-party plugin で実需が出るまで保留**。投機的に API を切ると、複数 instance のターゲット指定、trust_level 跨ぎ、失敗モード、循環検出などの判断を、根拠の薄いまま固めることになる。
+
 ### Lambda メモリ設定
 
 | Lambda | メモリ | 備考 |
