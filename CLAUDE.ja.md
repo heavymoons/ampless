@@ -71,6 +71,19 @@ pnpm changeset        # バージョニング用 changeset を作成
 - 複数パッケージにまたがる PR は changeset の frontmatter に全パッケージを並べる。
 - リポジトリ全体だけに関わる変更（ルートの `README.md`、CI 設定、`CLAUDE.md`、トップレベルの `docs/`）は tarball に同梱されないので changeset 不要。
 - Version Packages bot が溜まった changeset からリリース PR を起こす。それを merge すると npm publish ワークフローが走る。changeset を入れ忘れると修正がユーザーに届かない。
+- **新規パッケージは作成と同時に `packages/<pkg>/CHANGELOG.md` を入れる**（中身は `# @ampless/<pkg>` だけで OK）。`changesets/action` が Version Packages PR の本文を組み立てる際にこのファイルを読むので、無いと `ENOENT` で crash する。
+
+### feature PR 作業中にローカルで `changeset version` を叩かない
+
+`pnpm changeset version` / `pnpm version-packages` / `pnpm release` / `pnpm changeset pre exit|enter` は CI 専用。feature PR 中にローカルで実行すると `.changeset/pre.json` の `changesets` 配列を書き換えてしまい、その pre.json を `.md` と一緒に commit すると `main` 上で「既に consumed 済み」状態になる → **作った changeset 用の Version Packages PR が開かれず**、バンプが黙って消える。これで 2 回事故った (#135, #139) ため明文化。
+
+イテレーション中に安全に叩けるコマンド:
+
+- `pnpm changeset` — 新規 `.md` のインタラクティブスキャフォールド
+- `.changeset/<slug>.md` を手書き
+- `pnpm changeset status` — 読み取り専用、今 version を叩いたらどの bump になるか表示
+
+ステイル状態がすり抜けて症状（Release workflow が `No changesets found` と出して VP PR が開かない）が出た場合は、`.md` には触らず `pre.json` から該当エントリを 1 行削除する小さな修正 PR で復旧する。詳しい運用とリカバリ手順は [docs/release-workflow.ja.md](./docs/release-workflow.ja.md)。
 
 ## ドキュメント言語ポリシー
 
