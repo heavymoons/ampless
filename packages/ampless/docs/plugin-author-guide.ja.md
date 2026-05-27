@@ -467,6 +467,8 @@ it('admin が空文字保存した場合は空配列', () => {
 参考実装:
 
 - [`packages/plugin-analytics-ga4`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-analytics-ga4) — descriptor ベース、Phase 2 settings
+- [`packages/plugin-gtm`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-gtm) — `publicHead`（ローダーインラインスクリプト）+ `publicBodyEnd`（`<noscript>` iframe フォールバック）を両方使用、コンテナ ID は admin 編集可能
+- [`packages/plugin-plausible`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-plausible) — `data-*` attrs 付きの単一 `<script>` descriptor、`required` な URL field（self-hosted Plausible 上書き対応）
 - [`packages/plugin-rss`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-rss) — trusted、非同期 hooks + `writePublicAsset`
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook + 外向き HTTP

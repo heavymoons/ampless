@@ -1,0 +1,43 @@
+{
+  "name": "@ampless/plugin-plausible",
+  "version": "0.1.0",
+  "description": "Plausible Analytics plugin for ampless",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-plausible"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-plausible#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "plausible",
+    "analytics",
+    "privacy"
+  ]
+}
