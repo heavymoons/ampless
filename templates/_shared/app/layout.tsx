@@ -45,6 +45,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             against the static defaults. Validated values only — see
             ampless `validateThemeValue`. */}
         {themeCss && <style dangerouslySetInnerHTML={{ __html: themeCss }} />}
+        {/* Descriptor-based plugin head injection (Phase 1). Each
+            active plugin's `publicHead()` runs validation here; the
+            output is a `<Fragment>` of `<script>` / `<meta>` / `<link>`
+            / `<noscript>` elements. Placed after the theme style so
+            plugin-emitted overrides win on the rare collision. */}
+        {ampless.publicHead()}
       </head>
       {/* `data-theme` selects which theme's `tokens.css` block matches.
           The active theme is resolved from `theme.active` site setting,
@@ -55,6 +61,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </I18nProvider>
         </Providers>
+        {/* Descriptor-based body-end injection (Phase 1). GTM
+            no-script iframe / chat widgets / analytics tail snippets
+            land here. */}
+        {ampless.publicBodyEnd()}
       </body>
     </html>
   )
