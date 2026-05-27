@@ -12,7 +12,9 @@
     "@ampless/plugin-rss": "0.1.0",
     "@ampless/plugin-seo": "0.1.0",
     "@ampless/plugin-webhook": "0.1.0",
-    "@ampless/runtime": "0.1.0"
+    "@ampless/runtime": "0.1.0",
+    "@ampless/plugin-gtm": "0.1.0",
+    "@ampless/plugin-plausible": "0.1.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -56,6 +58,7 @@
     "auto-sync-create-ampless-1779807461755",
     "auto-sync-create-ampless-1779857001339",
     "auto-sync-create-ampless-1779889285029",
+    "auto-sync-create-ampless-1779925056181",
     "awsjson-shared-utils",
     "body-always-json-encode",
     "bump-node-22",
@@ -101,6 +104,7 @@
     "middleware-to-proxy",
     "plugin-phase1-descriptor-injection",
     "plugin-phase2-admin-settings",
+    "plugin-phase3a-gtm-plausible",
     "poll-theme-active-after-switch",
     "post-metadata-no-layout",
     "posttag-sync-via-stream",
