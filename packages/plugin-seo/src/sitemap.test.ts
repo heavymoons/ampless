@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Post, Config } from 'ampless'
+import seoPlugin from './index.js'
 import { buildSitemap } from './sitemap.js'
 
 const site: Config['site'] = { name: 'Test', url: 'https://example.com/' }
@@ -17,6 +18,14 @@ const published: Post = {
 const draft: Post = { ...published, postId: 'p2', slug: 'draft', status: 'draft' }
 
 describe('buildSitemap', () => {
+  it('declares trusted plugin capabilities', () => {
+    expect(seoPlugin().capabilities).toEqual([
+      'eventHooks',
+      'writePublicAsset',
+      'metadata',
+    ])
+  })
+
   it('emits a valid urlset with home + published posts only', () => {
     const xml = buildSitemap([published, draft], site)
     expect(xml).toContain('<urlset')

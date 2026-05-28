@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Post, Config } from 'ampless'
+import rssPlugin from './index.js'
 import { buildRssFeed } from './feed.js'
 
 const site: Config['site'] = {
@@ -31,6 +32,14 @@ const posts: Post[] = [
 ]
 
 describe('buildRssFeed', () => {
+  it('declares trusted plugin capabilities', () => {
+    expect(rssPlugin().capabilities).toEqual([
+      'eventHooks',
+      'writePublicAsset',
+      'metadata',
+    ])
+  })
+
   it('emits valid RSS 2.0 with channel + only published items', () => {
     const xml = buildRssFeed(posts, site)
     expect(xml).toContain('<rss version="2.0"')

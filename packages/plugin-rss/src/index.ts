@@ -27,6 +27,7 @@ export default function rssPlugin(options: RssPluginOptions = {}): AmplessPlugin
     name: 'rss',
     apiVersion: 1,
     trust_level: 'trusted',
+    capabilities: ['eventHooks', 'writePublicAsset', 'metadata'],
     hooks: {
       'content.published': rebuild,
       'content.unpublished': rebuild,

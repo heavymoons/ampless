@@ -168,7 +168,7 @@ touch IAM):
 | Tier | IAM | Used by |
 |---|---|---|
 | `untrusted` | none (SQS consume only) | head/body descriptors, webhook delivery, content transforms |
-| `trusted` | read posts, write `public/plugins/<name>/...` | RSS feed, sitemap, computed JSON indexes |
+| `trusted` | read posts, write `public/plugins/<instanceId ?? name>/...` | RSS feed, sitemap, computed JSON indexes |
 | `privileged` | reserved | future: SES, secrets, private S3 |
 
 Rule of thumb:
@@ -331,6 +331,36 @@ hooks: {
   'content.updated': /* same */,
 }
 ```
+
+### `writePublicAsset`
+
+Trusted plugins that write public generated files should declare the
+capability:
+
+```ts
+capabilities: ['eventHooks', 'writePublicAsset']
+```
+
+If the same plugin implements `metadata()` or `siteMetadata()`, also
+declare `metadata`. That capability name covers both metadata
+functions; there is no separate `siteMetadata` capability.
+
+The trusted processor writes under:
+
+```txt
+public/plugins/<instanceId ?? name>/<key>
+```
+
+`key` must be a relative asset key. Empty strings, absolute paths,
+`.` / `..` path segments, backslashes, control characters, and keys
+over 256 characters are rejected before S3 is called. Nested paths
+such as `indexes/posts.json` are allowed. The return value is the
+public URL for the written object.
+
+During the migration period, plugins with no `capabilities` field
+keep working. Plugins that do declare `capabilities` but omit
+`writePublicAsset` warn once when they actually call
+`ctx.writePublicAsset()`.
 
 ### Best practices
 

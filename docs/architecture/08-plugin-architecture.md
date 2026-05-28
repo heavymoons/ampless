@@ -76,6 +76,7 @@ Active capabilities (implemented):
 | `publicBody` | `<body>`-end descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `metadata` | existing `metadata()` / `siteMetadata()` surfaces | `untrusted` and up |
 | `eventHooks` | existing async event hooks (`hooks`) | `untrusted` and up (matches the existing `@ampless/plugin-webhook`, which runs in the untrusted Lambda) |
+| `writePublicAsset` | trusted hook context writes a validated, namespaced public asset (Phase 3, implemented) | `trusted` and up |
 
 Phase 2 additions:
 
@@ -85,7 +86,7 @@ Phase 2 additions:
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
-`schema` (Phase 4) · `writePublicAsset` (Phase 3) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
+`schema` (Phase 4) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
 
 Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
 
@@ -110,11 +111,11 @@ This is what prevents a casually-installed npm package from silently adding admi
 #### `trusted`
 
 - **IAM**: `dynamodb:Query` / `Scan` on Post + GSIs, `dynamodb:Read` on KvStore, `dynamodb:Write` on PostTag, `s3:PutObject` / `DeleteObject` under `public/plugins/*`, plus an exact-match grant on `public/site-settings.json` for the built-in site-settings handler.
-- **Runtime context**: `listPublishedPosts()` does one Query against the `byStatus` GSI; `writePublicAsset(key, body, contentType)` writes to `public/plugins/{plugin}/{key}`.
+- **Runtime context**: `listPublishedPosts()` does one Query against the `byStatus` GSI; `writePublicAsset(key, body, contentType)` writes to `public/plugins/{instanceId ?? name}/{key}`.
 - **Use cases**: SEO metadata, RSS feed generation, sitemap rebuild, custom index maintenance.
 - **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`.
 
-The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context namespaces keys by plugin name so a plugin can't write to a sibling's prefix without bypassing it. The Phase 3 `writePublicAsset` formalisation keeps this split: **IAM enforces the processor-wide prefix; plugin-instance prefix enforcement stays at the runtime context layer** (the trusted processor hands each plugin a namespaced storage handle that throws on prefix violation). Plugin-per-Lambda with capability-based IAM is the bigger redesign on the [roadmap](./14-roadmap.md), only invoked if Phase 3 dogfood shows the runtime-layer enforcement is insufficient.
+The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context namespaces keys by plugin instance so a plugin can't write to a sibling's prefix without bypassing it. The Phase 3 `writePublicAsset` formalisation keeps this split: **IAM enforces the processor-wide prefix; plugin-instance prefix enforcement stays at the runtime context layer**. The trusted processor hands each plugin a storage handle bound to `instanceId ?? name`, validates keys before writing (no absolute paths, `.` / `..` segments, backslashes, control characters, or keys over 256 characters), and warns once when a plugin declares capabilities but calls `writePublicAsset` without declaring that capability. Existing plugins with no `capabilities` field keep working without warnings. Plugin-per-Lambda with capability-based IAM is the bigger redesign on the [roadmap](./14-roadmap.md), only invoked if Phase 3 dogfood shows the runtime-layer enforcement is insufficient.
 
 #### `privileged`
 
@@ -130,7 +131,7 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 
 | Surface | Where it runs | When it fires |
 |---|---|---|
-| `hooks` | `processor-trusted` or `processor-untrusted` Lambda (per `trust_level`) | SQS message arrives — i.e. after the originating DynamoDB write |
+| `hooks` | `processor-trusted` or `processor-untrusted` Lambda (per `trust_level`) | SQS message arrives — i.e. after the originating DynamoDB write. In trusted hooks, `ctx.writePublicAsset` can write only inside the plugin namespace. |
 | `metadata` / `siteMetadata` | Public Next.js process (request thread) | Inside theme components / `generateMetadata()` |
 | `publicHead` / `publicBodyEnd` | Public Next.js process — root layout | Site-wide render. Per-post head injection uses the planned `publicHeadForPost` (Phase 4) |
 | `ogImage` | Public Next.js process — typically `app/og/[slug]/route.ts` | When an OG-image URL is requested |
@@ -157,7 +158,7 @@ Plugins persist state through several mechanisms — none of them is a dedicated
 | Mechanism | Path / shape | Use | Status |
 |---|---|---|---|
 | `cms.config.ts` constructor args | Plugin factory arguments | Static configuration baked into the deploy | Current (Phase 1) |
-| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{plugin}/{key}` | Rendered assets the public site fetches: RSS feed, sitemap XML, JSON indexes | `trusted` only; Phase 3 formalises the capability + namespace enforcement (currently enforced at the runtime context level — IAM grant is bucket-wide on `public/plugins/*`) |
+| `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{instanceId ?? name}/{key}` | Rendered assets the public site fetches: RSS feed, sitemap XML, JSON indexes | `trusted` only; Phase 3 formalises the capability + key validation + namespace enforcement at the runtime context level. IAM grant remains bucket-wide on `public/plugins/*` |
 | `KvStore` (admin/editor-write via AppSync) | DynamoDB row `pk='pluginstate:{plugin}:...'` with optional TTL | Small state the plugin needs to read back later (counters, last-run timestamps) | Current |
 | Admin-managed public settings | DynamoDB `pk='siteconfig'`, `sk='plugins.<instanceId>.<fieldKey>'`, mirrored to S3 `public/site-settings.json` | Values an admin edits from `/admin/plugins`; sync-readable from the public Next.js process via `ctx.setting<T>(key)` inside `publicHead` / `publicBodyEnd`. The runtime resolves `stored → manifest.default → undefined` per request; admin reads via `Admin.loadPluginPublicSettings(instanceId)` for the form pre-fill. Independent of `loadSiteSettings()` (which stays scoped to the curated core surface) | Implemented (Phase 2) |
 | Admin-managed secret settings | TBD — `PluginSecret` admin-only AppSync model or Secrets Manager / SSM | API keys, signing secrets, etc. Never reach the public runtime | Planned (Phase 6a) |
@@ -170,12 +171,24 @@ There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If 
 s3://<bucket>/
   public/
     media/YYYY/MM/<epoch>-<name>          ← uploaded media
-    plugins/{plugin}/{key}                ← trusted-plugin assets (writePublicAsset)
+    plugins/{instanceId ?? name}/{key}    ← trusted-plugin assets (writePublicAsset)
     static/{slug}/<file>                  ← format: 'static' post bundles
     site-settings.json                    ← cached site settings
 ```
 
-Everything under `public/` is reachable through the bucket policy (or the `/api/media/...` proxy for media). Plugin writes are confined to `public/plugins/{plugin}/{key}` by the trusted runtime context.
+Everything under `public/` is reachable through the bucket policy (or the `/api/media/...` proxy for media). Plugin writes are confined to `public/plugins/{instanceId ?? name}/{key}` by the trusted runtime context.
+
+### Existing plugin migration to Phase 3+
+
+Trusted plugins that call `ctx.writePublicAsset()` should declare the capability:
+
+```typescript
+capabilities: ['eventHooks', 'writePublicAsset']
+```
+
+If the plugin also implements `metadata()` or `siteMetadata()`, include `metadata` as the existing metadata-surface declaration. `metadata` covers both functions; there is no separate `siteMetadata` capability.
+
+During the migration period, legacy plugins with no `capabilities` field keep working without warnings. A plugin that does declare `capabilities` but omits `writePublicAsset` will warn once at runtime when it actually calls `ctx.writePublicAsset()`. A future major release may hard-reject that mismatch.
 
 ### API Versioning
 

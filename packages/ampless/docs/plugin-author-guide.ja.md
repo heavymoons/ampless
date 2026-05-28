@@ -139,7 +139,7 @@ analyticsGa4Plugin({ instanceId: 'product' })
 | 階層 | IAM | 用途 |
 |---|---|---|
 | `untrusted` | なし (SQS consume のみ) | head/body descriptor、webhook 配送、コンテンツ変換 |
-| `trusted` | 投稿読み出し、`public/plugins/<name>/...` への書き込み | RSS フィード、sitemap、計算済み JSON インデックス |
+| `trusted` | 投稿読み出し、`public/plugins/<instanceId ?? name>/...` への書き込み | RSS フィード、sitemap、計算済み JSON インデックス |
 | `privileged` | 予約 | 将来: SES、secret、private S3 |
 
 決め方の目安:
@@ -272,6 +272,26 @@ hooks: {
   'content.updated': /* 同じ */,
 }
 ```
+
+### `writePublicAsset`
+
+公開生成ファイルを書き出す trusted plugin は capability を宣言してください:
+
+```ts
+capabilities: ['eventHooks', 'writePublicAsset']
+```
+
+同じ plugin が `metadata()` または `siteMetadata()` も実装する場合は、`metadata` も宣言します。この capability 名は両方の metadata 関数をまとめて表し、別個の `siteMetadata` capability はありません。
+
+trusted processor は次の場所に書き込みます:
+
+```txt
+public/plugins/<instanceId ?? name>/<key>
+```
+
+`key` は相対 asset key である必要があります。空文字、絶対パス、`.` / `..` path segment、backslash、制御文字、256 文字超の key は S3 呼び出し前に拒否されます。`indexes/posts.json` のような nested path は許可されます。戻り値は書き込まれた object の public URL です。
+
+移行期間中、`capabilities` フィールドが無い plugin はそのまま動きます。`capabilities` を宣言しているのに `writePublicAsset` を省いた plugin は、実際に `ctx.writePublicAsset()` を呼んだ時に 1 回だけ warn します。
 
 ### ベストプラクティス
 

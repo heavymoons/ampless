@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import {
   formatPublicAssetUrl,
+  validatePublicAssetKey,
   type AmplessEvent,
   type AmplessPlugin,
   type Config,
@@ -60,7 +61,7 @@ function safeParse(s: string): unknown {
  * SQS-driven trusted plugin executor. Trusted plugins get a runtime
  * context with `listPublishedPosts` (one Query against the byStatus
  * GSI) and `writePublicAsset` (S3 PutObject under
- * `public/plugins/{name}/{key}`).
+ * `public/plugins/{instanceId ?? name}/{key}`).
  *
  * Built-in: rebuilds the site-settings JSON cache at
  * `public/site-settings.json` whenever a `site.settings.updated`
@@ -76,6 +77,17 @@ export function createProcessorTrustedHandler(
   const trustedPlugins: AmplessPlugin[] = (opts.plugins ?? []).filter(
     (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
   )
+  const seenNamespaces = new Set<string>()
+  for (const plugin of trustedPlugins) {
+    const ns = plugin.instanceId ?? plugin.name
+    if (seenNamespaces.has(ns)) {
+      console.warn(
+        `[trusted-processor] duplicate plugin namespace "${ns}" detected in trusted plugins. Set distinct \`instanceId\` on each instance to disambiguate writePublicAsset output.`
+      )
+    }
+    seenNamespaces.add(ns)
+  }
+  const warnedWritePublicAssetCapability = new Set<string>()
 
   const s3 = new S3Client({})
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
@@ -126,11 +138,30 @@ export function createProcessorTrustedHandler(
   }
 
   function makeContext(plugin: AmplessPlugin): PluginRuntimeContext {
+    const namespace = plugin.instanceId ?? plugin.name
+    const label = plugin.instanceId ? `${plugin.name}#${plugin.instanceId}` : plugin.name
+
     return {
       site: opts.site,
       listPublishedPosts: () => listPublished(),
       async writePublicAsset(key, body, contentType) {
-        const objectKey = `public/plugins/${plugin.name}/${key}`
+        const keyError = validatePublicAssetKey(key)
+        if (keyError) {
+          throw new Error(`[${plugin.name}] writePublicAsset: ${keyError}`)
+        }
+
+        if (
+          plugin.capabilities &&
+          !plugin.capabilities.includes('writePublicAsset') &&
+          !warnedWritePublicAssetCapability.has(label)
+        ) {
+          console.warn(
+            `[trusted-processor] ${label}: called ctx.writePublicAsset() but "writePublicAsset" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
+          )
+          warnedWritePublicAssetCapability.add(label)
+        }
+
+        const objectKey = `public/plugins/${namespace}/${key}`
         await s3.send(
           new PutObjectCommand({
             Bucket: BUCKET,
