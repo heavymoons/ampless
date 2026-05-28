@@ -24,6 +24,7 @@ export default function seoPlugin(options: SeoPluginOptions = {}): AmplessPlugin
     name: 'seo',
     apiVersion: 1,
     trust_level: 'trusted',
+    capabilities: ['eventHooks', 'writePublicAsset', 'metadata'],
     hooks: {
       'content.published': rebuild,
       'content.unpublished': rebuild,

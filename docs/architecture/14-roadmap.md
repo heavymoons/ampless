@@ -40,7 +40,7 @@ Phased work tracked in [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-exte
 
 - [x] Phase 1: descriptor-based head/body injection + `capabilities` / `instanceId` / `displayName` on `AmplessPlugin`. First plugin: `@ampless/plugin-analytics-ga4` (settings via `cms.config.ts`). Spec: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
 - [x] Phase 2: admin-managed public settings (`/admin/plugins`, S3 cache mirror). GA4 settings migrate to the admin UI; new plugin author guide ships in `ampless` tarball + scaffold copy
-- [ ] Phase 3: trust-level dogfood. Phase 3a complete — `@ampless/plugin-gtm` + `@ampless/plugin-plausible` (untrusted) ship as new bundled plugins exercising the Phase 1/2 descriptor + admin-settings API. Phase 3b (cookie-consent + `PluginRepeatableField`) and Phase 3c (formalise `writePublicAsset` namespace enforcement at the runtime context layer + migrate existing `seo` / `rss` to the new capability surface) still pending
+- [x] Phase 3: trust-level dogfood. Phase 3a complete — `@ampless/plugin-gtm` + `@ampless/plugin-plausible` (untrusted) ship as new bundled plugins exercising the Phase 1/2 descriptor + admin-settings API. Phase 3c complete — `writePublicAsset` is formalised with runtime key validation + `instanceId ?? name` namespace enforcement, and existing `seo` / `rss` declare the new capability surface. Phase 3b (cookie-consent + `PluginRepeatableField`) remains deferred until a real cookie-consent need appears
 - [ ] Phase 4: per-post head injection API → JSON-LD schema plugin
 - [ ] Phase 5: external (out-of-monorepo) plugin npm-install proof
 - [ ] Phase 6+ (each is its own RFP): secret settings storage, developer-extension capabilities (`adminPage` / `serverRoute` / `contentFields` / ...)

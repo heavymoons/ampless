@@ -9,9 +9,11 @@ export type TrustLevel = 'untrusted' | 'trusted' | 'privileged'
  * declaration-vs-implementation reconciliation warnings and (in later
  * phases) for `allowCapabilities` gating in `cms.config.ts`.
  *
- * Phase 1 active capabilities:
+ * Active capabilities:
  *   - `publicHead` / `publicBody`: descriptor-based head/body injection.
  *   - `metadata` / `eventHooks`: name-only declaration for existing surfaces.
+ *   - `adminSettings`: admin-managed public settings manifest.
+ *   - `writePublicAsset`: trusted hook context can write namespaced public assets.
  *
  * Reserved capabilities are accepted by the type so that plugins can
  * declare future intent, but the runtime does nothing with them yet —
@@ -25,10 +27,10 @@ export type PluginCapability =
   | 'publicBody'
   | 'metadata'
   | 'eventHooks'
-  // Reserved (name-only; later phases)
   | 'adminSettings'
-  | 'schema'
   | 'writePublicAsset'
+  // Reserved (name-only; later phases)
+  | 'schema'
   | 'contentFields'
   | 'adminPage'
   | 'serverRoute'

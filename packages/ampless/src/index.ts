@@ -48,6 +48,7 @@ export { escapeXml } from './xml.js'
 export { encodeAwsJson, decodeAwsJson } from './awsjson.js'
 export { formatPublicAssetUrl } from './storage.js'
 export { definePlugin } from './plugin.js'
+export { validatePublicAssetKey } from './plugin-asset-key.js'
 export type {
   AmplessPlugin,
   PluginEventHandler,
