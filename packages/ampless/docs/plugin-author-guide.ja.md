@@ -289,7 +289,7 @@ trusted processor は次の場所に書き込みます:
 public/plugins/<instanceId ?? name>/<key>
 ```
 
-`key` は相対 asset key である必要があります。空文字、絶対パス、`.` / `..` path segment、backslash、制御文字、256 文字超の key は S3 呼び出し前に拒否されます。`indexes/posts.json` のような nested path は許可されます。戻り値は書き込まれた object の public URL です。
+`key` は allowlist `[A-Za-z0-9._/-]+` に一致する必要があります。それ以外（スペース、URL 予約文字 `#` `?` `&` `=` `+`、非 ASCII 文字 (`日本語.xml` 等)、空文字、絶対パス（`/` 始まり）、`.` / `..` path segment、backslash、制御文字、256 文字超）は S3 呼び出し前に拒否されます。`indexes/posts.json` のような nested path や `feed.v2.xml` のような複数 dot は許可されます。allowlist を厳しく絞っているのは、返却 URL と実 S3 key を byte 等しい文字列に保つため — URL 予約文字は S3 では生バイトとして通るが、URL を consumer が parse すると別 object を指す状態になる。user 由来の文字を key に入れたい場合は事前に sanitize (hash、slugify 等) してから `ctx.writePublicAsset()` を呼んでください。戻り値は書き込まれた object の public URL です。
 
 移行期間中、`capabilities` フィールドが無い plugin はそのまま動きます。`capabilities` を宣言しているのに `writePublicAsset` を省いた plugin は、実際に `ctx.writePublicAsset()` を呼んだ時に 1 回だけ warn します。
 

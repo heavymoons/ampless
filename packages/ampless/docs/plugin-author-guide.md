@@ -351,11 +351,19 @@ The trusted processor writes under:
 public/plugins/<instanceId ?? name>/<key>
 ```
 
-`key` must be a relative asset key. Empty strings, absolute paths,
-`.` / `..` path segments, backslashes, control characters, and keys
-over 256 characters are rejected before S3 is called. Nested paths
-such as `indexes/posts.json` are allowed. The return value is the
-public URL for the written object.
+`key` must match the allowlist `[A-Za-z0-9._/-]+`. Anything outside
+that — spaces, URL-reserved characters (`#`, `?`, `&`, `=`, `+`),
+non-ASCII (`日本語.xml`), empty strings, absolute paths (leading `/`),
+`.` / `..` path segments, backslashes, control characters, or keys
+over 256 characters — is rejected before S3 is called. Nested paths
+such as `indexes/posts.json` and dotted extensions such as
+`feed.v2.xml` are allowed. The allowlist is deliberately tight so
+the returned public URL and the underlying S3 key are byte-identical
+strings; URL-reserved characters would survive S3 but reshape the URL
+when a consumer parses it. If you need to include user-supplied
+characters in a key, sanitize first (e.g. hash, slugify) before
+calling `ctx.writePublicAsset()`. The return value is the public URL
+for the written object.
 
 During the migration period, plugins with no `capabilities` field
 keep working. Plugins that do declare `capabilities` but omit
