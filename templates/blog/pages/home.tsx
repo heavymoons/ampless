@@ -81,7 +81,7 @@ export default async function BlogHome(_: ThemeRouteContext) {
                   )}
                   {post.excerpt && <p className="mt-2 text-gray-700">{post.excerpt}</p>}
                 </Link>
-                <TagList tags={post.tags} className="mt-3" />
+                <TagList tags={post.tags} className="mt-3" max={3} />
               </li>
             ))}
           </ul>
