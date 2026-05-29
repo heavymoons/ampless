@@ -1,6 +1,6 @@
 {
   "name": "@ampless/mcp-server",
-  "version": "1.0.0-alpha.24",
+  "version": "1.0.0-alpha.25",
   "description": "MCP tool registry shared by @ampless/backend mcp-handler Lambda. Installed transitively via @ampless/admin / @ampless/backend; no direct install needed.",
   "publishConfig": {
     "access": "public"
