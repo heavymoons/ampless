@@ -213,6 +213,35 @@ describe('runUpgradeIn', () => {
     }
   })
 
+  // 6b. protected plugins/: site-local plugin files → untouched. The
+  // template seeds a README into plugins/ on initial scaffold; once
+  // the directory exists everything inside is user territory (mirrors
+  // the themes/my-* convention for user-customised themes).
+  it('does not touch files under plugins/ (protected)', async () => {
+    const userPluginPath = join(projectDir, 'plugins', 'reading-time', 'index.ts')
+    mkdirSync(join(projectDir, 'plugins', 'reading-time'), { recursive: true })
+    writeFileSync(userPluginPath, '// my site-local plugin')
+
+    const userReadmePath = join(projectDir, 'plugins', 'README.md')
+    writeFileSync(userReadmePath, '# my customised plugins README')
+
+    // Template ships a different version of both files to ensure the
+    // protected guard runs.
+    const tplWithPlugins = makeTemplateDir({
+      'plugins/README.md': '# template README',
+      'plugins/reading-time/index.ts': '// template plugin (should never reach the project)',
+    })
+    try {
+      await runUpgradeIn(projectDir, tplWithPlugins, { noInstall: true })
+      expect(readFileSync(userPluginPath, 'utf-8')).toBe('// my site-local plugin')
+      expect(readFileSync(userReadmePath, 'utf-8')).toBe(
+        '# my customised plugins README',
+      )
+    } finally {
+      rmSync(tplWithPlugins, { recursive: true, force: true })
+    }
+  })
+
   // 7. package.json merge: ampless deps updated, other deps/scripts untouched
   it('merges ampless deps and update-ampless script but leaves other keys intact', async () => {
     await runUpgradeIn(projectDir, templateDir, { noInstall: true })

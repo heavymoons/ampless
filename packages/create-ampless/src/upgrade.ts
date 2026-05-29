@@ -104,6 +104,15 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
   // classifier must not double-process it.
   /^themes(\/|$)/,
   /^themes-registry\.ts$/,
+  // `plugins/` is the site-local plugin directory (user-owned, mirrors
+  // the `themes/my-*` convention for user-customised themes). The
+  // initial scaffold seeds a README into this directory; everything
+  // afterwards is the user's territory. We never overwrite or delete
+  // files here — even the seeded README is frozen at scaffold time,
+  // because plugin authors will sometimes edit it to document the
+  // site's own conventions. The kept-up-to-date "how to write a
+  // plugin" doc lives in `packages/ampless/docs/plugin-author-guide.md`.
+  /^plugins(\/|$)/,
 ]
 
 // `*.custom.ts` is the user's extension surface — once the file exists
