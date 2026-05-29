@@ -115,14 +115,24 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
   /^plugins(\/|$)/,
 ]
 
-// `*.custom.ts` is the user's extension surface — once the file exists
-// upgrade must leave it alone, but the empty stub still has to be
-// seeded into projects scaffolded before the convention was introduced
-// (the matching `resource.ts` / `backend.ts` template files import from
-// `./*.custom.js`, so a missing stub breaks the build). Splitting it
-// off from PROTECTED_PATTERNS lets the classifier route these files
-// through the "seed-if-missing" branch instead of the "ignore" branch.
-const SEED_IF_MISSING_PATTERN = /\.custom\.ts$/
+// Files that must be COPIED IN on first encounter but never overwritten
+// once present. Two cases live here:
+//
+//   1. `*.custom.ts` — user extension stubs. The matching `resource.ts`
+//      / `backend.ts` template files import from `./*.custom.js`, so a
+//      missing stub breaks the build. Older scaffolds didn't ship them;
+//      the seed branch covers those projects.
+//   2. `plugins/README.md` / `plugins/README.ja.md` — the local-plugin
+//      tutorial seeded into the `plugins/` directory. The directory
+//      itself is in PROTECTED_PATTERNS (= user-owned territory), but
+//      the README needs to appear in projects that upgrade across the
+//      change that introduced `plugins/`. Once present, it's
+//      user-owned — contributors edit it to document site-specific
+//      conventions.
+//
+// The classifier checks SEED_IF_MISSING_PATTERN before PROTECTED so the
+// matched files escape the protected-skip path. See `isProtected`.
+const SEED_IF_MISSING_PATTERN = /\.custom\.ts$|^plugins\/README(\.ja)?\.md$/
 
 const TEXT_EXTENSIONS = new Set([
   '.json', '.md', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
@@ -158,6 +168,12 @@ interface FileClassification {
 // ----------------------------------------------------------------------------
 
 function isProtected(relPath: string): boolean {
+  // SEED_IF_MISSING takes precedence: files matched there are
+  // "seed-if-missing, else leave alone" and need to escape the
+  // protected-skip path on initial encounter. Without this carve-out,
+  // the seeded README under `plugins/` would never reach projects
+  // upgrading across the change that introduced the directory.
+  if (SEED_IF_MISSING_PATTERN.test(relPath)) return false
   return PROTECTED_PATTERNS.some((re) => re.test(relPath))
 }
 

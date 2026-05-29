@@ -213,6 +213,35 @@ describe('runUpgradeIn', () => {
     }
   })
 
+  // 6b-seed. seed plugins/README on first upgrade across the change
+  // that introduced plugins/. The directory itself is in
+  // PROTECTED_PATTERNS, but `plugins/README.md` and `.ja.md` are
+  // carved out via SEED_IF_MISSING_PATTERN so projects that predate
+  // the convention still get the introductory doc.
+  it('seeds plugins/README into projects that do not yet have a plugins/ directory', async () => {
+    expect(existsSync(join(projectDir, 'plugins'))).toBe(false)
+
+    const tplWithPluginsReadme = makeTemplateDir({
+      'plugins/README.md': '# Site-local plugins (en)',
+      'plugins/README.ja.md': '# サイトローカルプラグイン (ja)',
+    })
+    try {
+      const result = await runUpgradeIn(projectDir, tplWithPluginsReadme, {
+        noInstall: true,
+      })
+
+      expect(existsSync(join(projectDir, 'plugins', 'README.md'))).toBe(true)
+      expect(existsSync(join(projectDir, 'plugins', 'README.ja.md'))).toBe(true)
+      expect(readFileSync(join(projectDir, 'plugins', 'README.md'), 'utf-8')).toBe(
+        '# Site-local plugins (en)',
+      )
+      expect(result.seeded).toContain('plugins/README.md')
+      expect(result.seeded).toContain('plugins/README.ja.md')
+    } finally {
+      rmSync(tplWithPluginsReadme, { recursive: true, force: true })
+    }
+  })
+
   // 6b. protected plugins/: site-local plugin files → untouched. The
   // template seeds a README into plugins/ on initial scaffold; once
   // the directory exists everything inside is user territory (mirrors
