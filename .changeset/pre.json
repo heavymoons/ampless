@@ -14,7 +14,8 @@
     "@ampless/plugin-webhook": "0.1.0",
     "@ampless/runtime": "0.1.0",
     "@ampless/plugin-gtm": "0.1.0",
-    "@ampless/plugin-plausible": "0.1.0"
+    "@ampless/plugin-plausible": "0.1.0",
+    "@ampless/plugin-schema-jsonld": "0.1.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -63,6 +64,7 @@
     "auto-sync-create-ampless-1780036524165",
     "auto-sync-create-ampless-1780054910580",
     "auto-sync-create-ampless-1780060169104",
+    "auto-sync-create-ampless-1780067073734",
     "awsjson-shared-utils",
     "body-always-json-encode",
     "bump-node-22",
@@ -113,6 +115,7 @@
     "plugin-phase2-admin-settings",
     "plugin-phase3a-gtm-plausible",
     "plugin-phase3c-writePublicAsset",
+    "plugin-phase4-per-post-body",
     "poll-theme-active-after-switch",
     "post-metadata-no-layout",
     "posttag-sync-via-stream",

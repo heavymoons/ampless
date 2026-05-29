@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-plausible",
-  "version": "0.1.1-alpha.2",
+  "version": "0.1.1-alpha.3",
   "description": "Plausible Analytics plugin for ampless",
   "license": "MIT",
   "type": "module",
