@@ -37,4 +37,30 @@ describe('validatePublicAssetKey', () => {
   it('rejects backslashes', () => {
     expect(validatePublicAssetKey('dir\\file.xml')).toMatch(/backslashes/)
   })
+
+  it('rejects URL fragment characters', () => {
+    expect(validatePublicAssetKey('foo#bar.xml')).toMatch(/ASCII letters/)
+  })
+
+  it('rejects URL query characters', () => {
+    expect(validatePublicAssetKey('foo?x=1.xml')).toMatch(/ASCII letters/)
+  })
+
+  it('rejects spaces', () => {
+    expect(validatePublicAssetKey('space file.xml')).toMatch(/ASCII letters/)
+  })
+
+  it('rejects URL-reserved + and &', () => {
+    expect(validatePublicAssetKey('foo+bar.xml')).toMatch(/ASCII letters/)
+    expect(validatePublicAssetKey('foo&bar.xml')).toMatch(/ASCII letters/)
+  })
+
+  it('rejects non-ASCII characters', () => {
+    expect(validatePublicAssetKey('日本語.xml')).toMatch(/ASCII letters/)
+  })
+
+  it('accepts paths with dots and hyphens', () => {
+    expect(validatePublicAssetKey('feed-archive.v2.xml')).toBeNull()
+    expect(validatePublicAssetKey('cache/snapshot_2026-05-28.json')).toBeNull()
+  })
 })

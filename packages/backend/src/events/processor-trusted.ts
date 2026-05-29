@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import {
   formatPublicAssetUrl,
+  isValidPluginKey,
   validatePublicAssetKey,
   type AmplessEvent,
   type AmplessPlugin,
@@ -74,9 +75,27 @@ function safeParse(s: string): unknown {
 export function createProcessorTrustedHandler(
   opts: CreateProcessorTrustedHandlerOpts
 ): SQSHandler {
-  const trustedPlugins: AmplessPlugin[] = (opts.plugins ?? []).filter(
-    (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
-  )
+  // Trusted plugins live behind a bucket-wide IAM grant on
+  // `public/plugins/*`, so the per-plugin namespace is the only thing
+  // separating one plugin's output from another's. Reject anything that
+  // can't safely round-trip through an S3 key + URL — namespaces with
+  // path separators or `..` would let a plugin escape its own prefix and
+  // clobber a sibling. The pattern matches the same `PLUGIN_KEY_PATTERN`
+  // (`/^[a-zA-Z0-9_-]+$/`) the docs and `ctx.setting` keys already use.
+  const trustedPlugins: AmplessPlugin[] = (opts.plugins ?? [])
+    .filter(
+      (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
+    )
+    .filter((p) => {
+      const ns = p.instanceId ?? p.name
+      if (!isValidPluginKey(ns)) {
+        console.warn(
+          `[trusted-processor] plugin "${p.name}" (instanceId="${p.instanceId ?? '(none)'}") has invalid namespace "${ns}". Must match /^[a-zA-Z0-9_-]+$/. Plugin skipped — no hooks will run for it.`
+        )
+        return false
+      }
+      return true
+    })
   const seenNamespaces = new Set<string>()
   for (const plugin of trustedPlugins) {
     const ns = plugin.instanceId ?? plugin.name
