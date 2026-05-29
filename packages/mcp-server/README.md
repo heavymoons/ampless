@@ -68,6 +68,7 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 | `update_post` | editor | Patch fields on an existing post |
 | `delete_post` | editor | Delete a post and clean up its tag index |
 | `upload_media` | editor | Upload base64-encoded bytes to S3 and create a Media record |
+| `delete_media` | editor | Delete a media file (S3 object + Media row). Pass `mediaId` or `src` |
 | `get_schema` | reader | Return the CMS content schema |
 | `upload_static_bundle` | editor | Upload a pre-built static bundle to S3 |
 | `list_static_files` | reader | List static bundle files |
