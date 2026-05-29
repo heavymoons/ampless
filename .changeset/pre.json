@@ -65,7 +65,9 @@
     "auto-sync-create-ampless-1780054910580",
     "auto-sync-create-ampless-1780060169104",
     "auto-sync-create-ampless-1780067073734",
+    "auto-sync-create-ampless-1780068120036",
     "awsjson-shared-utils",
+    "blog-post-footer-tags",
     "body-always-json-encode",
     "bump-node-22",
     "consolidate-sandbox-scripts",
@@ -145,6 +147,7 @@
     "upgrade-deletes-obsolete-files",
     "upgrade-marked-18",
     "upgrade-output-english",
+    "upgrade-protect-tsconfig",
     "user-admin-pipeline-event-shape"
   ]
 }
