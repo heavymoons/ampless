@@ -1,6 +1,6 @@
 {
   "name": "@ampless/backend",
-  "version": "1.0.0-alpha.34",
+  "version": "1.0.0-alpha.35",
   "description": "Amplify Gen 2 backend factories for ampless: auth, data, storage, event processors, API key renewer",
   "license": "MIT",
   "type": "module",
