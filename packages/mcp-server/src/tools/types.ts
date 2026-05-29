@@ -76,6 +76,15 @@ export interface StorageClient {
    * a few hundred entries per bundle in practice.
    */
   listObjects(prefix: string): Promise<StorageObject[]>
+
+  /**
+   * Build the public URL for an object `key`, in the same format
+   * `putObject` returns (`https://{bucket}.s3.{region}.amazonaws.com/{key}`).
+   * Pure string formatting — no S3 round-trip. `list_media` /
+   * `search_media` use this to surface a `url` alongside each Media row
+   * without re-deriving the bucket/region in the tool layer.
+   */
+  publicUrl(key: string): string
 }
 
 export interface ToolContext {

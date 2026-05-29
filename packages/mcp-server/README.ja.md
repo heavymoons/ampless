@@ -68,7 +68,9 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 | `update_post` | editor | 既存の投稿のフィールドをパッチ更新 |
 | `delete_post` | editor | 投稿を削除しタグインデックスをクリーンアップ |
 | `upload_media` | editor | Base64 エンコードされたバイト列を S3 にアップロードし Media レコードを作成 |
-| `delete_media` | editor | メディアファイルを削除（S3 オブジェクト + Media 行）。`mediaId` または `src` で指定 |
+| `list_media` | reader | メディア一覧を取得。`mimeType`（前方一致）/ `prefix` / `createdAfter` / `createdBefore` フィルターとページネーション対応 |
+| `search_media` | reader | ファイル名 / `src` / `mimeType` への部分一致でメディアを検索 |
+| `delete_media` | editor | メディアファイルを削除（S3 オブジェクト + Media 行）。`mediaId` または `src` で指定。`dryRun: true` で削除せずにプレビュー |
 | `get_schema` | reader | CMS コンテンツスキーマを返す |
 | `upload_static_bundle` | editor | ビルド済み静的バンドルを S3 にアップロード |
 | `list_static_files` | reader | 静的バンドルファイルを一覧表示 |

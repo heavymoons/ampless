@@ -17,6 +17,9 @@ function makeStorage(): {
       async listObjects() {
         return []
       },
+      publicUrl(key) {
+        return `https://test.s3.us-east-1.amazonaws.com/${key}`
+      },
     },
     puts,
   }
