@@ -63,6 +63,7 @@ export type {
   PluginPublicRenderContext,
   PublicHeadDescriptor,
   PublicBodyDescriptor,
+  PublicPostBodyDescriptor,
   PluginSettingsManifest,
   PluginSettingField,
   PluginTextField,

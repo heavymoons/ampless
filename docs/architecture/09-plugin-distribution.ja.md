@@ -46,6 +46,7 @@ export default defineConfig({
 - `@ampless/plugin-analytics-ga4` — descriptor API + admin 管理設定で `<head>` に GA4 のスニペットを注入。untrusted（公開 Next.js プロセスで動くので AWS データ権限は不要）。
 - `@ampless/plugin-gtm` — Google Tag Manager の head + body 注入（`<head>` にローダー script、`<body>` 末尾に `<noscript>` iframe フォールバック）。コンテナ ID は `/admin/plugins` から編集可能。untrusted。
 - `@ampless/plugin-plausible` — Plausible Analytics の head 注入（プライバシー重視、cookie 不使用）。サイトドメインとスクリプト URL は `/admin/plugins` から編集可能。`scriptUrl` はデフォルトでホスト版 plausible.io を指すが、self-hosted へ上書き可能。untrusted。
+- `@ampless/plugin-schema-jsonld` — `publicBodyForPost` 経由で投稿単位の Article / 構造化データ JSON-LD を注入。テーマの post ページテンプレートが `ampless.publicBodyForPost(post)` を呼び、返された `<script type="application/ld+json">` 要素を描画する。untrusted。（Phase 4）
 
 ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。後続も descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加:
 

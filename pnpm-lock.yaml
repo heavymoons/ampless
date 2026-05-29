@@ -273,6 +273,12 @@ importers:
         specifier: workspace:*
         version: link:../ampless
 
+  packages/plugin-schema-jsonld:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-seo:
     dependencies:
       ampless:

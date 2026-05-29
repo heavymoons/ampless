@@ -32,6 +32,8 @@ export default async function DocsPost({ params }: PostCtx) {
   ])
   if (!post) notFound()
 
+  const postBody = await ampless.publicBodyForPost(post)
+
   const defaultLightbox = settings.media.imageDisplay === 'lightbox'
   const maxWidth = settings.media.imageMaxWidth ?? '100%'
   const proseStyle: React.CSSProperties = {
@@ -65,6 +67,8 @@ export default async function DocsPost({ params }: PostCtx) {
                 </time>
               )}
             </header>
+
+            {postBody}
 
             <div
               id="post-body"

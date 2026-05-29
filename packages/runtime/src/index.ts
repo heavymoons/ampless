@@ -82,7 +82,7 @@ export type {
   EffectiveSiteSettings,
 } from './site-settings.js'
 export type { SeoApi } from './seo.js'
-export { createPluginHead } from './plugin-head.js'
+export { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
 export type { PluginHeadApi } from './plugin-head.js'
 export { createPluginSettings } from './plugin-settings.js'
 export type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
@@ -166,6 +166,16 @@ export interface Ampless {
   // templates/_shared/app/layout.tsx.
   publicHead(): Promise<ReactNode>
   publicBodyEnd(): Promise<ReactNode>
+  /**
+   * Per-post body descriptors (Phase 4 `schema` capability). Theme
+   * post templates render the result so plugins like
+   * `@ampless/plugin-schema-jsonld` can emit
+   * `<script type="application/ld+json">` Article schema keyed off
+   * the specific post being viewed. Limited to inline-script
+   * descriptors with `scriptType: 'application/ld+json'` — the
+   * runtime auto-escapes `<`, `>`, `&`, U+2028, U+2029 in the body.
+   */
+  publicBodyForPost(post: Post): Promise<ReactNode>
 
   // rendering
   renderBody(post: Post): string
@@ -228,6 +238,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
 
     publicHead: () => pluginHead.renderHead(),
     publicBodyEnd: () => pluginHead.renderBodyEnd(),
+    publicBodyForPost: (post) => pluginHead.renderBodyForPost(post),
 
     renderBody: (post) => renderBody(post),
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),

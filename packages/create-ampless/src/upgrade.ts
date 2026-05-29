@@ -52,6 +52,7 @@ const AMPLESS_PACKAGES = new Set([
   '@ampless/runtime',
   '@ampless/plugin-seo',
   '@ampless/plugin-rss',
+  '@ampless/plugin-schema-jsonld',
   '@ampless/plugin-webhook',
   '@ampless/plugin-og-image',
   '@ampless/plugin-analytics-ga4',

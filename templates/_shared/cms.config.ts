@@ -1,6 +1,7 @@
 import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
+// import schemaJsonLdPlugin from '@ampless/plugin-schema-jsonld'
 // import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
 // import gtmPlugin from '@ampless/plugin-gtm'
 // import plausiblePlugin from '@ampless/plugin-plausible'
@@ -93,6 +94,17 @@ export default defineConfig({
     //
     // plausiblePlugin({
     //   domain: '', // 'example.com' to enable
+    // }),
+    //
+    // JSON-LD structured data (Schema.org). Injects <script type="application/ld+json">
+    // into post pages for Article / BlogPosting markup. articleType, authorName and
+    // publisherName fall back to the site name when left empty.
+    //
+    // schemaJsonLdPlugin({
+    //   articleType: 'Article', // 'Article' | 'BlogPosting' | 'NewsArticle'
+    //   authorName: '', // empty falls back to site.name
+    //   publisherName: '', // empty falls back to site.name
+    //   publisherLogo: '', // optional absolute URL to publisher logo
     // }),
     //
     // Per-post OG images: SNS crawlers hit `/og/<slug>` and we render

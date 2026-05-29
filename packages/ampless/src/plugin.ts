@@ -14,6 +14,10 @@ export type TrustLevel = 'untrusted' | 'trusted' | 'privileged'
  *   - `metadata` / `eventHooks`: name-only declaration for existing surfaces.
  *   - `adminSettings`: admin-managed public settings manifest.
  *   - `writePublicAsset`: trusted hook context can write namespaced public assets.
+ *   - `schema`: per-post body injection via `publicBodyForPost`,
+ *     scoped to JSON-LD `<script type="application/ld+json">`. Themes
+ *     render the descriptors by calling `ampless.publicBodyForPost(post)`
+ *     in their post template.
  *
  * Reserved capabilities are accepted by the type so that plugins can
  * declare future intent, but the runtime does nothing with them yet —
@@ -29,8 +33,9 @@ export type PluginCapability =
   | 'eventHooks'
   | 'adminSettings'
   | 'writePublicAsset'
-  // Reserved (name-only; later phases)
+  // Phase 4 active
   | 'schema'
+  // Reserved (name-only; later phases)
   | 'contentFields'
   | 'adminPage'
   | 'serverRoute'
@@ -112,6 +117,26 @@ export type PublicHeadDescriptor =
       body: string
       strategy?: ScriptStrategy
       /**
+       * Optional MIME-like script type. Phase 4 allows
+       * `'application/ld+json'` only — when set, the runtime emits
+       * `<script type="application/ld+json">` and **auto-escapes** the
+       * `body` (`<`, `>`, `&`, U+2028, U+2029 → `\uXXXX`) so plugin
+       * authors cannot accidentally let a value break out of the
+       * script tag. This invariant is applied across all three
+       * surfaces (`publicHead` / `publicBodyEnd` / `publicBodyForPost`).
+       *
+       * Unsupported values are dropped (descriptor and warning).
+       * Surface-dependent strictness:
+       *   - `publicHead` / `publicBodyEnd`: `undefined` (= default JS,
+       *     backwards compatible) or `'application/ld+json'`.
+       *   - `publicBodyForPost`: `'application/ld+json'` REQUIRED —
+       *     the per-post body surface is scoped to JSON-LD only so
+       *     the schema capability does not become a per-post arbitrary
+       *     inline-JS channel. A future capability would open that
+       *     explicitly.
+       */
+      scriptType?: 'application/ld+json'
+      /**
        * Type-only reservation. CSP nonce resolution (including the
        * planned `'auto'` mode) is deferred to a future RFP; Phase 1
        * does not propagate this field to the rendered element.
@@ -156,6 +181,29 @@ export type PublicBodyDescriptor =
       height?: number
       attrs?: Record<string, string | boolean>
     }
+
+/**
+ * Descriptor returned by `publicBodyForPost()` (Phase 4). Limited to
+ * the `inlineScript` variant with `scriptType: 'application/ld+json'`
+ * REQUIRED. This narrowing is deliberate:
+ *   - The per-post body surface is for JSON-LD / structured data only.
+ *     We do not want the `schema` capability to become a per-post
+ *     arbitrary inline-JS channel.
+ *   - `meta` / `link` belong in `<head>`; theme post pages render
+ *     these descriptors inside `<body>`, so meta/link are excluded.
+ *
+ * If a future use case needs per-post arbitrary inline JS (e.g.
+ * Microsoft Clarity per-page tagging), open it through a new
+ * capability such as `publicPostScript` rather than relaxing this.
+ */
+export type PublicPostBodyDescriptor = Extract<
+  PublicHeadDescriptor,
+  { type: 'inlineScript' }
+> & {
+  /** Required for `publicBodyForPost`; the runtime drops any descriptor
+   *  whose scriptType is not 'application/ld+json'. */
+  scriptType: 'application/ld+json'
+}
 
 /**
  * Metadata-like object that maps cleanly onto Next.js `Metadata`. We keep
@@ -422,6 +470,34 @@ export interface AmplessPlugin {
    * (GTM no-script fallback frame, chat widgets, ...).
    */
   publicBodyEnd?(ctx: PluginPublicRenderContext): readonly PublicBodyDescriptor[]
+  /**
+   * Per-post body descriptors (Phase 4). Themes render the result by
+   * calling `ampless.publicBodyForPost(post)` in their post template;
+   * the descriptors emit inside `<body>` (not `<head>`, which the
+   * Next.js Metadata API cannot do for `<script>` tags). Primary use
+   * case: JSON-LD `<script type="application/ld+json">` Article
+   * schema. Restricted to inline-script descriptors with
+   * `scriptType: 'application/ld+json'` — see
+   * `PublicPostBodyDescriptor` for the rationale.
+   *
+   * The runtime auto-escapes `<`, `>`, `&`, U+2028, and U+2029 in the
+   * body so plugin authors cannot accidentally let a value break out
+   * of the script tag. The same escape is applied to any
+   * `'application/ld+json'` descriptor returned from `publicHead` or
+   * `publicBodyEnd`.
+   *
+   * Theme integration: first-party themes (blog / corporate / dads /
+   * docs / landing / minimal) all render the result automatically.
+   * Plugin authors who target custom themes should document the
+   * theme-side render call in their plugin's README — when the theme
+   * does not call `publicBodyForPost`, the plugin silently no-ops.
+   *
+   * Plugins implementing this should declare the `schema` capability.
+   */
+  publicBodyForPost?(
+    post: Post,
+    ctx: PluginPublicRenderContext,
+  ): readonly PublicPostBodyDescriptor[]
   /**
    * Dynamic OG image renderer. The dispatcher route (e.g.
    * `app/og/[slug]/route.ts`) reads this and feeds the element into
