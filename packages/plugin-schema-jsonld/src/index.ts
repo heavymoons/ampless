@@ -24,23 +24,31 @@ import {
 
 export interface SchemaJsonLdOptions {
   /**
-   * Override the default schema.org `@type`. Falls back to the
-   * `articleType` admin setting, then `'Article'`.
+   * Default schema.org `@type` for this plugin instance — used as the
+   * manifest default for the `articleType` admin field. The admin
+   * value always wins at runtime; this option only seeds the initial
+   * default and acts as a fallback when an admin save somehow ends up
+   * with a value outside `ARTICLE_TYPES` (defence against a future
+   * manifest change).
    */
   articleType?: 'Article' | 'NewsArticle' | 'BlogPosting' | 'TechArticle'
   /**
-   * Override the author name. Falls back to the `authorName` admin
-   * setting, then `site.name`.
+   * Default author name — used as the manifest default for the
+   * `authorName` admin field. The admin value (including an explicit
+   * empty string, which means "fall back to site.name") always wins
+   * at runtime; this option only seeds the initial default.
    */
   authorName?: string
   /**
-   * Override the publisher name. Falls back to the `publisherName`
-   * admin setting, then `site.name`.
+   * Default publisher name — used as the manifest default for the
+   * `publisherName` admin field. Same precedence as `authorName`.
    */
   publisherName?: string
   /**
-   * Override the publisher logo URL. Falls back to the `publisherLogo`
-   * admin setting; omitted when empty.
+   * Default publisher logo URL — used as the manifest default for the
+   * `publisherLogo` admin field. Same precedence as `authorName`. An
+   * empty stored value (admin save or default) omits the logo from
+   * the schema.
    */
   publisherLogo?: string
   /**
@@ -168,6 +176,10 @@ export default function schemaJsonLdPlugin(
             ja: '発行者ロゴ画像の絶対 URL。空欄でスキーマからロゴを省略します。',
           },
           default: options.publisherLogo ?? '',
+          // Google Rich Results expects an absolute URL for
+          // publisher.logo (ImageObject.url); a relative path would
+          // be interpreted against whatever page the crawler is on.
+          allowRelative: false,
         },
       ],
     },
@@ -178,25 +190,29 @@ export default function schemaJsonLdPlugin(
     ): readonly PublicPostBodyDescriptor[] {
       const site = ctx.site
 
+      // Resolve values exclusively through ctx.setting() — the
+      // constructor options only influence the manifest `default:`
+      // above. Re-falling-back to options here would resurrect the
+      // constructor value when the admin explicitly saves an empty
+      // string (meaning "use site.name" for author/publisher, or
+      // "omit the logo"), breaking the admin's ability to override.
+      //
+      // resolvePluginSettings returns stored ?? manifest.default, so
+      // when the admin has never touched the field ctx.setting()
+      // already yields the constructor option (via the manifest
+      // default). Once they save anything — including an empty
+      // string — that stored value wins.
       const rawType = (ctx.setting<string>('articleType') ?? '').trim()
       const articleType: ArticleType =
         (ARTICLE_TYPES as readonly string[]).includes(rawType)
           ? (rawType as ArticleType)
-          : (options.articleType ?? 'Article')
+          : 'Article'
 
       const authorName =
-        (ctx.setting<string>('authorName') ?? '').trim() ||
-        options.authorName?.trim() ||
-        site.name
-
+        (ctx.setting<string>('authorName') ?? '').trim() || site.name
       const publisherName =
-        (ctx.setting<string>('publisherName') ?? '').trim() ||
-        options.publisherName?.trim() ||
-        site.name
-
-      const publisherLogo =
-        (ctx.setting<string>('publisherLogo') ?? '').trim() ||
-        (options.publisherLogo ?? '').trim()
+        (ctx.setting<string>('publisherName') ?? '').trim() || site.name
+      const publisherLogo = (ctx.setting<string>('publisherLogo') ?? '').trim()
 
       const schema = buildSchema(post, site, {
         articleType,

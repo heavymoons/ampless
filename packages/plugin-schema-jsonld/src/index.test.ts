@@ -305,4 +305,54 @@ describe('schemaJsonLdPlugin', () => {
       'publisherLogo',
     ])
   })
+
+  // --- admin empty-string explicitly overrides constructor option ------
+  //
+  // Regression guards for the design rule that constructor options ONLY
+  // seed the manifest default; once admin saves anything (including ''),
+  // that stored value wins. Re-falling-back to the constructor option at
+  // runtime would let it resurrect when the admin explicitly disables a
+  // field, breaking the documented "leave empty to use site.name / omit
+  // the logo" contract.
+
+  it('admin authorName="" wins over constructor authorName (falls back to site.name)', () => {
+    const plugin = schemaJsonLdPlugin({ authorName: 'Constructor Author' })
+    const schema = callPublicBodyForPost(plugin, makePost(), { authorName: '' })
+    const author = schema.author as Record<string, unknown>
+    expect(author.name).toBe(site.name)
+  })
+
+  it('admin publisherName="" wins over constructor publisherName (falls back to site.name)', () => {
+    const plugin = schemaJsonLdPlugin({ publisherName: 'Constructor Publisher' })
+    const schema = callPublicBodyForPost(plugin, makePost(), {
+      publisherName: '',
+    })
+    const publisher = schema.publisher as Record<string, unknown>
+    expect(publisher.name).toBe(site.name)
+  })
+
+  it('admin publisherLogo="" wins over constructor publisherLogo (logo omitted)', () => {
+    const plugin = schemaJsonLdPlugin({
+      publisherLogo: 'https://example.com/ctor-logo.png',
+    })
+    const schema = callPublicBodyForPost(plugin, makePost(), {
+      publisherLogo: '',
+    })
+    const publisher = schema.publisher as Record<string, unknown>
+    expect(publisher).not.toHaveProperty('logo')
+  })
+
+  // --- publisherLogo field disallows relative URLs ---------------------
+
+  it('publisherLogo field declares allowRelative: false', () => {
+    const plugin = schemaJsonLdPlugin()
+    const fields = plugin.settings?.public ?? []
+    const logoField = fields.find((f) => f.key === 'publisherLogo')
+    expect(logoField).toBeDefined()
+    if (logoField?.type === 'url') {
+      expect(logoField.allowRelative).toBe(false)
+    } else {
+      throw new Error('publisherLogo field should be a url field')
+    }
+  })
 })

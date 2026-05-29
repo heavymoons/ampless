@@ -169,11 +169,11 @@ interface RenderedEntry {
  * payload still parses but the HTML parser can no longer see a closing
  * `</script>` sequence:
  *
- *   '<'      → `<`
- *   '>'      → `>`
- *   '&'      → `&`
- *   U+2028   → ` `
- *   U+2029   → ` `
+ *   '<'      → '\u003c'
+ *   '>'      → '\u003e'
+ *   '&'      → '\u0026'
+ *   U+2028   → '\u2028'
+ *   U+2029   → '\u2029'
  */
 export function escapeJsonLdInlineBody(value: string): string {
   return value
