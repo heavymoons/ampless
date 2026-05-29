@@ -160,6 +160,40 @@ describe('runUpgradeIn', () => {
     expect(after).toBe(userContent)
   })
 
+  // 5b. protected tsconfig.json: Next.js mutates this during build
+  // (jsx: "preserve" → "react-jsx", appends .next/dev/types/**/*.ts to
+  // `include`). Treating it as `replace` would overwrite those
+  // mutations on every upgrade, producing a dirty diff that Next.js
+  // immediately re-creates on the next build.
+  it('does not overwrite tsconfig.json (protected)', async () => {
+    const projectTsconfig = JSON.stringify(
+      {
+        compilerOptions: { jsx: 'react-jsx', strict: true },
+        include: ['next-env.d.ts', '.next/dev/types/**/*.ts', '**/*.ts', '**/*.tsx'],
+      },
+      null,
+      2,
+    )
+    writeFileSync(join(projectDir, 'tsconfig.json'), projectTsconfig)
+
+    const templateTsconfig = JSON.stringify(
+      {
+        compilerOptions: { jsx: 'preserve', strict: true },
+        include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'],
+      },
+      null,
+      2,
+    )
+    const tplWithTsconfig = makeTemplateDir({ 'tsconfig.json': templateTsconfig })
+    try {
+      await runUpgradeIn(projectDir, tplWithTsconfig, { noInstall: true })
+      const after = readFileSync(join(projectDir, 'tsconfig.json'), 'utf-8')
+      expect(after).toBe(projectTsconfig)
+    } finally {
+      rmSync(tplWithTsconfig, { recursive: true, force: true })
+    }
+  })
+
   // 6. protected themes/: user's theme file → untouched
   it('does not touch files under themes/ (protected)', async () => {
     const customThemePath = join(projectDir, 'themes', 'blog', 'page.tsx')

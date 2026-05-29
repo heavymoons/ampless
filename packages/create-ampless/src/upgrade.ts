@@ -87,6 +87,16 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
   /^\.amplify(\/|$)/,
   /^amplify_outputs\.json$/,
   /^next-env\.d\.ts$/,
+  // `tsconfig.json` is auto-managed by Next.js during `next build` /
+  // `next dev` — it rewrites `jsx: "preserve"` → `"react-jsx"` for
+  // the React automatic runtime and appends `.next/dev/types/**/*.ts`
+  // to `include`. Treating the file as `replace` here would overwrite
+  // those mutations on every `update-ampless`, only for Next.js to
+  // re-apply them on the next build — a churn cycle that produces a
+  // dirty diff after every upgrade. Protect the file; users hand-
+  // merge new compiler options in the rare case the template
+  // tsconfig changes meaningfully.
+  /^tsconfig\.json$/,
   /^tsconfig\.tsbuildinfo$/,
   /^pnpm-lock\.yaml$/,
   /^package-lock\.json$/,
