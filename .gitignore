@@ -22,3 +22,7 @@ dist/
 
 # Temporary review notes and local handoff docs
 docs/tmp/
+
+# Codex CLI local artifacts (user's tool, not part of the project)
+.codex/
+/AGENTS.md
