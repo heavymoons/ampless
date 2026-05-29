@@ -6,6 +6,8 @@ import { createPost, createPostSchema } from './create-post.js'
 import { updatePost, updatePostSchema } from './update-post.js'
 import { deletePost, deletePostSchema } from './delete-post.js'
 import { uploadMedia, uploadMediaSchema } from './upload-media.js'
+import { listMedia, listMediaSchema } from './list-media.js'
+import { searchMedia, searchMediaSchema } from './search-media.js'
 import { deleteMedia, deleteMediaSchema } from './delete-media.js'
 import { getSchema, getSchemaSchema } from './get-schema.js'
 import { uploadStaticBundle, uploadStaticBundleSchema } from './upload-static-bundle.js'
@@ -82,9 +84,25 @@ export const tools: ToolDefinition[] = [
       uploadMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof uploadMedia>[2]),
   },
   {
+    name: 'list_media',
+    description:
+      'List media files in the CMS. Optional filters: `mimeType` (prefix match — "image/" matches all images, "image/png" only PNG), `prefix` (S3 key prefix on `src`, e.g. "public/media/2024/"), `createdAfter` / `createdBefore` (ISO 8601 date range). Returns up to `limit` rows (default 20) — each `{ mediaId, src, url, mimeType, size, createdAt, updatedAt }` — plus a `nextToken` cursor. Note: filters apply after the page read, so a page may return fewer than `limit` rows while a `nextToken` remains — follow the cursor. Use this to find media to delete without remembering `upload_media` responses.',
+    inputSchema: listMediaSchema,
+    handler: (args, ctx) =>
+      listMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof listMedia>[2]),
+  },
+  {
+    name: 'search_media',
+    description:
+      'Search media by substring (case-sensitive `contains`) across `src` (which includes the filename) and `mimeType`. Pass `query` (e.g. "logo", ".png", "image/png"). Walks DynamoDB pages internally until it collects at least `limit` matches (default 20), exhausts the table, or hits its page cap — so `limit` is a soft target and the result may run slightly past it. Returns the same row shape as `list_media` plus `nextToken`; `truncated: true` means the page cap was hit with more to scan (pass `nextToken` back to continue).',
+    inputSchema: searchMediaSchema,
+    handler: (args, ctx) =>
+      searchMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof searchMedia>[2]),
+  },
+  {
     name: 'delete_media',
     description:
-      'Delete a media file: removes the S3 object and the Media row. Pass `mediaId` (from `upload_media`\'s response) or `src` (full S3 key like `public/media/2026/05/...`). When only `src` is given, looks up the Media row via `getMediaBySrc`. S3 delete runs first, then the DDB row delete — both are idempotent so re-running converges on missing-key cases. Returns `{ deleted: false }` instead of throwing when no Media row matches; if `src` was supplied directly the S3 object is still removed (use this to sweep orphan files).',
+      'Delete a media file: removes the S3 object and the Media row. Pass `mediaId` (from `upload_media`\'s response, or `list_media` / `search_media`) or `src` (full S3 key like `public/media/2026/05/...`). When only `src` is given, looks up the Media row via `getMediaBySrc`. S3 delete runs first, then the DDB row delete — both are idempotent so re-running converges on missing-key cases. Pass `dryRun: true` to preview what would be deleted without touching anything (returns `{ deleted: false, dryRun: true, ... }`). Returns `{ deleted: false }` instead of throwing when no Media row matches; if `src` was supplied directly the S3 object is still removed (use this to sweep orphan files).',
     inputSchema: deleteMediaSchema,
     handler: (args, ctx) =>
       deleteMedia(

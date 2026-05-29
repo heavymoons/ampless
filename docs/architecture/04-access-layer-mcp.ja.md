@@ -158,7 +158,7 @@ import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
 
 #### MCP ツール
 
-現行レジストリは 11 個のツールを提供 ([`packages/mcp-server/src/tools/index.ts`](../../packages/mcp-server/src/tools/index.ts))：
+現行レジストリは 14 個のツールを提供 ([`packages/mcp-server/src/tools/index.ts`](../../packages/mcp-server/src/tools/index.ts))：
 
 | ツール | 説明 |
 |---|---|
@@ -168,6 +168,9 @@ import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
 | `update_post` | 投稿を更新 |
 | `delete_post` | 投稿を削除し、`PostTag` 行もクリーンアップ |
 | `upload_media` | base64 バイト列を `public/media/YYYY/MM/` にアップロードして Media レコードを作成 |
+| `list_media` | Media 行を一覧。`mimeType`（前方一致）/ `prefix` / `createdAfter` / `createdBefore` フィルタとページネーション対応。各行は公開 `url` を含む |
+| `search_media` | ファイル名 / `src` / `mimeType` への部分一致検索（上限までページを内部巡回） |
+| `delete_media` | Media ファイル（S3 オブジェクト + 行）を `mediaId` または `src` で削除。`dryRun: true` で削除せずプレビュー |
 | `get_schema` | CMS のコンテンツスキーマ（`static` 投稿の注記つき）を返す |
 | `upload_static_bundle` | zip 1 発で送る形のバンドルアップロード。展開・検証・S3 プレフィックス置換・manifest 上書きを atomic に |
 | `upload_static_file` | `public/static/<slug>/` 配下に 1 ファイルずつ差分アップロード |

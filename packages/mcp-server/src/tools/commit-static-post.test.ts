@@ -11,6 +11,9 @@ function makeStorage(initial: StorageObject[]): StorageClient {
     async listObjects(prefix) {
       return initial.filter((o) => o.key.startsWith(prefix))
     },
+    publicUrl(key) {
+      return `https://test.s3.amazonaws.com/${key}`
+    },
   }
 }
 

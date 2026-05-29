@@ -20,6 +20,9 @@ function makeStorage(initial: StorageObject[] = []): {
       async listObjects(prefix) {
         return items.filter((o) => o.key.startsWith(prefix))
       },
+      publicUrl(key) {
+        return `https://test.s3.amazonaws.com/${key}`
+      },
     },
     deletes,
   }

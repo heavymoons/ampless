@@ -374,14 +374,16 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     'AMPLESS_APPSYNC_URL',
     backend.data.resources.cfnResources.cfnGraphqlApi.attrGraphQlUrl
   )
-  // S3 PutObject for `upload_media`. Scope to `public/media/*` which
-  // matches the prefix `buildMediaKey` always produces. The Lambda
-  // execution role carries these credentials — no AWS_ACCESS_KEY_ID
-  // env var needed in the function.
+  // S3 PutObject + DeleteObject for `upload_media` / `delete_media`.
+  // Scope to `public/media/*` which matches the prefix `buildMediaKey`
+  // always produces. `delete_media` removes the S3 object before the
+  // Media row, so it needs DeleteObject here (mirrors the static-bundle
+  // grant below). The Lambda execution role carries these credentials —
+  // no AWS_ACCESS_KEY_ID env var needed in the function.
   mcpHandlerFn.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
-      actions: ['s3:PutObject'],
+      actions: ['s3:PutObject', 's3:DeleteObject'],
       resources: [`${backend.storage.resources.bucket.bucketArn}/public/media/*`],
     })
   )

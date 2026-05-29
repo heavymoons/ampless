@@ -40,6 +40,12 @@ export interface DeleteMediaArgs {
    * to delete (strip the `/api/media/` prefix → prepend `public/`).
    */
   src?: string
+  /**
+   * When true, resolve the target but delete nothing — neither the S3
+   * object nor the Media row. Returns a preview of what *would* be
+   * deleted so you can confirm before the real call. Defaults to false.
+   */
+  dryRun?: boolean
 }
 
 export const deleteMediaSchema = {
@@ -55,6 +61,11 @@ export const deleteMediaSchema = {
       description:
         "Full S3 key including `public/` (e.g. 'public/media/2026/05/1714400000000-photo.jpg'). Use when you only have the public URL — strip `/api/media/` and prepend `public/`. Provide either `mediaId` or `src`.",
     },
+    dryRun: {
+      type: 'boolean',
+      description:
+        'When true, resolve the target but delete nothing (no S3 delete, no row delete). Returns `{ deleted: false, dryRun: true, ... }` previewing what would be removed. Use it to confirm before the real delete.',
+    },
   },
 } as const
 
@@ -64,6 +75,11 @@ export const deleteMediaSchema = {
  * Resolution: when `mediaId` is given, looks up the row by primary key
  * to obtain `src`. When only `src` is given, looks up the row via the
  * `getMediaBySrc` query (the same path the public media-proxy uses).
+ *
+ * Dry run: when `dryRun` is true the lookups still run but neither the
+ * S3 object nor the Media row is touched; the result carries
+ * `dryRun: true` and (when resolved) the `mediaId` / `src` that the real
+ * call would remove.
  *
  * Ordering: S3 DeleteObject first, then GraphQL deleteMedia mutation.
  * Both are idempotent on success — DeleteObject doesn't throw when the
@@ -84,12 +100,13 @@ export async function deleteMedia(
   args: DeleteMediaArgs,
 ): Promise<
   | { deleted: true; mediaId: string; src: string }
-  | { deleted: false; reason: string; src?: string }
+  | { deleted: false; reason: string; dryRun?: boolean; mediaId?: string; src?: string }
 > {
   if (!args.mediaId && !args.src) {
     throw new Error('delete_media: provide `mediaId` or `src`')
   }
 
+  const dryRun = args.dryRun === true
   let mediaId: string | undefined
   let src: string | undefined
 
@@ -116,6 +133,14 @@ export async function deleteMedia(
   // objects the Media table no longer references.
   if (!mediaId) {
     if (args.src) {
+      if (dryRun) {
+        return {
+          deleted: false as const,
+          dryRun: true as const,
+          reason: 'dry run — media row not found; would attempt S3 object delete',
+          src: args.src,
+        }
+      }
       await storage.deleteObject(args.src)
       return {
         deleted: false as const,
@@ -125,7 +150,22 @@ export async function deleteMedia(
     }
     return {
       deleted: false as const,
-      reason: 'media row not found for mediaId',
+      ...(dryRun ? { dryRun: true as const } : {}),
+      reason: dryRun
+        ? 'dry run — media row not found for mediaId; nothing to delete'
+        : 'media row not found for mediaId',
+    }
+  }
+
+  // Dry run: target resolved, but touch nothing. Surface what the real
+  // call would remove so the caller can confirm first.
+  if (dryRun) {
+    return {
+      deleted: false as const,
+      dryRun: true as const,
+      reason: 'dry run — nothing deleted',
+      mediaId,
+      src: src!,
     }
   }
 

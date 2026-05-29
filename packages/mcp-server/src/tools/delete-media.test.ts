@@ -60,6 +60,9 @@ function makeStorage(initial: StorageObject[] = []): {
       async listObjects(prefix) {
         return items.filter((o) => o.key.startsWith(prefix))
       },
+      publicUrl(key) {
+        return `https://test.s3.amazonaws.com/${key}`
+      },
     },
     deletes,
   }
@@ -137,5 +140,59 @@ describe('delete_media', () => {
     await deleteMedia(g.graphql, s.storage, { mediaId: ROW.mediaId })
 
     expect(s.deletes[0]).toBe(ROW.src)
+  })
+
+  describe('dryRun', () => {
+    it('resolves the row but deletes nothing (no S3, no DDB mutation)', async () => {
+      const g = makeGraphql([ROW])
+      const s = makeStorage([{ key: ROW.src, size: 1000 }])
+
+      const result = await deleteMedia(g.graphql, s.storage, {
+        mediaId: ROW.mediaId,
+        dryRun: true,
+      })
+
+      expect(result).toMatchObject({
+        deleted: false,
+        dryRun: true,
+        mediaId: ROW.mediaId,
+        src: ROW.src,
+      })
+      expect(s.deletes).toHaveLength(0)
+      // Only the lookup ran — no DeleteMedia mutation.
+      expect(g.calls.map((c) => c.op.match(/(query|mutation) \w+/)?.[0])).toEqual([
+        'query GetMedia',
+      ])
+    })
+
+    it('previews orphan S3 cleanup without deleting when src is unknown to the table', async () => {
+      const g = makeGraphql([]) // no rows
+      const s = makeStorage([{ key: 'public/media/2026/05/orphan.jpg', size: 1 }])
+
+      const result = await deleteMedia(g.graphql, s.storage, {
+        src: 'public/media/2026/05/orphan.jpg',
+        dryRun: true,
+      })
+
+      expect(result).toMatchObject({
+        deleted: false,
+        dryRun: true,
+        src: 'public/media/2026/05/orphan.jpg',
+      })
+      expect(s.deletes).toHaveLength(0)
+    })
+
+    it('marks dryRun when mediaId resolves no row', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      const result = await deleteMedia(g.graphql, s.storage, {
+        mediaId: 'missing',
+        dryRun: true,
+      })
+
+      expect(result).toMatchObject({ deleted: false, dryRun: true })
+      expect(s.deletes).toHaveLength(0)
+    })
   })
 })

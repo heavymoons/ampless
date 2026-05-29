@@ -74,5 +74,8 @@ export function createMcpStorageClient(opts: CreateMcpStorageClientOpts): Storag
       } while (token)
       return out
     },
+    publicUrl(key) {
+      return formatPublicAssetUrl(opts.bucket, opts.region, key)
+    },
   }
 }

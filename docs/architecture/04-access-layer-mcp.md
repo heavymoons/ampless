@@ -158,7 +158,7 @@ import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
 
 #### MCP Tools
 
-The current registry exposes 11 tools ([`packages/mcp-server/src/tools/index.ts`](../../packages/mcp-server/src/tools/index.ts)):
+The current registry exposes 14 tools ([`packages/mcp-server/src/tools/index.ts`](../../packages/mcp-server/src/tools/index.ts)):
 
 | Tool | Description |
 |---|---|
@@ -168,6 +168,9 @@ The current registry exposes 11 tools ([`packages/mcp-server/src/tools/index.ts`
 | `update_post` | Update a post |
 | `delete_post` | Delete a post and clean up its `PostTag` rows |
 | `upload_media` | Upload bytes (base64) under `public/media/YYYY/MM/` and create a Media row |
+| `list_media` | List Media rows with optional `mimeType` (prefix) / `prefix` / `createdAfter` / `createdBefore` filters + pagination; each row carries a public `url` |
+| `search_media` | Substring search across filename / `src` / `mimeType` (walks pages internally up to a cap) |
+| `delete_media` | Delete a Media file (S3 object + row) by `mediaId` or `src`; `dryRun: true` previews without deleting |
 | `get_schema` | Return the CMS content schema, including notes on `static` posts |
 | `upload_static_bundle` | One-shot zip upload — extract, validate, replace S3 prefix, upsert the Post manifest |
 | `upload_static_file` | Incrementally write a single file under `public/static/<slug>/` |
