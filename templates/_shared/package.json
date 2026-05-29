@@ -30,6 +30,7 @@
     "@ampless/plugin-og-image": "^0.2.0-alpha.20",
     "@ampless/plugin-plausible": "^0.1.1-alpha.2",
     "@ampless/plugin-rss": "^0.2.0-alpha.20",
+    "@ampless/plugin-schema-jsonld": "^0.1.0",
     "@ampless/plugin-seo": "^0.2.0-alpha.20",
     "@ampless/plugin-webhook": "^0.2.0-alpha.20",
     "@ampless/admin": "^1.0.0-alpha.46",

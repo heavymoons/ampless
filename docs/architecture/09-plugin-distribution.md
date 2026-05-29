@@ -46,6 +46,7 @@ Shipped from this monorepo, published under `@ampless/` on npm:
 - `@ampless/plugin-analytics-ga4` — Google Analytics 4 head injection via the descriptor API + admin-managed settings. untrusted (runs inside the public Next.js process, no AWS data permissions needed).
 - `@ampless/plugin-gtm` — Google Tag Manager head + body injection (loader script in `<head>`, `<noscript>` iframe fallback at end of `<body>`) with the container ID editable from `/admin/plugins`. untrusted.
 - `@ampless/plugin-plausible` — Plausible Analytics head injection (privacy-focused, cookie-free). Site domain + script URL editable from `/admin/plugins`; `scriptUrl` defaults to the hosted plausible.io but can be overridden for self-hosted installs. untrusted.
+- `@ampless/plugin-schema-jsonld` — per-post Article / structured-data JSON-LD via `publicBodyForPost`. The theme's post page template calls `ampless.publicBodyForPost(post)` and injects the returned `<script type="application/ld+json">` element. untrusted. (Phase 4)
 
 The first-party set is being expanded along the plugin extension roadmap ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)). Future additions also exercise the descriptor-based head/body injection API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)):
 

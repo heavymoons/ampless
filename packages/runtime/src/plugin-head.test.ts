@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { isValidElement, Fragment, type ReactElement } from 'react'
-import { definePlugin, type Config, type PublicHeadDescriptor } from 'ampless'
-import { createPluginHead } from './plugin-head.js'
+import {
+  definePlugin,
+  type Config,
+  type PublicHeadDescriptor,
+  type Post,
+} from 'ampless'
+import { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 
 // Stub `PluginSettingsApi` so tests run without S3 — every call
@@ -474,5 +479,482 @@ describe('createPluginHead', () => {
     await head.renderHead()
     await head.renderBodyEnd()
     expect(seen).toEqual(['head:V', 'body:V'])
+  })
+
+  // ---------------------------------------------------------------------------
+  // renderBodyForPost — Phase 4 'schema' capability
+  // ---------------------------------------------------------------------------
+
+  describe('renderBodyForPost(post)', () => {
+    const samplePost: Post = {
+      postId: 'p1',
+      slug: 'hello',
+      title: 'Hello',
+      format: 'markdown',
+      body: '',
+      status: 'published',
+    }
+
+    it('returns null when no plugins implement publicBodyForPost', async () => {
+      const plugin = definePlugin({
+        name: 'no-body',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      expect(await head.renderBodyForPost(samplePost)).toBeNull()
+    })
+
+    it('renders a descriptor returned by publicBodyForPost', async () => {
+      const plugin = definePlugin({
+        name: 'schema',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost(_post, _ctx) {
+          return [
+            {
+              type: 'inlineScript',
+              id: 'schema-article',
+              scriptType: 'application/ld+json' as const,
+              body: '{"@context":"https://schema.org","@type":"Article"}',
+            },
+          ]
+        },
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderBodyForPost(samplePost))
+      expect(els).toHaveLength(1)
+      expect(els[0]!.type).toBe('script')
+      expect(els[0]!.props).toMatchObject({
+        id: 'schema-article',
+        type: 'application/ld+json',
+      })
+    })
+
+    it('passes post as the first argument to publicBodyForPost', async () => {
+      const receivedPosts: Post[] = []
+      const plugin = definePlugin({
+        name: 'schema',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost(post, _ctx) {
+          receivedPosts.push(post)
+          return [
+            {
+              type: 'inlineScript',
+              id: 'schema-check',
+              scriptType: 'application/ld+json' as const,
+              body: '{}',
+            },
+          ]
+        },
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      await head.renderBodyForPost(samplePost)
+      expect(receivedPosts).toHaveLength(1)
+      expect(receivedPosts[0]).toBe(samplePost)
+    })
+
+    it('ctx.setting() works inside publicBodyForPost', async () => {
+      const seenSettings: (string | undefined)[] = []
+      const plugin = definePlugin({
+        name: 'schema',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema', 'adminSettings'],
+        settings: {
+          public: [
+            { type: 'text', key: 'articleType', label: 'Article type', default: 'Article' },
+          ],
+        },
+        publicBodyForPost(_post, ctx) {
+          seenSettings.push(ctx.setting<string>('articleType'))
+          return [
+            {
+              type: 'inlineScript',
+              id: 'schema-type',
+              scriptType: 'application/ld+json' as const,
+              body: '{}',
+            },
+          ]
+        },
+      })
+      const snapshot: PluginSettingsSnapshot = new Map([
+        ['schema', { articleType: 'BlogPosting' }],
+      ])
+      const head = createPluginHead(makeConfig([plugin]), makeSettings(snapshot))
+      await head.renderBodyForPost(samplePost)
+      expect(seenSettings).toEqual(['BlogPosting'])
+    })
+
+    it('aggregates multiple plugins and last-wins on duplicate id', async () => {
+      const pluginA = definePlugin({
+        name: 'schema-a',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost(_post, _ctx) {
+          return [
+            {
+              type: 'inlineScript',
+              id: 'shared-schema',
+              scriptType: 'application/ld+json' as const,
+              body: '{"source":"a"}',
+            },
+          ]
+        },
+      })
+      const pluginB = definePlugin({
+        name: 'schema-b',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost(_post, _ctx) {
+          return [
+            {
+              type: 'inlineScript',
+              id: 'shared-schema',
+              scriptType: 'application/ld+json' as const,
+              body: '{"source":"b"}',
+            },
+          ]
+        },
+      })
+      const head = createPluginHead(makeConfig([pluginA, pluginB]), emptySettings)
+      const els = childrenOf(await head.renderBodyForPost(samplePost))
+      expect(els).toHaveLength(1)
+      const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+        .dangerouslySetInnerHTML.__html
+      // last wins → source "b"
+      expect(JSON.parse(html)).toMatchObject({ source: 'b' })
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // scriptType policy per surface
+  // ---------------------------------------------------------------------------
+
+  describe('scriptType policy', () => {
+    const samplePost: Post = {
+      postId: 'p2',
+      slug: 'test',
+      title: 'Test',
+      format: 'markdown',
+      body: '',
+      status: 'published',
+    }
+
+    it('publicHead: undefined scriptType (default JS) is rendered', async () => {
+      const plugin = definePlugin({
+        name: 'js-head',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [
+          { type: 'inlineScript', id: 'init', body: 'console.log("hi")' },
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderHead())
+      expect(els).toHaveLength(1)
+      expect(els[0]!.props).not.toHaveProperty('type')
+    })
+
+    it('publicHead: application/ld+json is rendered with auto-escape', async () => {
+      const plugin = definePlugin({
+        name: 'jsonld-head',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [
+          {
+            type: 'inlineScript',
+            id: 'schema-head',
+            scriptType: 'application/ld+json' as const,
+            body: '{"x":"</script>"}',
+          },
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderHead())
+      expect(els).toHaveLength(1)
+      expect(els[0]!.props).toMatchObject({ type: 'application/ld+json' })
+      const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+        .dangerouslySetInnerHTML.__html
+      expect(html).not.toContain('</script>')
+    })
+
+    it('publicHead: unsupported scriptType is dropped and warns', async () => {
+      const plugin = definePlugin({
+        name: 'bad-type-head',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [
+          // bypass TS check — simulate a plugin returning an invalid scriptType
+          {
+            type: 'inlineScript',
+            id: 'bad-type',
+            scriptType: 'application/javascript',
+            body: 'alert(1)',
+          } as unknown as PublicHeadDescriptor,
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      expect(await head.renderHead()).toBeNull()
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(messages.some((m: string) => m.includes('scriptType') && m.includes('not allowed'))).toBe(true)
+    })
+
+    it('publicBodyForPost: undefined scriptType is dropped and warns', async () => {
+      const plugin = definePlugin({
+        name: 'schema-no-type',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        // Return a descriptor with no scriptType (TS would reject; cast to bypass)
+        publicBodyForPost: (_post, _ctx) => [
+          {
+            type: 'inlineScript',
+            id: 'no-type',
+            body: '{}',
+          } as unknown as import('ampless').PublicPostBodyDescriptor,
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      expect(await head.renderBodyForPost(samplePost)).toBeNull()
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(
+        messages.some((m: string) => m.includes('scriptType') && m.includes('not allowed'))
+      ).toBe(true)
+    })
+
+    it('publicBodyForPost: application/ld+json is rendered with auto-escape', async () => {
+      const plugin = definePlugin({
+        name: 'schema-escape',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost: (_post, _ctx) => [
+          {
+            type: 'inlineScript',
+            id: 'schema-body',
+            scriptType: 'application/ld+json' as const,
+            body: '{"x":"</script>"}',
+          },
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderBodyForPost(samplePost))
+      expect(els).toHaveLength(1)
+      const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+        .dangerouslySetInnerHTML.__html
+      expect(html).not.toContain('</script>')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // JSON-LD escape cross-surface
+  // ---------------------------------------------------------------------------
+
+  describe('JSON-LD escape applies on all surfaces', () => {
+    const jsonldBody = '{"x":"</script><img src=x>"}'
+    const samplePost: Post = {
+      postId: 'p3',
+      slug: 'xss',
+      title: 'XSS',
+      format: 'markdown',
+      body: '',
+      status: 'published',
+    }
+
+    it('publicHead with application/ld+json escapes </script>', async () => {
+      const plugin = definePlugin({
+        name: 'esc-head',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [
+          {
+            type: 'inlineScript',
+            id: 'esc-head-schema',
+            scriptType: 'application/ld+json' as const,
+            body: jsonldBody,
+          },
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderHead())
+      const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+        .dangerouslySetInnerHTML.__html
+      expect(html).not.toContain('</script>')
+    })
+
+    it('publicBodyForPost with application/ld+json escapes </script>', async () => {
+      const plugin = definePlugin({
+        name: 'esc-body',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost: (_post, _ctx) => [
+          {
+            type: 'inlineScript',
+            id: 'esc-body-schema',
+            scriptType: 'application/ld+json' as const,
+            body: jsonldBody,
+          },
+        ],
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const els = childrenOf(await head.renderBodyForPost(samplePost))
+      const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+        .dangerouslySetInnerHTML.__html
+      expect(html).not.toContain('</script>')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // capability mismatch: 'schema' ↔ publicBodyForPost
+  // ---------------------------------------------------------------------------
+
+  describe('capability mismatch: schema ↔ publicBodyForPost', () => {
+    it('warns when schema declared but publicBodyForPost not implemented', () => {
+      const plugin = definePlugin({
+        name: 'schema-decl-only',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        // intentionally no publicBodyForPost
+      })
+      createPluginHead(makeConfig([plugin]), emptySettings)
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(
+        messages.some(
+          (m: string) =>
+            m.includes('declares capability "schema"') &&
+            m.includes('publicBodyForPost')
+        )
+      ).toBe(true)
+    })
+
+    it('warns when publicBodyForPost implemented but schema not declared', () => {
+      const plugin = definePlugin({
+        name: 'schema-impl-only',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['adminSettings'], // declares something else but not 'schema'
+        publicBodyForPost: (_post, _ctx) => [
+          {
+            type: 'inlineScript',
+            id: 'schema-x',
+            scriptType: 'application/ld+json' as const,
+            body: '{}',
+          },
+        ],
+      })
+      createPluginHead(makeConfig([plugin]), emptySettings)
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      expect(
+        messages.some(
+          (m: string) =>
+            m.includes('publicBodyForPost') &&
+            m.includes('"schema"') &&
+            m.includes('not in declared capabilities')
+        )
+      ).toBe(true)
+    })
+
+    it('does not warn when both schema declared and publicBodyForPost implemented', () => {
+      const plugin = definePlugin({
+        name: 'schema-both',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['schema'],
+        publicBodyForPost: (_post, _ctx) => [
+          {
+            type: 'inlineScript',
+            id: 'schema-ok',
+            scriptType: 'application/ld+json' as const,
+            body: '{}',
+          },
+        ],
+      })
+      createPluginHead(makeConfig([plugin]), emptySettings)
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      const schemaWarn = messages.some(
+        (m: string) => m.includes('schema') && m.includes('publicBodyForPost')
+      )
+      expect(schemaWarn).toBe(false)
+    })
+
+    it('does not warn when neither schema nor publicBodyForPost is present', () => {
+      const plugin = definePlugin({
+        name: 'no-schema',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead: () => [],
+      })
+      createPluginHead(makeConfig([plugin]), emptySettings)
+      const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+      const schemaWarn = messages.some(
+        (m: string) => m.includes('schema') && m.includes('publicBodyForPost')
+      )
+      expect(schemaWarn).toBe(false)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// escapeJsonLdInlineBody — unit tests
+// ---------------------------------------------------------------------------
+
+describe('escapeJsonLdInlineBody', () => {
+  it('escapes < to \\u003c', () => {
+    expect(escapeJsonLdInlineBody('<')).toBe('\\u003c')
+  })
+
+  it('escapes > to \\u003e', () => {
+    expect(escapeJsonLdInlineBody('>')).toBe('\\u003e')
+  })
+
+  it('escapes & to \\u0026', () => {
+    expect(escapeJsonLdInlineBody('&')).toBe('\\u0026')
+  })
+
+  it('escapes U+2028 (line separator) to \\u2028', () => {
+    expect(escapeJsonLdInlineBody(' ')).toBe('\\u2028')
+  })
+
+  it('escapes U+2029 (paragraph separator) to \\u2029', () => {
+    expect(escapeJsonLdInlineBody(' ')).toBe('\\u2029')
+  })
+
+  it('leaves ordinary strings unchanged', () => {
+    const s = '{"@context":"https://schema.org","@type":"Article","headline":"Hello World"}'
+    expect(escapeJsonLdInlineBody(s)).toBe(s)
+  })
+
+  it('produces a string that JSON.parse can still parse', () => {
+    const original = JSON.stringify({
+      headline: 'Hello <World> & "foo"',
+      url: 'https://example.com/?a=1&b=2',
+    })
+    const escaped = escapeJsonLdInlineBody(original)
+    expect(() => JSON.parse(escaped)).not.toThrow()
+    const parsed = JSON.parse(escaped) as Record<string, string>
+    expect(parsed.headline).toBe('Hello <World> & "foo"')
+  })
+
+  it('removes </script> injection risk from the escaped output', () => {
+    const malicious = '{"x":"</script><img src=x onerror=alert(1)>"}'
+    const escaped = escapeJsonLdInlineBody(malicious)
+    expect(escaped).not.toContain('</script>')
+    // still parseable
+    expect(() => JSON.parse(escaped)).not.toThrow()
   })
 })

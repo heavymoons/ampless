@@ -35,8 +35,10 @@ import {
   type AmplessPlugin,
   type Config,
   type PluginPublicRenderContext,
+  type Post,
   type PublicHeadDescriptor,
   type PublicBodyDescriptor,
+  type PublicPostBodyDescriptor,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 
@@ -58,6 +60,15 @@ export interface PluginHeadApi {
   renderHead(): Promise<ReactNode>
   /** React children safe to drop just before `</body>`. */
   renderBodyEnd(): Promise<ReactNode>
+  /**
+   * Per-post body descriptors (Phase 4). Themes call this from their
+   * post template to render plugin-supplied `<script
+   * type="application/ld+json">` descriptors keyed off the specific
+   * post being viewed. Limited to `inlineScript` with
+   * `scriptType: 'application/ld+json'` so the per-post surface stays
+   * scoped to structured data — see `PublicPostBodyDescriptor`.
+   */
+  renderBodyForPost(post: Post): Promise<ReactNode>
 }
 
 // Attribute allowlist for `attrs` on script/iframe descriptors. Any
@@ -144,6 +155,113 @@ interface RenderedEntry {
   element: ReactElement
 }
 
+/**
+ * Escape characters that would let a value break out of an inline
+ * `<script type="application/ld+json">` body. Applied automatically by
+ * the runtime to ANY inlineScript descriptor whose `scriptType` is
+ * `'application/ld+json'`, regardless of which surface
+ * (`publicHead` / `publicBodyEnd` / `publicBodyForPost`) emitted it.
+ * Plugin authors do not need to call this themselves; it's exported so
+ * other hand-rolled inline-JSON-LD code paths can reuse it.
+ *
+ * Each character is replaced with its `\uXXXX` form — a JSON-legal way
+ * to encode the same character inside a JSON string, so the JSON
+ * payload still parses but the HTML parser can no longer see a closing
+ * `</script>` sequence:
+ *
+ *   '<'      → `<`
+ *   '>'      → `>`
+ *   '&'      → `&`
+ *   U+2028   → ` `
+ *   U+2029   → ` `
+ */
+export function escapeJsonLdInlineBody(value: string): string {
+  return value
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}
+
+/**
+ * scriptType policy per surface. `publicHead` / `publicBodyEnd` accept
+ * `undefined` (= default JS, backwards compatible with existing
+ * analytics-style inline scripts) or `'application/ld+json'`.
+ * `publicBodyForPost` REQUIRES `'application/ld+json'` — the per-post
+ * surface is scoped to JSON-LD only so the schema capability does not
+ * become a per-post arbitrary inline-JS channel.
+ */
+type InlineSurface = 'head' | 'body-end' | 'body-for-post'
+
+function inlineScriptTypeAllowed(
+  surface: InlineSurface,
+  scriptType: string | undefined,
+): boolean {
+  if (scriptType === 'application/ld+json') return true
+  if (scriptType === undefined) {
+    return surface === 'head' || surface === 'body-end'
+  }
+  return false
+}
+
+/**
+ * Shared inlineScript → `<script>` element converter used by all three
+ * surfaces. Centralised so:
+ *   - The auto-escape for `application/ld+json` runs no matter which
+ *     surface emitted the descriptor (`</script>` injection cannot
+ *     sneak in via `publicHead` either).
+ *   - The surface-dependent scriptType policy lives in one place.
+ */
+function renderInlineScript(
+  descriptor: Extract<PublicHeadDescriptor, { type: 'inlineScript' }>,
+  pluginLabel: string,
+  index: number,
+  surface: InlineSurface,
+): RenderedEntry | null {
+  // `id` is mandatory for inline scripts so collision detection works.
+  // Without it we have no way to distinguish two plugins injecting
+  // near-identical snippets.
+  if (!descriptor.id) {
+    warn(
+      `${pluginLabel}: inlineScript descriptor #${index} dropped — missing required "id".`
+    )
+    return null
+  }
+  if (!inlineScriptTypeAllowed(surface, descriptor.scriptType)) {
+    const got = descriptor.scriptType === undefined ? 'undefined' : `"${descriptor.scriptType}"`
+    const allowed =
+      surface === 'body-for-post'
+        ? `"application/ld+json" (required on publicBodyForPost — the per-post surface is scoped to JSON-LD)`
+        : `undefined or "application/ld+json"`
+    warn(
+      `${pluginLabel}: inlineScript "${descriptor.id}" dropped — scriptType ${got} not allowed on ${surface}. Allowed: ${allowed}.`
+    )
+    return null
+  }
+  // strategy is ignored for inline in Phase 1: the script runs wherever
+  // the layout places it. Honoring 'lazyOnload' for inline would
+  // require an idle-callback wrapper which we intentionally don't add
+  // here. See spec §10.
+  //
+  // `nonce` is type-only in Phase 1 (see plugin.ts comment) — we
+  // intentionally do NOT forward it to the rendered element; the
+  // CSP-nonce RFP will land middleware/SSR propagation later.
+  const body =
+    descriptor.scriptType === 'application/ld+json'
+      ? escapeJsonLdInlineBody(descriptor.body)
+      : descriptor.body
+  const props: Record<string, unknown> = {
+    id: descriptor.id,
+    dangerouslySetInnerHTML: { __html: body },
+  }
+  if (descriptor.scriptType) props.type = descriptor.scriptType
+  return {
+    id: descriptor.id,
+    element: createElement('script', props),
+  }
+}
+
 function renderHeadDescriptor(
   descriptor: PublicHeadDescriptor,
   pluginLabel: string,
@@ -183,33 +301,11 @@ function renderHeadDescriptor(
         element: createElement('script', props),
       }
     }
-    case 'inlineScript': {
-      // `id` is mandatory for inline scripts so collision detection
-      // works. Without it we have no way to distinguish two plugins
-      // injecting near-identical snippets.
-      if (!descriptor.id) {
-        warn(
-          `${pluginLabel}: inlineScript descriptor #${index} dropped — missing required "id".`
-        )
-        return null
-      }
-      // strategy is ignored for inline in Phase 1: the script runs
-      // wherever the layout places it. Honoring 'lazyOnload' for
-      // inline would require an idle-callback wrapper which we
-      // intentionally don't add here. See spec §10.
-      //
-      // `nonce` is type-only in Phase 1 (see plugin.ts comment) — we
-      // intentionally do NOT forward it to the rendered element; the
-      // CSP-nonce RFP will land middleware/SSR propagation later.
-      const props: Record<string, unknown> = {
-        id: descriptor.id,
-        dangerouslySetInnerHTML: { __html: descriptor.body },
-      }
-      return {
-        id: descriptor.id,
-        element: createElement('script', props),
-      }
-    }
+    case 'inlineScript':
+      // Delegated to the shared renderer so the auto-escape for
+      // `application/ld+json` and the surface-dependent scriptType
+      // policy live in one place. See renderInlineScript above.
+      return renderInlineScript(descriptor, pluginLabel, index, 'head')
     case 'meta': {
       const props: Record<string, unknown> = { content: descriptor.content }
       if (descriptor.name) props.name = descriptor.name
@@ -283,8 +379,34 @@ function renderBodyDescriptor(
       element: createElement('iframe', props),
     }
   }
-  // Body's script/inlineScript/noscript variants share the head shape.
+  if (descriptor.type === 'inlineScript') {
+    // Direct dispatch (not via renderHeadDescriptor) so the
+    // surface-dependent scriptType policy and warn messages correctly
+    // identify this as `body-end`, not `head`.
+    return renderInlineScript(descriptor, pluginLabel, index, 'body-end')
+  }
+  // script / noscript variants share the head shape and have no
+  // surface-dependent behaviour.
   return renderHeadDescriptor(descriptor, pluginLabel, index)
+}
+
+function renderPostBodyDescriptor(
+  descriptor: PublicPostBodyDescriptor,
+  pluginLabel: string,
+  index: number
+): RenderedEntry | null {
+  // `publicBodyForPost` returns only `inlineScript` descriptors with
+  // scriptType: 'application/ld+json'. The runtime guards the surface
+  // here even though the type narrows it — a plugin that lies about
+  // its descriptor shape (e.g. typeof / unsafe casts) still hits this
+  // check and gets dropped.
+  if (descriptor.type !== 'inlineScript') {
+    warn(
+      `${pluginLabel}: publicBodyForPost descriptor #${index} dropped — only inlineScript with scriptType "application/ld+json" is allowed on this surface.`
+    )
+    return null
+  }
+  return renderInlineScript(descriptor, pluginLabel, index, 'body-for-post')
 }
 
 /**
@@ -385,6 +507,44 @@ function collectFor<D>(
 }
 
 /**
+ * Per-post variant of `collectFor`. Same ctx-binding / dedup pipeline,
+ * but invokes `plugin.publicBodyForPost(post, ctx)` so the plugin can
+ * read post-scoped fields (title / excerpt / publishedAt / slug / ...).
+ */
+function collectForPost(
+  plugins: readonly AmplessPlugin[],
+  site: Config['site'],
+  snapshot: PluginSettingsSnapshot,
+  post: Post,
+): ReactNode {
+  const entries: RenderedEntry[] = []
+  for (const plugin of plugins) {
+    const factory = plugin.publicBodyForPost
+    if (!factory) continue
+    const ctx = makeCtx(plugin, site, snapshot)
+    let descriptors: readonly PublicPostBodyDescriptor[]
+    try {
+      descriptors = factory.call(plugin, post, ctx) ?? []
+    } catch (err) {
+      warn(
+        `plugin "${plugin.instanceId ?? plugin.name}" threw inside publicBodyForPost callback: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      )
+      continue
+    }
+    const label = `plugin "${plugin.instanceId ?? plugin.name}"`
+    for (let i = 0; i < descriptors.length; i++) {
+      const entry = renderPostBodyDescriptor(descriptors[i]!, label, i)
+      if (entry) entries.push(entry)
+    }
+  }
+  if (entries.length === 0) return null
+  const keyed = dedupeAndKey(entries)
+  return createElement(Fragment, null, ...keyed)
+}
+
+/**
  * Create the head/body renderer for a `Config`. The constructor-time
  * pass logs a single dev warning when two plugins share an
  * `instanceId ?? name`; everything else happens at render time so
@@ -481,6 +641,16 @@ export function createPluginHead(
           `${label}: implements \`publicBodyEnd\` but "publicBody" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
         )
       }
+      if (caps.includes('schema') && !plugin.publicBodyForPost) {
+        warn(
+          `${label}: declares capability "schema" but no \`publicBodyForPost\` implementation. Drop the capability or add the function.`
+        )
+      }
+      if (plugin.publicBodyForPost && !caps.includes('schema')) {
+        warn(
+          `${label}: implements \`publicBodyForPost\` but "schema" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
+        )
+      }
     }
   }
 
@@ -504,6 +674,10 @@ export function createPluginHead(
         (p) => p.publicBodyEnd,
         renderBodyDescriptor
       )
+    },
+    async renderBodyForPost(post: Post): Promise<ReactNode> {
+      const snapshot = await pluginSettings.loadAll()
+      return collectForPost(validPlugins, cmsConfig.site, snapshot, post)
     },
   }
 }

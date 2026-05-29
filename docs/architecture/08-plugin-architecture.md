@@ -48,12 +48,18 @@ export interface AmplessPlugin {
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
 
+  // Per-post body injection — descriptor arrays rendered by the theme's post
+  // page template. Only `inlineScript` with `scriptType: 'application/ld+json'`
+  // is accepted; other scriptType values are dropped with a warning.
+  // Phase 4 (implemented). Capability: `schema`.
+  publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
+
   // Dynamic OG image — rendered at request time via Next.js ImageResponse.
   ogImage?: OgImageConfig
 }
 ```
 
-`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` are the **Phase 1 extension** to the contract — type additions are part of the Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)). Existing first-party plugins (`seo`, `rss`, `og-image`, `webhook`) continue to work without declaring these fields.
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` are the **Phase 1 extension** to the contract — type additions are part of the Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)). `publicBodyForPost` is the **Phase 4 extension** — per-post body injection, primarily for JSON-LD structured data. Existing first-party plugins (`seo`, `rss`, `og-image`, `webhook`) continue to work without declaring these fields.
 
 A plugin combines any of these surfaces. Activation is a single line in the project's `cms.config.ts`:
 
@@ -84,9 +90,15 @@ Phase 2 additions:
 |---|---|---|
 | `adminSettings` | declares one or more `settings.public` fields editable from `/admin/plugins` (Phase 2, implemented) | `untrusted` and up |
 
+Phase 4 additions:
+
+| capability | meaning | default-allowed trust_level |
+|---|---|---|
+| `schema` | `publicBodyForPost()` — per-post body injection, primarily JSON-LD structured data; rendered by the theme's post page template (Phase 4, implemented) | `untrusted` and up |
+
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
-`schema` (Phase 4) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
+`contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
 
 Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
 
@@ -133,7 +145,8 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 |---|---|---|
 | `hooks` | `processor-trusted` or `processor-untrusted` Lambda (per `trust_level`) | SQS message arrives — i.e. after the originating DynamoDB write. In trusted hooks, `ctx.writePublicAsset` can write only inside the plugin namespace. |
 | `metadata` / `siteMetadata` | Public Next.js process (request thread) | Inside theme components / `generateMetadata()` |
-| `publicHead` / `publicBodyEnd` | Public Next.js process — root layout | Site-wide render. Per-post head injection uses the planned `publicHeadForPost` (Phase 4) |
+| `publicHead` / `publicBodyEnd` | Public Next.js process — root layout | Site-wide render. |
+| `publicBodyForPost` | Public Next.js process — theme post page template | Per-post render. Called from `pages/post.tsx` (or equivalent); `scriptType: 'application/ld+json'` required. |
 | `ogImage` | Public Next.js process — typically `app/og/[slug]/route.ts` | When an OG-image URL is requested |
 
 `hooks` is the async side of plugins. `metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` are the sync side and execute inside the public site, with no AWS data permissions — they're pure or read-only over what's already passed in. None of these sync surfaces are affected by the plugin's `trust_level` IAM role; the role only governs `hooks`.
@@ -150,6 +163,18 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 URL scheme denylist, `attrs` allowlist, and duplicate-`id` handling are enforced at validation time in the runtime layer. Returning arbitrary `ReactNode` is intentionally not offered in the safe API — that would re-open SSR-time arbitrary code execution as the implicit safety boundary, defeating the point. If a developer needs that for a project-local plugin, the future `developer.headElements` surface (Phase 6b, opt-in capability) is the planned escape hatch.
 
 Full descriptor types and the validation contract live in [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md).
+
+### JSON-LD auto-escape
+
+When an `inlineScript` descriptor carries `scriptType: 'application/ld+json'`, the runtime **automatically escapes the `body` string** before rendering — `<` → `<`, `>` → `>`, `&` → `&`, U+2028 → ` `, U+2029 → ` ` (via `escapeJsonLdInlineBody`). This applies across all three surfaces that accept `inlineScript` descriptors (`publicHead`, `publicBodyEnd`, `publicBodyForPost`). Plugin authors should return the raw JSON string; do not pre-escape it.
+
+### Surface-dependent `scriptType` strictness
+
+| Surface | `scriptType` behaviour |
+|---|---|
+| `publicHead` | `undefined` (default JS, backward-compatible) or `'application/ld+json'` allowed |
+| `publicBodyEnd` | same as `publicHead` |
+| `publicBodyForPost` | `'application/ld+json'` **required**. Descriptors with any other `scriptType` (or without one) are dropped with a console warning. Per-post arbitrary inline JS is intentionally not exposed; when that need arises it will require a new explicit capability. |
 
 ### Plugin State Storage
 
@@ -189,6 +214,17 @@ capabilities: ['eventHooks', 'writePublicAsset']
 If the plugin also implements `metadata()` or `siteMetadata()`, include `metadata` as the existing metadata-surface declaration. `metadata` covers both functions; there is no separate `siteMetadata` capability.
 
 During the migration period, legacy plugins with no `capabilities` field keep working without warnings. A plugin that does declare `capabilities` but omits `writePublicAsset` will warn once at runtime when it actually calls `ctx.writePublicAsset()`. A future major release may hard-reject that mismatch.
+
+### Capability mismatch warnings
+
+The runtime checks for declaration-vs-implementation mismatches at startup and warns (not errors) on:
+
+| Mismatch | Warning trigger |
+|---|---|
+| `writePublicAsset` declared but `ctx.writePublicAsset()` never called | at first `writePublicAsset`-less startup |
+| `writePublicAsset` not declared but `ctx.writePublicAsset()` called | at first call |
+| `schema` declared but `publicBodyForPost` not implemented | at startup |
+| `publicBodyForPost` implemented but `schema` not declared | at startup |
 
 ### API Versioning
 

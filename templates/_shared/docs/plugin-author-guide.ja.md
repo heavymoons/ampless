@@ -9,7 +9,7 @@
 
 # ampless プラグインの書き方
 
-このガイドは、初めての `definePlugin()` 呼び出しから admin 編集可能な設定パネル、そして npm 公開に至るまで、ampless プラグインを ship するために必要な手順を一通りカバーします。Phase 1 + Phase 2 の機能を網羅 — descriptor ベースの `<head>` / `<body>` 注入、非同期イベントフック、admin 管理の `settings.public` 値です。
+このガイドは、初めての `definePlugin()` 呼び出しから admin 編集可能な設定パネル、そして npm 公開に至るまで、ampless プラグインを ship するために必要な手順を一通りカバーします。Phase 1〜4 の機能を網羅 — descriptor ベースの `<head>` / `<body>` / 投稿単位 body 注入、非同期イベントフック、admin 管理の `settings.public` 値です。
 
 設計の経緯と背景は [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) に集約。本ページはその実装ハンドブック側です。
 
@@ -25,6 +25,7 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 | `siteMetadata(site)` | root layout の `generateMetadata()` | 同期 | 既存 |
 | `publicHead(ctx)` | root layout の `<head>` | 同期 (async layout から呼ばれる) | 1 |
 | `publicBodyEnd(ctx)` | root layout の `<body>` 末尾 | 同期 | 1 |
+| `publicBodyForPost(post, ctx)` | テーマの post ページテンプレート（投稿単位） | 同期 | 4 |
 | `ogImage` | `/og/[slug]` ルート | リクエスト時、公開 Lambda 内 | 既存 |
 | `hooks` | trust_level に応じた processor Lambda | 非同期、SQS イベントで起動 | 既存 |
 | `settings.public` | `/admin/plugins` フォーム | 宣言的なマニフェスト | 2 |
@@ -102,6 +103,7 @@ interface AmplessPlugin {
   siteMetadata?(site): PluginMetadata
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
+  publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   ogImage?: OgImageConfig
   settings?: { public?: readonly PluginSettingField[] }
 }
@@ -162,6 +164,7 @@ trust level がズレているプラグインは「権限不足で sliently fail
 | `siteMetadata(site)` | `PluginMetadata` | サイト全体の `<title>` / favicon / RSS `<link rel="alternate">` |
 | `publicHead(ctx)` | `PublicHeadDescriptor[]` | 解析ローダー、フォント、jsonld、hreflang |
 | `publicBodyEnd(ctx)` | `PublicBodyDescriptor[]` | GTM no-script フレーム、チャットウィジェット、末尾スニペット |
+| `publicBodyForPost(post, ctx)` | `PublicPostBodyDescriptor[]` | 投稿単位の body 注入 — JSON-LD 構造化データ。テーマの post ページテンプレートが render する |
 
 `ctx` オブジェクトの中身:
 
@@ -202,6 +205,15 @@ trust level がズレているプラグインは「権限不足で sliently fail
   strategy: 'afterInteractive',
 }
 
+// inline script — JSON-LD variant (publicHead / publicBodyEnd / publicBodyForPost で使用可能)
+// runtime が body を自動 escape するので、生の JSON 文字列を返せばよい
+{
+  type: 'inlineScript',
+  id: 'schema-article',
+  scriptType: 'application/ld+json',
+  body: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', ... }),
+}
+
 // Meta / link / noscript
 { type: 'meta', name: 'theme-color', content: '#fff' }
 { type: 'meta', property: 'og:image', content: 'https://…' }
@@ -223,6 +235,36 @@ trust level がズレているプラグインは「権限不足で sliently fail
 }
 ```
 
+### `PublicPostBodyDescriptor`（Phase 4）
+
+`publicBodyForPost` は `PublicPostBodyDescriptor[]` を返します。これは `inlineScript` の制限サブセットで、`scriptType` が必須かつ `'application/ld+json'` のみ有効です：
+
+```ts
+// publicBodyForPost で返せる唯一の形:
+{
+  type: 'inlineScript',
+  id: 'schema-article',
+  scriptType: 'application/ld+json',   // 必須 — これ以外は drop + warn
+  body: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', ... }),
+}
+```
+
+`meta` / `link` を除いている理由：投稿単位のメタデータは Next.js `generateMetadata()` 経由の `metadata()` サーフェスが担い、フレームワークの deduplication・streaming と統合されている。`publicBodyForPost` は `generateMetadata` が生成できない構造化データ（`<script type="application/ld+json">`）のためだけに存在する。
+
+### JSON-LD 自動 escape
+
+`scriptType === 'application/ld+json'` のとき、runtime は描画前に **`body` 文字列を自動 escape** する — `<` → `<`、`>` → `>`、`&` → `&`、U+2028 → ` `、U+2029 → ` `。この処理は `inlineScript` を受け付ける 3 つのサーフェス（`publicHead` / `publicBodyEnd` / `publicBodyForPost`）すべてで行われる。プラグイン作者は生の JSON 文字列を返せばよく、自前で escape しなくてよい。
+
+サポート外の `scriptType` を持つ descriptor は **console warning 付きで drop** される。
+
+### サーフェス別 scriptType ルール
+
+| サーフェス | `scriptType` |
+|---|---|
+| `publicHead` | `undefined`（デフォルト JS）または `'application/ld+json'` |
+| `publicBodyEnd` | `publicHead` と同じ |
+| `publicBodyForPost` | `'application/ld+json'` **必須**。他の値（省略含む）は drop + warn |
+
 ### Validation ルール
 
 - **URL scheme allowlist**: `http`、`https`、または相対パス。`javascript:`、`data:`、`vbscript:`、`blob:`、`file:` は要素描画前に拒否されます
@@ -243,6 +285,39 @@ trust level がズレているプラグインは「権限不足で sliently fail
 ```
 
 `cms.config.plugins` の順序は集約後も保たれます。
+
+### `publicBodyForPost` の使用例（Phase 4）
+
+`schema` capability を宣言してサーフェスを実装します：
+
+```typescript
+import { definePlugin } from 'ampless'
+
+export default function schemaJsonldPlugin() {
+  return definePlugin({
+    name: 'schema-jsonld',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+    capabilities: ['schema'],
+    publicBodyForPost(post, ctx) {
+      return [{
+        type: 'inlineScript',
+        id: 'schema-article',
+        scriptType: 'application/ld+json',
+        body: JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: post.title,
+          url: `${ctx.site.url}/${post.slug}`,
+          datePublished: post.publishedAt,
+        }),
+      }]
+    },
+  })
+}
+```
+
+テーマの `pages/post.tsx` が `ampless.publicBodyForPost(post)` を呼び、返された descriptor を描画します。runtime は自動 escape した body を持つ `<script type="application/ld+json">` 要素をページに挿入します。
 
 ---
 
@@ -493,6 +568,7 @@ it('admin が空文字保存した場合は空配列', () => {
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook + 外向き HTTP
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` ルートレンダラ
+- [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability、投稿単位 Article JSON-LD。（Phase 4）
 
 ---
 
@@ -510,6 +586,8 @@ it('admin が空文字保存した場合は空配列', () => {
 - **`inlineScript` の `id` 忘れ**。production では silent に drop、dev では warn。inline script の dedup は id 無しではできません
 - **`publicHead` から `ReactNode` を返す**。TypeScript で弾かれます — `publicHead` の戻り値型は descriptor のみ。任意 `ReactNode` が必要なら、それは Phase 6b の `developer.headElements` capability 待ち
 - **admin form から `manifest.default` を保存してしまう**。resolved default を「明示値」として書き戻さないでください — admin form が touched フィールドのみ書き込む設計はまさにこのため。default 値を保存すると future のパッケージ更新で default が変わってもそのフィールドだけ反映されなくなります
+- **`publicBodyForPost` で `scriptType: 'application/ld+json'` を省略**。`publicBodyForPost` が返す descriptor で `scriptType` を省略するか他の値を指定すると、production では silent に drop、dev では warn されます。このサーフェスで有効なのは `'application/ld+json'` だけです
+- **`schema` capability と `publicBodyForPost` の不一致**。`capabilities: ['schema']` を宣言して `publicBodyForPost` を未実装（またはその逆）にすると起動時に warning が出ます。宣言と実装は同期させてください
 
 ---
 

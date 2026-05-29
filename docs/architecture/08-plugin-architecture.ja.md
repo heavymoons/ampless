@@ -45,12 +45,18 @@ export interface AmplessPlugin {
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
 
+  // 投稿単位の body 注入。テーマの post ページテンプレートが render する。
+  // `inlineScript` + `scriptType: 'application/ld+json'` のみ受け付ける。
+  // 他の scriptType は drop + warn される。
+  // Phase 4 (実装済み)。capability: `schema`。
+  publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
+
   // 動的 OG 画像 — リクエスト時に Next.js ImageResponse でレンダリング
   ogImage?: OgImageConfig
 }
 ```
 
-`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` は **Phase 1 拡張**にあたるフィールドで、型追加は Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) の範囲。既存ファーストパーティプラグイン (`seo` / `rss` / `og-image` / `webhook`) はこれらを宣言しなくても動作し続ける。
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` は **Phase 1 拡張**にあたるフィールドで、型追加は Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) の範囲。`publicBodyForPost` は **Phase 4 拡張** — 投稿単位の body 注入、主に JSON-LD 構造化データ向け。既存ファーストパーティプラグイン (`seo` / `rss` / `og-image` / `webhook`) はこれらを宣言しなくても動作し続ける。
 
 これらの面を任意に組み合わせる。有効化はプロジェクトの `cms.config.ts` に 1 行：
 
@@ -81,9 +87,15 @@ Phase 2 で追加:
 |---|---|---|
 | `adminSettings` | `/admin/plugins` から編集可能な `settings.public` フィールドを 1 つ以上宣言 (Phase 2、実装済み) | `untrusted` 以上 |
 
+Phase 4 で追加:
+
+| capability | 意味 | 既定許可 trust_level |
+|---|---|---|
+| `schema` | `publicBodyForPost()` — 投稿単位の body 注入、主に JSON-LD 構造化データ向け。テーマの post ページテンプレートが render する (Phase 4、実装済み) | `untrusted` 以上 |
+
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
-`schema` (Phase 4) · `contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
+`contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
 
 「危険」カテゴリ (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) は、プラグインパッケージ側で宣言されていても `cms.config.ts` 側で明示許可しないと有効化されない:
 
@@ -130,7 +142,8 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 |---|---|---|
 | `hooks` | `processor-trusted` / `processor-untrusted` Lambda（`trust_level` 別） | SQS メッセージ到着時 — つまり元の DynamoDB 書き込みの後。trusted hooks では `ctx.writePublicAsset` は plugin namespace 内だけに書ける |
 | `metadata` / `siteMetadata` | 公開 Next.js プロセス（リクエストスレッド） | テーマコンポーネント / `generateMetadata()` 内 |
-| `publicHead` / `publicBodyEnd` | 公開 Next.js プロセス — root layout | サイト全体描画時。投稿単位の head 注入は Phase 4 で予定の `publicHeadForPost` で扱う |
+| `publicHead` / `publicBodyEnd` | 公開 Next.js プロセス — root layout | サイト全体描画時 |
+| `publicBodyForPost` | 公開 Next.js プロセス — テーマの post ページテンプレート | 投稿単位の描画時。`pages/post.tsx`（相当ファイル）から呼ばれる。`scriptType: 'application/ld+json'` 必須 |
 | `ogImage` | 公開 Next.js プロセス — `app/og/[slug]/route.ts` 等 | OG 画像 URL がリクエストされたとき |
 
 `hooks` がプラグインの非同期面、`metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` が同期面で、後者は公開サイト内で動き、AWS データ権限を持たない（純関数か、渡された値だけを読む）。同期面はプラグインの `trust_level` IAM ロールの影響を受けない。IAM ロールが効くのは `hooks` だけ。
@@ -147,6 +160,18 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 URL スキーム denylist、`attrs` allowlist、`id` 重複の扱いは runtime 層の validation 時に強制する。任意 `ReactNode` を安全 API では提供しない — それを許すと SSR 時の任意コード実行が暗黙の安全境界になり、untrusted の前提が崩れる。プロジェクトローカルなプラグインでどうしても必要なケースは、将来 Phase 6b で `developer.headElements`（opt-in capability）として別経路で提供する。
 
 descriptor の完全な型定義と validation contract は [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md) に集約。
+
+### JSON-LD 自動 escape
+
+`inlineScript` descriptor が `scriptType: 'application/ld+json'` を持つとき、runtime は **`body` 文字列を自動 escape** してから描画する — `<` → `<`、`>` → `>`、`&` → `&`、U+2028 → ` `、U+2029 → ` `（`escapeJsonLdInlineBody` 経由）。この処理は `inlineScript` を受け付ける 3 つのサーフェス (`publicHead` / `publicBodyEnd` / `publicBodyForPost`) すべてで行われる。plugin 作者は生の JSON 文字列をそのまま返せばよく、自前で escape しなくてよい。
+
+### サーフェス別 scriptType 厳格度
+
+| サーフェス | `scriptType` 挙動 |
+|---|---|
+| `publicHead` | `undefined`（デフォルト JS、後方互換）または `'application/ld+json'` を許可 |
+| `publicBodyEnd` | `publicHead` と同じ |
+| `publicBodyForPost` | `'application/ld+json'` **必須**。他の `scriptType`（または省略）は console warning 付きで drop。投稿単位の任意インライン JS は意図的に閉じており、その必要が出た場合は別の explicit capability で開く設計 |
 
 ### プラグインの状態保存
 
@@ -186,6 +211,17 @@ capabilities: ['eventHooks', 'writePublicAsset']
 その plugin が `metadata()` または `siteMetadata()` も実装する場合は、既存 metadata surface の宣言として `metadata` も含める。`metadata` は両方の関数をまとめて表し、別個の `siteMetadata` capability は設けない。
 
 移行期間中、`capabilities` フィールド自体が無い旧 plugin は warn なしで動き続ける。`capabilities` を宣言しているのに `writePublicAsset` を含めない plugin は、実際に `ctx.writePublicAsset()` を呼んだ時だけ runtime で 1 回 warn する。将来の major release ではこの不一致を hard reject する可能性がある。
+
+### capability mismatch 警告一覧
+
+runtime は起動時に宣言と実装の不一致を検出して（エラーではなく）warn する:
+
+| 不一致 | 警告タイミング |
+|---|---|
+| `writePublicAsset` 宣言済みだが `ctx.writePublicAsset()` 未呼び出し | 初回の宣言ありスタートアップ時 |
+| `writePublicAsset` 未宣言だが `ctx.writePublicAsset()` 呼び出し | 初回の呼び出し時 |
+| `schema` 宣言済みだが `publicBodyForPost` 未実装 | スタートアップ時 |
+| `publicBodyForPost` 実装済みだが `schema` 未宣言 | スタートアップ時 |
 
 ### API バージョニング
 

@@ -12,8 +12,8 @@
 This guide walks through everything a plugin author needs to ship a
 working ampless plugin, from first `definePlugin()` call to the
 admin-editable settings panel and an npm publish. It covers the
-Phase 1 + Phase 2 surfaces — descriptor-based `<head>` / `<body>`
-injection, the async event hooks, and admin-managed
+Phase 1–4 surfaces — descriptor-based `<head>` / `<body>` /
+per-post body injection, the async event hooks, and admin-managed
 `settings.public` values.
 
 The design rationale is in [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md);
@@ -33,6 +33,7 @@ surfaces:
 | `siteMetadata(site)` | root layout `generateMetadata()` | sync | Existing |
 | `publicHead(ctx)` | root layout `<head>` | sync (called from async layout) | 1 |
 | `publicBodyEnd(ctx)` | root layout end of `<body>` | sync | 1 |
+| `publicBodyForPost(post, ctx)` | theme post page template (per-post) | sync | 4 |
 | `ogImage` | `/og/[slug]` route | request-time, in public Lambda | Existing |
 | `hooks` | trust_level-matched processor Lambda | async, on SQS event | Existing |
 | `settings.public` | `/admin/plugins` form | declarative manifest | 2 |
@@ -117,6 +118,7 @@ interface AmplessPlugin {
   siteMetadata?(site): PluginMetadata
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
+  publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   ogImage?: OgImageConfig
   settings?: { public?: readonly PluginSettingField[] }
 }
@@ -201,6 +203,7 @@ network — and execute synchronously.
 | `siteMetadata(site)` | `PluginMetadata` | Site-wide `<title>` / favicon / RSS `<link rel="alternate">` |
 | `publicHead(ctx)` | `PublicHeadDescriptor[]` | Analytics loader, fonts, jsonld, hreflang |
 | `publicBodyEnd(ctx)` | `PublicBodyDescriptor[]` | GTM no-script frame, chat widgets, tail snippets |
+| `publicBodyForPost(post, ctx)` | `PublicPostBodyDescriptor[]` | Per-post body injection — JSON-LD structured data; rendered by the theme's post page template |
 
 The `ctx` object carries:
 
@@ -246,6 +249,15 @@ untrusted code in the public render path.
   strategy: 'afterInteractive',
 }
 
+// Inline script — JSON-LD variant (valid in publicHead, publicBodyEnd, publicBodyForPost)
+// The runtime auto-escapes the body; return raw JSON, not pre-escaped.
+{
+  type: 'inlineScript',
+  id: 'schema-article',
+  scriptType: 'application/ld+json',
+  body: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', ... }),
+}
+
 // Meta / link / noscript
 { type: 'meta', name: 'theme-color', content: '#fff' }
 { type: 'meta', property: 'og:image', content: 'https://…' }
@@ -266,6 +278,49 @@ untrusted code in the public render path.
   attrs: { sandbox: 'allow-scripts' },
 }
 ```
+
+### `PublicPostBodyDescriptor` (Phase 4)
+
+`publicBodyForPost` returns `PublicPostBodyDescriptor[]`. This is a
+restricted subset of `inlineScript` where `scriptType` is required
+and must be `'application/ld+json'`:
+
+```ts
+// The only valid form for publicBodyForPost:
+{
+  type: 'inlineScript',
+  id: 'schema-article',
+  scriptType: 'application/ld+json',   // required — only value accepted
+  body: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', ... }),
+}
+```
+
+Why `meta` and `link` are excluded: per-post metadata is already
+handled by Next.js `generateMetadata()` via the `metadata()` surface,
+which integrates with the framework's deduplication and streaming
+behaviour. `publicBodyForPost` exists solely for the structured data
+use-case (`<script type="application/ld+json">`) that `generateMetadata`
+cannot produce.
+
+### JSON-LD auto-escape
+
+When `scriptType === 'application/ld+json'`, the runtime **automatically
+escapes the `body` string** before rendering — `<` → `<`,
+`>` → `>`, `&` → `&`, U+2028 → ` `, U+2029 → ` `.
+This applies across all three surfaces that accept `inlineScript`
+(`publicHead`, `publicBodyEnd`, `publicBodyForPost`). Return the raw
+JSON string; do not pre-escape it.
+
+Descriptors with an unsupported `scriptType` value are **dropped with
+a console warning** and never rendered.
+
+### Surface-dependent `scriptType` rules
+
+| Surface | `scriptType` |
+|---|---|
+| `publicHead` | `undefined` (default JS) or `'application/ld+json'` |
+| `publicBodyEnd` | same as `publicHead` |
+| `publicBodyForPost` | `'application/ld+json'` **required**; any other value (including omitted) is dropped + warned |
 
 ### Validation rules
 
@@ -301,6 +356,42 @@ interpolates that fragment directly:
 
 `cms.config.plugins` iteration order is preserved across the
 collected list.
+
+### `publicBodyForPost` example (Phase 4)
+
+Declare the `schema` capability and implement the surface:
+
+```typescript
+import { definePlugin } from 'ampless'
+
+export default function schemaJsonldPlugin() {
+  return definePlugin({
+    name: 'schema-jsonld',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+    capabilities: ['schema'],
+    publicBodyForPost(post, ctx) {
+      return [{
+        type: 'inlineScript',
+        id: 'schema-article',
+        scriptType: 'application/ld+json',
+        body: JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: post.title,
+          url: `${ctx.site.url}/${post.slug}`,
+          datePublished: post.publishedAt,
+        }),
+      }]
+    },
+  })
+}
+```
+
+The theme's `pages/post.tsx` calls `ampless.publicBodyForPost(post)`
+and renders the returned descriptors. The runtime inserts a
+`<script type="application/ld+json">` element with the auto-escaped
+body into the page.
 
 ---
 
@@ -619,6 +710,7 @@ Worked examples to crib from:
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`.
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook with outbound HTTP.
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` route renderer.
+- [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability; per-post Article JSON-LD. (Phase 4)
 
 ---
 
@@ -654,6 +746,14 @@ Worked examples to crib from:
   admin form only writes touched fields for exactly this reason.
   Saving a default value freezes it: future package updates that
   change the default won't take effect for that field anymore.
+- **`publicBodyForPost` without `scriptType: 'application/ld+json'`.** Descriptors
+  returned from `publicBodyForPost` that omit `scriptType` or use any
+  other value are silently dropped in production and warned in dev.
+  Only `scriptType: 'application/ld+json'` is valid in that surface.
+- **`schema` capability + `publicBodyForPost` mismatch.** Declaring
+  `capabilities: ['schema']` without implementing `publicBodyForPost`
+  (or the reverse) prints a startup warning. Keep the declaration and
+  implementation in sync.
 
 ---
 
