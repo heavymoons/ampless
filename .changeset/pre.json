@@ -149,6 +149,7 @@
     "upgrade-marked-18",
     "upgrade-output-english",
     "upgrade-protect-tsconfig",
+    "upgrade-seed-plugins-readme",
     "user-admin-pipeline-event-shape"
   ]
 }
