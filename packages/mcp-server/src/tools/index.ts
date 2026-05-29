@@ -6,6 +6,7 @@ import { createPost, createPostSchema } from './create-post.js'
 import { updatePost, updatePostSchema } from './update-post.js'
 import { deletePost, deletePostSchema } from './delete-post.js'
 import { uploadMedia, uploadMediaSchema } from './upload-media.js'
+import { deleteMedia, deleteMediaSchema } from './delete-media.js'
 import { getSchema, getSchemaSchema } from './get-schema.js'
 import { uploadStaticBundle, uploadStaticBundleSchema } from './upload-static-bundle.js'
 import { uploadStaticFile, uploadStaticFileSchema } from './upload-static-file.js'
@@ -79,6 +80,19 @@ export const tools: ToolDefinition[] = [
     inputSchema: uploadMediaSchema,
     handler: (args, ctx) =>
       uploadMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof uploadMedia>[2]),
+  },
+  {
+    name: 'delete_media',
+    description:
+      'Delete a media file: removes the S3 object and the Media row. Pass `mediaId` (from `upload_media`\'s response) or `src` (full S3 key like `public/media/2026/05/...`). When only `src` is given, looks up the Media row via `getMediaBySrc`. S3 delete runs first, then the DDB row delete — both are idempotent so re-running converges on missing-key cases. Returns `{ deleted: false }` instead of throwing when no Media row matches; if `src` was supplied directly the S3 object is still removed (use this to sweep orphan files).',
+    inputSchema: deleteMediaSchema,
+    handler: (args, ctx) =>
+      deleteMedia(
+        ctx.graphql,
+        ctx.storage(),
+        args as unknown as Parameters<typeof deleteMedia>[2],
+      ),
+    destructive: true,
   },
   {
     name: 'get_schema',
