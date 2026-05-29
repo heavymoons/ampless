@@ -230,4 +230,30 @@ describe('createProcessorTrustedHandler writePublicAsset', () => {
     expect(warn).not.toHaveBeenCalled()
     expect(s3Commands[0]?.input.Key).toBe('public/plugins/asset-writer/feed.xml')
   })
+
+  it('skips trusted plugins whose namespace fails PLUGIN_KEY_PATTERN', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [writerPlugin({ instanceId: '../escape' })],
+    })
+
+    await handler(event(), {} as never, vi.fn() as never)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid namespace'))
+    expect(s3Commands).toHaveLength(0) // hook never ran because plugin was filtered out
+  })
+
+  it('skips trusted plugins whose plain name fails PLUGIN_KEY_PATTERN', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [writerPlugin({ name: 'bad/id' })],
+    })
+
+    await handler(event(), {} as never, vi.fn() as never)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid namespace'))
+    expect(s3Commands).toHaveLength(0)
+  })
 })
