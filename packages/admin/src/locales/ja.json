@@ -335,6 +335,8 @@
     "back": "← 戻る",
     "home": "← ホーム",
     "noPosts": "まだ公開された記事はありません。",
-    "tagLabel": "タグ"
+    "tagLabel": "タグ",
+    "permalink": "パーマリンク",
+    "shareOnX": "Xで共有"
   }
 }

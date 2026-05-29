@@ -335,6 +335,8 @@
     "back": "← Back",
     "home": "← Home",
     "noPosts": "No posts published yet.",
-    "tagLabel": "Tag"
+    "tagLabel": "Tag",
+    "permalink": "Permalink",
+    "shareOnX": "Share on X"
   }
 }
