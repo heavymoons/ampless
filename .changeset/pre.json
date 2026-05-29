@@ -132,6 +132,7 @@
     "scaffold-all-themes-and-copy-theme",
     "scaffold-include-ga4-plugin",
     "shim-tdz-fix",
+    "site-local-plugins-dir",
     "skip-confirm-noninteractive",
     "split-underscore-route",
     "static-content-format",
