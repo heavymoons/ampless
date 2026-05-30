@@ -233,6 +233,12 @@ importers:
         specifier: workspace:*
         version: link:../ampless
 
+  packages/plugin-cookie-consent:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-gtm:
     dependencies:
       ampless:
