@@ -178,10 +178,33 @@ function isProtected(relPath: string): boolean {
 }
 
 /**
+ * Prefixes that mark a `templates/<dir>/` entry as something other
+ * than a theme. `plugin-local/` and `plugin-standalone/` ship under
+ * `templates/` because the Phase 5 `create-ampless plugin <name>`
+ * scaffold needs them, but they are NOT themes — they hold a
+ * placeholder-laden plugin factory, not a `defineThemeModule(...)`
+ * export. Without this exclusion, `listShippedThemes` would discover
+ * them, `update-ampless` would copy them into the user's `themes/`
+ * directory, and `themes-registry.ts` would try to import them as
+ * themes — which then breaks `next build` because the placeholder
+ * `index.ts` doesn't compile and doesn't export the expected shape.
+ */
+const NON_THEME_TEMPLATE_PREFIXES = ['plugin-'] as const
+
+function isThemeDirName(name: string): boolean {
+  if (name === '_shared') return false
+  for (const prefix of NON_THEME_TEMPLATE_PREFIXES) {
+    if (name.startsWith(prefix)) return false
+  }
+  return true
+}
+
+/**
  * The set of ampless-managed default themes is whatever the create-ampless
- * package ships outside of `_shared/`. Discovered at runtime instead of
- * hardcoded so adding a new theme to `templates/<name>/` automatically
- * makes the upgrade aware of it.
+ * package ships outside of `_shared/` and the scaffold-template
+ * exclusion list above. Discovered at runtime instead of hardcoded so
+ * adding a new theme to `templates/<name>/` automatically makes the
+ * upgrade aware of it.
  *
  * `templatesRoot` is the directory containing `_shared/` and every
  * theme subdirectory (i.e. one level above `sharedDir`). Tests pass a
@@ -191,7 +214,7 @@ async function listShippedThemes(templatesRoot: string): Promise<string[]> {
   if (!existsSync(templatesRoot)) return []
   const entries = await readdir(templatesRoot, { withFileTypes: true })
   return entries
-    .filter((e) => e.isDirectory() && e.name !== '_shared')
+    .filter((e) => e.isDirectory() && isThemeDirName(e.name))
     .map((e) => e.name)
     .sort()
 }

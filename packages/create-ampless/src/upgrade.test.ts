@@ -242,6 +242,76 @@ describe('runUpgradeIn', () => {
     }
   })
 
+  // 6c. plugin-* scaffold templates under `templates/` must NOT be
+  // discovered as themes. PR B (#168) added templates/plugin-local/
+  // and templates/plugin-standalone/ for the `create-ampless plugin
+  // <name>` scaffold; before the fix in this test's PR, the upgrade's
+  // theme-discovery `readdir` over `templatesRoot` treated them as
+  // themes, sync'd them into the project's themes/, and the
+  // regenerated themes-registry.ts tried to import their
+  // placeholder-laden index.ts as theme modules — `next build`
+  // crashed with module-not-found errors.
+  //
+  // This test models the runtime layout: templatesRoot contains
+  // `_shared/` (the sharedDir), real theme directories (`blog/`,
+  // `minimal/`, ...), and scaffold-template directories
+  // (`plugin-local/`, `plugin-standalone/`). The scaffold templates
+  // must be skipped during theme discovery.
+  it('does not treat plugin-* scaffold templates as themes', async () => {
+    const templatesRoot = mkdtempSync(join(tmpdir(), 'ampless-templates-root-'))
+    try {
+      // _shared/ acts as `sharedDir` for the upgrade.
+      const sharedDir = join(templatesRoot, '_shared')
+      mkdirSync(sharedDir, { recursive: true })
+      writeFileSync(join(sharedDir, 'package.json'), makeTemplatePkg())
+      writeFileSync(join(sharedDir, 'cms.config.ts'), '// shared cms.config')
+      mkdirSync(join(sharedDir, 'amplify'), { recursive: true })
+      writeFileSync(join(sharedDir, 'amplify', 'backend.ts'), '// shared backend')
+      mkdirSync(join(sharedDir, 'app', '(admin)', 'admin'), { recursive: true })
+      writeFileSync(
+        join(sharedDir, 'app', '(admin)', 'admin', 'page.tsx'),
+        '// shared admin page',
+      )
+
+      // Real theme directory at templatesRoot level — should be synced.
+      mkdirSync(join(templatesRoot, 'blog'), { recursive: true })
+      writeFileSync(join(templatesRoot, 'blog', 'page.tsx'), '// real blog theme')
+
+      // PR-B scaffold templates at templatesRoot level — must be skipped.
+      mkdirSync(join(templatesRoot, 'plugin-local'), { recursive: true })
+      writeFileSync(
+        join(templatesRoot, 'plugin-local', 'index.ts'),
+        'import { definePlugin } from "ampless"\nexport default function {{nameCamelCase}}Plugin() {}',
+      )
+      mkdirSync(join(templatesRoot, 'plugin-standalone', 'src'), { recursive: true })
+      writeFileSync(
+        join(templatesRoot, 'plugin-standalone', 'package.json'),
+        '{ "name": "{{packageName}}", "amplessPlugin": {} }',
+      )
+      writeFileSync(
+        join(templatesRoot, 'plugin-standalone', 'src', 'index.ts'),
+        'export default function {{nameCamelCase}}Plugin() {}',
+      )
+
+      const result = await runUpgradeIn(projectDir, sharedDir, {
+        noInstall: true,
+        templatesRoot,
+      })
+
+      // Real theme is sync'd.
+      expect(existsSync(join(projectDir, 'themes', 'blog', 'page.tsx'))).toBe(true)
+      expect(result.themesSynced).toContain('blog')
+
+      // Scaffold templates are NOT copied into the user's themes/.
+      expect(existsSync(join(projectDir, 'themes', 'plugin-local'))).toBe(false)
+      expect(existsSync(join(projectDir, 'themes', 'plugin-standalone'))).toBe(false)
+      expect(result.themesSynced).not.toContain('plugin-local')
+      expect(result.themesSynced).not.toContain('plugin-standalone')
+    } finally {
+      rmSync(templatesRoot, { recursive: true, force: true })
+    }
+  })
+
   // 6b. protected plugins/: site-local plugin files → untouched. The
   // template seeds a README into plugins/ on initial scaffold; once
   // the directory exists everything inside is user territory (mirrors
