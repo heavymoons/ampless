@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-gtm",
-  "version": "0.1.1-alpha.8",
+  "version": "0.2.0-alpha.9",
   "description": "Google Tag Manager plugin for ampless",
   "license": "MIT",
   "type": "module",
