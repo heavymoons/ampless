@@ -77,9 +77,30 @@ function isValidManifest(value: unknown): value is PluginPackageManifest {
  * `null` for any failure — the caller skips cross-check rather than
  * aborting plugin loading.
  *
- * The manifest itself is NOT validated structurally here; the caller
- * applies field-by-field comparison against the factory return value
- * and emits warnings / throws for individual mismatches.
+ * Failure modes that resolve to `null`:
+ *   - Package not installed at this resolution root
+ *     (`ERR_MODULE_NOT_FOUND`)
+ *   - `package.json` not in the package's `exports`
+ *     (`ERR_PACKAGE_PATH_NOT_EXPORTED`) — see the spec under
+ *     `docs/tmp/plugin-extension-phase5.md` §B
+ *   - `readFileSync` throws (e.g. ENOENT, permissions)
+ *   - JSON parse error
+ *   - `amplessPlugin` field absent or not an object
+ *   - `amplessPlugin` field present but structurally invalid (e.g.
+ *     `apiVersion` not a number, `capabilities` not an array of
+ *     strings, `trustLevel` not one of the three allowed values) —
+ *     see `isValidManifest`
+ *
+ * The structural check matters: without it, a downstream consumer
+ * like `crossCheckStaticManifest`'s `for ... of` over the manifest's
+ * `capabilities` would crash on `capabilities: {}` or `capabilities: 42`,
+ * which is at odds with the "non-apiVersion mismatches warn rather
+ * than throw" policy.
+ *
+ * After this function returns a non-null value, the caller can trust
+ * every field it inspects has the declared type; mismatches against
+ * the factory return value are still surfaced as warnings (or, for
+ * `apiVersion`, throws) by the caller itself.
  */
 export function loadPackageManifest(packageName: string): PluginPackageManifest | null {
   let resolvedUrl: string
