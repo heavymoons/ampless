@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-schema-jsonld",
-  "version": "0.1.1-alpha.0",
+  "version": "0.1.1-alpha.1",
   "description": "JSON-LD structured data (Article schema) for ampless posts.",
   "license": "MIT",
   "type": "module",
@@ -48,7 +48,13 @@
     "apiVersion": 1,
     "name": "schema-jsonld",
     "trustLevel": "untrusted",
-    "capabilities": ["schema", "adminSettings"],
-    "displayName": { "en": "JSON-LD Schema", "ja": "JSON-LD スキーマ" }
+    "capabilities": [
+      "schema",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "JSON-LD Schema",
+      "ja": "JSON-LD スキーマ"
+    }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-plausible",
-  "version": "0.1.1-alpha.3",
+  "version": "0.1.1-alpha.4",
   "description": "Plausible Analytics plugin for ampless",
   "license": "MIT",
   "type": "module",
@@ -46,7 +46,13 @@
     "apiVersion": 1,
     "name": "plausible",
     "trustLevel": "untrusted",
-    "capabilities": ["publicHead", "adminSettings"],
-    "displayName": { "en": "Plausible Analytics", "ja": "Plausible Analytics" }
+    "capabilities": [
+      "publicHead",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "Plausible Analytics",
+      "ja": "Plausible Analytics"
+    }
   }
 }
