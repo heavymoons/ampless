@@ -32,6 +32,17 @@ export interface GtmOptions {
    * marketing + a product container on the same site).
    */
   instanceId?: string
+  /**
+   * Optional consent category. When set, the analytics loader does
+   * not run until window.amplessConsent.has(consentCategory) returns
+   * true. See @ampless/plugin-cookie-consent and the Consent
+   * Convention in docs/architecture/08-plugin-architecture.md.
+   *
+   * Note: in gated mode the `<noscript>` fallback in publicBodyEnd
+   * is suppressed — JavaScript-less environments cannot run the
+   * consent UI so there is no meaningful way to gate.
+   */
+  consentCategory?: string
 }
 
 /**
@@ -48,7 +59,7 @@ export interface GtmOptions {
  * before an admin has saved a value.
  */
 export default function gtmPlugin(options: GtmOptions = {}): AmplessPlugin {
-  const { containerId = '', instanceId = 'gtm' } = options
+  const { containerId = '', instanceId = 'gtm', consentCategory = '' } = options
   return definePlugin({
     name: 'gtm',
     packageName: '@ampless/plugin-gtm',
@@ -78,6 +89,19 @@ export default function gtmPlugin(options: GtmOptions = {}): AmplessPlugin {
           placeholder: 'GTM-XXXXXXX',
           default: containerId,
         },
+        {
+          type: 'text',
+          key: 'consentCategory',
+          label: { en: 'Consent category', ja: '同意カテゴリ' },
+          description: {
+            en: 'Optional. When set, the analytics loader fires only after `window.amplessConsent.has(<this>)` returns true. Requires `@ampless/plugin-cookie-consent` to also be registered — fail-closed otherwise (no tracking, console warning after 5s). Note: in gated mode the <noscript> fallback is suppressed. See the Consent Convention in the plugin author guide.',
+            ja: 'オプション。設定すると `window.amplessConsent.has(<value>)` が true になるまで analytics loader を発火しません。`@ampless/plugin-cookie-consent` の併用が必須 — 未導入時は完全に発火せず 5 秒後に console warning (fail-closed)。注意: gated mode では <noscript> fallback は出力されません。詳細は plugin author guide の Consent Convention 節を参照。',
+          },
+          pattern: '^$|^[a-z][a-z0-9_-]*$',
+          maxLength: 32,
+          placeholder: 'analytics',
+          default: consentCategory,
+        },
       ],
     },
     publicHead(ctx) {
@@ -86,6 +110,49 @@ export default function gtmPlugin(options: GtmOptions = {}): AmplessPlugin {
       // the plugin registered while toggling GTM off without
       // changing the plugin list.
       if (!id) return []
+
+      const category = (ctx.setting<string>('consentCategory') ?? '').trim()
+
+      // Non-empty consentCategory → gated mode: replace the standard
+      // inline loader with a single inlineScript that defers loading
+      // until window.amplessConsent.has(category) is true. The
+      // noscript fallback (publicBodyEnd) is suppressed in this mode
+      // because JavaScript-less environments cannot run the consent UI.
+      if (category) {
+        return [
+          {
+            type: 'inlineScript',
+            id: `gtm-gated-${instanceId}`,
+            strategy: 'afterInteractive',
+            body: [
+              '(function () {',
+              '  var initialized = false',
+              '  function init() {',
+              '    if (initialized) return',
+              '    initialized = true',
+              `    var gtmSrc = 'https://www.googletagmanager.com/gtm.js?id=' + ${JSON.stringify(id)}`,
+              "    ;(function(w,d,s,l){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s);j.async=true;j.src=gtmSrc;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer')",
+              '  }',
+              '  function wait() {',
+              `    if (window.amplessConsent.has(${JSON.stringify(category)})) init()`,
+              `    else window.amplessConsent.on(${JSON.stringify(category)}, init)`,
+              '  }',
+              '  if (window.amplessConsent) {',
+              '    wait()',
+              '  } else {',
+              '    window.addEventListener(\'ampless:consent-ready\', wait, { once: true })',
+              '    setTimeout(function () {',
+              '      if (!window.amplessConsent) {',
+              '        console.warn(\'[ampless:gtm] consentCategory is set but window.amplessConsent never installed. Did you forget to register @ampless/plugin-cookie-consent?\')',
+              '      }',
+              '    }, 5000)',
+              '  }',
+              '})()',
+            ].join('\n'),
+          },
+        ]
+      }
+
       return [
         {
           type: 'inlineScript',
@@ -102,6 +169,14 @@ export default function gtmPlugin(options: GtmOptions = {}): AmplessPlugin {
     publicBodyEnd(ctx) {
       const id = (ctx.setting<string>('containerId') ?? '').trim()
       if (!id) return []
+
+      const category = (ctx.setting<string>('consentCategory') ?? '').trim()
+      // In gated mode the noscript fallback is suppressed: JS-less
+      // environments cannot run the consent UI so there is no
+      // meaningful way to gate tracking. Tracking is silently omitted
+      // rather than firing unconditionally for those visitors.
+      if (category) return []
+
       return [
         {
           type: 'noscript',

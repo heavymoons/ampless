@@ -133,4 +133,84 @@ describe('plausiblePlugin (Phase 3a)', () => {
     expect(scriptUrlField?.type).toBe('url')
     expect(scriptUrlField?.required).toBe(true)
   })
+
+  it('exposes a consentCategory text field in settings.public', () => {
+    const plugin = plausiblePlugin({ domain: 'example.com' })
+    const fields = plugin.settings?.public ?? []
+    const ccField = fields.find((f) => f.key === 'consentCategory')
+    expect(ccField?.type).toBe('text')
+  })
+})
+
+describe('plausiblePlugin — gated mode (consentCategory set)', () => {
+  it('returns a single inlineScript when consentCategory is set', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: 'analytics',
+    })
+    const head = callPublicHead(plugin)
+    expect(head).toHaveLength(1)
+    const [desc] = head as [PublicHeadDescriptor]
+    expect(desc.type).toBe('inlineScript')
+  })
+
+  it('gated body contains consent guard primitives', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('if (initialized) return')
+    expect(desc.body).toContain('window.amplessConsent.has')
+    expect(desc.body).toContain('window.amplessConsent.on')
+    expect(desc.body).toContain('ampless:consent-ready')
+    expect(desc.body).toContain('console.warn')
+  })
+
+  it('gated body embeds the script src identical to non-gated external descriptor', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('https://plausible.io/js/script.js')
+  })
+
+  it('gated body embeds the consentCategory and domain as JSON literals', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('"analytics"')
+    expect(desc.body).toContain('"example.com"')
+  })
+
+  it('returns non-gated descriptor when consentCategory is empty string', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: '',
+    })
+    const head = callPublicHead(plugin)
+    expect(head).toHaveLength(1)
+    expect(head[0]!.type).toBe('script')
+  })
+
+  it('stored consentCategory overrides the constructor default', () => {
+    const plugin = plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: '',
+    })
+    // Admin saves a non-empty consentCategory → switches to gated mode
+    const head = callPublicHead(plugin, { consentCategory: 'marketing' })
+    expect(head).toHaveLength(1)
+    const [desc] = head as [PublicHeadDescriptor]
+    expect(desc.type).toBe('inlineScript')
+    if (desc.type === 'inlineScript') {
+      expect(desc.body).toContain('"marketing"')
+    }
+  })
 })
