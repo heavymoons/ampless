@@ -15,7 +15,48 @@
 
 ---
 
+## 0. テーマとプラグインの境界線
+
+ampless はテーマとプラグインの両方を提供します。用途に合ったものを選ぶことで、未来の自分や他のサイト作者が迷わずコードを見つけられます。
+
+| やりたいこと | テーマを使う | プラグインを使う |
+|---|---|---|
+| レイアウト・タイポグラフィ・配色・ルート単位の UI | ✓ | |
+| home / post / tag ページのカスタムコンポーネント | ✓ | |
+| 非開発者が admin から編集できる設定 | | ✓ (`adminSettings`) |
+| コンテンツイベント後のバックグラウンド処理（RSS・検索インデックス・webhook） | | ✓ (`eventHooks`) |
+| 信頼できる副作用（S3 書き込み・外部 API 送信） | | ✓ (`writePublicAsset` + `trusted`) |
+| テーマに依存しない `<head>` / `<body>` 注入（アナリティクス・同意バナー） | | ✓ (`publicHead` / `publicBodyEnd`) |
+| 投稿単位の機械可読メタデータ（JSON-LD 等） | | ✓ (`schema` via `publicBodyForPost`) |
+| 複数の ampless サイトで共有したいコード | | ✓ (npm パッケージとして公開) |
+
+判断の目安:
+
+- テーマ = **ページの見た目**。render 時は読み取り専用。
+- プラグイン = **render を超えて起こること**: admin 編集可能な設定、バックグラウンド処理、テーマ非依存の注入、機械可読メタデータ、サイト間の再利用。
+
+新しいプラグイン作者がよく踏む 2 つの境界線:
+
+- **ストレージ / DynamoDB / 外部 API 書き込みはプラグインに置く**。テーマは読み取り専用です。
+- **admin が `/admin/plugins` からオン・オフしたい機能はプラグインに置く**。表面上の効果が純粋に見た目だけであっても同様です。テーマも独自の設定を持てますが、それはテーマ表示設定であり、サイト運用設定ではありません。
+
+境界線上に本当に乗っている機能については [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) で詳しく議論しています。
+
+---
+
 ## 1. プラグインで何ができるか
+
+ampless プラグインは 3 つのいずれかの場所に書きます — コードをどのくらい広く共有したいかに応じて選んでください:
+
+| どこに置くか | 使い時 | 置き場所 |
+|---|---|---|
+| **ファーストパーティ** | ampless コアへの全員向け貢献 | ampless モノレポ内の `packages/plugin-*/` |
+| **サイトローカル** | サイト固有のカスタマイズ、個別 publish 不要 | サイトリポジトリ内の `plugins/<name>/` |
+| **外部 npm パッケージ** | 他のサイトと共有したい、`npm publish` 想定 | スタンドアロンリポジトリ (`@scope/ampless-plugin-foo`) |
+
+3 つの形式はすべて同じ `definePlugin({...})` ファクトリを呼び出し、同じサーフェスを使います。違いはパッケージング・配布方法、および静的 `package.json#amplessPlugin` マニフェストが有効にするインストール時バリデーションのオプトインです（§3 参照）。
+
+§14 には一行のスキャフォールドコマンド (`npx create-ampless plugin <name>`) があり、後者 2 つのどちらにも即使えるボイラープレートを生成します。
 
 ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScript モジュールです。以下のうち 1 つ以上のサーフェスにフックします:
 
@@ -30,30 +71,65 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 | `hooks` | trust_level に応じた processor Lambda | 非同期、SQS イベントで起動 | 既存 |
 | `settings.public` | `/admin/plugins` フォーム | 宣言的なマニフェスト | 2 |
 
-**現時点でできないこと** (将来の privileged 層実装に依存、ロードマップ参照):
+後続フェーズに残してある surface もいくつかあって、現状の `definePlugin`
+では形にできません:
 
-- 任意の `ReactNode` をページに注入 — descriptor 変種のみ許可
-- 公開 Next.js プロセス内で TCP ソケットを開く。trusted Lambda も外向き HTTP のみ
-- admin ルート / server ルート / コンテンツフィールドの追加 — Phase 6b 予約
-- secret の読み書き。`secretSettings` capability は Phase 6a 予約
+- **任意の `ReactNode` のページ注入**。同期描画 surface (`publicHead` /
+  `publicBodyEnd` / `publicBodyForPost`) は descriptor 変種を返すだけ。
+  descriptor の validator は **runtime が描画する HTML 出力の安全境界**
+  であって、プラグイン本体のコードを縛る JS sandbox ではない (プラグインは
+  普通の TypeScript としてサイトと同一の Node プロセス内で動く)
+- **同期描画 surface 内でのネットワーク**。これらの surface は宣言的な
+  出力を返す設計で、Promise を受け取らないし async result path も無い。
+  `publicHead` の中で `await fetch(...)` を書くと SSR が無期限ブロックする
+  (デッドラインを返す手段がない)。外向き HTTP が必要な処理は trusted
+  Lambda (`hooks`) でやる
+- **admin ルート / server ルート / コンテンツフィールドの追加** —
+  Phase 6b 予約
+- **secret の読み書き**。`secretSettings` capability は Phase 6a 予約。
+  `settings.public` に credential を置かないこと
 
 ---
 
 ## 2. 最小ファイル構成
 
-プラグインは小さな npm パッケージとして公開しても、サイトのモノレポ内に置いてもよいです。on-disk の構成はどちらでも同じ:
+プラグインを作る最速の方法はスキャフォールドです:
+
+```bash
+# サイトローカル (現在の ampless サイトに plugins/<name>/index.ts を生成)
+npx create-ampless@latest plugin my-thing
+
+# スタンドアロン npm パッケージ (`npm publish` 向けの ./<name>/ を生成)
+npx create-ampless@latest plugin @myscope/ampless-plugin-my-thing --standalone
+```
+
+全体の手順は §14 を参照してください。このセクションの残りでは生成されるファイルの意味を説明します — 手書きしたい場合はここを読めば把握できます。
+
+### サイトローカル
 
 ```
-my-plugin/
+plugins/
+  my-thing/
+    index.ts        # ファクトリ関数のみ。これがプラグインの全体
+```
+
+サイトの `package.json` / `tsconfig.json` がコンパイルを担うため、追加で ship するものはありません。`cms.config.ts` から相対 import で登録します。
+
+### スタンドアロン npm パッケージ
+
+```
+ampless-plugin-my-thing/
   package.json
   tsconfig.json
   tsup.config.ts
+  README.md
+  CHANGELOG.md
   src/
     index.ts
     index.test.ts
 ```
 
-本レポ内の `packages/plugin-rss/` と `packages/plugin-analytics-ga4/` が動作する参考実装です。
+本レポ内の `packages/plugin-rss/` と `packages/plugin-analytics-ga4/` が動作するファーストパーティの参考実装です — スタンドアロンスキャフォールドはこれらのレイアウトを踏襲します。
 
 最小の `src/index.ts`:
 
@@ -93,6 +169,7 @@ export default defineConfig({
 ```ts
 interface AmplessPlugin {
   name: string                      // パッケージ風の識別子。例: 'analytics-ga4'
+  packageName?: string              // インストール時のクロスチェック用 npm パッケージ名
   apiVersion: 1                     // 契約が変わるときだけ bump
   trust_level: 'untrusted' | 'trusted' | 'privileged'
   instanceId?: string               // 複数インストール時の namespace
@@ -132,6 +209,67 @@ analyticsGa4Plugin({ instanceId: 'product' })
 
 `/admin/plugins` のパネル見出し。単一ロケールのプラグインなら平文の文字列で十分。`{ en: 'GA4', ja: 'GA4' }` 形式の per-locale map にすると admin のアクティブロケールに応じて読み分けられます。
 
+### `packageName`
+
+省略可能。設定すると、runtime は起動時に `<packageName>/package.json` を解決し、そこにある静的な `amplessPlugin` ブロックをファクトリの戻り値とクロスチェックします。これにより、runtime で初めて気づく（あるいは永遠に気づかない）インストール時のミスを検出できます — capability の不一致はクラッシュせず、該当サーフェスが静かにスキップされるだけです。
+
+スタンドアロンプラグインでは、`package.json#name` で宣言している npm パッケージ名をここに設定します:
+
+```ts
+return definePlugin({
+  name: 'site-verification',
+  packageName: '@ishinao/ampless-plugin-site-verification',
+  apiVersion: 1,
+  // ...
+})
+```
+
+サイトローカルプラグインは不要です — 未設定のままにするとクロスチェックはスキップされます（Phase 5 より前のプラグインとの後方互換）。
+
+### `package.json` の静的マニフェスト（スタンドアロンプラグインのみ）
+
+クロスチェックが静的マニフェストを見つけるには、公開パッケージに 2 つの条件が必要です:
+
+1. `package.json#amplessPlugin` がファクトリの戻り値と同じフィールドを宣言している:
+
+   ```json
+   "amplessPlugin": {
+     "apiVersion": 1,
+     "name": "site-verification",
+     "trustLevel": "untrusted",
+     "capabilities": ["publicHead", "adminSettings"],
+     "displayName": { "en": "Site verification", "ja": "サイト所有権確認" }
+   }
+   ```
+
+2. `package.json#exports` が `./package.json` を明示的に公開している:
+
+   ```json
+   "exports": {
+     ".": {
+       "import": "./dist/index.js",
+       "types": "./dist/index.d.ts"
+     },
+     "./package.json": "./package.json"
+   }
+   ```
+
+   これがないと、Node のパッケージエクスポートの制約により `import.meta.resolve('<pkg>/package.json')` が `ERR_PACKAGE_PATH_NOT_EXPORTED` で拒否され、runtime はクロスチェックを静かにスキップします（プラグインは動きますが、インストール時ガードは機能しません）。
+
+`create-ampless plugin --standalone` スキャフォールドは両方を正しく生成します。また `package.json#keywords` に `"ampless-plugin"` を加えておくことをお勧めします — npm 検索で ampless プラグインを探す際の慣例です。
+
+runtime がチェックする内容:
+
+| フィールド | 不一致時の動作 |
+|---|---|
+| `apiVersion`（ファクトリ vs マニフェスト） | 起動時に **throws** |
+| `apiVersion`（runtime がサポートするバージョンより新しい） | 起動時に **throws** |
+| `name` | dev で warn |
+| `trustLevel` | dev で warn |
+| `capabilities`（集合比較） | dev で warn |
+
+起動を中断するのは 2 つの `apiVersion` ケースのみです — これは runtime が対応していない ampless API でビルドされたプラグインのロードを防ぎます。その他はすべて開発者向けの警告であり、runtime のブロックではありません。
+
 ---
 
 ## 4. `trust_level` の選び方
@@ -156,7 +294,13 @@ trust level がズレているプラグインは「権限不足で sliently fail
 
 ## 5. 同期サーフェス
 
-**公開 Next.js プロセス** (サイト訪問者のリクエストスレッド) 内で実行されます。AWS に対しては純 (IAM・ネットワーク無し) で、同期実行です。
+**公開 Next.js プロセス** (サイト訪問者のリクエストスレッド) 内で同期実行
+されます。これらの surface はネットワーク I/O を意図して設計していません。
+async result path が無いので `publicHead` 内で `await fetch(...)` すると
+SSR がデッドラインなしでブロックします。ネットワーク呼び出しが必要な副作用
+は `hooks` (trusted Lambda、async) でやってください。公開プロセス内の
+プラグインコードは公開ページ用の IAM ロールで動きます — 特別な AWS 権限は
+ありません。
 
 | サーフェス | 戻り値 | 用途 |
 |---|---|---|
@@ -181,7 +325,14 @@ trust level がズレているプラグインは「権限不足で sliently fail
 
 ## 6. Descriptor リファレンス
 
-`publicHead` と `publicBodyEnd` は **descriptor オブジェクト** を返します。`ReactNode` ではありません。runtime が validation してから React 要素を組み立てます。これが untrusted コードを公開描画パスで動かすための安全境界です。
+`publicHead` と `publicBodyEnd` は **descriptor オブジェクト** を返します。
+`ReactNode` ではありません。runtime が validation (URL scheme denylist /
+attrs allowlist / id dedup) してから React 要素を組み立てます。これは
+プラグインが寄与できる **HTML 出力** の安全境界であって、プラグイン本体の
+コード実行を縛るものではない、という点に注意 — プラグインは普通の
+TypeScript としてサイトと同一の Node プロセスで動きます。descriptor
+パイプラインは、JS sandbox に頼らずに公開ページの面を狭く / 監査可能に
+保つための仕組みです。
 
 ### 共通の variant
 
@@ -318,6 +469,26 @@ export default function schemaJsonldPlugin() {
 ```
 
 テーマの `pages/post.tsx` が `ampless.publicBodyForPost(post)` を呼び、返された descriptor を描画します。runtime は自動 escape した body を持つ `<script type="application/ld+json">` 要素をページに挿入します。
+
+### クライアントサイドの DOM 操作はしない
+
+`publicHead` または `publicBodyEnd` から返したインラインスクリプトは、React がページを hydrate する前、HTML のパース中に実行されます。**React が管理するサブツリー内の見える DOM を操作してはいけません** — hydration が走ると React は仮想 DOM と合わないツリーを検出し、`Hydration failed because the server rendered HTML didn't match the client` エラーを投げてサブツリーをゼロから再生成します。挿入したノードは消えてしまいます。
+
+React 19 はさらに、クライアントコンポーネントのレンダー中に出会った `<script>` タグの実行を拒否するため、`document.body.append(myNewElement)` のようなスクリプトはそもそも発火しないことがあります。
+
+**安全なパターン**:
+
+- **グローバル状態 / 非 DOM の副作用**: `window.dataLayer` への push、設定オブジェクトのセット、アナリティクス SDK のインスタンス化。`@ampless/plugin-analytics-ga4`・`@ampless/plugin-gtm`・`@ampless/plugin-plausible` はこの方法を使っています。
+- **外部ウィジェットローダー**: 自前の独立したコンテナを管理するサードパーティスクリプトの読み込み（Crisp・Intercom・Drift など）。ウィジェットの shadow DOM / fixed-position オーバーレイは React のツリーの外にあり、hydration と競合しません。
+- **SSR 専用の descriptor**: `meta` / `link` / `noscript`（`publicBodyEnd` では `iframe` も）を返す — runtime がサーバーサイドで描画するため、最初から React の仮想 DOM の一部になります。
+
+**避けるべきパターン**:
+
+- `document.createElement('div')` + `document.body.append(...)`
+- テーマが描画した要素のクラス / 属性 / テキストコンテンツの変更
+- クライアントサイドで `#post-body` のような要素を読み取って投稿単位の HTML を挿入する — 現在 `publicHead`-for-post に相当するサーフェスはなく、サーバーレンダリング済みのサブツリーをクライアントサイドで書き換えると hydration と競合します
+
+投稿単位の見える出力には、`publicBodyForPost` 経由で JSON-LD を返す（§6 の `PublicPostBodyDescriptor` 参照）か、テーマ自身のテンプレートを使ってください。サーバーサイドでの投稿単位 HTML 注入はロードマップに載っています。
 
 ---
 
@@ -591,7 +762,82 @@ it('admin が空文字保存した場合は空配列', () => {
 
 ---
 
-## 14. 質問先
+## 14. クイックスタート: `create-ampless` でスキャフォールド
+
+アイデアから動くプラグインへの最速ルートとして、`create-ampless` CLI には `plugin <name>` サブコマンドが用意されています:
+
+```bash
+# サイトローカル: 現在の ampless サイトのルートで実行
+# plugins/<name>/index.ts を生成する
+npx create-ampless@latest plugin my-thing \
+  --trust-level untrusted \
+  --capabilities publicHead,adminSettings
+
+# スタンドアロン npm パッケージ: ./<dir>/ を生成
+# package.json / tsconfig.json / tsup.config.ts / README + .ja /
+# CHANGELOG / .gitignore / src/index.ts + src/index.test.ts を含む
+# 新しいパッケージディレクトリを置きたい場所で実行する
+npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
+  --standalone \
+  --trust-level untrusted \
+  --capabilities publicHead,adminSettings \
+  --description "このプラグインが何をするか"
+```
+
+スタンドアロンスキャフォールドには Phase 5 のクロスチェックに必要なものがすべて含まれます: `package.json#amplessPlugin`、`./package.json` サブパスエクスポート、`packageName` ファクトリフィールド、`ampless-plugin` 検索キーワード、そして `pnpm install && pnpm test && pnpm build` が生成直後にクリーンに通る最小の vitest サンプル。
+
+どちらのモードも、フラグなしの位置引数呼び出し (`npx create-ampless@latest plugin`) で @clack のプロンプト UI を使ったインタラクティブモードに切り替えられます。
+
+### スタンドアロンプラグインの公開
+
+```bash
+cd ampless-plugin-thing
+pnpm install
+pnpm test
+pnpm build
+pnpm publish --access public --tag alpha
+```
+
+スコープ付き名前 (`@scope/...`) には `--access public` が必須です。`--tag alpha` は現在の ampless プレリリースサイクルに合わせています — 安定 major に達したら外してください。
+
+`npm publish` が返った直後に `npm install <pkg>@alpha` で 404 が出ることがあります（CDN とレジストリレプリカの伝播遅延）。その場合は 1〜2 分待ってリトライしてください — `npm view <pkg>@alpha version` がレジストリで見えていることは必要条件ですが十分条件ではありません。
+
+### パッケージの命名
+
+npm の慣例として、スコープと `ampless-plugin-` プレフィックスを除いた短い識別子が `AmplessPlugin.name` になります:
+
+| npm パッケージ | `AmplessPlugin.name` |
+|---|---|
+| `@ampless/plugin-gtm` | `gtm` |
+| `@scope/ampless-plugin-clarity` | `clarity` |
+| `ampless-plugin-readme-toc` | `readme-toc` |
+| `weird-name-no-prefix` | `weird-name-no-prefix` |
+
+スキャフォールドはこのストリッピングを自動で行います。スキャフォールドを使わない場合も同じマッピングで手書きしてください。パッケージの静的マニフェストとファクトリで `name` が一致しない場合はインストール時クロスチェックが警告します。
+
+### サイトローカルの後作業
+
+サイトローカルのスキャフォールド後:
+
+```ts
+// cms.config.ts
+import myThingPlugin from './plugins/my-thing'
+
+export default defineConfig({
+  // ...
+  plugins: [
+    myThingPlugin(),
+  ],
+})
+```
+
+スキャフォールドの最後にこのスニペットが表示されます — `cms.config.ts` にコピーしてプラグインを有効化してください。
+
+`update-ampless` は `plugins/` ディレクトリを決して変更しません（PROTECTED 扱い）。ampless のアップグレードをまたいでも安全に残ります。
+
+---
+
+## 15. 質問先
 
 - アーキテクチャ / 設計の質問 → [`docs/architecture/08-plugin-architecture.ja.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md)
 - ファーストパーティプラグインの bug → `heavymoons/ampless` にプラグインの package 名つきで issue

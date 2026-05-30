@@ -10,15 +10,41 @@ add here is yours to keep.
 
 ## When to use a local plugin
 
-Reach for a local plugin when you want a site-specific feature that:
+The longer answer lives in §0 ("Theme vs Plugin Boundary") of the
+[plugin author guide](../docs/plugin-author-guide.md) — read that
+first if you're new to plugins, or if you're unsure whether a feature
+belongs in a plugin or a theme. Short version:
 
-- needs the plugin surface (`publicHead` / `publicBodyEnd` / `metadata` / `eventHooks` / etc.)
-- is specific to this site (a one-off footer credit, a custom JSON-LD enrichment, an analytics snippet you're not yet ready to ship as a reusable package)
+- **Theme** = what the page looks like (layout, components, CSS).
+- **Plugin** = admin-editable config, background processing,
+  theme-agnostic injection, machine-readable metadata, or anything
+  you want to share between sites.
+
+Reach for a *local* plugin (this directory) when you want a feature
+that:
+
+- needs a plugin surface (`publicHead` / `publicBodyEnd` /
+  `metadata` / `eventHooks` / etc.)
+- is specific to this site (a one-off footer credit, a custom JSON-LD
+  enrichment, an analytics snippet you're not yet ready to ship as a
+  reusable package)
 - you'd rather not version-bump or republish to iterate on
 
 When the plugin grows useful for more than one site, lift it into its
-own npm package (see `npx create-ampless plugin --standalone` once it
-ships in Phase 5; for now you can copy it out by hand).
+own npm package — `npx create-ampless@latest plugin <name> --standalone`
+scaffolds the directory ready for `npm publish`.
+
+## A note on client-side scripts
+
+If your `publicHead` / `publicBodyEnd` returns an `inlineScript`, the
+script body **must not insert visible DOM elements** into the page.
+React's hydration assumes the DOM matches its virtual DOM, and any
+foreign nodes get wiped during reconciliation (plus a console error).
+Safe patterns are `window.dataLayer`-style global state, external
+widget loaders that manage their own isolated container, and
+SSR-only descriptors (`meta` / `link` / `noscript` / `iframe`).
+See the [author guide §6](../docs/plugin-author-guide.md) "Client-side
+DOM mutation: don't" section for the full story.
 
 ## Minimal example
 
