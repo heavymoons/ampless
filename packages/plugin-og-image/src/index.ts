@@ -89,8 +89,10 @@ export default function ogImagePlugin(options: OgImagePluginOptions): AmplessPlu
 
   return definePlugin({
     name: 'og-image',
+    packageName: '@ampless/plugin-og-image',
     apiVersion: 1,
     trust_level: 'untrusted',
+    capabilities: ['metadata'],
     metadata(post, site) {
       const baseUrl = site.url.replace(/\/$/, '')
       const url = `${baseUrl}/og/${post.slug}`

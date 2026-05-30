@@ -64,6 +64,7 @@ export type {
   PublicHeadDescriptor,
   PublicBodyDescriptor,
   PublicPostBodyDescriptor,
+  PluginPackageManifest,
   PluginSettingsManifest,
   PluginSettingField,
   PluginTextField,

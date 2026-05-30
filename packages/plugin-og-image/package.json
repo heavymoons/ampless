@@ -12,7 +12,8 @@
     "./load-image": {
       "import": "./dist/load-image.js",
       "types": "./dist/load-image.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -49,7 +50,15 @@
   "keywords": [
     "ampless",
     "plugin",
+    "ampless-plugin",
     "og-image",
     "opengraph"
-  ]
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "og-image",
+    "trustLevel": "untrusted",
+    "capabilities": ["metadata"],
+    "displayName": { "en": "OG Image", "ja": "OG 画像" }
+  }
 }

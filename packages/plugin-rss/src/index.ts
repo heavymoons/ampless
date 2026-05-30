@@ -25,6 +25,7 @@ export default function rssPlugin(options: RssPluginOptions = {}): AmplessPlugin
 
   return definePlugin({
     name: 'rss',
+    packageName: '@ampless/plugin-rss',
     apiVersion: 1,
     trust_level: 'trusted',
     capabilities: ['eventHooks', 'writePublicAsset', 'metadata'],

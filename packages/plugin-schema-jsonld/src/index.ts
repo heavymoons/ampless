@@ -126,6 +126,7 @@ export default function schemaJsonLdPlugin(
 
   return definePlugin({
     name: 'schema-jsonld',
+    packageName: '@ampless/plugin-schema-jsonld',
     instanceId,
     apiVersion: 1,
     trust_level: 'untrusted',

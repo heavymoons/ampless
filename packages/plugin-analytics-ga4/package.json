@@ -8,7 +8,8 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -36,8 +37,16 @@
   "keywords": [
     "ampless",
     "plugin",
+    "ampless-plugin",
     "analytics",
     "ga4",
     "google-analytics"
-  ]
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "analytics-ga4",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "adminSettings"],
+    "displayName": { "en": "Google Analytics 4", "ja": "Google Analytics 4" }
+  }
 }

@@ -8,6 +8,24 @@ import {
 } from 'ampless'
 import { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+import type { PluginPackageManifest } from 'ampless'
+
+// ---------------------------------------------------------------------------
+// Module-level mock for plugin-package-manifest so crossCheckStaticManifest
+// tests can control what loadPackageManifest returns without touching the
+// real filesystem or requiring plugin packages in node_modules.
+// vi.mock calls are hoisted before imports by vitest's transform step.
+// ---------------------------------------------------------------------------
+vi.mock('./plugin-package-manifest.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./plugin-package-manifest.js')>()
+  return {
+    ...real,
+    loadPackageManifest: vi.fn(() => null), // default: no manifest (silent skip)
+  }
+})
+
+import { loadPackageManifest } from './plugin-package-manifest.js'
+const mockedLoadPackageManifest = vi.mocked(loadPackageManifest)
 
 // Stub `PluginSettingsApi` so tests run without S3 — every call
 // returns the snapshot we hand in. `emptySettings` covers the
@@ -956,5 +974,162 @@ describe('escapeJsonLdInlineBody', () => {
     expect(escaped).not.toContain('</script>')
     // still parseable
     expect(() => JSON.parse(escaped)).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// crossCheckStaticManifest — called by createPluginHead constructor when
+// plugin.packageName is set. loadPackageManifest is mocked at the module
+// level (vi.mock above) so tests control what the manifest returns without
+// hitting the real filesystem.
+// ---------------------------------------------------------------------------
+
+describe('crossCheckStaticManifest (via createPluginHead)', () => {
+  // GTM manifest as declared in @ampless/plugin-gtm/package.json
+  const gtmManifest: PluginPackageManifest = {
+    apiVersion: 1,
+    name: 'gtm',
+    trustLevel: 'untrusted',
+    capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    displayName: { en: 'Google Tag Manager', ja: 'Google Tag Manager' },
+  }
+
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Default: no manifest (silent skip). Individual tests override as needed.
+    mockedLoadPackageManifest.mockReturnValue(null)
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+    vi.mocked(mockedLoadPackageManifest).mockReset()
+  })
+
+  it('case 1: no packageName → cross-check not called, no throw or extra warn', () => {
+    // A plugin without packageName skips cross-check entirely. The
+    // createPluginHead constructor should complete without calling
+    // loadPackageManifest and without any capability-mismatch warns
+    // (since capabilities match the implementation).
+    const plugin = definePlugin({
+      name: 'no-pkg',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    expect(mockedLoadPackageManifest).not.toHaveBeenCalled()
+  })
+
+  it('case 2: packageName set, manifest matches factory → cross-check passes silently', () => {
+    // Full match: apiVersion / name / trustLevel / capabilities all agree.
+    mockedLoadPackageManifest.mockReturnValue(gtmManifest)
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    // loadPackageManifest must have been called with the plugin's packageName
+    expect(mockedLoadPackageManifest).toHaveBeenCalledWith('@ampless/plugin-gtm')
+    // No cross-check warn should have been emitted
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    const crossCheckWarns = messages.filter((m: string) =>
+      m.includes('apiVersion') ||
+      m.includes('name mismatch') ||
+      m.includes('trustLevel') ||
+      m.includes('capabilities mismatch')
+    )
+    expect(crossCheckWarns).toHaveLength(0)
+  })
+
+  it('case 3: apiVersion mismatch (factory declares future version) → throws', () => {
+    // manifest.apiVersion === 1 but factory.apiVersion === 99 → mismatch throw.
+    mockedLoadPackageManifest.mockReturnValue({ ...gtmManifest, apiVersion: 1 as const })
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 99 as 1, // cast to satisfy TS, simulating a future plugin
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).toThrow(
+      /apiVersion mismatch/
+    )
+  })
+
+  it('case 3b: manifest.apiVersion above SUPPORTED_API_VERSION → throws', () => {
+    // manifest claims apiVersion 2 but SUPPORTED_API_VERSION is 1 → throw.
+    mockedLoadPackageManifest.mockReturnValue({
+      ...gtmManifest,
+      apiVersion: 2 as unknown as 1,
+    })
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).toThrow(
+      /newer than this runtime supports/
+    )
+  })
+
+  it('case 4: name mismatch → warns, does not throw', () => {
+    mockedLoadPackageManifest.mockReturnValue({ ...gtmManifest, name: 'google-tag-manager' })
+    const plugin = definePlugin({
+      name: 'gtm', // factory says 'gtm', manifest says 'google-tag-manager'
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('name mismatch'))).toBe(true)
+  })
+
+  it('case 5: capabilities mismatch (factory subset of manifest) → warns, does not throw', () => {
+    // manifest declares 3 capabilities; factory only declares 1 → mismatch.
+    mockedLoadPackageManifest.mockReturnValue(gtmManifest)
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'], // manifest has 3
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('capabilities mismatch'))).toBe(true)
+  })
+
+  it('case 6: packageName set but loadPackageManifest returns null → silent skip, no warn or throw', () => {
+    // Simulates a plugin whose package.json isn't exported or has no
+    // amplessPlugin field. loadPackageManifest returns null → the helper
+    // returns early without checking anything.
+    mockedLoadPackageManifest.mockReturnValue(null)
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: 'this-package-does-not-exist',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    // No cross-check warnings
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    const crossCheckWarns = messages.filter((m: string) =>
+      m.includes('apiVersion') ||
+      m.includes('name mismatch') ||
+      m.includes('trustLevel') ||
+      m.includes('capabilities mismatch')
+    )
+    expect(crossCheckWarns).toHaveLength(0)
   })
 })

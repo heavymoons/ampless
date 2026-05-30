@@ -73,6 +73,7 @@ export default function plausiblePlugin(
   } = options
   return definePlugin({
     name: 'plausible',
+    packageName: '@ampless/plugin-plausible',
     instanceId,
     displayName: { en: 'Plausible Analytics', ja: 'Plausible Analytics' },
     apiVersion: 1,

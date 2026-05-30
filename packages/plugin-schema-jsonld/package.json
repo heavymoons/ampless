@@ -8,7 +8,8 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -36,10 +37,18 @@
   "keywords": [
     "ampless",
     "plugin",
+    "ampless-plugin",
     "schema",
     "json-ld",
     "structured-data",
     "seo",
     "article"
-  ]
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "schema-jsonld",
+    "trustLevel": "untrusted",
+    "capabilities": ["schema", "adminSettings"],
+    "displayName": { "en": "JSON-LD Schema", "ja": "JSON-LD スキーマ" }
+  }
 }

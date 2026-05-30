@@ -83,6 +83,10 @@ export type {
 } from './site-settings.js'
 export type { SeoApi } from './seo.js'
 export { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
+export {
+  loadPackageManifest,
+  SUPPORTED_API_VERSION,
+} from './plugin-package-manifest.js'
 export type { PluginHeadApi } from './plugin-head.js'
 export { createPluginSettings } from './plugin-settings.js'
 export type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'

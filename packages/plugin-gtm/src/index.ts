@@ -51,6 +51,7 @@ export default function gtmPlugin(options: GtmOptions = {}): AmplessPlugin {
   const { containerId = '', instanceId = 'gtm' } = options
   return definePlugin({
     name: 'gtm',
+    packageName: '@ampless/plugin-gtm',
     instanceId,
     displayName: { en: 'Google Tag Manager', ja: 'Google Tag Manager' },
     apiVersion: 1,

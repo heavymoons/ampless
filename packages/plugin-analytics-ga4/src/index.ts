@@ -54,6 +54,7 @@ export default function analyticsGa4Plugin(
   const { measurementId = '', instanceId = 'analytics-ga4' } = options
   return definePlugin({
     name: 'analytics-ga4',
+    packageName: '@ampless/plugin-analytics-ga4',
     instanceId,
     displayName: { en: 'Google Analytics 4', ja: 'Google Analytics 4' },
     apiVersion: 1,

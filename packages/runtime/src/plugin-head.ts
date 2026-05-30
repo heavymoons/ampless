@@ -34,6 +34,7 @@ import {
   resolvePluginSettings,
   type AmplessPlugin,
   type Config,
+  type PluginCapability,
   type PluginPublicRenderContext,
   type Post,
   type PublicHeadDescriptor,
@@ -41,6 +42,10 @@ import {
   type PublicPostBodyDescriptor,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+import {
+  loadPackageManifest,
+  SUPPORTED_API_VERSION,
+} from './plugin-package-manifest.js'
 
 // Same guard as seo.ts — accept anything that looks like a plugin
 // manifest (`apiVersion` is the cheapest discriminator and exists on
@@ -127,6 +132,80 @@ function warn(message: string): void {
   if (!isDev()) return
   // eslint-disable-next-line no-console
   console.warn(`[ampless plugin-head] ${message}`)
+}
+
+/**
+ * Compare the plugin's static `amplessPlugin` manifest (in its
+ * `package.json`) against the factory return value. Plugins that
+ * supply a `packageName` opt in to this; plugins without
+ * `packageName` skip the check entirely (backward compat).
+ *
+ * `apiVersion` mismatch — or a value above `SUPPORTED_API_VERSION` —
+ * THROWS, because letting a plugin built against a future ampless
+ * surface continue is genuinely unsafe (the runtime can't know which
+ * methods it might call). All other field disagreements (`name`,
+ * `trustLevel`, `capabilities`) warn so authors notice the drift in
+ * dev without blocking site startup.
+ *
+ * Manifest load failures (missing package.json subpath export,
+ * `amplessPlugin` field absent, JSON parse error) silently skip the
+ * check — see `loadPackageManifest` for the failure modes. This keeps
+ * the behaviour graceful for plugins that haven't migrated to the
+ * Phase 5 convention.
+ */
+function crossCheckStaticManifest(plugin: AmplessPlugin, label: string): void {
+  const packageName = plugin.packageName!
+  const manifest = loadPackageManifest(packageName)
+  if (!manifest) return
+
+  // apiVersion: hard error. The plugin has declared the ampless API
+  // version it was built against; if it's higher than the runtime
+  // supports, the runtime literally doesn't know how to talk to it.
+  if (typeof manifest.apiVersion !== 'number') {
+    throw new Error(
+      `${label}: package.json#amplessPlugin.apiVersion is not a number (got ${JSON.stringify(manifest.apiVersion)}). Update the plugin's package.json or remove the amplessPlugin field.`
+    )
+  }
+  if (manifest.apiVersion > SUPPORTED_API_VERSION) {
+    throw new Error(
+      `${label}: package.json#amplessPlugin.apiVersion ${manifest.apiVersion} is newer than this runtime supports (max ${SUPPORTED_API_VERSION}). Upgrade @ampless/runtime, or pin an older version of the plugin.`
+    )
+  }
+  if (manifest.apiVersion !== plugin.apiVersion) {
+    throw new Error(
+      `${label}: apiVersion mismatch — package.json declares ${manifest.apiVersion}, factory declares ${plugin.apiVersion}. The two must agree.`
+    )
+  }
+
+  if (manifest.name !== plugin.name) {
+    warn(
+      `${label}: name mismatch — package.json#amplessPlugin.name is "${manifest.name}", factory returns name="${plugin.name}". Align them so admin UI / capability gates can identify the plugin consistently.`
+    )
+  }
+
+  if (manifest.trustLevel !== plugin.trust_level) {
+    warn(
+      `${label}: trustLevel mismatch — package.json declares "${manifest.trustLevel}", factory declares trust_level="${plugin.trust_level}". The processor IAM policies are wired off trust_level; drift here usually means the deployment lambda runs in the wrong context.`
+    )
+  }
+
+  const factoryCaps = (plugin.capabilities ?? []) as readonly PluginCapability[]
+  const manifestCaps = manifest.capabilities ?? []
+  if (factoryCaps.length !== manifestCaps.length || !setsEqual(factoryCaps, manifestCaps)) {
+    warn(
+      `${label}: capabilities mismatch — package.json declares [${manifestCaps.join(', ')}], factory declares [${factoryCaps.join(', ')}]. The static manifest is what npm registry / admin UI surfaces show before the plugin loads, so it should match what the factory actually returns.`
+    )
+  }
+}
+
+function setsEqual(
+  a: readonly PluginCapability[],
+  b: readonly PluginCapability[]
+): boolean {
+  if (a.length !== b.length) return false
+  const sa = new Set<string>(a)
+  for (const c of b) if (!sa.has(c)) return false
+  return true
 }
 
 // Map allow-listed `attrs` onto a fresh React-friendly props object,
@@ -614,6 +693,17 @@ export function createPluginHead(
       }
     }
     validPlugins.push(plugin)
+
+    // Static-manifest cross-check (Phase 5). When the plugin declares
+    // `packageName`, resolve `<packageName>/package.json#amplessPlugin`
+    // and compare against the factory return value. apiVersion
+    // mismatch (or above the supported value) throws — loading code
+    // built against a future ampless surface is unsafe. Other field
+    // mismatches warn so plugin authors notice the drift but the site
+    // keeps running.
+    if (plugin.packageName) {
+      crossCheckStaticManifest(plugin, label)
+    }
 
     // Capability vs implementation mismatch. We only check the head/
     // body surfaces this module is actually responsible for; other
