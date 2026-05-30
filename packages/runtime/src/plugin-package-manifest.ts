@@ -38,6 +38,28 @@ import type { PluginPackageManifest, TrustLevel } from 'ampless'
 const TRUST_LEVELS: readonly TrustLevel[] = ['untrusted', 'trusted', 'privileged']
 
 /**
+ * Aliased copy of `import.meta.resolve` to hide the call site from
+ * Next.js' webpack. Webpack 5 has a hand-written recognizer for the
+ * literal `import.meta.resolve(<expr>)` shape and tries to follow it
+ * as a static module request — which fails with a build-time
+ * `module-not-found` whenever the specifier is dynamic (which ours
+ * always is — `${packageName}/package.json`). Reading `.resolve` off
+ * `import.meta` first and calling through the local binding turns
+ * the call site into a plain function invocation that webpack leaves
+ * alone, while Node still resolves it at runtime.
+ *
+ * Stored as a function-type optional so older runtimes (pre-Node 22,
+ * or any bundler that strips `import.meta.resolve`) cleanly degrade
+ * to "no cross-check" — `loadPackageManifest` returns `null` and the
+ * runtime falls back to the existing per-factory mismatch checks.
+ */
+type ResolveFn = (specifier: string) => string
+const metaResolve: ResolveFn | undefined =
+  typeof import.meta.resolve === 'function'
+    ? (import.meta.resolve.bind(import.meta) as ResolveFn)
+    : undefined
+
+/**
  * Type guard: does `value` look like a usable `PluginPackageManifest`?
  *
  * Checks every field the cross-check downstream reads — `apiVersion`
@@ -103,9 +125,11 @@ function isValidManifest(value: unknown): value is PluginPackageManifest {
  * `apiVersion`, throws) by the caller itself.
  */
 export function loadPackageManifest(packageName: string): PluginPackageManifest | null {
+  if (!metaResolve) return null
+
   let resolvedUrl: string
   try {
-    resolvedUrl = import.meta.resolve(`${packageName}/package.json`)
+    resolvedUrl = metaResolve(`${packageName}/package.json`)
   } catch {
     // ERR_PACKAGE_PATH_NOT_EXPORTED (Node) when the plugin's exports
     // field omits "./package.json", or ERR_MODULE_NOT_FOUND when the
