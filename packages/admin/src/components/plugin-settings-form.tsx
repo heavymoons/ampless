@@ -29,6 +29,7 @@ import {
 } from '../lib/plugin-settings.js'
 import { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 import { useT, useLocale } from './i18n-provider.js'
+import { RepeatableFieldEditor } from './repeatable-field-editor.js'
 
 // Same delay as theme-settings-form. The trusted processor rebuilds
 // the S3 cache JSON in 5–10 s; firing earlier risks re-fetching the
@@ -73,6 +74,15 @@ function stringify(field: PluginSettingField, raw: unknown): string {
       } catch {
         return ''
       }
+    case 'repeatable':
+      // The RepeatableFieldEditor contract: value prop is a JSON string
+      // of the item array. Stored values are already typed arrays.
+      if (typeof raw === 'string') return raw
+      try {
+        return JSON.stringify(raw)
+      } catch {
+        return '[]'
+      }
     default:
       return typeof raw === 'string' ? raw : String(raw)
   }
@@ -102,6 +112,19 @@ function parse(field: PluginSettingField, raw: string): unknown | null {
       if (trimmed === '') return null
       try {
         return JSON.parse(trimmed)
+      } catch {
+        return null
+      }
+    }
+    case 'repeatable': {
+      // `raw` is the JSON-serialized array produced by
+      // RepeatableFieldEditor's onChange. Parse it back into the typed
+      // array before handing off to validatePluginSettingValue(strict).
+      const trimmed = raw.trim()
+      if (trimmed === '') return []
+      try {
+        const parsed: unknown = JSON.parse(trimmed)
+        return Array.isArray(parsed) ? parsed : null
       } catch {
         return null
       }
@@ -483,9 +506,15 @@ function renderInput(
 ): React.ReactNode {
   switch (field.type) {
     case 'repeatable':
-      // Handled by RepeatableFieldEditor (Step 2). Falls through to
-      // renderScalarInput for the 8 scalar variants.
-      return null
+      return (
+        <RepeatableFieldEditor
+          field={field}
+          id={id}
+          value={value}
+          invalid={invalid}
+          onChange={onChange}
+        />
+      )
     default:
       return renderScalarInput(field, id, value, invalid, onChange)
   }
