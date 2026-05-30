@@ -1,21 +1,31 @@
-// vi.mock is hoisted to the top of the file by vitest's transform step.
-// We use `importOriginal` to capture the real `readFileSync` implementation
-// BEFORE the mock replaces it, then wrap it in a vi.fn() so per-test
-// overrides (mockReturnValueOnce / mockImplementationOnce) work while
-// non-overridden calls fall through to the real filesystem.
-import { describe, it, expect, vi } from 'vitest'
+// `loadPackageManifest` reads Node built-ins via
+// `process.getBuiltinModule('node:fs')` to keep the static
+// `import 'node:fs'` out of the bundle (Next.js / webpack would
+// pull it into client graphs and error with module-not-found). That
+// path bypasses vitest's module-resolver mocks (`vi.mock('node:fs')`),
+// so we instead spy on `process.getBuiltinModule` itself and return
+// a wrapper whose `readFileSync` is a `vi.fn` we can override
+// per-test with `mockReturnValueOnce` / `mockImplementationOnce`.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync as realReadFileSync } from 'node:fs'
+import { fileURLToPath as realFileURLToPath } from 'node:url'
+import { loadPackageManifest, SUPPORTED_API_VERSION } from './plugin-package-manifest.js'
 
-vi.mock('node:fs', async (importOriginal) => {
-  const real = await importOriginal<typeof import('node:fs')>()
-  return {
-    ...real,
-    readFileSync: vi.fn(real.readFileSync),
-  }
+const mockedReadFileSync = vi.fn(realReadFileSync)
+
+beforeEach(() => {
+  mockedReadFileSync.mockReset()
+  mockedReadFileSync.mockImplementation(realReadFileSync)
+  vi.spyOn(process, 'getBuiltinModule').mockImplementation((name: string) => {
+    if (name === 'node:fs') return { readFileSync: mockedReadFileSync } as unknown as object
+    if (name === 'node:url') return { fileURLToPath: realFileURLToPath } as unknown as object
+    return undefined
+  })
 })
 
-import { loadPackageManifest, SUPPORTED_API_VERSION } from './plugin-package-manifest.js'
-import { readFileSync } from 'node:fs'
-const mockedReadFileSync = vi.mocked(readFileSync)
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 // ---------------------------------------------------------------------------
 // loadPackageManifest — unit tests
