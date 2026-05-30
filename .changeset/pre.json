@@ -15,7 +15,8 @@
     "@ampless/runtime": "0.1.0",
     "@ampless/plugin-gtm": "0.1.0",
     "@ampless/plugin-plausible": "0.1.0",
-    "@ampless/plugin-schema-jsonld": "0.1.0"
+    "@ampless/plugin-schema-jsonld": "0.1.0",
+    "@ampless/plugin-cookie-consent": "0.1.0-alpha.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -72,6 +73,7 @@
     "auto-sync-create-ampless-1780128546712",
     "auto-sync-create-ampless-1780133021939",
     "auto-sync-create-ampless-1780134785765",
+    "auto-sync-create-ampless-1780141390717",
     "awsjson-shared-utils",
     "blog-post-footer-tags",
     "body-always-json-encode",
@@ -119,6 +121,7 @@
     "middleware-driven-routing-with-cache",
     "middleware-to-proxy",
     "phase3b-admin-repeatable-editor",
+    "phase3b-cookie-consent",
     "phase3b-repeatable-field-type",
     "plugin-namespace-and-key-allowlist",
     "plugin-phase1-descriptor-injection",

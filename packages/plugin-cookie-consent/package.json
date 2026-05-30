@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-cookie-consent",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "Cookie consent banner plugin for ampless — installs window.amplessConsent API and renders a configurable consent banner",
   "license": "MIT",
   "type": "module",
