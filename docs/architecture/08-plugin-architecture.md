@@ -252,6 +252,103 @@ A bare `window.dataLayer.push(...)` would throw when GA4 hasn't (yet) been loade
 
 This matches how WordPress / Google Tag Manager extensions interoperate in practice and keeps the plugin contract simple. Formalising tight coupling (`dependsOn` for ordering, cross-plugin setting access, typed runtime bridge between plugins) is **deferred until a real first-party plugin needs it** — speculative APIs in this area would have to make non-trivial decisions about multi-instance targeting, trust-level traversal, failure modes, and cycle detection, and we don't yet have the use cases to ground those decisions.
 
+### Consent Convention
+
+Cookie banners in isolation are insufficient — if analytics plugins load unconditionally, they fire before the visitor has a chance to consent. The Consent Convention establishes `window.amplessConsent` as a standard cross-plugin global API and a pair of standard DOM events so that analytics plugins can gate themselves on consent without tight coupling to the banner plugin.
+
+The reference implementation is [`@ampless/plugin-cookie-consent`](../../packages/plugin-cookie-consent/README.md).
+
+#### API surface
+
+```ts
+interface AmplessConsentGlobal {
+  /** Synchronous check — returns true if the category has been granted. */
+  has(category: string): boolean
+  /**
+   * Has the user made an explicit decision about this category (either
+   * accept or reject)? Returns true for `state[cat] === true`, true for
+   * `state[cat] === false`, false only when the key is absent from
+   * localStorage state. Use this — not `has` — to decide whether to
+   * show the consent banner on revisit: a stored `false` is a real
+   * choice, not a missing one.
+   */
+  isSet(category: string): boolean
+  /**
+   * Subscribe to the first grant of a category. The callback fires once
+   * when the category is granted. If the category is already granted,
+   * the callback fires immediately (one-shot semantics). Returns an
+   * unsubscribe function.
+   */
+  on(category: string, cb: () => void): () => void
+  /**
+   * Internal — called by the banner UI. Updates state, persists to
+   * localStorage, dispatches `ampless:consent-changed`, and fires any
+   * pending `on()` callbacks if the category just became granted.
+   */
+  set(category: string, granted: boolean): void
+}
+declare global {
+  interface Window { amplessConsent?: AmplessConsentGlobal }
+}
+```
+
+**`has` vs `isSet` — which to use:**
+- Analytics plugins that gate themselves on consent use `has` (and `on`) — they only fire when granted.
+- The banner UI itself uses `isSet` to decide whether to render — a previously rejected category is a real decision and the user should not be re-prompted.
+
+#### Standard events
+
+Both events are dispatched on `window`:
+
+- **`ampless:consent-ready`** — fired once by the install script immediately after `window.amplessConsent` is defined and localStorage state is restored. Analytics plugins that load before the install script listen for this event to know when `has()` / `on()` are safe to call.
+- **`ampless:consent-changed`** — fired by every `set()` call. `CustomEvent` with `detail: { category: string, granted: boolean }`.
+
+#### localStorage
+
+The consent state is persisted under the key `'ampless:consent'` as a single-line `Record<string, boolean>` JSON string. Essential categories are always forced to `true` on every page load by the install script, overriding any stored value.
+
+#### Analytics plugin consume pattern
+
+Each analytics plugin that supports `consentCategory` embeds a script of the form:
+
+```js
+var initialized = false
+function init() {
+  if (initialized) return  // guard against double-init
+  initialized = true
+  // … load analytics (create script element, call gtag, etc.)
+}
+function wait() {
+  if (window.amplessConsent.has(<CATEGORY>)) init()
+  else window.amplessConsent.on(<CATEGORY>, init)
+}
+if (window.amplessConsent) {
+  wait()
+} else {
+  window.addEventListener('ampless:consent-ready', wait, { once: true })
+  setTimeout(function() {
+    if (!window.amplessConsent) {
+      console.warn('[ampless:<plugin>] consentCategory is set but window.amplessConsent never installed. Did you forget to register @ampless/plugin-cookie-consent?')
+    }
+  }, 5000)
+}
+```
+
+The `initialized` guard prevents double-initialisation in the case where both the synchronous localStorage restore path (`has()` returns true) and the async `on()` / `ampless:consent-ready` path both trigger. The 5 s warning fires in production — this is intentional, as operator misconfiguration (missing cookie-consent registration) is worse than a spurious console line.
+
+The fail-closed contract: if `consentCategory` is set on an analytics plugin but `window.amplessConsent` is never installed, tracking **never fires**. This is the correct fail-safe for GDPR/ePrivacy compliance.
+
+#### Registration order
+
+Because `ScriptStrategy` in ampless does not include `beforeInteractive`, both the consent install script and analytics plugin scripts run `afterInteractive`. Registration order in `cms.config.ts` determines script execution order — list `cookieConsentPlugin()` **before** any analytics plugin:
+
+```ts
+plugins: [
+  cookieConsentPlugin(),          // installs window.amplessConsent first
+  analyticsGa4Plugin({ ... }),    // reads window.amplessConsent
+]
+```
+
 ### Lambda Memory Configuration
 
 | Lambda | Memory | Notes |

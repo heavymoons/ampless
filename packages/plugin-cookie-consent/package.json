@@ -1,0 +1,59 @@
+{
+  "name": "@ampless/plugin-cookie-consent",
+  "version": "0.1.0-alpha.0",
+  "description": "Cookie consent banner plugin for ampless — installs window.amplessConsent API and renders a configurable consent banner",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-cookie-consent"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-cookie-consent#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "cookie-consent",
+    "gdpr",
+    "privacy"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "cookie-consent",
+    "trustLevel": "untrusted",
+    "capabilities": [
+      "publicHead",
+      "publicBody",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "Cookie Consent",
+      "ja": "Cookie 同意"
+    }
+  }
+}

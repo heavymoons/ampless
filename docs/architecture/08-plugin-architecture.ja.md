@@ -249,6 +249,100 @@ if (Array.isArray(window.dataLayer)) {
 
 これは WordPress / Google Tag Manager の拡張同士が実運用で連携する形と同じで、プラグイン契約をシンプルに保つ。`dependsOn` による順序保証、plugin 間 settings 参照、typed runtime ブリッジといった tight coupling の正式化は **first-party plugin で実需が出るまで保留**。投機的に API を切ると、複数 instance のターゲット指定、trust_level 跨ぎ、失敗モード、循環検出などの判断を、根拠の薄いまま固めることになる。
 
+### Consent Convention
+
+Cookie バナーを表示するだけでは不十分です。analytics プラグインが無条件にロードされると、訪問者が同意する前から発火してしまいます。Consent Convention は `window.amplessConsent` をプラグイン横断の標準グローバル API として定め、2 つの標準 DOM イベントとともに規約化することで、analytics プラグインがバナープラグインと密結合することなく自身を同意までゲートできるようにします。
+
+リファレンス実装は [`@ampless/plugin-cookie-consent`](../../packages/plugin-cookie-consent/README.ja.md) です。
+
+#### API surface
+
+```ts
+interface AmplessConsentGlobal {
+  /** 同期チェック — カテゴリが同意済みなら true を返す。 */
+  has(category: string): boolean
+  /**
+   * ユーザがこのカテゴリに対して明示的な決定（accept または reject）を
+   * 行ったか? `state[cat] === true` でも `state[cat] === false` でも true
+   * を返し、localStorage の state に key が存在しない場合のみ false。
+   * 同意バナーを再訪問時に表示するか判定する際は `has` ではなく **これ**
+   * を使う — 「保存済みの false」は明確な決定であって「未決定」ではない。
+   */
+  isSet(category: string): boolean
+  /**
+   * カテゴリへの初回同意時に発火するコールバックを登録する。
+   * すでに同意済みの場合は即時発火（one-shot セマンティクス）。
+   * unsubscribe 関数を返す。
+   */
+  on(category: string, cb: () => void): () => void
+  /**
+   * 内部用 — バナー UI が呼ぶ。状態更新・localStorage 保存・
+   * `ampless:consent-changed` dispatch・pending on() コールバックの発火を行う。
+   */
+  set(category: string, granted: boolean): void
+}
+declare global {
+  interface Window { amplessConsent?: AmplessConsentGlobal }
+}
+```
+
+**`has` と `isSet` の使い分け:**
+- 同意に gate される analytics plugin は `has`（と `on`）を使う — 同意済みの時だけ発火する。
+- バナー UI 自身は `isSet` を使って表示判定する — 一度 reject されたカテゴリも「決定済み」であり、再度プロンプトすべきではない。
+
+#### 標準イベント
+
+いずれも `window` 上で発火します:
+
+- **`ampless:consent-ready`** — install script が `window.amplessConsent` を定義し localStorage の state を restore した直後に 1 度だけ発火。install script より先にロードされた analytics plugin は、このイベントで `has()` / `on()` が使えるタイミングを知る。
+- **`ampless:consent-changed`** — `set()` を呼ぶたびに発火。`CustomEvent`、`detail: { category: string, granted: boolean }`。
+
+#### localStorage
+
+同意状態はキー `'ampless:consent'` に `Record<string, boolean>` の 1 行 JSON として保存されます。essential カテゴリは毎ページロード時に install script が `true` で強制上書きし、保存値を上書きします。
+
+#### analytics プラグイン側の consume パターン
+
+`consentCategory` をサポートする analytics プラグインは次の形のスクリプトを埋め込みます:
+
+```js
+var initialized = false
+function init() {
+  if (initialized) return  // 二重初期化防止
+  initialized = true
+  // … analytics をロード（script 要素作成、gtag 呼び出し等）
+}
+function wait() {
+  if (window.amplessConsent.has(<CATEGORY>)) init()
+  else window.amplessConsent.on(<CATEGORY>, init)
+}
+if (window.amplessConsent) {
+  wait()
+} else {
+  window.addEventListener('ampless:consent-ready', wait, { once: true })
+  setTimeout(function() {
+    if (!window.amplessConsent) {
+      console.warn('[ampless:<plugin>] consentCategory is set but window.amplessConsent never installed. Did you forget to register @ampless/plugin-cookie-consent?')
+    }
+  }, 5000)
+}
+```
+
+`initialized` guard は、localStorage restore 経由（`has()` が即 true）と `on()` / `ampless:consent-ready` 経由の両経路が重なった場合の二重初期化を防ぎます。5 秒タイムアウト warning は production でも発火します。これは意図的で、`cookieConsentPlugin` の登録漏れ（運用ミス）を確実に検出するためです。
+
+fail-closed 契約: `consentCategory` を設定した analytics プラグインが `window.amplessConsent` を見つけられなかった場合、トラッキングは**永久に発火しません**。これは GDPR/ePrivacy の観点で正しい安全側の挙動です。
+
+#### 登録順
+
+ampless の `ScriptStrategy` には `beforeInteractive` がないため、同意 install script も analytics プラグインスクリプトも `afterInteractive` で動きます。`cms.config.ts` での登録順がスクリプトの実行順になるため、`cookieConsentPlugin()` を analytics プラグインより**先に**登録してください:
+
+```ts
+plugins: [
+  cookieConsentPlugin(),          // window.amplessConsent を先にインストール
+  analyticsGa4Plugin({ ... }),    // window.amplessConsent を参照する
+]
+```
+
 ### Lambda メモリ設定
 
 | Lambda | メモリ | 備考 |
