@@ -75,6 +75,8 @@ export type {
   PluginUrlField,
   PluginCodeField,
   PluginJsonField,
+  PluginRepeatableSubField,
+  PluginRepeatableField,
 } from './plugin.js'
 export {
   PLUGIN_KEY_PATTERN,
