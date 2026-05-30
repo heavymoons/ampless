@@ -15,6 +15,13 @@ const THEMES = ['blog', 'minimal', 'landing', 'corporate', 'docs', 'dads']
 // Shared base copied first during scaffold. Always bundled.
 const SHARED = '_shared'
 
+// Plugin scaffold templates shipped for Phase 5's
+// `npx create-ampless plugin <name>` subcommand. plugin-local is the
+// site-internal mode (default — writes a single `index.ts` inside the
+// site's `plugins/` directory). plugin-standalone is the npm-package
+// mode (writes a complete publishable package directory).
+const PLUGIN_TEMPLATES = ['plugin-local', 'plugin-standalone']
+
 function shouldKeep(rel: string): boolean {
   // Skip developer-only artifacts inside per-theme working copies that
   // shouldn't ship in the published template.
@@ -40,7 +47,7 @@ export default defineConfig({
   // src/templates.ts checks dist/templates first, then falls back to
   // the monorepo layout.
   async onSuccess() {
-    for (const dir of [SHARED, ...THEMES]) {
+    for (const dir of [SHARED, ...THEMES, ...PLUGIN_TEMPLATES]) {
       const src = resolve(TEMPLATES_ROOT, dir)
       const dest = resolve(DIST_TEMPLATES_ROOT, dir)
       await rm(dest, { recursive: true, force: true })

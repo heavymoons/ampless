@@ -141,4 +141,80 @@ describe('parseDeployArgs', () => {
     expect(out.createIamRole).toBe(true)
     expect(out.skipConfirm).toBe(true)
   })
+
+  // ---- plugin subcommand tests ----
+
+  it('plugin <name> sets createPlugin and pluginName', () => {
+    const out = parseDeployArgs(['plugin', 'foo'])
+    expect(out.createPlugin).toBe(true)
+    expect(out.pluginName).toBe('foo')
+  })
+
+  it('plugin <name> --standalone sets pluginMode to standalone', () => {
+    const out = parseDeployArgs(['plugin', 'foo', '--standalone'])
+    expect(out.createPlugin).toBe(true)
+    expect(out.pluginMode).toBe('standalone')
+  })
+
+  it('plugin <name> --local sets pluginMode to local', () => {
+    const out = parseDeployArgs(['plugin', 'foo', '--local'])
+    expect(out.createPlugin).toBe(true)
+    expect(out.pluginMode).toBe('local')
+  })
+
+  it('throws when --standalone and --local are combined', () => {
+    expect(() => parseDeployArgs(['plugin', 'foo', '--standalone', '--local'])).toThrow(
+      /Cannot combine --local and --standalone/,
+    )
+    expect(() => parseDeployArgs(['plugin', 'foo', '--local', '--standalone'])).toThrow(
+      /Cannot combine --local and --standalone/,
+    )
+  })
+
+  it('--trust-level trusted sets pluginTrustLevel', () => {
+    const out = parseDeployArgs(['plugin', 'foo', '--trust-level', 'trusted'])
+    expect(out.pluginTrustLevel).toBe('trusted')
+  })
+
+  it('throws on invalid --trust-level value', () => {
+    expect(() => parseDeployArgs(['plugin', 'foo', '--trust-level', 'invalid'])).toThrow(
+      /Invalid --trust-level/,
+    )
+  })
+
+  it('--capabilities parses comma-separated list', () => {
+    const out = parseDeployArgs(['plugin', 'foo', '--capabilities', 'publicHead,adminSettings'])
+    expect(out.pluginCapabilities).toEqual(['publicHead', 'adminSettings'])
+  })
+
+  it('throws on an invalid capability', () => {
+    expect(() =>
+      parseDeployArgs(['plugin', 'foo', '--capabilities', 'publicHead,fakeBad']),
+    ).toThrow(/Invalid capability/)
+  })
+
+  it('--description sets pluginDescription', () => {
+    const out = parseDeployArgs(['plugin', 'foo', '--description', 'My plugin'])
+    expect(out.pluginDescription).toBe('My plugin')
+  })
+
+  it('accepts a scoped npm package name as pluginName in standalone mode', () => {
+    const out = parseDeployArgs(['plugin', '@scope/ampless-plugin-bar', '--standalone'])
+    expect(out.createPlugin).toBe(true)
+    expect(out.pluginName).toBe('@scope/ampless-plugin-bar')
+    expect(out.pluginMode).toBe('standalone')
+  })
+
+  it('plugin with no name yields createPlugin true and pluginName undefined (prompt fallback)', () => {
+    const out = parseDeployArgs(['plugin'])
+    expect(out.createPlugin).toBe(true)
+    expect(out.pluginName).toBeUndefined()
+  })
+
+  it('upgrade subcommand still works after plugin parsing added', () => {
+    const out = parseDeployArgs(['upgrade'])
+    expect(out.upgrade).toBe(true)
+    expect(out.createPlugin).toBe(false)
+    expect(out.projectName).toBeUndefined()
+  })
 })

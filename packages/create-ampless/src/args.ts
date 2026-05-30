@@ -24,6 +24,21 @@ export interface ParsedArgs {
   copyTheme: boolean
   copyThemeSource?: string
   copyThemeTarget?: string
+  /**
+   * `plugin <name>` subcommand (Phase 5): scaffold a new ampless
+   * plugin. Two modes:
+   *   - `--local` (default): writes `plugins/<name>/index.ts` inside
+   *     the current ampless site (must be a valid ampless project).
+   *   - `--standalone`: writes a complete npm package at
+   *     `./<name>/` ready for `npm publish`.
+   */
+  createPlugin: boolean
+  pluginName?: string
+  /** 'local' (default) or 'standalone'. Resolved from --local / --standalone. */
+  pluginMode?: 'local' | 'standalone'
+  pluginTrustLevel?: 'untrusted' | 'trusted' | 'privileged'
+  pluginCapabilities?: string[]
+  pluginDescription?: string
   dryRun: boolean
   noInstall: boolean
   githubOwner?: string
@@ -43,6 +58,34 @@ export interface ParsedArgs {
 export const VALID_THEMES = ['blog', 'minimal', 'landing', 'corporate', 'docs', 'dads'] as const
 export const VALID_PLUGINS = ['seo', 'rss', 'webhook'] as const
 
+/**
+ * Trust levels a `plugin <name>` scaffold may declare. Mirrors the
+ * `TrustLevel` union in `ampless`. Validation here is a allowlist —
+ * an invalid value falls into `unknown` and the dispatcher errors.
+ */
+export const VALID_PLUGIN_TRUST_LEVELS = [
+  'untrusted',
+  'trusted',
+  'privileged',
+] as const
+
+/**
+ * Capabilities a `plugin <name>` scaffold may declare. Mirrors the
+ * active members of the `PluginCapability` union in `ampless`. We
+ * intentionally exclude reserved capabilities (`contentFields`,
+ * `adminPage`, etc.) — the scaffold shouldn't produce a plugin that
+ * declares a surface the runtime doesn't yet implement.
+ */
+export const VALID_PLUGIN_CAPABILITIES = [
+  'publicHead',
+  'publicBody',
+  'metadata',
+  'eventHooks',
+  'adminSettings',
+  'writePublicAsset',
+  'schema',
+] as const
+
 const STRING_FLAGS = new Set([
   '--site-name',
   '--themes',
@@ -54,6 +97,10 @@ const STRING_FLAGS = new Set([
   '--domain',
   '--subdomain',
   '--iam-service-role',
+  // Phase 5 `plugin <name>` flags
+  '--trust-level',
+  '--capabilities',
+  '--description',
 ])
 
 const BOOLEAN_FLAGS = new Set([
@@ -67,6 +114,9 @@ const BOOLEAN_FLAGS = new Set([
   '--skip-confirm',
   '--help',
   '-h',
+  // Phase 5 `plugin <name>` mode flags
+  '--local',
+  '--standalone',
 ])
 
 export function parseDeployArgs(argv: string[]): ParsedArgs {
@@ -75,6 +125,7 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
     mount: false,
     upgrade: false,
     copyTheme: false,
+    createPlugin: false,
     dryRun: false,
     noInstall: false,
     githubPrivate: false,
@@ -124,6 +175,18 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
         case '--help':
         case '-h':
           out.help = true
+          break
+        case '--local':
+          if (out.pluginMode === 'standalone') {
+            throw new Error('Cannot combine --local and --standalone')
+          }
+          out.pluginMode = 'local'
+          break
+        case '--standalone':
+          if (out.pluginMode === 'local') {
+            throw new Error('Cannot combine --local and --standalone')
+          }
+          out.pluginMode = 'standalone'
           break
       }
       continue
@@ -181,6 +244,33 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
         case '--iam-service-role':
           out.iamServiceRole = value
           break
+        case '--trust-level': {
+          if (
+            !(VALID_PLUGIN_TRUST_LEVELS as readonly string[]).includes(value)
+          ) {
+            throw new Error(
+              `Invalid --trust-level "${value}". Valid values: ${VALID_PLUGIN_TRUST_LEVELS.join(', ')}`
+            )
+          }
+          out.pluginTrustLevel = value as ParsedArgs['pluginTrustLevel']
+          break
+        }
+        case '--capabilities': {
+          const caps = value.split(',').map((c) => c.trim()).filter(Boolean)
+          const invalid = caps.filter(
+            (c) => !(VALID_PLUGIN_CAPABILITIES as readonly string[]).includes(c)
+          )
+          if (invalid.length > 0) {
+            throw new Error(
+              `Invalid capability(ies): ${invalid.join(', ')}. Valid values: ${VALID_PLUGIN_CAPABILITIES.join(', ')}`
+            )
+          }
+          out.pluginCapabilities = caps
+          break
+        }
+        case '--description':
+          out.pluginDescription = value
+          break
       }
       continue
     }
@@ -212,6 +302,24 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
       continue
     }
 
+    // `plugin <name>` as first positional triggers the Phase 5 plugin
+    // scaffold mode. The next non-flag positional is consumed as the
+    // plugin name; anything beyond that falls through to unknown.
+    if (
+      raw === 'plugin' &&
+      out.projectName === undefined &&
+      !out.createPlugin &&
+      !out.upgrade &&
+      !out.copyTheme
+    ) {
+      out.createPlugin = true
+      continue
+    }
+    if (out.createPlugin && out.pluginName === undefined) {
+      out.pluginName = raw
+      continue
+    }
+
     // First non-flag positional → project name; further positionals are unknown.
     if (out.projectName === undefined) {
       out.projectName = raw
@@ -227,8 +335,10 @@ export const HELP_TEXT = `create-ampless — scaffold an ampless project
 
 Usage:
   npx create-ampless@latest <project-name> [options]
-  npx create-ampless@latest --mount [options]    # in an existing project dir
-  npx create-ampless@latest upgrade [options]    # in an existing project dir
+  npx create-ampless@latest --mount [options]               # in an existing project dir
+  npx create-ampless@latest upgrade [options]               # in an existing project dir
+  npx create-ampless@latest copy-theme <src> <dst>          # in an existing project dir
+  npx create-ampless@latest plugin <name> [options]         # scaffold a plugin (Phase 5)
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -279,4 +389,30 @@ copy-theme <source> <target>
          it alone). Run inside an existing ampless project.
 
          Example: npx create-ampless@latest copy-theme blog my-blog
+
+plugin <name>
+         Scaffold an ampless plugin. Two modes:
+
+  --local                     Default. Writes plugins/<name>/index.ts inside
+                              the current ampless site. The site itself is the
+                              build / publish unit; the plugin file is just
+                              code that sits there. Plugin name is a kebab-case
+                              identifier (e.g. "site-verification").
+
+  --standalone                Writes a complete npm package at ./<name>/ ready
+                              for 'npm publish'. Plugin name should be the npm
+                              package name (e.g. "@scope/ampless-plugin-foo"
+                              or "ampless-plugin-foo"); the kebab segment
+                              becomes the AmplessPlugin.name.
+
+  --trust-level <value>       'untrusted' (default), 'trusted', or 'privileged'
+  --capabilities <list>       Comma-separated. Valid: publicHead, publicBody,
+                              metadata, eventHooks, adminSettings,
+                              writePublicAsset, schema
+                              (default: publicHead,adminSettings)
+  --description "<text>"      Optional one-line description
+
+         Examples:
+           npx create-ampless@latest plugin site-verification
+           npx create-ampless@latest plugin @ishinao/ampless-plugin-foo --standalone
 `

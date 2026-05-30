@@ -35,3 +35,18 @@ export function sharedTemplateDir(): string {
 export function templatePath(theme: string): string {
   return resolve(templatesDir, theme)
 }
+
+/**
+ * Path to the plugin scaffold template for the given mode.
+ *
+ * - `'local'`      → `templates/plugin-local/`
+ * - `'standalone'` → `templates/plugin-standalone/`
+ *
+ * The directories are created by the parallel sub-agent running alongside
+ * Phase 5 PR B. If the directory does not exist at runtime the caller
+ * (`runCreatePluginIn`) surfaces a clear error rather than crashing with
+ * a low-level ENOENT.
+ */
+export function pluginTemplateDir(mode: 'local' | 'standalone'): string {
+  return resolve(templatesDir, mode === 'local' ? 'plugin-local' : 'plugin-standalone')
+}

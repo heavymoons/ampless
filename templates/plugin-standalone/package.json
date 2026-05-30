@@ -1,0 +1,47 @@
+{
+  "name": "{{packageName}}",
+  "version": "0.1.0",
+  "description": {{descriptionJson}},
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "^{{amplessVersion}}"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "{{nameKebab}}",
+    "trustLevel": "{{trustLevel}}",
+    "capabilities": [{{capabilitiesJsonArray}}],
+    "displayName": { "en": "{{DisplayName}}", "ja": "{{displayNameJa}}" }
+  }
+}
