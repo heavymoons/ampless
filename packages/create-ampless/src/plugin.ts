@@ -242,6 +242,20 @@ export async function runCreatePluginIn(
   let rawName = args.pluginName
 
   if (!rawName) {
+    // `--skip-confirm` is documented as "Skip all interactive prompts and
+    // use defaults / flag values (for CI / automation)". A missing
+    // `<name>` has no documented default — the prompt is the only path
+    // that fills it in. With skip-confirm on, that prompt would block
+    // forever waiting on a TTY, so fail loudly instead. Matches the
+    // skip-confirm-bypasses-prompts treatment used for trust-level and
+    // capabilities further down.
+    if (args.skipConfirm === true) {
+      throw new Error(
+        mode === 'local'
+          ? 'Plugin name is required when --skip-confirm is set. Pass it as the positional argument: `create-ampless plugin <name> --skip-confirm`.'
+          : 'Plugin package name is required when --skip-confirm is set. Pass it as the positional argument: `create-ampless plugin <package-name> --standalone --skip-confirm`.',
+      )
+    }
     const answer = await text({
       message:
         mode === 'local'

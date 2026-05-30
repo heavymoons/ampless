@@ -562,4 +562,34 @@ describe('runCreatePluginIn — --skip-confirm fills defaults', () => {
     expect(code).toContain("'publicHead'")
     expect(code).toContain("'adminSettings'")
   })
+
+  it('throws (does not prompt) when --skip-confirm is set and the plugin name is missing', async () => {
+    // --skip-confirm has no documented default for the positional name
+    // — the prompt is the only path that fills it in. With skip-confirm
+    // on, fall through to a hard error so CI / scripted runs never
+    // block on a TTY.
+    const args = baseArgs({
+      // pluginName intentionally omitted
+      pluginMode: 'local',
+      skipConfirm: true,
+    })
+    await expect(runCreatePluginIn(projectDir, args)).rejects.toThrow(
+      /Plugin name is required when --skip-confirm is set/,
+    )
+  })
+
+  it('throws (does not prompt) when --skip-confirm is set and the standalone plugin name is missing', async () => {
+    const cwd = makeStandaloneCwd()
+    try {
+      const args = baseArgs({
+        pluginMode: 'standalone',
+        skipConfirm: true,
+      })
+      await expect(runCreatePluginIn(cwd, args)).rejects.toThrow(
+        /Plugin package name is required when --skip-confirm is set/,
+      )
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
 })
