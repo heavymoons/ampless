@@ -40,6 +40,13 @@ export interface AnalyticsGa4Options {
    * site).
    */
   instanceId?: string
+  /**
+   * Optional consent category. When set, the analytics loader does
+   * not run until window.amplessConsent.has(consentCategory) returns
+   * true. See @ampless/plugin-cookie-consent and the Consent
+   * Convention in docs/architecture/08-plugin-architecture.md.
+   */
+  consentCategory?: string
 }
 
 /**
@@ -51,7 +58,11 @@ export interface AnalyticsGa4Options {
 export default function analyticsGa4Plugin(
   options: AnalyticsGa4Options = {}
 ): AmplessPlugin {
-  const { measurementId = '', instanceId = 'analytics-ga4' } = options
+  const {
+    measurementId = '',
+    instanceId = 'analytics-ga4',
+    consentCategory = '',
+  } = options
   return definePlugin({
     name: 'analytics-ga4',
     packageName: '@ampless/plugin-analytics-ga4',
@@ -81,6 +92,19 @@ export default function analyticsGa4Plugin(
           placeholder: 'G-XXXXXXXX',
           default: measurementId,
         },
+        {
+          type: 'text',
+          key: 'consentCategory',
+          label: { en: 'Consent category', ja: '同意カテゴリ' },
+          description: {
+            en: 'Optional. When set, the analytics loader fires only after `window.amplessConsent.has(<this>)` returns true. Requires `@ampless/plugin-cookie-consent` to also be registered — fail-closed otherwise (no tracking, console warning after 5s). See the Consent Convention in the plugin author guide.',
+            ja: 'オプション。設定すると `window.amplessConsent.has(<value>)` が true になるまで analytics loader を発火しません。`@ampless/plugin-cookie-consent` の併用が必須 — 未導入時は完全に発火せず 5 秒後に console warning (fail-closed)。詳細は plugin author guide の Consent Convention 節を参照。',
+          },
+          pattern: '^$|^[a-z][a-z0-9_-]*$',
+          maxLength: 32,
+          placeholder: 'analytics',
+          default: consentCategory,
+        },
       ],
     },
     publicHead(ctx) {
@@ -89,6 +113,61 @@ export default function analyticsGa4Plugin(
       // the plugin registered while toggling analytics off without
       // changing the plugin list.
       if (!id) return []
+
+      const category = (ctx.setting<string>('consentCategory') ?? '').trim()
+
+      // Non-empty consentCategory → gated mode: collapse the two
+      // standard descriptors into a single inlineScript that defers
+      // loading until window.amplessConsent.has(category) is true.
+      if (category) {
+        const loaderSrc = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`
+        return [
+          {
+            type: 'inlineScript',
+            id: `ga4-gated-${instanceId}`,
+            strategy: 'afterInteractive',
+            body: [
+              '(function () {',
+              '  var initialized = false',
+              '  function init() {',
+              '    if (initialized) return',
+              '    initialized = true',
+              '    var s = document.createElement(\'script\')',
+              `    s.src = ${JSON.stringify(loaderSrc)}`,
+              '    s.async = true',
+              '    document.head.appendChild(s)',
+              '    // Bind dataLayer + gtag to `window` so later page code',
+              '    // (e.g. window.gtag(\'event\', ...) in custom handlers)',
+              '    // can find them. The non-gated snippet relies on a',
+              '    // top-level `function gtag(){}` hoisting to global,',
+              '    // which inside this IIFE would only be a local — so',
+              '    // we assign explicitly and preserve any gtag that a',
+              '    // user script may have installed first.',
+              '    window.dataLayer = window.dataLayer || []',
+              '    window.gtag = window.gtag || function () { window.dataLayer.push(arguments) }',
+              '    window.gtag(\'js\', new Date())',
+              `    window.gtag('config', ${JSON.stringify(id)})`,
+              '  }',
+              '  function wait() {',
+              `    if (window.amplessConsent.has(${JSON.stringify(category)})) init()`,
+              `    else window.amplessConsent.on(${JSON.stringify(category)}, init)`,
+              '  }',
+              '  if (window.amplessConsent) {',
+              '    wait()',
+              '  } else {',
+              '    window.addEventListener(\'ampless:consent-ready\', wait, { once: true })',
+              '    setTimeout(function () {',
+              '      if (!window.amplessConsent) {',
+              '        console.warn(\'[ampless:analytics-ga4] consentCategory is set but window.amplessConsent never installed. Did you forget to register @ampless/plugin-cookie-consent?\')',
+              '      }',
+              '    }, 5000)',
+              '  }',
+              '})()',
+            ].join('\n'),
+          },
+        ]
+      }
+
       return [
         {
           type: 'script',

@@ -40,6 +40,49 @@ export default defineConfig({
 |---|---|---|
 | `measurementId` | required | Your GA4 measurement ID, e.g. `G-XXXXXXXX`. Set to `''` to disable the plugin without removing it from `cms.config.ts`. |
 | `instanceId` | `'analytics-ga4'` | Namespace used for the script element ids. Set distinct values when registering multiple GA4 properties on the same site. |
+| `consentCategory` | `''` | Optional consent category slug. When set, the GA4 loader fires only after `window.amplessConsent.has(<this>)` returns true. See [Consent gating](#consent-gating) below. |
+
+## Consent gating
+
+By default the GA4 loader fires on every page load regardless of visitor consent. To make it fire only after the visitor has granted consent, set `consentCategory` to a category slug and register `@ampless/plugin-cookie-consent` in the same `cms.config.ts`:
+
+```ts
+import { defineConfig } from 'ampless'
+import cookieConsent from '@ampless/plugin-cookie-consent'
+import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
+
+export default defineConfig({
+  plugins: [
+    // cookie-consent must appear before the analytics plugin
+    cookieConsent({
+      categories: [{ id: 'analytics', label: 'Analytics', defaultEnabled: false }],
+    }),
+    analyticsGa4Plugin({
+      measurementId: 'G-XXXXXXXX',
+      consentCategory: 'analytics',
+    }),
+  ],
+})
+```
+
+When `consentCategory` is set the plugin switches to **gated mode**: instead of the two standard GA4 descriptors, it emits a single inline script that:
+
+1. Checks `window.amplessConsent.has('analytics')` immediately (covers the case where consent was granted in a previous visit and restored from `localStorage`).
+2. Otherwise subscribes to the consent event via `window.amplessConsent.on('analytics', ...)` and waits.
+3. Also listens for `ampless:consent-ready` in case the analytics plugin loads before the cookie-consent plugin has installed its global API.
+
+**Fail-closed contract:** if `consentCategory` is set but `@ampless/plugin-cookie-consent` is never registered, `window.amplessConsent` is never installed. GA4 will **never fire**, and after 5 seconds a `console.warn` appears:
+
+```
+[ampless:analytics-ga4] consentCategory is set but window.amplessConsent never installed.
+Did you forget to register @ampless/plugin-cookie-consent?
+```
+
+This warning fires in production too — it is intended to help operators catch misconfiguration quickly. There is no mechanism to suppress it.
+
+**Plugin ordering:** register `@ampless/plugin-cookie-consent` before the analytics plugin in the `plugins` array. The runtime processes plugins in order; placing cookie-consent first ensures `window.amplessConsent` is installed before the analytics gating logic runs.
+
+For full details on the Consent Convention and the `window.amplessConsent` API see [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md).
 
 ## Getting your measurement ID
 

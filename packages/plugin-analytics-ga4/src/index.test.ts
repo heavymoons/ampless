@@ -118,8 +118,107 @@ describe('analyticsGa4Plugin (Phase 2 settings)', () => {
     const plugin = analyticsGa4Plugin({ measurementId: 'G-XXX' })
     expect(plugin.settings?.public).toBeDefined()
     const fields = plugin.settings!.public!
-    expect(fields).toHaveLength(1)
+    expect(fields).toHaveLength(2)
     expect(fields[0]!.key).toBe('measurementId')
     expect(fields[0]!.type).toBe('text')
+    expect(fields[1]!.key).toBe('consentCategory')
+    expect(fields[1]!.type).toBe('text')
+  })
+})
+
+describe('analyticsGa4Plugin — gated mode (consentCategory set)', () => {
+  it('returns a single inlineScript when consentCategory is set', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const head = callPublicHead(plugin)
+    expect(head).toHaveLength(1)
+    const [desc] = head as [PublicHeadDescriptor]
+    expect(desc.type).toBe('inlineScript')
+  })
+
+  it('gated body contains consent guard primitives', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('if (initialized) return')
+    expect(desc.body).toContain('window.amplessConsent.has')
+    expect(desc.body).toContain('window.amplessConsent.on')
+    expect(desc.body).toContain('ampless:consent-ready')
+    expect(desc.body).toContain('console.warn')
+  })
+
+  it('gated body embeds the loader src identical to non-gated external descriptor', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    // The loader src must match what the non-gated external descriptor would use
+    expect(desc.body).toContain(
+      'https://www.googletagmanager.com/gtag/js?id=G-GATED'
+    )
+  })
+
+  it('gated body embeds the consentCategory as a JSON literal', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('"analytics"')
+  })
+
+  // Regression: the standard non-gated GA snippet declares `function gtag()`
+  // at top level so it hoists to global, leaving `window.gtag` callable
+  // from later page code (custom events, etc). Inside our IIFE, a function
+  // declaration is local — so the gated body must explicitly assign to
+  // `window.gtag` to keep parity with the non-gated behavior.
+  it('gated body binds gtag and dataLayer to window so window.gtag survives the IIFE', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('window.dataLayer = window.dataLayer || []')
+    expect(desc.body).toContain('window.gtag = window.gtag ||')
+    expect(desc.body).toContain("window.gtag('js'")
+    expect(desc.body).toContain("window.gtag('config'")
+    // Guard against the regression: the IIFE-local `function gtag()` form
+    // must not be how we ship gated mode anymore.
+    expect(desc.body).not.toMatch(/function gtag\(\)\{dataLayer\.push/)
+  })
+
+  it('returns non-gated descriptors when consentCategory is empty string', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-NOTGATED',
+      consentCategory: '',
+    })
+    const head = callPublicHead(plugin)
+    expect(head).toHaveLength(2)
+    expect(head[0]!.type).toBe('script')
+    expect(head[1]!.type).toBe('inlineScript')
+  })
+
+  it('stored consentCategory overrides the constructor default', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: '',
+    })
+    // Admin saves a non-empty consentCategory → switches to gated mode
+    const head = callPublicHead(plugin, { consentCategory: 'marketing' })
+    expect(head).toHaveLength(1)
+    const [desc] = head as [PublicHeadDescriptor]
+    expect(desc.type).toBe('inlineScript')
+    if (desc.type === 'inlineScript') {
+      expect(desc.body).toContain('"marketing"')
+    }
   })
 })

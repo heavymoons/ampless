@@ -48,6 +48,13 @@ export interface PlausibleOptions {
    * deployment).
    */
   instanceId?: string
+  /**
+   * Optional consent category. When set, the analytics loader does
+   * not run until window.amplessConsent.has(consentCategory) returns
+   * true. See @ampless/plugin-cookie-consent and the Consent
+   * Convention in docs/architecture/08-plugin-architecture.md.
+   */
+  consentCategory?: string
 }
 
 /** Hosted Plausible script URL. Default `scriptUrl` value, also the
@@ -70,6 +77,7 @@ export default function plausiblePlugin(
     domain = '',
     scriptUrl = DEFAULT_SCRIPT_URL,
     instanceId = 'plausible',
+    consentCategory = '',
   } = options
   return definePlugin({
     name: 'plausible',
@@ -121,6 +129,19 @@ export default function plausiblePlugin(
           placeholder: DEFAULT_SCRIPT_URL,
           default: scriptUrl,
         },
+        {
+          type: 'text',
+          key: 'consentCategory',
+          label: { en: 'Consent category', ja: '同意カテゴリ' },
+          description: {
+            en: 'Optional. When set, the analytics loader fires only after `window.amplessConsent.has(<this>)` returns true. Requires `@ampless/plugin-cookie-consent` to also be registered — fail-closed otherwise (no tracking, console warning after 5s). See the Consent Convention in the plugin author guide.',
+            ja: 'オプション。設定すると `window.amplessConsent.has(<value>)` が true になるまで analytics loader を発火しません。`@ampless/plugin-cookie-consent` の併用が必須 — 未導入時は完全に発火せず 5 秒後に console warning (fail-closed)。詳細は plugin author guide の Consent Convention 節を参照。',
+          },
+          pattern: '^$|^[a-z][a-z0-9_-]*$',
+          maxLength: 32,
+          placeholder: 'analytics',
+          default: consentCategory,
+        },
       ],
     },
     publicHead(ctx) {
@@ -133,6 +154,50 @@ export default function plausiblePlugin(
       // resolver — that's the Phase 2 default validation safety
       // net surfacing here.
       if (!resolvedDomain || !resolvedScriptUrl) return []
+
+      const category = (ctx.setting<string>('consentCategory') ?? '').trim()
+
+      // Non-empty consentCategory → gated mode: replace the external
+      // script descriptor with a single inlineScript that defers
+      // loading until window.amplessConsent.has(category) is true.
+      if (category) {
+        return [
+          {
+            type: 'inlineScript',
+            id: `plausible-gated-${instanceId}`,
+            strategy: 'afterInteractive',
+            body: [
+              '(function () {',
+              '  var initialized = false',
+              '  function init() {',
+              '    if (initialized) return',
+              '    initialized = true',
+              '    var s = document.createElement(\'script\')',
+              `    s.src = ${JSON.stringify(resolvedScriptUrl)}`,
+              '    s.defer = true',
+              `    s.setAttribute('data-domain', ${JSON.stringify(resolvedDomain)})`,
+              '    document.head.appendChild(s)',
+              '  }',
+              '  function wait() {',
+              `    if (window.amplessConsent.has(${JSON.stringify(category)})) init()`,
+              `    else window.amplessConsent.on(${JSON.stringify(category)}, init)`,
+              '  }',
+              '  if (window.amplessConsent) {',
+              '    wait()',
+              '  } else {',
+              '    window.addEventListener(\'ampless:consent-ready\', wait, { once: true })',
+              '    setTimeout(function () {',
+              '      if (!window.amplessConsent) {',
+              '        console.warn(\'[ampless:plausible] consentCategory is set but window.amplessConsent never installed. Did you forget to register @ampless/plugin-cookie-consent?\')',
+              '      }',
+              '    }, 5000)',
+              '  }',
+              '})()',
+            ].join('\n'),
+          },
+        ]
+      }
+
       return [
         {
           type: 'script',

@@ -44,6 +44,51 @@ export default defineConfig({
 |---|---|---|
 | `containerId` | `''` | Initial GTM container ID, e.g. `GTM-XXXXXXX`. Seeds the manifest default — the live value is read from `/admin/plugins` at request time. Set to `''` to ship the plugin disabled. |
 | `instanceId` | `'gtm'` | Namespace used for the script / noscript element ids and the settings storage key. Set distinct values when registering multiple GTM containers on the same site. |
+| `consentCategory` | `''` | Optional consent category slug. When set, the GTM loader fires only after `window.amplessConsent.has(<this>)` returns true. The `<noscript>` fallback is suppressed in this mode. See [Consent gating](#consent-gating) below. |
+
+## Consent gating
+
+By default the GTM loader fires on every page load regardless of visitor consent. To make it fire only after the visitor has granted consent, set `consentCategory` to a category slug and register `@ampless/plugin-cookie-consent` in the same `cms.config.ts`:
+
+```ts
+import { defineConfig } from 'ampless'
+import cookieConsent from '@ampless/plugin-cookie-consent'
+import gtmPlugin from '@ampless/plugin-gtm'
+
+export default defineConfig({
+  plugins: [
+    // cookie-consent must appear before the analytics plugin
+    cookieConsent({
+      categories: [{ id: 'analytics', label: 'Analytics', defaultEnabled: false }],
+    }),
+    gtmPlugin({
+      containerId: 'GTM-XXXXXXX',
+      consentCategory: 'analytics',
+    }),
+  ],
+})
+```
+
+When `consentCategory` is set the plugin switches to **gated mode**: the standard inline loader script is replaced by a single inline script that:
+
+1. Checks `window.amplessConsent.has('analytics')` immediately (covers consent restored from `localStorage`).
+2. Otherwise subscribes to the consent event via `window.amplessConsent.on('analytics', ...)` and waits.
+3. Also listens for `ampless:consent-ready` in case the GTM plugin loads before the cookie-consent plugin has installed its global API.
+
+**`<noscript>` fallback is suppressed in gated mode.** The standard GTM fallback iframe (emitted by `publicBodyEnd`) is omitted when `consentCategory` is set. Rationale: JavaScript-less environments cannot run the consent banner UI, so there is no meaningful way to gate tracking. Suppressing the fallback is the correct trade-off — it avoids tracking visitors who have not consented. This is an intentional behavior change. Document it in your site's privacy policy if needed.
+
+**Fail-closed contract:** if `consentCategory` is set but `@ampless/plugin-cookie-consent` is never registered, `window.amplessConsent` is never installed. GTM will **never fire**, and after 5 seconds a `console.warn` appears:
+
+```
+[ampless:gtm] consentCategory is set but window.amplessConsent never installed.
+Did you forget to register @ampless/plugin-cookie-consent?
+```
+
+This warning fires in production too — it is intended to help operators catch misconfiguration quickly. There is no mechanism to suppress it.
+
+**Plugin ordering:** register `@ampless/plugin-cookie-consent` before the GTM plugin in the `plugins` array.
+
+For full details on the Consent Convention and the `window.amplessConsent` API see [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md).
 
 ## Editing the container ID from the admin UI
 

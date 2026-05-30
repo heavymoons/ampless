@@ -43,6 +43,49 @@ export default defineConfig({
 | `domain` | `''` | Initial Plausible site domain, e.g. `example.com`. Must match the value registered in the Plausible dashboard exactly — a mismatch silently drops every pageview. Set to `''` to ship the plugin disabled. |
 | `scriptUrl` | `'https://plausible.io/js/script.js'` | URL of the Plausible script. Override for self-hosted Plausible (e.g. `'https://analytics.example.com/js/script.js'`). The admin field is **required**, so the value can't be cleared — to switch back to the hosted plausible.io URL, use **Reset to default** in the admin form. |
 | `instanceId` | `'plausible'` | Namespace used for the script element id and settings storage key. Set distinct values when registering multiple Plausible sites on the same deployment. |
+| `consentCategory` | `''` | Optional consent category slug. When set, the Plausible loader fires only after `window.amplessConsent.has(<this>)` returns true. See [Consent gating](#consent-gating) below. |
+
+## Consent gating
+
+Plausible is a privacy-focused, cookie-free analytics service — most deployments do not need consent gating at all. However, if your site's legal requirements or privacy policy demand explicit consent before any analytics script loads, you can enable gated mode:
+
+```ts
+import { defineConfig } from 'ampless'
+import cookieConsent from '@ampless/plugin-cookie-consent'
+import plausiblePlugin from '@ampless/plugin-plausible'
+
+export default defineConfig({
+  plugins: [
+    // cookie-consent must appear before the analytics plugin
+    cookieConsent({
+      categories: [{ id: 'analytics', label: 'Analytics', defaultEnabled: false }],
+    }),
+    plausiblePlugin({
+      domain: 'example.com',
+      consentCategory: 'analytics',
+    }),
+  ],
+})
+```
+
+When `consentCategory` is set the plugin switches to **gated mode**: instead of the standard `<script>` descriptor, it emits a single inline script that:
+
+1. Checks `window.amplessConsent.has('analytics')` immediately (covers consent restored from `localStorage`).
+2. Otherwise subscribes to the consent event via `window.amplessConsent.on('analytics', ...)` and waits.
+3. Also listens for `ampless:consent-ready` in case the Plausible plugin loads before the cookie-consent plugin has installed its global API.
+
+**Fail-closed contract:** if `consentCategory` is set but `@ampless/plugin-cookie-consent` is never registered, `window.amplessConsent` is never installed. Plausible will **never fire**, and after 5 seconds a `console.warn` appears:
+
+```
+[ampless:plausible] consentCategory is set but window.amplessConsent never installed.
+Did you forget to register @ampless/plugin-cookie-consent?
+```
+
+This warning fires in production too — it is intended to help operators catch misconfiguration quickly. There is no mechanism to suppress it.
+
+**Plugin ordering:** register `@ampless/plugin-cookie-consent` before the Plausible plugin in the `plugins` array.
+
+For full details on the Consent Convention and the `window.amplessConsent` API see [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md).
 
 ## Editing settings from the admin UI
 
