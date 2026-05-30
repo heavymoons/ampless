@@ -189,22 +189,36 @@ function crossCheckStaticManifest(plugin: AmplessPlugin, label: string): void {
     )
   }
 
-  const factoryCaps = (plugin.capabilities ?? []) as readonly PluginCapability[]
-  const manifestCaps = manifest.capabilities ?? []
-  if (factoryCaps.length !== manifestCaps.length || !setsEqual(factoryCaps, manifestCaps)) {
+  const factoryCaps = Array.isArray(plugin.capabilities)
+    ? (plugin.capabilities as readonly PluginCapability[])
+    : ([] as readonly PluginCapability[])
+  // `loadPackageManifest` already enforces that `manifest.capabilities`
+  // is `Array<string>`, so the array shape here is guaranteed. The
+  // `Array.isArray` guard above is for the factory side only, which
+  // hasn't been structurally validated and could in theory be wrong.
+  const manifestCaps = manifest.capabilities
+  if (!setsEqual(factoryCaps, manifestCaps)) {
     warn(
       `${label}: capabilities mismatch — package.json declares [${manifestCaps.join(', ')}], factory declares [${factoryCaps.join(', ')}]. The static manifest is what npm registry / admin UI surfaces show before the plugin loads, so it should match what the factory actually returns.`
     )
   }
 }
 
+/**
+ * Order-independent set comparison treating duplicates as one element
+ * (so `['a','a']` equals `['a']`). Phase 5's cross-check uses this to
+ * compare the static manifest's `capabilities` against the factory's;
+ * either side accidentally duplicating an entry shouldn't be a false
+ * positive in the mismatch warn.
+ */
 function setsEqual(
   a: readonly PluginCapability[],
   b: readonly PluginCapability[]
 ): boolean {
-  if (a.length !== b.length) return false
   const sa = new Set<string>(a)
-  for (const c of b) if (!sa.has(c)) return false
+  const sb = new Set<string>(b)
+  if (sa.size !== sb.size) return false
+  for (const c of sb) if (!sa.has(c)) return false
   return true
 }
 

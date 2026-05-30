@@ -146,4 +146,110 @@ describe('loadPackageManifest', () => {
       displayName: { en: 'Test Plugin', ja: 'テストプラグイン' },
     })
   })
+
+  // Structural validation: a malformed `amplessPlugin` field should
+  // never reach the cross-check downstream (where `setsEqual` iterates
+  // `capabilities` with `for ... of`). Returning `null` here keeps the
+  // failure mode identical to "field absent" — silent skip, caller
+  // falls back to per-factory mismatch warnings.
+
+  it('returns null when amplessPlugin.apiVersion is not a number', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: '1', // wrong: string instead of number
+          name: 'x',
+          trustLevel: 'untrusted',
+          capabilities: [],
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('returns null when amplessPlugin.name is not a string', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 42, // wrong: number
+          trustLevel: 'untrusted',
+          capabilities: [],
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('returns null when amplessPlugin.trustLevel is not one of the three allowed values', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 'x',
+          trustLevel: 'super-admin', // wrong: not in TrustLevel union
+          capabilities: [],
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('returns null when amplessPlugin.capabilities is an object, not an array', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 'x',
+          trustLevel: 'untrusted',
+          capabilities: {}, // wrong: object instead of array
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('returns null when amplessPlugin.capabilities is a number', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 'x',
+          trustLevel: 'untrusted',
+          capabilities: 42, // wrong: scalar instead of array
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('returns null when amplessPlugin.capabilities contains a non-string element', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 'x',
+          trustLevel: 'untrusted',
+          capabilities: ['publicHead', 42], // one bad element
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toBeNull()
+  })
+
+  it('accepts an empty capabilities array (valid manifest shape)', () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        amplessPlugin: {
+          apiVersion: 1,
+          name: 'x',
+          trustLevel: 'untrusted',
+          capabilities: [],
+        },
+      })
+    )
+    expect(loadPackageManifest('@ampless/plugin-og-image')).toMatchObject({
+      capabilities: [],
+    })
+  })
 })

@@ -1132,4 +1132,50 @@ describe('crossCheckStaticManifest (via createPluginHead)', () => {
     )
     expect(crossCheckWarns).toHaveLength(0)
   })
+
+  // Defensive: even if a malformed manifest somehow reaches
+  // crossCheckStaticManifest (e.g. through a future code path that
+  // bypasses loadPackageManifest's structural validation), iterating
+  // its capabilities must not throw. The downstream setsEqual loop
+  // uses Set construction, which handles any iterable; the upstream
+  // Array.isArray guard on the factory side covers the other axis.
+  it('case 7: capabilities with duplicates → treated as equal sets, no false-positive warn', () => {
+    // Manifest declares the same capability twice; factory declares it once.
+    // The set comparison should treat them as equal.
+    mockedLoadPackageManifest.mockReturnValue({
+      ...gtmManifest,
+      capabilities: ['publicHead', 'publicHead', 'publicBody', 'adminSettings'],
+    })
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'adminSettings'],
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('capabilities mismatch'))
+    ).toBe(false)
+  })
+
+  it('case 8: factory capabilities undefined → treated as empty array (no crash)', () => {
+    // Factory omits the `capabilities` field entirely. The Array.isArray
+    // guard in crossCheckStaticManifest must convert it to []; the
+    // mismatch warning still fires against the manifest's 3 caps.
+    mockedLoadPackageManifest.mockReturnValue(gtmManifest)
+    const plugin = definePlugin({
+      name: 'gtm',
+      packageName: '@ampless/plugin-gtm',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      // capabilities omitted on purpose
+    })
+    expect(() => createPluginHead(makeConfig([plugin]), emptySettings)).not.toThrow()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some((m: string) => m.includes('capabilities mismatch'))
+    ).toBe(true)
+  })
 })

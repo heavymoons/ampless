@@ -33,7 +33,43 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { PluginPackageManifest } from 'ampless'
+import type { PluginPackageManifest, TrustLevel } from 'ampless'
+
+const TRUST_LEVELS: readonly TrustLevel[] = ['untrusted', 'trusted', 'privileged']
+
+/**
+ * Type guard: does `value` look like a usable `PluginPackageManifest`?
+ *
+ * Checks every field the cross-check downstream reads — `apiVersion`
+ * is a number, `name` is a string, `trustLevel` is one of the three
+ * declared values, and `capabilities` is an `Array<string>` (so the
+ * `setsEqual` loop in `crossCheckStaticManifest` cannot blow up on a
+ * `for ... of` over a non-iterable). When a plugin's `amplessPlugin`
+ * field is malformed (`capabilities: {}`, `apiVersion: "1"`, etc.) we
+ * return `false` here and the caller returns `null` — the cross-check
+ * then silently skips that plugin, matching the same backward-compat
+ * fallback used when the field is missing.
+ *
+ * Returning `false` does NOT throw or warn from the load layer. The
+ * loader doesn't know enough about who's calling it to produce a
+ * useful diagnostic, and a noisy warning during constructor pass would
+ * fire for every render under SSR.
+ */
+function isValidManifest(value: unknown): value is PluginPackageManifest {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.apiVersion !== 'number') return false
+  if (typeof v.name !== 'string') return false
+  if (typeof v.trustLevel !== 'string') return false
+  if (!TRUST_LEVELS.includes(v.trustLevel as TrustLevel)) return false
+  if (!Array.isArray(v.capabilities)) return false
+  for (const c of v.capabilities) {
+    if (typeof c !== 'string') return false
+  }
+  // displayName / description / homepage are optional and not part of
+  // the cross-check, so we don't validate them here.
+  return true
+}
 
 /**
  * Resolve `<packageName>/package.json`, read it, and return the
@@ -74,14 +110,15 @@ export function loadPackageManifest(packageName: string): PluginPackageManifest 
   if (
     typeof pkg !== 'object' ||
     pkg === null ||
-    !('amplessPlugin' in pkg) ||
-    typeof (pkg as { amplessPlugin: unknown }).amplessPlugin !== 'object' ||
-    (pkg as { amplessPlugin: unknown }).amplessPlugin === null
+    !('amplessPlugin' in pkg)
   ) {
     return null
   }
 
-  return (pkg as { amplessPlugin: PluginPackageManifest }).amplessPlugin
+  const manifest = (pkg as { amplessPlugin: unknown }).amplessPlugin
+  if (!isValidManifest(manifest)) return null
+
+  return manifest
 }
 
 /**
