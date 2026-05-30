@@ -20,6 +20,7 @@ import {
   resolveLocalized,
   type LocalizedString,
   type PluginSettingField,
+  type PluginRepeatableField,
 } from 'ampless'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import {
@@ -353,8 +354,15 @@ function renderDefaultHint(field: PluginSettingField, _locale: string): React.Re
   )
 }
 
-function renderInput(
-  field: PluginSettingField,
+/**
+ * Render a scalar (non-repeatable) plugin field input. Handles the 8
+ * scalar variant types: text, url, textarea, code, boolean, number,
+ * select, json. Factored out of `renderInput` so the repeatable case
+ * can call back into it per sub-field cell without interleaving with
+ * the repeatable branch.
+ */
+export function renderScalarInput(
+  field: Exclude<PluginSettingField, PluginRepeatableField>,
   id: string,
   value: string,
   invalid: boolean,
@@ -463,5 +471,22 @@ function renderInput(
           className="font-mono text-xs"
         />
       )
+  }
+}
+
+function renderInput(
+  field: PluginSettingField,
+  id: string,
+  value: string,
+  invalid: boolean,
+  onChange: (v: string) => void
+): React.ReactNode {
+  switch (field.type) {
+    case 'repeatable':
+      // Handled by RepeatableFieldEditor (Step 2). Falls through to
+      // renderScalarInput for the 8 scalar variants.
+      return null
+    default:
+      return renderScalarInput(field, id, value, invalid, onChange)
   }
 }
