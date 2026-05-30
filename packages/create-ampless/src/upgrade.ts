@@ -1,4 +1,4 @@
-import { cp, readFile, writeFile, readdir, mkdir, rm, stat } from 'node:fs/promises'
+import { cp, readFile, writeFile, readdir, mkdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, relative, extname, dirname } from 'node:path'
 import { log, outro } from '@clack/prompts'
@@ -150,6 +150,14 @@ export interface UpgradeResult {
   protected: string[]
   themesSynced: string[]
   themesPreserved: string[]
+  /**
+   * Theme directories deleted because their name matched a known
+   * non-theme template prefix (e.g. `plugin-local`, `plugin-standalone`
+   * leaked in by the buggy `create-ampless@alpha` after PR #168). The
+   * upgrade tool removes them so the regenerated `themes-registry.ts`
+   * stops importing modules that don't exist.
+   */
+  themesQuarantined: string[]
   packageJsonMerged: boolean
   /** Obsolete files removed from ampless-managed app/ subtrees. */
   obsoleteRemoved: string[]
@@ -197,6 +205,24 @@ function isThemeDirName(name: string): boolean {
     if (name.startsWith(prefix)) return false
   }
   return true
+}
+
+/**
+ * One-time recovery for sites whose `themes/` got corrupted by the
+ * pre-fix `listShippedThemes` (PR #168 → buggy create-ampless@alpha).
+ * Anything matching these names IS NOT a theme and should be cleaned
+ * up if a previous `update-ampless` deposited it under the user's
+ * `themes/`. The list mirrors the scaffold-template names that are
+ * now correctly excluded by `NON_THEME_TEMPLATE_PREFIXES`, so future
+ * additions to the `plugin-*` prefix family auto-recover too.
+ *
+ * Safe to keep in place — these names were never valid themes; even
+ * a contributor who happened to create `themes/plugin-something/`
+ * by hand would have been broken on the next upgrade anyway because
+ * the registry would have tried to import it as a theme.
+ */
+function isQuarantinedThemeName(name: string): boolean {
+  return !isThemeDirName(name)
 }
 
 /**
@@ -271,10 +297,30 @@ async function restorePreservedFiles(dir: string, files: Map<string, Buffer>): P
  * the filesystem and theme switching at runtime never targets a
  * missing module.
  */
-async function syncThemes(destDir: string, templatesRoot: string): Promise<ThemeSyncResult> {
+async function syncThemes(
+  destDir: string,
+  templatesRoot: string,
+): Promise<ThemeSyncResult & { quarantined: string[] }> {
   const shipped = await listShippedThemes(templatesRoot)
   const themesDir = join(destDir, 'themes')
   await mkdir(themesDir, { recursive: true })
+
+  // Recovery for sites that ran the buggy create-ampless@alpha after
+  // PR #168: scaffold template directories (`plugin-local`,
+  // `plugin-standalone`) got synced into the user's `themes/` and
+  // wired into `themes-registry.ts`, breaking `next build`. Remove
+  // any leftover quarantined entries before we walk the registry,
+  // and surface the cleanup in the result so the CLI can log it.
+  const quarantined: string[] = []
+  if (existsSync(themesDir)) {
+    const present = await readdir(themesDir, { withFileTypes: true })
+    for (const entry of present) {
+      if (!entry.isDirectory()) continue
+      if (!isQuarantinedThemeName(entry.name)) continue
+      await rm(join(themesDir, entry.name), { recursive: true, force: true })
+      quarantined.push(entry.name)
+    }
+  }
 
   // Replace shipped themes — `rm` is a no-op if the dir doesn't exist
   // (this is how an old project picks up missing default themes added
@@ -300,13 +346,18 @@ async function syncThemes(destDir: string, templatesRoot: string): Promise<Theme
   // ampless ones we just rewrote, so the union covers everything.
   const installed = await discoverInstalledThemes(destDir)
   const shippedSet = new Set(shipped)
-  const preserved = installed.filter((t) => !shippedSet.has(t))
+  // Filter quarantined names out of `installed` too — defensive in case
+  // a name slipped past the cleanup above (e.g. a community contributor
+  // added something with a `plugin-` prefix by hand).
+  const preserved = installed.filter(
+    (t) => !shippedSet.has(t) && !isQuarantinedThemeName(t),
+  )
 
   // Regenerate themes-registry.ts to list both halves.
   const all = [...shipped, ...preserved]
   await writeFile(join(destDir, 'themes-registry.ts'), buildRegistry(all), 'utf-8')
 
-  return { synced: shipped, preserved }
+  return { synced: shipped, preserved, quarantined }
 }
 
 async function walkDir(dir: string, base: string, out: string[]): Promise<void> {
@@ -507,7 +558,15 @@ export async function runUpgradeIn(
   // tests that exercise only the file-merge logic).
   const shippedThemes = themeSyncEnabled ? await listShippedThemes(templatesRoot) : []
   const existingThemes = themeSyncEnabled ? await discoverInstalledThemes(destDir) : []
-  const preservedThemes = existingThemes.filter((t) => !shippedThemes.includes(t))
+  // Preview what `syncThemes` will quarantine — directories under the
+  // user's themes/ whose name matches a known non-theme template prefix
+  // (PR #174 recovery for sites broken by the buggy PR #168 release).
+  // The actual deletion happens inside `syncThemes`; here we just
+  // report the plan to the user so the dry-run output matches reality.
+  const quarantinedThemesPreview = existingThemes.filter(isQuarantinedThemeName)
+  const preservedThemes = existingThemes.filter(
+    (t) => !shippedThemes.includes(t) && !isQuarantinedThemeName(t),
+  )
 
   const obsoleteFiles = await findObsoleteFiles(destDir, sharedDir)
 
@@ -524,6 +583,11 @@ export async function runUpgradeIn(
     log.info(
       `themes:  ${pc.cyan(`${shippedThemes.length} default themes synced`)} / ${pc.dim(`${preservedThemes.length} custom (my-*) themes preserved`)}`
     )
+    if (quarantinedThemesPreview.length > 0) {
+      log.info(
+        `recover: ${pc.yellow(`${quarantinedThemesPreview.length} bogus theme dir(s) removed`)} (${quarantinedThemesPreview.join(', ')} — scaffold templates leaked in by an earlier buggy create-ampless@alpha)`
+      )
+    }
   }
   if (obsoleteFiles.length > 0) {
     log.info(`cleanup: ${pc.yellow(`${obsoleteFiles.length} removed`)} (files under ampless-managed app/ paths that no longer exist in the template)`)
@@ -539,6 +603,7 @@ export async function runUpgradeIn(
       protected: classification.protected,
       themesSynced: shippedThemes,
       themesPreserved: preservedThemes,
+      themesQuarantined: quarantinedThemesPreview,
       packageJsonMerged: false,
       obsoleteRemoved: obsoleteFiles,
     }
@@ -562,9 +627,9 @@ export async function runUpgradeIn(
   // pass because theme dirs are siblings of `_shared/` in the template
   // root, not files inside it. Disabled when the templates root isn't
   // recognisable (unit tests against a fake _shared/ folder).
-  const themeResult: ThemeSyncResult = themeSyncEnabled
+  const themeResult: ThemeSyncResult & { quarantined: string[] } = themeSyncEnabled
     ? await syncThemes(destDir, templatesRoot)
-    : { synced: [], preserved: [] }
+    : { synced: [], preserved: [], quarantined: [] }
 
   // 6d. Remove app/ files that are no longer in the template. See
   // `AMPLESS_MANAGED_APP_PATHS` — entries get added on first scaffold
@@ -630,6 +695,7 @@ export async function runUpgradeIn(
     protected: classification.protected,
     themesSynced: themeResult.synced,
     themesPreserved: themeResult.preserved,
+    themesQuarantined: themeResult.quarantined,
     packageJsonMerged: true,
     obsoleteRemoved: obsoleteFiles,
   }

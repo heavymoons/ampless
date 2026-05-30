@@ -312,6 +312,83 @@ describe('runUpgradeIn', () => {
     }
   })
 
+  // Auto-recovery for sites that already ran the buggy
+  // `create-ampless@alpha` published before PR #172. Those sites have
+  // bogus `themes/plugin-local/` and `themes/plugin-standalone/`
+  // directories and a `themes-registry.ts` that tries to import them,
+  // which crashes `next build` with module-not-found. The fixed
+  // upgrade tool must walk the user's themes/ and delete any directory
+  // whose name matches a known non-theme template prefix, so the
+  // regenerated registry no longer references them.
+  it('auto-recovers themes/plugin-* leaked in by the buggy alpha', async () => {
+    const templatesRoot = mkdtempSync(join(tmpdir(), 'ampless-templates-root-'))
+    try {
+      const sharedDir = join(templatesRoot, '_shared')
+      mkdirSync(sharedDir, { recursive: true })
+      writeFileSync(join(sharedDir, 'package.json'), makeTemplatePkg())
+      writeFileSync(join(sharedDir, 'cms.config.ts'), '// shared cms.config')
+      mkdirSync(join(sharedDir, 'amplify'), { recursive: true })
+      writeFileSync(join(sharedDir, 'amplify', 'backend.ts'), '// shared backend')
+      mkdirSync(join(sharedDir, 'app', '(admin)', 'admin'), { recursive: true })
+      writeFileSync(
+        join(sharedDir, 'app', '(admin)', 'admin', 'page.tsx'),
+        '// shared admin page',
+      )
+
+      mkdirSync(join(templatesRoot, 'blog'), { recursive: true })
+      writeFileSync(join(templatesRoot, 'blog', 'page.tsx'), '// real blog theme')
+
+      // Simulate corruption from the buggy alpha: bogus theme dirs
+      // pre-existing under the user's themes/. Their content is the
+      // raw scaffold template (with `{{ }}` placeholders) — what the
+      // buggy `update-ampless` actually copied over.
+      mkdirSync(join(projectDir, 'themes', 'plugin-local'), { recursive: true })
+      writeFileSync(
+        join(projectDir, 'themes', 'plugin-local', 'index.ts'),
+        'export default function {{nameCamelCase}}Plugin() {}',
+      )
+      mkdirSync(join(projectDir, 'themes', 'plugin-standalone'), { recursive: true })
+      writeFileSync(
+        join(projectDir, 'themes', 'plugin-standalone', 'package.json'),
+        '{ "name": "{{packageName}}" }',
+      )
+
+      // User's own custom theme — must be preserved.
+      mkdirSync(join(projectDir, 'themes', 'my-blog'), { recursive: true })
+      writeFileSync(join(projectDir, 'themes', 'my-blog', 'page.tsx'), '// my custom')
+
+      const result = await runUpgradeIn(projectDir, sharedDir, {
+        noInstall: true,
+        templatesRoot,
+      })
+
+      // Bogus dirs deleted from disk.
+      expect(existsSync(join(projectDir, 'themes', 'plugin-local'))).toBe(false)
+      expect(existsSync(join(projectDir, 'themes', 'plugin-standalone'))).toBe(false)
+
+      // Reported through the result.
+      expect(result.themesQuarantined).toEqual(
+        expect.arrayContaining(['plugin-local', 'plugin-standalone']),
+      )
+
+      // Real theme is sync'd, user's my-blog is preserved.
+      expect(existsSync(join(projectDir, 'themes', 'blog', 'page.tsx'))).toBe(true)
+      expect(existsSync(join(projectDir, 'themes', 'my-blog', 'page.tsx'))).toBe(true)
+      expect(result.themesPreserved).toContain('my-blog')
+
+      // Regenerated registry no longer references the bogus dirs —
+      // this is the actual fix for `next build` failing with
+      // module-not-found on the user's machine.
+      const registry = readFileSync(join(projectDir, 'themes-registry.ts'), 'utf-8')
+      expect(registry).not.toMatch(/plugin-local/)
+      expect(registry).not.toMatch(/plugin-standalone/)
+      expect(registry).toMatch(/my-blog/)
+      expect(registry).toMatch(/blog/)
+    } finally {
+      rmSync(templatesRoot, { recursive: true, force: true })
+    }
+  })
+
   // 6b. protected plugins/: site-local plugin files → untouched. The
   // template seeds a README into plugins/ on initial scaffold; once
   // the directory exists everything inside is user territory (mirrors
