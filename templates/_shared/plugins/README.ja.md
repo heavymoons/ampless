@@ -29,7 +29,7 @@
 - 別パッケージとして version 上げて publish するのは大袈裟
 
 複数サイトで使いたくなったら、独立 npm パッケージに切り出す:
-`npx create-ampless@alpha plugin <name> --standalone` で publish 用の
+`npx create-ampless@latest plugin <name> --standalone` で publish 用の
 ディレクトリ一式が scaffold される。
 
 ## クライアントサイドスクリプトに関する注意

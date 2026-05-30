@@ -92,16 +92,25 @@ surfaces:
 | `hooks` | trust_level-matched processor Lambda | async, on SQS event | Existing |
 | `settings.public` | `/admin/plugins` form | declarative manifest | 2 |
 
-What a plugin **cannot** do today (without privileged tier work, see
-roadmap):
+A few surfaces don't exist yet — they're reserved for later phases
+and aren't shaped by `definePlugin` today:
 
-- Inject arbitrary `ReactNode` into pages — descriptor variants only.
-- Open a TCP socket in the public Next.js process. Trusted Lambdas
-  have outbound HTTP only.
-- Add admin routes / server routes / content fields — those
-  capabilities are reserved for Phase 6b.
-- Read or write secrets. The `secretSettings` capability is reserved
-  for Phase 6a.
+- **Arbitrary `ReactNode` injection into pages.** The sync render
+  surfaces (`publicHead`, `publicBodyEnd`, `publicBodyForPost`) only
+  return descriptor variants. The descriptor validator is the safety
+  boundary for what the runtime renders into the page; it isn't a JS
+  sandbox around the plugin itself. (Plugins run as ordinary
+  TypeScript in the same Node process as the rest of the site.)
+- **Network inside the sync render surfaces.** The sync surfaces are
+  shaped for declarative output — they don't take a Promise and there's
+  no async result path, so doing `await fetch(...)` inside `publicHead`
+  blocks SSR with no way to surface a deadline. Trusted Lambdas
+  (`hooks`) are where the runtime expects outbound HTTP. Background
+  work belongs there.
+- **Admin routes / server routes / content fields.** Reserved for
+  Phase 6b.
+- **Secrets.** The `secretSettings` capability is reserved for
+  Phase 6a; nothing in `settings.public` should be a credential.
 
 ---
 
@@ -111,10 +120,10 @@ The fastest way to create a plugin is to scaffold one:
 
 ```bash
 # Site-local (writes plugins/<name>/index.ts in the current ampless site)
-npx create-ampless@alpha plugin my-thing
+npx create-ampless@latest plugin my-thing
 
 # Standalone npm package (writes ./<name>/ ready for `npm publish`)
-npx create-ampless@alpha plugin @myscope/ampless-plugin-my-thing --standalone
+npx create-ampless@latest plugin @myscope/ampless-plugin-my-thing --standalone
 ```
 
 §14 covers the full flow. The rest of this section explains what the
@@ -357,8 +366,12 @@ redeploying.
 ## 5. Sync surfaces
 
 These run inside the **public Next.js process** (the site visitor's
-request thread). They are pure with respect to AWS — no IAM, no
-network — and execute synchronously.
+request thread) and execute synchronously. They aren't designed to
+do network I/O: there's no async result path, so an `await fetch(...)`
+inside `publicHead` would block SSR with no deadline. Side effects
+that need network calls go in `hooks` (trusted Lambdas, async).
+Public-process plugin code runs with the public-page IAM role — no
+elevated AWS access.
 
 | Surface | Returns | Use case |
 |---|---|---|
@@ -385,9 +398,14 @@ The `ctx` object carries:
 ## 6. Descriptor reference
 
 `publicHead` and `publicBodyEnd` return **descriptor objects**, not
-`ReactNode`. The runtime validates them, then builds the React
-elements itself. This is the safety boundary that lets ampless run
-untrusted code in the public render path.
+`ReactNode`. The runtime validates them (URL scheme denylist, attrs
+allowlist, dedup by id) and then builds the React elements itself.
+This is the safety boundary for the **HTML output** a plugin can
+contribute — it bounds what the runtime emits, not what the plugin's
+own code does. Plugins run as ordinary TypeScript in the same Node
+process as the rest of the site; the descriptor pipeline keeps the
+public-page surface narrow and auditable without depending on a JS
+sandbox.
 
 ### Common variants
 
@@ -971,7 +989,7 @@ CLI ships a `plugin <name>` subcommand:
 ```bash
 # Site-local: scaffolds plugins/<name>/index.ts inside the current
 # ampless site. Run from the site repo root.
-npx create-ampless@alpha plugin my-thing \
+npx create-ampless@latest plugin my-thing \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings
 
@@ -979,7 +997,7 @@ npx create-ampless@alpha plugin my-thing \
 # tsconfig.json, tsup.config.ts, README + .ja, CHANGELOG, .gitignore,
 # and src/index.ts + src/index.test.ts. Run from wherever you want
 # the new package directory to land.
-npx create-ampless@alpha plugin @myscope/ampless-plugin-thing \
+npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
   --standalone \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings \
@@ -993,7 +1011,7 @@ keyword, and a minimal vitest sample so `pnpm install && pnpm test &&
 pnpm build` runs clean on the freshly generated directory.
 
 Both modes also accept a positional flag-less invocation (`npx
-create-ampless@alpha plugin`) that walks you through the same
+create-ampless@latest plugin`) that walks you through the same
 questions interactively via the @clack prompt UI.
 
 ### Publishing a standalone plugin

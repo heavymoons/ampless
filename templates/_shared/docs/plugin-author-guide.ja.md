@@ -71,12 +71,23 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 | `hooks` | trust_level に応じた processor Lambda | 非同期、SQS イベントで起動 | 既存 |
 | `settings.public` | `/admin/plugins` フォーム | 宣言的なマニフェスト | 2 |
 
-**現時点でできないこと** (将来の privileged 層実装に依存、ロードマップ参照):
+後続フェーズに残してある surface もいくつかあって、現状の `definePlugin`
+では形にできません:
 
-- 任意の `ReactNode` をページに注入 — descriptor 変種のみ許可
-- 公開 Next.js プロセス内で TCP ソケットを開く。trusted Lambda も外向き HTTP のみ
-- admin ルート / server ルート / コンテンツフィールドの追加 — Phase 6b 予約
-- secret の読み書き。`secretSettings` capability は Phase 6a 予約
+- **任意の `ReactNode` のページ注入**。同期描画 surface (`publicHead` /
+  `publicBodyEnd` / `publicBodyForPost`) は descriptor 変種を返すだけ。
+  descriptor の validator は **runtime が描画する HTML 出力の安全境界**
+  であって、プラグイン本体のコードを縛る JS sandbox ではない (プラグインは
+  普通の TypeScript としてサイトと同一の Node プロセス内で動く)
+- **同期描画 surface 内でのネットワーク**。これらの surface は宣言的な
+  出力を返す設計で、Promise を受け取らないし async result path も無い。
+  `publicHead` の中で `await fetch(...)` を書くと SSR が無期限ブロックする
+  (デッドラインを返す手段がない)。外向き HTTP が必要な処理は trusted
+  Lambda (`hooks`) でやる
+- **admin ルート / server ルート / コンテンツフィールドの追加** —
+  Phase 6b 予約
+- **secret の読み書き**。`secretSettings` capability は Phase 6a 予約。
+  `settings.public` に credential を置かないこと
 
 ---
 
@@ -86,10 +97,10 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 
 ```bash
 # サイトローカル (現在の ampless サイトに plugins/<name>/index.ts を生成)
-npx create-ampless@alpha plugin my-thing
+npx create-ampless@latest plugin my-thing
 
 # スタンドアロン npm パッケージ (`npm publish` 向けの ./<name>/ を生成)
-npx create-ampless@alpha plugin @myscope/ampless-plugin-my-thing --standalone
+npx create-ampless@latest plugin @myscope/ampless-plugin-my-thing --standalone
 ```
 
 全体の手順は §14 を参照してください。このセクションの残りでは生成されるファイルの意味を説明します — 手書きしたい場合はここを読めば把握できます。
@@ -283,7 +294,13 @@ trust level がズレているプラグインは「権限不足で sliently fail
 
 ## 5. 同期サーフェス
 
-**公開 Next.js プロセス** (サイト訪問者のリクエストスレッド) 内で実行されます。AWS に対しては純 (IAM・ネットワーク無し) で、同期実行です。
+**公開 Next.js プロセス** (サイト訪問者のリクエストスレッド) 内で同期実行
+されます。これらの surface はネットワーク I/O を意図して設計していません。
+async result path が無いので `publicHead` 内で `await fetch(...)` すると
+SSR がデッドラインなしでブロックします。ネットワーク呼び出しが必要な副作用
+は `hooks` (trusted Lambda、async) でやってください。公開プロセス内の
+プラグインコードは公開ページ用の IAM ロールで動きます — 特別な AWS 権限は
+ありません。
 
 | サーフェス | 戻り値 | 用途 |
 |---|---|---|
@@ -308,7 +325,14 @@ trust level がズレているプラグインは「権限不足で sliently fail
 
 ## 6. Descriptor リファレンス
 
-`publicHead` と `publicBodyEnd` は **descriptor オブジェクト** を返します。`ReactNode` ではありません。runtime が validation してから React 要素を組み立てます。これが untrusted コードを公開描画パスで動かすための安全境界です。
+`publicHead` と `publicBodyEnd` は **descriptor オブジェクト** を返します。
+`ReactNode` ではありません。runtime が validation (URL scheme denylist /
+attrs allowlist / id dedup) してから React 要素を組み立てます。これは
+プラグインが寄与できる **HTML 出力** の安全境界であって、プラグイン本体の
+コード実行を縛るものではない、という点に注意 — プラグインは普通の
+TypeScript としてサイトと同一の Node プロセスで動きます。descriptor
+パイプラインは、JS sandbox に頼らずに公開ページの面を狭く / 監査可能に
+保つための仕組みです。
 
 ### 共通の variant
 
@@ -745,7 +769,7 @@ it('admin が空文字保存した場合は空配列', () => {
 ```bash
 # サイトローカル: 現在の ampless サイトのルートで実行
 # plugins/<name>/index.ts を生成する
-npx create-ampless@alpha plugin my-thing \
+npx create-ampless@latest plugin my-thing \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings
 
@@ -753,7 +777,7 @@ npx create-ampless@alpha plugin my-thing \
 # package.json / tsconfig.json / tsup.config.ts / README + .ja /
 # CHANGELOG / .gitignore / src/index.ts + src/index.test.ts を含む
 # 新しいパッケージディレクトリを置きたい場所で実行する
-npx create-ampless@alpha plugin @myscope/ampless-plugin-thing \
+npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
   --standalone \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings \
@@ -762,7 +786,7 @@ npx create-ampless@alpha plugin @myscope/ampless-plugin-thing \
 
 スタンドアロンスキャフォールドには Phase 5 のクロスチェックに必要なものがすべて含まれます: `package.json#amplessPlugin`、`./package.json` サブパスエクスポート、`packageName` ファクトリフィールド、`ampless-plugin` 検索キーワード、そして `pnpm install && pnpm test && pnpm build` が生成直後にクリーンに通る最小の vitest サンプル。
 
-どちらのモードも、フラグなしの位置引数呼び出し (`npx create-ampless@alpha plugin`) で @clack のプロンプト UI を使ったインタラクティブモードに切り替えられます。
+どちらのモードも、フラグなしの位置引数呼び出し (`npx create-ampless@latest plugin`) で @clack のプロンプト UI を使ったインタラクティブモードに切り替えられます。
 
 ### スタンドアロンプラグインの公開
 
