@@ -26,6 +26,7 @@
     "@tiptap/react": "^3.23.6",
     "@tiptap/starter-kit": "^3.23.6",
     "@ampless/plugin-analytics-ga4": "^0.2.0-alpha.9",
+    "@ampless/plugin-cookie-consent": "^0.1.0-alpha.1",
     "@ampless/plugin-gtm": "^0.1.1-alpha.8",
     "@ampless/plugin-og-image": "^0.2.0-alpha.26",
     "@ampless/plugin-plausible": "^0.1.1-alpha.8",

@@ -58,6 +58,7 @@ const AMPLESS_PACKAGES = new Set([
   '@ampless/plugin-analytics-ga4',
   '@ampless/plugin-gtm',
   '@ampless/plugin-plausible',
+  '@ampless/plugin-cookie-consent',
 ])
 
 /**
