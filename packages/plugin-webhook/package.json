@@ -8,7 +8,8 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -36,6 +37,14 @@
   "keywords": [
     "ampless",
     "plugin",
+    "ampless-plugin",
     "webhook"
-  ]
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "webhook",
+    "trustLevel": "untrusted",
+    "capabilities": ["eventHooks"],
+    "displayName": { "en": "Webhook", "ja": "Webhook" }
+  }
 }

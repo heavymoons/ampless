@@ -59,8 +59,10 @@ export default function webhookPlugin(options: WebhookPluginOptions): AmplessPlu
 
   return definePlugin({
     name: 'webhook',
+    packageName: '@ampless/plugin-webhook',
     apiVersion: 1,
     trust_level: 'untrusted',
+    capabilities: ['eventHooks'],
     hooks,
   })
 }

@@ -22,6 +22,7 @@ export default function seoPlugin(options: SeoPluginOptions = {}): AmplessPlugin
 
   return definePlugin({
     name: 'seo',
+    packageName: '@ampless/plugin-seo',
     apiVersion: 1,
     trust_level: 'trusted',
     capabilities: ['eventHooks', 'writePublicAsset', 'metadata'],

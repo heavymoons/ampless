@@ -8,7 +8,8 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -36,8 +37,16 @@
   "keywords": [
     "ampless",
     "plugin",
+    "ampless-plugin",
     "gtm",
     "google-tag-manager",
     "analytics"
-  ]
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "gtm",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "publicBody", "adminSettings"],
+    "displayName": { "en": "Google Tag Manager", "ja": "Google Tag Manager" }
+  }
 }

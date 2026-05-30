@@ -398,6 +398,58 @@ export type PluginSettingField =
   | PluginCodeField
   | PluginJsonField
 
+// --- Static manifest (Phase 5) -----------------------------------
+//
+// `PluginPackageManifest` is the shape of the optional `amplessPlugin`
+// field in a plugin package's `package.json`. It lets the runtime /
+// admin / tooling identify a plugin and its surface area WITHOUT
+// executing the plugin's JS — useful for install-time validation, future
+// admin UI that lists available npm packages, and CI checks.
+//
+// The runtime cross-checks this against the factory return value at
+// `createPluginHead` constructor time (see `loadPackageManifest` in
+// `@ampless/runtime`). Disagreement on `apiVersion` throws (breaking-
+// change protection); `name` / `trustLevel` / `capabilities` mismatch
+// warns.
+//
+// Plugins without a `packageName` (and the matching `amplessPlugin`
+// field) skip the check entirely — existing plugins continue to work
+// unchanged.
+
+/**
+ * Static manifest declared in a plugin package's `package.json` under
+ * the `amplessPlugin` key. The plugin package must also expose
+ * `package.json` itself via `exports`:
+ *
+ *   "exports": {
+ *     ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+ *     "./package.json": "./package.json"
+ *   }
+ *
+ * Without the subpath export, Node's package-exports gating rejects
+ * `import.meta.resolve('<pkg>/package.json')` and the runtime cannot
+ * load the manifest. Without `amplessPlugin`, the runtime skips
+ * cross-check silently and falls back to the existing per-factory
+ * capability mismatch checks (backward compatible).
+ */
+export interface PluginPackageManifest {
+  /** Must match `AmplessPlugin.apiVersion`. Mismatch throws at runtime
+   *  to prevent loading a plugin built against a different ampless API. */
+  apiVersion: 1
+  /** Should match `AmplessPlugin.name`. Mismatch warns. */
+  name: string
+  /** Should match `AmplessPlugin.trust_level`. Mismatch warns. */
+  trustLevel: TrustLevel
+  /** Should match `AmplessPlugin.capabilities`. Disagreement warns. */
+  capabilities: readonly PluginCapability[]
+  /** Optional admin UI label. */
+  displayName?: LocalizedString
+  /** Optional short description (1 line). */
+  description?: LocalizedString
+  /** Optional docs / repo URL. */
+  homepage?: string
+}
+
 /**
  * Per-plugin settings declaration. Phase 2 implements `public`;
  * `secret` is reserved for Phase 6a (admin-only storage; never reaches
@@ -411,6 +463,25 @@ export interface AmplessPlugin {
   name: string
   /** Plugin API version. Currently 1; future versions will be additive. */
   apiVersion: 1
+  /**
+   * Optional npm package name (e.g. `'@scope/ampless-plugin-foo'` or
+   * `'ampless-plugin-foo'`). When set, the runtime resolves
+   * `<packageName>/package.json` at `createPluginHead` construction
+   * time and cross-checks the static `amplessPlugin` manifest against
+   * the factory return value (`apiVersion` mismatch throws,
+   * `name` / `trustLevel` / `capabilities` mismatch warns).
+   *
+   * Plugins that omit this field — site-local plugins, first-party
+   * plugins predating Phase 5, etc. — skip cross-check entirely and
+   * fall back to the existing per-factory capability mismatch checks.
+   * Backward compatible: existing plugins continue to work unchanged.
+   *
+   * For external `npm publish` plugins, `packageName` MUST match the
+   * package's actual `name` and the package's `exports` MUST expose
+   * `./package.json`. The scaffold tool (`npx create-ampless plugin`)
+   * handles both automatically.
+   */
+  packageName?: string
   trust_level: TrustLevel
   /**
    * Stable per-install namespace. Defaults to `name` when omitted.
