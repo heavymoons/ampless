@@ -3,28 +3,45 @@
 ---
 
 Fix `next build` crashing with `module-not-found` inside
-`@ampless/runtime/dist/index.js` when projects upgrade past the
-release that introduced static plugin manifest cross-checking.
+`@ampless/runtime/dist/index.js` when projects bundle the Phase 5
+plugin manifest reader.
 
-The Phase 5 manifest reader calls `import.meta.resolve(<packageName>/package.json)`
-inside `loadPackageManifest`. Webpack 5 (and therefore Next.js) has a
-hand-written recognizer for the literal `import.meta.resolve(<expr>)`
-call shape and tries to follow it as a static module request. Our
-specifier is always a template literal built from a runtime argument,
-so webpack can't resolve it at build time and emits a hard
-`module-not-found` error — blocking every site that bundles the
-runtime, including the Amplify Hosting builds.
+`@ampless/runtime` is pulled into every Next.js bundle graph
+(Server Component, App Route, Client Component Browser, Client
+Component SSR) via `@ampless/admin`'s re-exports, so anything
+top-level in `plugin-package-manifest.ts` lands in the browser
+graph too. Webpack 5 rejected the module on **two** independent
+grounds:
 
-The runtime behavior is correct (Node 22+ resolves the specifier
-fine, and the surrounding try/catch handles every documented failure
-mode). The fix is structural: read `import.meta.resolve` once into a
-local variable (`metaResolve`) and call through that binding. Webpack
-only flags the literal `import.meta.resolve(...)` call shape, so the
-indirection makes the call site invisible to its static analyzer
-while leaving Node resolution intact. When `import.meta.resolve` is
-unavailable (older runtimes, bundlers that strip it), `metaResolve`
-is `undefined` and `loadPackageManifest` returns `null` — the
-existing per-factory mismatch check still runs.
+1. The static `import { readFileSync } from 'node:fs'` (tsup strips
+   the `node:` prefix → `from "fs"`) is unresolvable in client
+   bundles. Next.js does not polyfill Node built-ins for browser
+   targets.
+2. The literal `import.meta.resolve(<expr>)` call shape is
+   hand-recognized by webpack 5 and treated as a static module
+   request, which fails with `module-not-found` whenever the
+   specifier is dynamic (which ours always is —
+   `${packageName}/package.json`).
 
-No public API change. Existing runtime tests (174/174) cover both
-the success and `null` fallback paths.
+Both surfaces are now hidden from webpack:
+
+- `node:fs` / `node:url` are loaded sync via Node 22+'s
+  `process.getBuiltinModule(<name>)` — purpose-built for sync
+  loading of built-ins from ESM without an `import` or `require`
+  statement webpack can see. `ampless` already requires Node
+  `>=22.13` so the API is always available on the server.
+- `import.meta.resolve` is accessed via `import.meta.resolve.bind(...)`
+  (a `.bind()` call, not a `.resolve()` call), which webpack
+  leaves alone.
+
+When neither API is available (browser bundles, older runtimes,
+bundlers that strip `import.meta.resolve`), `loadPackageManifest`
+returns `null` and the runtime falls back to the existing
+per-factory mismatch checks — the same backward-compat path used
+for plugins predating Phase 5. No public API change.
+
+Tests rewritten to spy on `process.getBuiltinModule` instead of
+`vi.mock('node:fs')` (the new code path bypasses vitest's module
+resolver). 174/174 runtime tests pass; the dist now contains zero
+`from "fs"` / `from "url"` imports and zero literal
+`import.meta.resolve(...)` call expressions.
