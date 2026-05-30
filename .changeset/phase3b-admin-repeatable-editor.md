@@ -1,5 +1,6 @@
 ---
 "@ampless/admin": minor
+"ampless": patch
 ---
 
 Adds `<RepeatableFieldEditor>` — admin UI for the `PluginRepeatableField`

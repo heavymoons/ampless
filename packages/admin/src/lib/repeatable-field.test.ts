@@ -222,9 +222,12 @@ describe('formStringToSubFieldValue', () => {
 // ---------------------------------------------------------------------------
 
 describe('makeEmptyItem', () => {
-  it('returns empty object when no sub-fields have defaults', () => {
+  it('returns object with boolean sub-fields seeded false; non-boolean omitted', () => {
+    // textSf (text) has no default → omitted; boolSf (boolean) has no
+    // default → seeded false so the form's unchecked checkbox display
+    // matches the stored value.
     const field = makeField({ fields: [textSf, boolSf] })
-    expect(makeEmptyItem(field)).toEqual({})
+    expect(makeEmptyItem(field)).toEqual({ enabled: false })
   })
 
   it('seeds fields that have defaults', () => {
@@ -257,6 +260,37 @@ describe('makeEmptyItem', () => {
     expect(item).toHaveProperty('id', '')
     expect(item).toHaveProperty('order', 0)
     expect(item).not.toHaveProperty('name')
+  })
+
+  it('required boolean without default is seeded false so strict save does not reject', () => {
+    // The bug guard: if we left the key absent, the UI would render
+    // an unchecked checkbox (false-looking) but admin save would
+    // strict-reject the item as "required field missing". Seeding
+    // false makes the displayed and stored states agree.
+    const requiredBool: PluginRepeatableSubField = {
+      type: 'boolean',
+      key: 'essential',
+      label: 'Essential',
+      required: true,
+    }
+    const field = makeField({ fields: [requiredBool] })
+    const item = makeEmptyItem(field)
+    expect(item).toEqual({ essential: false })
+    expect('essential' in item).toBe(true)
+  })
+
+  it('optional boolean without default is seeded false too (UI consistency)', () => {
+    // Same reason as required-boolean case: even when validation
+    // would tolerate an absent optional boolean, the form shows
+    // false, so the stored data should match. Avoids "looks false /
+    // is undefined" inconsistency in consumer reads.
+    const optionalBool: PluginRepeatableSubField = {
+      type: 'boolean',
+      key: 'visible',
+      label: 'Visible',
+    }
+    const field = makeField({ fields: [optionalBool] })
+    expect(makeEmptyItem(field)).toEqual({ visible: false })
   })
 })
 

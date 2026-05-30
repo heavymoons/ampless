@@ -96,12 +96,27 @@ export function formStringToSubFieldValue(
  * Make a fresh empty item seeded with each sub-field's `default` (if
  * any). Used by the "+ Add item" button handler. Fields with no
  * default are omitted from the result (not set to `undefined`).
+ *
+ * Boolean sub-fields are a special case: their cell renders as an
+ * unchecked checkbox when the value is absent (`undefined` rounds-trips
+ * through `subFieldValueToFormString` → `''` → `value === 'true'` →
+ * `false` in the renderer). If we left `undefined` in the item, the
+ * user would see a `false` checkbox but the saved data would have no
+ * key — strict validation then rejects required booleans as "absent",
+ * and lenient resolve gives consumers `undefined` instead of the
+ * `false` the form displayed. Seed an explicit `false` so form state,
+ * stored state, and consumer reads all agree.
  */
 export function makeEmptyItem(field: PluginRepeatableField): Record<string, unknown> {
   const item: Record<string, unknown> = {}
   for (const sf of field.fields) {
     if (sf.default !== undefined) {
       item[sf.key] = sf.default
+      continue
+    }
+    if (sf.type === 'boolean') {
+      // Match the unchecked checkbox the cell renders for absent boolean.
+      item[sf.key] = false
     }
   }
   return item
