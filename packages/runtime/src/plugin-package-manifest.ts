@@ -31,33 +31,69 @@
 //
 // Spec: docs/tmp/plugin-extension-phase5.md §B.
 
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { PluginPackageManifest, TrustLevel } from 'ampless'
 
 const TRUST_LEVELS: readonly TrustLevel[] = ['untrusted', 'trusted', 'privileged']
 
 /**
- * Aliased copy of `import.meta.resolve` to hide the call site from
- * Next.js' webpack. Webpack 5 has a hand-written recognizer for the
- * literal `import.meta.resolve(<expr>)` shape and tries to follow it
- * as a static module request — which fails with a build-time
- * `module-not-found` whenever the specifier is dynamic (which ours
- * always is — `${packageName}/package.json`). Reading `.resolve` off
- * `import.meta` first and calling through the local binding turns
- * the call site into a plain function invocation that webpack leaves
- * alone, while Node still resolves it at runtime.
+ * Lazy holder for the Node-only APIs we need to read a plugin's
+ * `package.json`. None of them are statically imported, so Next.js'
+ * webpack can't see them at build time:
  *
- * Stored as a function-type optional so older runtimes (pre-Node 22,
- * or any bundler that strips `import.meta.resolve`) cleanly degrade
- * to "no cross-check" — `loadPackageManifest` returns `null` and the
- * runtime falls back to the existing per-factory mismatch checks.
+ *   - Static `import { readFileSync } from 'node:fs'` would cause
+ *     `module-not-found 'fs'` in Client Component bundles.
+ *     `@ampless/runtime` is transitively pulled into client bundles
+ *     via `@ampless/admin`'s re-exports, so anything top-level here
+ *     lands in the browser graph too.
+ *   - The literal `import.meta.resolve(<expr>)` call shape is
+ *     hand-recognized by webpack 5 and treated as a static module
+ *     request, which fails with module-not-found whenever the
+ *     specifier is dynamic (which ours always is).
+ *
+ * `process.getBuiltinModule(<name>)` is the Node 22+ sync escape
+ * hatch for exactly this case: load a built-in by name without an
+ * `import` or `require` statement webpack might recognize. ampless
+ * requires Node `>=22.13` so we can rely on it. In environments
+ * that don't expose it (the browser, an older Node, a stripped
+ * runtime), `_nodeApi` falls through to `null`,
+ * `loadPackageManifest` returns `null`, and the runtime falls back
+ * to the existing per-factory mismatch checks (same backward-compat
+ * path used for plugins predating Phase 5).
+ *
+ * `import.meta.resolve` is accessed via `import.meta.resolve.bind(...)`
+ * (no literal call expression), which webpack also leaves alone.
  */
 type ResolveFn = (specifier: string) => string
-const metaResolve: ResolveFn | undefined =
-  typeof import.meta.resolve === 'function'
-    ? (import.meta.resolve.bind(import.meta) as ResolveFn)
-    : undefined
+interface NodeApi {
+  readFile: (path: string) => string
+  resolve: ResolveFn
+}
+
+function getNodeApi(): NodeApi | null {
+  if (typeof window !== 'undefined') return null
+  const proc =
+    typeof process !== 'undefined'
+      ? (process as { getBuiltinModule?: (name: string) => unknown })
+      : undefined
+  if (typeof proc?.getBuiltinModule !== 'function') return null
+  if (typeof import.meta.resolve !== 'function') return null
+  // Look up `node:fs` / `node:url` fresh on every call so vitest can
+  // swap `process.getBuiltinModule` per test (see
+  // `plugin-package-manifest.test.ts`). The lookup is an in-process
+  // map read — cheap enough that caching wouldn't measurably help.
+  try {
+    const fs = proc.getBuiltinModule('node:fs') as typeof import('node:fs') | undefined
+    const url = proc.getBuiltinModule('node:url') as typeof import('node:url') | undefined
+    if (!fs || !url) return null
+    const resolve = import.meta.resolve.bind(import.meta) as ResolveFn
+    return {
+      readFile: (u: string) => fs.readFileSync(url.fileURLToPath(u), 'utf8'),
+      resolve,
+    }
+  } catch {
+    return null
+  }
+}
 
 /**
  * Type guard: does `value` look like a usable `PluginPackageManifest`?
@@ -125,11 +161,12 @@ function isValidManifest(value: unknown): value is PluginPackageManifest {
  * `apiVersion`, throws) by the caller itself.
  */
 export function loadPackageManifest(packageName: string): PluginPackageManifest | null {
-  if (!metaResolve) return null
+  const node = getNodeApi()
+  if (!node) return null
 
   let resolvedUrl: string
   try {
-    resolvedUrl = metaResolve(`${packageName}/package.json`)
+    resolvedUrl = node.resolve(`${packageName}/package.json`)
   } catch {
     // ERR_PACKAGE_PATH_NOT_EXPORTED (Node) when the plugin's exports
     // field omits "./package.json", or ERR_MODULE_NOT_FOUND when the
@@ -140,7 +177,7 @@ export function loadPackageManifest(packageName: string): PluginPackageManifest 
 
   let raw: string
   try {
-    raw = readFileSync(fileURLToPath(resolvedUrl), 'utf8')
+    raw = node.readFile(resolvedUrl)
   } catch {
     return null
   }
