@@ -10,14 +10,38 @@
 
 ## いつ使うか
 
-サイト固有の機能で、以下に当てはまるときに使う:
+詳しい判断軸は [プラグイン作者ガイド](../docs/plugin-author-guide.ja.md)
+§0「テーマとプラグインの境界線」に書いてある。プラグインが初めて、または
+「これはテーマ側に書くべきか、プラグインか」で迷ったら先にそちらを読む。
+ざっくり言うと:
 
-- プラグイン surface (`publicHead` / `publicBodyEnd` / `metadata` / `eventHooks` 等) が必要
-- このサイト限定の用途 (一度きりのフッタークレジット、サイト特有の JSON-LD 拡張、まだ汎用化したくない analytics スニペット等)
+- **テーマ** = ページの見た目 (レイアウト / コンポーネント / CSS)
+- **プラグイン** = admin で編集する設定、バックグラウンド処理、
+  テーマを横断する注入、機械可読メタデータ、複数サイトで共有したい機能
+
+その中でも *ローカル* プラグイン (このディレクトリ) を使うのは、サイト
+固有の機能で:
+
+- プラグイン surface (`publicHead` / `publicBodyEnd` / `metadata` /
+  `eventHooks` 等) が必要
+- このサイト限定の用途 (一度きりのフッタークレジット、サイト特有の
+  JSON-LD 拡張、まだ汎用化したくない analytics スニペット等)
 - 別パッケージとして version 上げて publish するのは大袈裟
 
-複数サイトで使いたくなったら、独立 npm パッケージに切り出す (Phase 5 で
-`npx create-ampless plugin --standalone` が来る予定。今は手でコピーで OK)。
+複数サイトで使いたくなったら、独立 npm パッケージに切り出す:
+`npx create-ampless@alpha plugin <name> --standalone` で publish 用の
+ディレクトリ一式が scaffold される。
+
+## クライアントサイドスクリプトに関する注意
+
+`publicHead` / `publicBodyEnd` で `inlineScript` を返す場合、その body の
+中で **可視 DOM 要素を挿入してはいけない**。React の hydration は DOM が
+virtual DOM と一致していることを前提にしていて、外部からの DOM 操作は
+reconciliation で消されてコンソールに hydration error が出る。
+安全なパターンは `window.dataLayer` 等のグローバル状態操作、自分で隔離
+コンテナを持つ外部ウィジェットローダ、そして SSR 専用 descriptor (`meta` /
+`link` / `noscript` / `iframe`)。詳細は [作者ガイド §6](../docs/plugin-author-guide.ja.md)
+「クライアント側 DOM 変更は禁止」セクションを参照。
 
 ## 最小例
 

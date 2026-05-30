@@ -21,7 +21,61 @@ this page is the hands-on companion.
 
 ---
 
+## 0. Theme vs Plugin Boundary
+
+ampless ships both themes and plugins. Picking the right tool keeps
+your code where future-you (and other site authors) will look for it.
+
+| Want to change... | Use a theme | Use a plugin |
+|---|---|---|
+| Layout, typography, colour, per-route UI | ✓ | |
+| Custom components on home / post / tag pages | ✓ | |
+| Admin-editable settings exposed to non-developers | | ✓ (`adminSettings`) |
+| Background work after content events (RSS, search index, webhooks) | | ✓ (`eventHooks`) |
+| Trusted side effects (S3 writes, external API push) | | ✓ (`writePublicAsset` + `trusted`) |
+| Theme-independent `<head>` / `<body>` injection (analytics, consent) | | ✓ (`publicHead` / `publicBodyEnd`) |
+| Per-post machine-readable metadata (JSON-LD, etc.) | | ✓ (`schema` via `publicBodyForPost`) |
+| Code you want to share across multiple ampless sites | | ✓ (publish as npm package) |
+
+Rule of thumb:
+
+- Theme = **what the page looks like**. Read-only at render time.
+- Plugin = **what happens beyond rendering**: admin-editable config,
+  background processing, theme-agnostic injection, machine-readable
+  metadata, cross-site reusability.
+
+The two boundaries that frequently catch new authors:
+
+- **Storage / DynamoDB / external API writes belong in a plugin**, never
+  a theme. Themes only read.
+- **A feature you want admins to toggle from `/admin/plugins` belongs
+  in a plugin**, even if its visible effect is purely cosmetic. Themes
+  carry their own settings, but those are theme-display settings, not
+  site-operational ones.
+
+Some features genuinely sit at the boundary — see [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)
+for the longer discussion.
+
+---
+
 ## 1. What a plugin can do
+
+ampless plugins are written in one of three places — pick the one
+that matches how widely you want the code shared:
+
+| Where | Use when | Lives in |
+|---|---|---|
+| **First-party** | Building on the ampless core for everyone | `packages/plugin-*/` in the ampless monorepo |
+| **Site-local** | Site-specific customisation, no separate publish | `plugins/<name>/` inside your site repo |
+| **External npm package** | Sharing with other sites, ready to `npm publish` | A standalone repo (`@scope/ampless-plugin-foo`) |
+
+All three forms call the same `definePlugin({...})` factory and use the
+same surfaces. The differences are packaging, distribution, and the
+opt-in install-time validation that the static `package.json#amplessPlugin`
+manifest enables (see §3 below).
+
+§14 below has a one-command scaffold (`npx create-ampless plugin <name>`)
+that produces ready-to-use boilerplate for either of the latter two.
 
 An ampless plugin is a TypeScript module that returns an
 `AmplessPlugin` object. It plugs into one or more of the following
@@ -53,21 +107,48 @@ roadmap):
 
 ## 2. Minimum file layout
 
-A plugin can ship as a tiny npm package or live in your site's
-monorepo. The on-disk shape is the same either way:
+The fastest way to create a plugin is to scaffold one:
+
+```bash
+# Site-local (writes plugins/<name>/index.ts in the current ampless site)
+npx create-ampless@alpha plugin my-thing
+
+# Standalone npm package (writes ./<name>/ ready for `npm publish`)
+npx create-ampless@alpha plugin @myscope/ampless-plugin-my-thing --standalone
+```
+
+§14 covers the full flow. The rest of this section explains what the
+generated files mean, so you can author one by hand if you prefer.
+
+### Site-local
 
 ```
-my-plugin/
+plugins/
+  my-thing/
+    index.ts        # the factory; that's the whole plugin
+```
+
+The site's `package.json` / `tsconfig.json` already cover compilation —
+nothing else needs to ship. Register it from `cms.config.ts` with a
+relative import.
+
+### Standalone npm package
+
+```
+ampless-plugin-my-thing/
   package.json
   tsconfig.json
   tsup.config.ts
+  README.md
+  CHANGELOG.md
   src/
     index.ts
     index.test.ts
 ```
 
 See `packages/plugin-rss/` and `packages/plugin-analytics-ga4/` in
-this repo for working examples.
+this repo for working first-party examples — the standalone scaffold
+mirrors their layout.
 
 The bare-minimum `src/index.ts`:
 
@@ -108,6 +189,7 @@ That's it. Restart `npm run dev`, view source on any page, and the
 ```ts
 interface AmplessPlugin {
   name: string                      // package-like identifier, e.g. 'analytics-ga4'
+  packageName?: string              // npm package name for install-time cross-check
   apiVersion: 1                     // bump only when the contract changes
   trust_level: 'untrusted' | 'trusted' | 'privileged'
   instanceId?: string               // namespace for multi-instance installs
@@ -158,6 +240,87 @@ scopes (`@foo/bar`) and slashes are reserved.
 What `/admin/plugins` shows as the panel heading. A plain string is
 fine for single-locale plugins; the per-locale map form
 (`{ en: 'GA4', ja: 'GA4' }`) reads from the admin's active locale.
+
+### `packageName`
+
+Optional. When set, the runtime resolves
+`<packageName>/package.json` at startup and cross-checks the static
+`amplessPlugin` block there against the factory return value. This
+catches install-time mistakes a plugin author would otherwise only see
+at runtime (or never — capability mismatches don't crash, they just
+quietly skip the surface).
+
+For standalone plugins, set this to the npm package name your
+`package.json#name` declares:
+
+```ts
+return definePlugin({
+  name: 'site-verification',
+  packageName: '@ishinao/ampless-plugin-site-verification',
+  apiVersion: 1,
+  // ...
+})
+```
+
+Site-local plugins don't need it — leave it unset and the cross-check
+is skipped (backward compatible, identical to plugins predating Phase
+5).
+
+### Static manifest in `package.json` (standalone plugins only)
+
+For the cross-check to find the static manifest, two things must be
+true about your published package:
+
+1. `package.json#amplessPlugin` declares the same fields the factory
+   returns:
+
+   ```json
+   "amplessPlugin": {
+     "apiVersion": 1,
+     "name": "site-verification",
+     "trustLevel": "untrusted",
+     "capabilities": ["publicHead", "adminSettings"],
+     "displayName": { "en": "Site verification", "ja": "サイト所有権確認" }
+   }
+   ```
+
+2. `package.json#exports` explicitly exposes `./package.json`:
+
+   ```json
+   "exports": {
+     ".": {
+       "import": "./dist/index.js",
+       "types": "./dist/index.d.ts"
+     },
+     "./package.json": "./package.json"
+   }
+   ```
+
+   Without this, Node's package-exports gating rejects
+   `import.meta.resolve('<pkg>/package.json')` with
+   `ERR_PACKAGE_PATH_NOT_EXPORTED` and the runtime silently skips the
+   cross-check (your plugin still runs; you just don't get the
+   install-time guard).
+
+The `create-ampless plugin --standalone` scaffold ships both correctly.
+Add a `"ampless-plugin"` entry to your `package.json#keywords` while
+you're there — it's the convention used by npm searches surfacing
+ampless plugins.
+
+What the runtime checks:
+
+| Field | Mismatch behaviour |
+|---|---|
+| `apiVersion` (factory vs manifest) | **Throws** at startup |
+| `apiVersion` (newer than runtime supports) | **Throws** at startup |
+| `name` | Warns in dev |
+| `trustLevel` | Warns in dev |
+| `capabilities` (set comparison) | Warns in dev |
+
+The two `apiVersion` cases are the only failure that aborts startup —
+they protect against loading a plugin built for an ampless API the
+runtime can't speak. Everything else is a developer-visible warning,
+not a runtime block.
 
 ---
 
@@ -392,6 +555,49 @@ The theme's `pages/post.tsx` calls `ampless.publicBodyForPost(post)`
 and renders the returned descriptors. The runtime inserts a
 `<script type="application/ld+json">` element with the auto-escaped
 body into the page.
+
+### Client-side DOM mutation: don't
+
+Inline scripts you return from `publicHead` or `publicBodyEnd` execute
+during HTML parsing, before React hydrates the page. **They must not
+mutate visible DOM inside a React-managed subtree** — when hydration
+runs, React sees a tree that doesn't match its virtual DOM, throws a
+`Hydration failed because the server rendered HTML didn't match the
+client` error, and regenerates the subtree from scratch. Your inserted
+nodes get wiped.
+
+React 19 additionally refuses to execute `<script>` tags it
+encounters while rendering a client component, so a script that did
+something like `document.body.append(myNewElement)` may not even fire.
+
+**Safe patterns**:
+
+- **Global state / non-DOM side effects**: push to `window.dataLayer`,
+  set a config object, instantiate an analytics SDK. This is what
+  `@ampless/plugin-analytics-ga4`, `@ampless/plugin-gtm`, and
+  `@ampless/plugin-plausible` do.
+- **External widget loaders**: load a third-party script that manages
+  its own isolated container (Crisp, Intercom, Drift). The widget's
+  shadow DOM / fixed-position overlay lives outside React's tree and
+  doesn't conflict with hydration.
+- **SSR-only descriptors**: return `meta` / `link` / `noscript` (and,
+  on `publicBodyEnd`, `iframe`) — the runtime renders these
+  server-side and they're part of React's virtual DOM from the start.
+
+**Patterns to avoid**:
+
+- `document.createElement('div')` + `document.body.append(...)`
+- Modifying classes / attributes / text content of elements rendered
+  by the theme
+- Inserting per-post HTML by reading something like `#post-body`
+  client-side — there's no `publicHead`-for-post analogue today, and
+  any client-side rewrite of a server-rendered subtree races against
+  hydration
+
+For visible per-post output, return JSON-LD via `publicBodyForPost`
+(see §6's `PublicPostBodyDescriptor`) or stick with the theme's own
+templates. A future ampless capability for server-side per-post HTML
+injection is on the roadmap.
 
 ---
 
@@ -757,7 +963,100 @@ Worked examples to crib from:
 
 ---
 
-## 14. Where to ask
+## 14. Quickstart: scaffolding with `create-ampless`
+
+For a fast path from idea to working plugin, the `create-ampless`
+CLI ships a `plugin <name>` subcommand:
+
+```bash
+# Site-local: scaffolds plugins/<name>/index.ts inside the current
+# ampless site. Run from the site repo root.
+npx create-ampless@alpha plugin my-thing \
+  --trust-level untrusted \
+  --capabilities publicHead,adminSettings
+
+# Standalone npm package: scaffolds ./<dir>/ with package.json,
+# tsconfig.json, tsup.config.ts, README + .ja, CHANGELOG, .gitignore,
+# and src/index.ts + src/index.test.ts. Run from wherever you want
+# the new package directory to land.
+npx create-ampless@alpha plugin @myscope/ampless-plugin-thing \
+  --standalone \
+  --trust-level untrusted \
+  --capabilities publicHead,adminSettings \
+  --description "What this plugin does"
+```
+
+Standalone scaffolds include everything Phase 5's cross-check needs:
+`package.json#amplessPlugin`, the `./package.json` subpath export,
+the `packageName` factory field, the `ampless-plugin` discovery
+keyword, and a minimal vitest sample so `pnpm install && pnpm test &&
+pnpm build` runs clean on the freshly generated directory.
+
+Both modes also accept a positional flag-less invocation (`npx
+create-ampless@alpha plugin`) that walks you through the same
+questions interactively via the @clack prompt UI.
+
+### Publishing a standalone plugin
+
+```bash
+cd ampless-plugin-thing
+pnpm install
+pnpm test
+pnpm build
+pnpm publish --access public --tag alpha
+```
+
+`--access public` is mandatory for scoped names (`@scope/...`).
+`--tag alpha` matches the current ampless pre-release cadence — drop
+it once the package reaches a stable major.
+
+There's a publish-to-install lag of "seconds to minutes" before
+`npm install <pkg>@alpha` picks up a fresh publish (CDN + registry
+replica propagation). If `npm install` 404s right after `npm publish`
+returns, wait 1-2 minutes and retry — `npm view <pkg>@alpha version`
+visible in the registry is necessary but sometimes not sufficient.
+
+### Naming the package
+
+By npm convention, scope and the conventional `ampless-plugin-`
+prefix collapse to a short identifier for `AmplessPlugin.name`:
+
+| npm package | `AmplessPlugin.name` |
+|---|---|
+| `@ampless/plugin-gtm` | `gtm` |
+| `@scope/ampless-plugin-clarity` | `clarity` |
+| `ampless-plugin-readme-toc` | `readme-toc` |
+| `weird-name-no-prefix` | `weird-name-no-prefix` |
+
+The scaffold does this stripping automatically. Hand-author the same
+mapping if you skip the scaffold; the install-time cross-check warns
+on a mismatch between the package's static manifest and the factory.
+
+### Site-local follow-up
+
+After a site-local scaffold:
+
+```ts
+// cms.config.ts
+import myThingPlugin from './plugins/my-thing'
+
+export default defineConfig({
+  // ...
+  plugins: [
+    myThingPlugin(),
+  ],
+})
+```
+
+The scaffold prints this snippet at the end of its run — copy it into
+`cms.config.ts` to activate the plugin.
+
+`update-ampless` never touches the `plugins/` directory (it's
+PROTECTED), so the scaffolded code is safe across ampless upgrades.
+
+---
+
+## 15. Where to ask
 
 - Architecture / design questions → [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)
 - Bugs in a first-party plugin → file an issue against
