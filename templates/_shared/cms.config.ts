@@ -2,6 +2,7 @@ import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
 // import schemaJsonLdPlugin from '@ampless/plugin-schema-jsonld'
+// import cookieConsentPlugin from '@ampless/plugin-cookie-consent'
 // import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
 // import gtmPlugin from '@ampless/plugin-gtm'
 // import plausiblePlugin from '@ampless/plugin-plausible'
@@ -71,6 +72,21 @@ export default defineConfig({
     //     },
     //   ],
     // }),
+    //
+    // Cookie consent banner. Installs `window.amplessConsent` so other
+    // plugins can gate themselves on user consent (see the Consent
+    // Convention in `docs/architecture/08-plugin-architecture.md`).
+    //
+    // IMPORTANT: cookieConsentPlugin() must come BEFORE any analytics
+    // plugin in this array — both run `afterInteractive` and the consent
+    // API must be installed before analytics scripts read it. (Analytics
+    // plugins also wait for `ampless:consent-ready`, so out-of-order
+    // registration still works, but in-order is faster.)
+    //
+    // Categories (analytics / marketing / etc.) are managed live from
+    // `/admin/plugins`. Banner text and button labels are also admin-editable.
+    //
+    // cookieConsentPlugin(),
     //
     // Google Analytics 4. Once registered here, the measurement ID can be
     // edited from `/admin/plugins` without a redeploy — the constructor
