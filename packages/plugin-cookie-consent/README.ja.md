@@ -31,7 +31,7 @@ export default defineConfig({
     // cookie-consent を最初に登録し、後続の analytics プラグインが
     // window.amplessConsent を参照できるようにする。
     cookieConsentPlugin(),
-    // analyticsGa4Plugin({ ... }),  // PR D 以降
+    // analyticsGa4Plugin({ measurementId: 'G-XXXXXXXX', consentCategory: 'analytics' }),
   ],
 })
 ```
@@ -49,6 +49,7 @@ export default defineConfig({
 | `bannerText` | textarea | `'このサイトは…'` | バナー上部に表示するメッセージ。 |
 | `acceptLabel` | text | `'Accept all'` | 「すべて同意」ボタンのラベル。 |
 | `rejectLabel` | text | `'Reject non-essential'` | 「拒否」ボタンのラベル。 |
+| `saveLabel` | text | `'Save selected'` | 個別トグルの状態をそのまま保存するボタンのラベル。「全て同意」「全て拒否」とは別の選択肢。 |
 | `position` | select | `'bottom'` | `'bottom'` / `'top'` / `'modal'`。 |
 | `categories` | repeatable | `[]` | 同意カテゴリのリスト。 |
 
@@ -97,9 +98,9 @@ analytics の gate には `has`、バナーが「再プロンプトすべきか�
 
 詳細な API 仕様と analytics 側の consume パターンは [`docs/architecture/08-plugin-architecture.ja.md` — Consent Convention](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md#consent-convention) を参照してください。
 
-## analytics プラグインとの組み合わせ（PR D 以降）
+## analytics プラグインとの組み合わせ
 
-GA4 / GTM / Plausible プラグインに `consentCategory` サポートが追加された後（Phase 3b PR D）、次のように組み合わせられます:
+公式バンドルの `@ampless/plugin-analytics-ga4` / `@ampless/plugin-gtm` / `@ampless/plugin-plausible` はいずれも `consentCategory` をサポートしています:
 
 ```ts
 plugins: [
@@ -109,9 +110,7 @@ plugins: [
 ]
 ```
 
-`consentCategory` を設定した analytics プラグインは、訪問者が該当カテゴリに同意するまで発火しません。`window.amplessConsent` がインストールされていない場合（`cookieConsentPlugin` が `cms.config.ts` に未登録の場合）、トラッキングは**永久に発火しません** — これは意図した fail-closed 設計です。
-
-> **注意:** GA4 / GTM / Plausible の `consentCategory` 対応は Phase 3b PR D で実装予定（未リリース）です。
+`consentCategory` を設定した analytics プラグインは、訪問者が該当カテゴリに同意するまで発火しません。`window.amplessConsent` がインストールされていない場合（`cookieConsentPlugin` が `cms.config.ts` に未登録の場合）、トラッキングは**永久に発火しません** — これは意図した fail-closed 設計です（5 秒後に `console.warn` で設定ミスを通知）。
 
 ## トラストレベル
 

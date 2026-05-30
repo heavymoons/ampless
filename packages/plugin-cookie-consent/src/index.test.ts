@@ -116,6 +116,7 @@ describe('cookieConsentPlugin — settings manifest', () => {
     expect(keys).toContain('bannerText')
     expect(keys).toContain('acceptLabel')
     expect(keys).toContain('rejectLabel')
+    expect(keys).toContain('saveLabel')
     expect(keys).toContain('position')
     expect(keys).toContain('categories')
   })
@@ -230,19 +231,33 @@ describe('cookieConsentPlugin — publicBodyEnd', () => {
     }
   })
 
-  it('banner script reflects acceptLabel / rejectLabel / bannerText settings', () => {
+  it('banner script reflects acceptLabel / rejectLabel / saveLabel / bannerText settings', () => {
     const plugin = cookieConsentPlugin()
     const stored = {
       categories: [analyticsCategory],
       acceptLabel: 'Yes please',
       rejectLabel: 'No thanks',
+      saveLabel: 'Remember my choices',
       bannerText: 'We use cookies for analytics.',
     }
     const [d] = callPublicBodyEnd(plugin, stored) as [PublicBodyDescriptor]
     if (d.type === 'inlineScript') {
       expect(d.body).toContain('Yes please')
       expect(d.body).toContain('No thanks')
+      expect(d.body).toContain('Remember my choices')
       expect(d.body).toContain('We use cookies for analytics.')
+    }
+  })
+
+  it('saveLabel falls back to "Save selected" when not configured', () => {
+    // Regression guard: the previous hardcode shipped this exact string.
+    // After moving to a setting, the default must preserve current sites'
+    // visible label (no surprise change after upgrade).
+    const plugin = cookieConsentPlugin()
+    const stored = { categories: [analyticsCategory] }
+    const [d] = callPublicBodyEnd(plugin, stored) as [PublicBodyDescriptor]
+    if (d.type === 'inlineScript') {
+      expect(d.body).toContain('Save selected')
     }
   })
 
