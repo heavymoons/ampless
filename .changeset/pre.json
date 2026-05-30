@@ -119,6 +119,7 @@
     "plugin-phase3a-gtm-plausible",
     "plugin-phase3c-writePublicAsset",
     "plugin-phase4-per-post-body",
+    "plugin-phase5-create-plugin",
     "plugin-phase5-static-manifest",
     "poll-theme-active-after-switch",
     "post-metadata-no-layout",
