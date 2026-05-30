@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-gtm",
-  "version": "0.1.1-alpha.3",
+  "version": "0.1.1-alpha.4",
   "description": "Google Tag Manager plugin for ampless",
   "license": "MIT",
   "type": "module",
@@ -46,7 +46,14 @@
     "apiVersion": 1,
     "name": "gtm",
     "trustLevel": "untrusted",
-    "capabilities": ["publicHead", "publicBody", "adminSettings"],
-    "displayName": { "en": "Google Tag Manager", "ja": "Google Tag Manager" }
+    "capabilities": [
+      "publicHead",
+      "publicBody",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "Google Tag Manager",
+      "ja": "Google Tag Manager"
+    }
   }
 }

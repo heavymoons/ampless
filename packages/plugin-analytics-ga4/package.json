@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-analytics-ga4",
-  "version": "0.2.0-alpha.4",
+  "version": "0.2.0-alpha.5",
   "description": "Google Analytics 4 plugin for ampless",
   "license": "MIT",
   "type": "module",
@@ -46,7 +46,13 @@
     "apiVersion": 1,
     "name": "analytics-ga4",
     "trustLevel": "untrusted",
-    "capabilities": ["publicHead", "adminSettings"],
-    "displayName": { "en": "Google Analytics 4", "ja": "Google Analytics 4" }
+    "capabilities": [
+      "publicHead",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "Google Analytics 4",
+      "ja": "Google Analytics 4"
+    }
   }
 }
