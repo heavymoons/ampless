@@ -154,8 +154,8 @@
     "upgrade-marked-18",
     "upgrade-output-english",
     "upgrade-protect-tsconfig",
+    "upgrade-recover-plugin-template-dirs",
     "upgrade-seed-plugins-readme",
-    "upgrade-skip-plugin-templates",
     "user-admin-pipeline-event-shape"
   ]
 }
