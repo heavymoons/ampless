@@ -14,6 +14,7 @@
 // embed in URLs and log lines.
 
 import type {
+  PluginRepeatableSubField,
   PluginSettingField,
   PluginSettingsManifest,
 } from './plugin.js'
@@ -56,7 +57,8 @@ export function isValidPluginKey(key: string): boolean {
  */
 export function validatePluginSettingValue(
   field: PluginSettingField,
-  raw: unknown
+  raw: unknown,
+  mode: 'strict' | 'lenient' = 'lenient',
 ): unknown | null {
   if (raw === undefined) return null
 
@@ -162,6 +164,94 @@ export function validatePluginSettingValue(
       // calling this.
       if (typeof raw === 'string') return null
       return raw
+    }
+
+    case 'repeatable': {
+      // Array presence check — applies in both modes.
+      if (!Array.isArray(raw)) return null
+
+      const maxItems = typeof field.maxItems === 'number' ? field.maxItems : 50
+      const minItems = typeof field.minItems === 'number' ? field.minItems : 0
+
+      // Length bounds — applies in both modes.
+      if (raw.length > maxItems) return null
+      if (raw.length < minItems) return null
+
+      // Build a lookup map of sub-field definitions keyed by field.key.
+      const subFieldMap = new Map<string, PluginRepeatableSubField>()
+      for (const sf of field.fields) {
+        subFieldMap.set(sf.key, sf)
+      }
+
+      const validatedItems: Array<Record<string, unknown>> = []
+
+      for (const item of raw) {
+        // Each item must be a non-null plain object.
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+          // strict: reject the whole field; lenient: drop the item.
+          if (mode === 'strict') return null
+          continue
+        }
+
+        const rawItem = item as Record<string, unknown>
+        let itemValid = true
+        const validatedItem: Record<string, unknown> = {}
+
+        for (const sf of field.fields) {
+          const rawSubVal = Object.prototype.hasOwnProperty.call(rawItem, sf.key)
+            ? rawItem[sf.key]
+            : undefined
+
+          if (rawSubVal === undefined) {
+            // Sub-field is absent (not present in the item object).
+            if (sf.required) {
+              // required sub-field missing → item is invalid.
+              // strict: reject whole field; lenient: drop item.
+              if (mode === 'strict') return null
+              itemValid = false
+              break
+            }
+            // optional sub-field missing: adopt default if declared, else omit.
+            if (sf.default !== undefined) {
+              // Validate the default value before using it.
+              const validatedDefault = validatePluginSettingValue(sf, sf.default, mode)
+              if (validatedDefault !== null) {
+                validatedItem[sf.key] = validatedDefault
+              }
+              // If default itself fails validation, omit the key entirely.
+            }
+            // If no default, simply omit the key from validatedItem.
+            continue
+          }
+
+          // Sub-field is present — validate it.
+          const validatedSubVal = validatePluginSettingValue(sf, rawSubVal, mode)
+
+          if (validatedSubVal === null) {
+            // Validation failed.
+            if (sf.required) {
+              // required sub-field invalid → item invalid.
+              // strict: reject whole field; lenient: drop item.
+              if (mode === 'strict') return null
+              itemValid = false
+              break
+            }
+            // optional sub-field invalid → drop the key (item stays valid).
+            continue
+          }
+
+          validatedItem[sf.key] = validatedSubVal
+        }
+
+        if (!itemValid) {
+          // lenient: silently drop the item and move on.
+          continue
+        }
+
+        validatedItems.push(validatedItem)
+      }
+
+      return validatedItems
     }
   }
 }

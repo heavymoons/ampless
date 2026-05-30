@@ -59,7 +59,7 @@ export async function setPluginPublicSetting(
   if (!isValidPluginKey(field.key)) {
     throw new Error(`Invalid plugin field key: "${field.key}"`)
   }
-  const validated = validatePluginSettingValue(field, rawValue)
+  const validated = validatePluginSettingValue(field, rawValue, 'strict')
   if (validated === null) {
     throw new Error(`Invalid value for plugin field "${field.key}"`)
   }

@@ -388,6 +388,41 @@ export interface PluginJsonField extends PluginFieldBase<unknown> {
   rows?: number
 }
 
+/**
+ * Sub-fields allowed inside a `PluginRepeatableField`. Restricted to
+ * the scalar-shape field types so the v1 admin editor can render each
+ * cell with the existing `renderScalarInput` seam. Code / json /
+ * repeatable are excluded — code is rarely useful per-item, json
+ * recurses into "json inside json" UX that we explicitly want to
+ * avoid, and nested repeatable is deferred.
+ */
+export type PluginRepeatableSubField =
+  | PluginTextField
+  | PluginTextareaField
+  | PluginBooleanField
+  | PluginNumberField
+  | PluginSelectField
+  | PluginUrlField
+
+export interface PluginRepeatableField
+  extends PluginFieldBase<ReadonlyArray<Readonly<Record<string, unknown>>>> {
+  type: 'repeatable'
+  /** Shape of each item — every item is a flat object keyed by sub-field `key`. */
+  fields: ReadonlyArray<PluginRepeatableSubField>
+  /** Hard cap on item count (default 50). Exceeding rejects the whole field. */
+  maxItems?: number
+  /** Minimum item count (default 0). Below rejects the whole field. */
+  minItems?: number
+  /** Label for the "+ Add item" button in the admin editor. */
+  addLabel?: LocalizedString
+  /**
+   * Sub-field key used as the per-item heading in the admin editor
+   * (e.g. `'id'` so categories[0] reads "analytics" not "Item 1").
+   * Falls back to "Item N" when absent or empty.
+   */
+  itemLabelKey?: string
+}
+
 export type PluginSettingField =
   | PluginTextField
   | PluginTextareaField
@@ -397,6 +432,7 @@ export type PluginSettingField =
   | PluginUrlField
   | PluginCodeField
   | PluginJsonField
+  | PluginRepeatableField
 
 // --- Static manifest (Phase 5) -----------------------------------
 //
