@@ -175,6 +175,27 @@ describe('analyticsGa4Plugin — gated mode (consentCategory set)', () => {
     expect(desc.body).toContain('"analytics"')
   })
 
+  // Regression: the standard non-gated GA snippet declares `function gtag()`
+  // at top level so it hoists to global, leaving `window.gtag` callable
+  // from later page code (custom events, etc). Inside our IIFE, a function
+  // declaration is local — so the gated body must explicitly assign to
+  // `window.gtag` to keep parity with the non-gated behavior.
+  it('gated body binds gtag and dataLayer to window so window.gtag survives the IIFE', () => {
+    const plugin = analyticsGa4Plugin({
+      measurementId: 'G-GATED',
+      consentCategory: 'analytics',
+    })
+    const [desc] = callPublicHead(plugin) as [PublicHeadDescriptor]
+    if (desc.type !== 'inlineScript') return
+    expect(desc.body).toContain('window.dataLayer = window.dataLayer || []')
+    expect(desc.body).toContain('window.gtag = window.gtag ||')
+    expect(desc.body).toContain("window.gtag('js'")
+    expect(desc.body).toContain("window.gtag('config'")
+    // Guard against the regression: the IIFE-local `function gtag()` form
+    // must not be how we ship gated mode anymore.
+    expect(desc.body).not.toMatch(/function gtag\(\)\{dataLayer\.push/)
+  })
+
   it('returns non-gated descriptors when consentCategory is empty string', () => {
     const plugin = analyticsGa4Plugin({
       measurementId: 'G-NOTGATED',
