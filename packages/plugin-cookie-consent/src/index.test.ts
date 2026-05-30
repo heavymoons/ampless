@@ -261,3 +261,113 @@ describe('cookieConsentPlugin — publicBodyEnd', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Consent Convention fixes (PR review feedback): isSet API, defaultEnabled UI-init,
+// duplicate category id handling.
+// ---------------------------------------------------------------------------
+
+describe('cookieConsentPlugin — isSet API + decided-vs-granted semantics', () => {
+  it('install script exposes window.amplessConsent.isSet', () => {
+    // The new API addition: `isSet(cat)` returns true if the user has
+    // made *any* decision (accept OR reject). Without it, `has` would
+    // re-show the banner forever after a Reject.
+    const plugin = cookieConsentPlugin()
+    const stored = { categories: [analyticsCategory] }
+    const [d] = callPublicHead(plugin, stored) as [PublicHeadDescriptor]
+    if (d.type === 'inlineScript') {
+      expect(d.body).toContain('isSet:')
+      expect(d.body).toContain('hasOwnProperty')
+    }
+  })
+
+  it('banner display uses isSet (not has) so a Reject persists across reloads', () => {
+    // Regression guard for the bug from review feedback:
+    //   "Reject" stores false → next reload, has() returns false →
+    //   banner re-renders → user can never escape it.
+    // Fix: banner skips itself when every non-essential category is
+    // *decided*, regardless of which way.
+    const plugin = cookieConsentPlugin()
+    const stored = { categories: [analyticsCategory] }
+    const [d] = callPublicBodyEnd(plugin, stored) as [PublicBodyDescriptor]
+    if (d.type === 'inlineScript') {
+      expect(d.body).toContain('allDecided')
+      expect(d.body).toContain('window.amplessConsent.isSet')
+      // and it must NOT use `has` for the skip-banner decision anymore
+      expect(d.body).not.toMatch(/var allGranted/)
+    }
+  })
+
+  it('checkbox initial state branches on isSet, falling back to defaultEnabled only when undecided', () => {
+    // The defaultEnabled fix: it only seeds the UI checkbox when the
+    // user has not yet decided. Decided categories use their stored
+    // grant value. defaultEnabled NEVER pre-grants consent in state
+    // (GDPR/ePrivacy: implicit consent is not consent).
+    const plugin = cookieConsentPlugin()
+    const stored = { categories: [{ ...analyticsCategory, defaultEnabled: true }] }
+    const [d] = callPublicBodyEnd(plugin, stored) as [PublicBodyDescriptor]
+    if (d.type === 'inlineScript') {
+      // The new branched init block is present.
+      expect(d.body).toContain('window.amplessConsent.isSet(cat.id)')
+      expect(d.body).toContain('checked = window.amplessConsent.has(cat.id)')
+      expect(d.body).toContain('checked = cat.defaultEnabled === true')
+    }
+  })
+})
+
+describe('cookieConsentPlugin — duplicate category id (first-wins dedup)', () => {
+  it('publicHead drops duplicate ids before embedding categories JSON', () => {
+    // Plugin-side normalisation since the repeatable validator doesn't
+    // enforce id uniqueness. Both the install state map and the banner
+    // DOM ids key on category id, so duplicates would collide
+    // silently. We keep the first occurrence and drop later ones.
+    const plugin = cookieConsentPlugin()
+    const stored = {
+      categories: [
+        { id: 'analytics', label: 'First Analytics' },
+        { id: 'analytics', label: 'Second Analytics (should be dropped)' },
+        { id: 'marketing', label: 'Marketing' },
+      ],
+    }
+    const [d] = callPublicHead(plugin, stored) as [PublicHeadDescriptor]
+    if (d.type === 'inlineScript') {
+      // first-wins: "First Analytics" survives, "Second" doesn't
+      expect(d.body).toContain('First Analytics')
+      expect(d.body).not.toContain('Second Analytics')
+      // marketing also survives
+      expect(d.body).toContain('Marketing')
+    }
+  })
+
+  it('publicBodyEnd applies the same dedup so DOM ids stay collision-free', () => {
+    const plugin = cookieConsentPlugin()
+    const stored = {
+      categories: [
+        { id: 'analytics', label: 'First' },
+        { id: 'analytics', label: 'Dup' },
+      ],
+    }
+    const body = callPublicBodyEnd(plugin, stored) as PublicBodyDescriptor[]
+    expect(body).toHaveLength(1)
+    const [d] = body
+    if (d.type === 'inlineScript') {
+      expect(d.body).toContain('First')
+      expect(d.body).not.toContain('Dup')
+    }
+  })
+
+  it('drops categories with empty / non-string id', () => {
+    const plugin = cookieConsentPlugin()
+    const stored = {
+      categories: [
+        { id: '', label: 'Empty id' },
+        { id: 'ok', label: 'Real Category' },
+      ],
+    }
+    const [d] = callPublicHead(plugin, stored) as [PublicHeadDescriptor]
+    if (d.type === 'inlineScript') {
+      expect(d.body).not.toContain('Empty id')
+      expect(d.body).toContain('Real Category')
+    }
+  })
+})

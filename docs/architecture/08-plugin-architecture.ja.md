@@ -262,6 +262,14 @@ interface AmplessConsentGlobal {
   /** 同期チェック — カテゴリが同意済みなら true を返す。 */
   has(category: string): boolean
   /**
+   * ユーザがこのカテゴリに対して明示的な決定（accept または reject）を
+   * 行ったか? `state[cat] === true` でも `state[cat] === false` でも true
+   * を返し、localStorage の state に key が存在しない場合のみ false。
+   * 同意バナーを再訪問時に表示するか判定する際は `has` ではなく **これ**
+   * を使う — 「保存済みの false」は明確な決定であって「未決定」ではない。
+   */
+  isSet(category: string): boolean
+  /**
    * カテゴリへの初回同意時に発火するコールバックを登録する。
    * すでに同意済みの場合は即時発火（one-shot セマンティクス）。
    * unsubscribe 関数を返す。
@@ -277,6 +285,10 @@ declare global {
   interface Window { amplessConsent?: AmplessConsentGlobal }
 }
 ```
+
+**`has` と `isSet` の使い分け:**
+- 同意に gate される analytics plugin は `has`（と `on`）を使う — 同意済みの時だけ発火する。
+- バナー UI 自身は `isSet` を使って表示判定する — 一度 reject されたカテゴリも「決定済み」であり、再度プロンプトすべきではない。
 
 #### 標準イベント
 

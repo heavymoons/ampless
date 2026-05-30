@@ -61,6 +61,27 @@ function escapeJsString(s: string): string {
 }
 
 /**
+ * Drop duplicate categories by `id`, keeping the first occurrence
+ * (first-wins). Empty / non-string ids are also dropped. The
+ * repeatable settings validator does not enforce id uniqueness — duplicate
+ * ids would silently collide on the localStorage state map and the
+ * banner DOM ids (`ampless-consent-cat-${id}`), so we normalise here
+ * before either inline script consumes the list. Documented behaviour:
+ * README + Consent Convention doc both say duplicate ids are dropped.
+ */
+function dedupCategoriesById(cats: ConsentCategory[]): ConsentCategory[] {
+  const seen = new Set<string>()
+  const out: ConsentCategory[] = []
+  for (const c of cats) {
+    if (typeof c?.id !== 'string' || c.id === '') continue
+    if (seen.has(c.id)) continue
+    seen.add(c.id)
+    out.push(c)
+  }
+  return out
+}
+
+/**
  * Factory for the cookie consent plugin. Returns a plugin manifest that:
  *
  * - `publicHead`: installs `window.amplessConsent` API before analytics
@@ -209,14 +230,19 @@ export default function cookieConsentPlugin(
 
     publicHead(ctx) {
       // Read categories from resolved settings. Default to [] when absent.
+      // Drop duplicates by `id` first-wins — the localStorage state map
+      // and the per-category subscriber map both key on `id`, so a
+      // duplicate would silently overwrite earlier entries. We also use
+      // the same dedup'd list in `publicBodyEnd` to keep DOM ids
+      // collision-free.
       const rawCategories = ctx.setting<ConsentCategory[]>('categories') ?? []
-      const categories: ConsentCategory[] = Array.isArray(rawCategories)
-        ? rawCategories
-        : []
+      const categories = dedupCategoriesById(
+        Array.isArray(rawCategories) ? rawCategories : []
+      )
 
       // Embed the categories config as a compact JSON literal so the
-      // install script can enforce essential grants and seed defaults
-      // without an extra network request.
+      // install script can enforce essential grants without an extra
+      // network request.
       const categoriesJson = JSON.stringify(categories)
 
       // Note: ampless ScriptStrategy does not include 'beforeInteractive'.
@@ -256,6 +282,7 @@ export default function cookieConsentPlugin(
             '',
             '  window.amplessConsent = {',
             '    has: function(category) { return state[category] === true; },',
+            '    isSet: function(category) { return Object.prototype.hasOwnProperty.call(state, category); },',
             '    on: function(category, cb) {',
             '      if (state[category] === true) {',
             '        // Already granted — fire immediately (one-shot semantics).',
@@ -295,10 +322,12 @@ export default function cookieConsentPlugin(
     },
 
     publicBodyEnd(ctx) {
+      // Same dedup as publicHead so the banner DOM ids
+      // (`ampless-consent-cat-${id}`) stay unique.
       const rawCategories = ctx.setting<ConsentCategory[]>('categories') ?? []
-      const categories: ConsentCategory[] = Array.isArray(rawCategories)
-        ? rawCategories
-        : []
+      const categories = dedupCategoriesById(
+        Array.isArray(rawCategories) ? rawCategories : []
+      )
 
       // Emit descriptor even when all categories are essential (the script
       // itself exits early via the nonEssential.length === 0 guard).
@@ -366,10 +395,14 @@ export default function cookieConsentPlugin(
             `  var nonEssential = ${nonEssentialJson};`,
             '  if (nonEssential.length === 0) return;',
             '',
-            '  // Skip banner if all non-essential categories already granted.',
+            '  // Skip banner if every non-essential category has been *decided*',
+            '  // (accepted OR rejected) on a previous visit. Using `has` here',
+            '  // would re-show the banner forever after a Reject — `false` would',
+            '  // round-trip as "not yet decided". `isSet` is the explicit',
+            '  // user-made-a-choice predicate.',
             '  if (window.amplessConsent) {',
-            '    var allGranted = nonEssential.every(function(c) { return window.amplessConsent.has(c.id); });',
-            '    if (allGranted) return;',
+            '    var allDecided = nonEssential.every(function(c) { return window.amplessConsent.isSet(c.id); });',
+            '    if (allDecided) return;',
             '  }',
             '',
             `  var bannerText = '${bannerTextJs}';`,
@@ -392,11 +425,20 @@ export default function cookieConsentPlugin(
             '  dialog.appendChild(p);',
             '',
             '  // Category toggles with checkboxes.',
+            '  // Initial checkbox state precedence:',
+            "  //   1. user already decided this category → use their stored choice (has)",
+            "  //   2. user has NOT decided yet            → use `defaultEnabled` as a UI hint",
+            "  // `defaultEnabled` is intentionally NOT pre-granted in state — that would",
+            "  // bypass the user's explicit consent action, which is incompatible with",
+            "  // GDPR/ePrivacy. It only seeds the UI checkbox before first interaction.",
             '  var toggleState = {};',
             '  nonEssential.forEach(function(cat) {',
-            '    var checked = window.amplessConsent',
-            '      ? window.amplessConsent.has(cat.id)',
-            '      : (cat.defaultEnabled === true);',
+            '    var checked;',
+            '    if (window.amplessConsent && window.amplessConsent.isSet(cat.id)) {',
+            '      checked = window.amplessConsent.has(cat.id);',
+            '    } else {',
+            '      checked = cat.defaultEnabled === true;',
+            '    }',
             '    toggleState[cat.id] = checked;',
             '',
             "    var row = document.createElement('div');",

@@ -58,10 +58,10 @@ Each category in the `categories` repeatable field has the following sub-fields:
 
 | Sub-field | Type | Required | Notes |
 |---|---|---|---|
-| `id` | text | yes | Machine-readable, e.g. `'analytics'`. Pattern: `^[a-z][a-z0-9_-]*$`. |
+| `id` | text | yes | Machine-readable, e.g. `'analytics'`. Pattern: `^[a-z][a-z0-9_-]*$`. Must be unique within the list — duplicates are silently dropped, first occurrence wins. |
 | `label` | text | yes | Shown next to the checkbox in the banner. |
 | `description` | textarea | no | Short description shown below the label. |
-| `defaultEnabled` | boolean | no | Pre-check the toggle before the visitor makes a choice. |
+| `defaultEnabled` | boolean | no | **UI hint only.** Pre-checks the toggle for visitors who have not yet decided. Does **not** pre-grant consent in localStorage — implicit consent would violate GDPR/ePrivacy. Once the visitor accepts/rejects, their explicit choice replaces this hint on every subsequent visit. |
 | `essential` | boolean | no | Always granted; not shown as a toggle. Overrides `defaultEnabled`. |
 
 Example configuration via the admin UI — add two categories:
@@ -71,15 +71,22 @@ id: analytics     label: Analytics
 id: marketing     label: Marketing & personalisation
 ```
 
-## Consent Convention
+### When the banner re-appears
+
+The banner skips itself when every non-essential category has been *decided* (accepted **or** rejected) by the user — checked via [`window.amplessConsent.isSet`](#api). A previously rejected category is not re-prompted on reload; visitors clear their decisions by deleting the `ampless:consent` key from localStorage (or your site can expose a "review preferences" link that calls `window.amplessConsent.set(cat, …)` directly).
+
+## Consent Convention {#api}
 
 This plugin implements the ampless Consent Convention. Once installed, every page exposes:
 
 ```js
-window.amplessConsent.has('analytics')  // → boolean
+window.amplessConsent.has('analytics')    // → true only if granted
+window.amplessConsent.isSet('analytics')  // → true if user made a choice (accept OR reject)
 window.amplessConsent.on('analytics', function() { /* granted */ })  // returns unsubscribe fn
 window.amplessConsent.set('analytics', true)  // called by banner UI
 ```
+
+Use `has` to gate analytics; use `isSet` to detect "has the visitor made a decision yet?" (which is how the banner avoids re-prompting after a Reject).
 
 Standard events fired on `window`:
 

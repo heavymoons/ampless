@@ -265,6 +265,15 @@ interface AmplessConsentGlobal {
   /** Synchronous check — returns true if the category has been granted. */
   has(category: string): boolean
   /**
+   * Has the user made an explicit decision about this category (either
+   * accept or reject)? Returns true for `state[cat] === true`, true for
+   * `state[cat] === false`, false only when the key is absent from
+   * localStorage state. Use this — not `has` — to decide whether to
+   * show the consent banner on revisit: a stored `false` is a real
+   * choice, not a missing one.
+   */
+  isSet(category: string): boolean
+  /**
    * Subscribe to the first grant of a category. The callback fires once
    * when the category is granted. If the category is already granted,
    * the callback fires immediately (one-shot semantics). Returns an
@@ -282,6 +291,10 @@ declare global {
   interface Window { amplessConsent?: AmplessConsentGlobal }
 }
 ```
+
+**`has` vs `isSet` — which to use:**
+- Analytics plugins that gate themselves on consent use `has` (and `on`) — they only fire when granted.
+- The banner UI itself uses `isSet` to decide whether to render — a previously rejected category is a real decision and the user should not be re-prompted.
 
 #### Standard events
 

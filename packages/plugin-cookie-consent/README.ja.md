@@ -58,10 +58,10 @@ export default defineConfig({
 
 | サブフィールド | 型 | 必須 | 備考 |
 |---|---|---|---|
-| `id` | text | yes | 機械可読な識別子。例: `'analytics'`。パターン: `^[a-z][a-z0-9_-]*$`。 |
+| `id` | text | yes | 機械可読な識別子。例: `'analytics'`。パターン: `^[a-z][a-z0-9_-]*$`。リスト内で一意である必要があり、重複は first-wins で除去されます。 |
 | `label` | text | yes | バナーのチェックボックス横に表示する名称。 |
 | `description` | textarea | no | ラベルの下に表示する短い説明。 |
-| `defaultEnabled` | boolean | no | 訪問者が選択する前のチェックボックスの初期状態。 |
+| `defaultEnabled` | boolean | no | **UI ヒントのみ。** 未決定の訪問者向けのチェックボックス初期状態。localStorage には事前同意として保存**されません** — 暗黙的同意は GDPR/ePrivacy に反するため。一度 accept/reject を行えば、その明示的な選択が以後この hint を上書きします。 |
 | `essential` | boolean | no | 常時 ON（トグル不可）。`defaultEnabled` より優先される。 |
 
 管理画面での設定例 — 2 カテゴリを追加:
@@ -71,15 +71,22 @@ id: analytics     label: アクセス解析
 id: marketing     label: マーケティング・パーソナライズ
 ```
 
-## Consent Convention
+### バナーが再表示される条件
+
+非 essential カテゴリの **すべて** に対してユーザが決定（accept または reject）を行ったら、以後バナーは表示されません — [`window.amplessConsent.isSet`](#api) で判定します。一度 reject されたカテゴリは reload 時に再プロンプトされません。決定を取り消したい場合は localStorage の `ampless:consent` キーを削除するか、サイト側で「環境設定の見直し」リンクから直接 `window.amplessConsent.set(cat, …)` を呼んでください。
+
+## Consent Convention {#api}
 
 このプラグインは ampless Consent Convention を実装します。インストール後、すべてのページで次の API が使えます:
 
 ```js
-window.amplessConsent.has('analytics')  // → boolean
+window.amplessConsent.has('analytics')    // → true なら同意済み
+window.amplessConsent.isSet('analytics')  // → true ならユーザが決定済み（accept または reject）
 window.amplessConsent.on('analytics', function() { /* 同意後に一度だけ発火 */ })  // unsubscribe 関数を返す
 window.amplessConsent.set('analytics', true)  // バナー UI が呼ぶ
 ```
+
+analytics の gate には `has`、バナーが「再プロンプトすべきか」の判定には `isSet` を使う — Reject 後にバナーが永遠に出続けないのはこれが理由です。
 
 `window` 上で発火する標準イベント:
 
