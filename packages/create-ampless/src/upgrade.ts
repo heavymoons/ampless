@@ -1,4 +1,4 @@
-import { cp, readFile, writeFile, readdir, mkdir, rm, stat } from 'node:fs/promises'
+import { cp, readFile, writeFile, readdir, mkdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, relative, extname, dirname } from 'node:path'
 import { log, outro } from '@clack/prompts'
@@ -560,7 +560,7 @@ export async function runUpgradeIn(
   const existingThemes = themeSyncEnabled ? await discoverInstalledThemes(destDir) : []
   // Preview what `syncThemes` will quarantine — directories under the
   // user's themes/ whose name matches a known non-theme template prefix
-  // (PR #172 recovery for sites broken by the buggy PR #168 release).
+  // (PR #174 recovery for sites broken by the buggy PR #168 release).
   // The actual deletion happens inside `syncThemes`; here we just
   // report the plan to the user so the dry-run output matches reality.
   const quarantinedThemesPreview = existingThemes.filter(isQuarantinedThemeName)
