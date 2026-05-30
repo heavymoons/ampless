@@ -20,6 +20,7 @@ import {
   resolveLocalized,
   type LocalizedString,
   type PluginSettingField,
+  type PluginRepeatableField,
 } from 'ampless'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import {
@@ -28,6 +29,7 @@ import {
 } from '../lib/plugin-settings.js'
 import { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 import { useT, useLocale } from './i18n-provider.js'
+import { RepeatableFieldEditor } from './repeatable-field-editor.js'
 
 // Same delay as theme-settings-form. The trusted processor rebuilds
 // the S3 cache JSON in 5–10 s; firing earlier risks re-fetching the
@@ -72,6 +74,15 @@ function stringify(field: PluginSettingField, raw: unknown): string {
       } catch {
         return ''
       }
+    case 'repeatable':
+      // The RepeatableFieldEditor contract: value prop is a JSON string
+      // of the item array. Stored values are already typed arrays.
+      if (typeof raw === 'string') return raw
+      try {
+        return JSON.stringify(raw)
+      } catch {
+        return '[]'
+      }
     default:
       return typeof raw === 'string' ? raw : String(raw)
   }
@@ -101,6 +112,19 @@ function parse(field: PluginSettingField, raw: string): unknown | null {
       if (trimmed === '') return null
       try {
         return JSON.parse(trimmed)
+      } catch {
+        return null
+      }
+    }
+    case 'repeatable': {
+      // `raw` is the JSON-serialized array produced by
+      // RepeatableFieldEditor's onChange. Parse it back into the typed
+      // array before handing off to validatePluginSettingValue(strict).
+      const trimmed = raw.trim()
+      if (trimmed === '') return []
+      try {
+        const parsed: unknown = JSON.parse(trimmed)
+        return Array.isArray(parsed) ? parsed : null
       } catch {
         return null
       }
@@ -353,8 +377,15 @@ function renderDefaultHint(field: PluginSettingField, _locale: string): React.Re
   )
 }
 
-function renderInput(
-  field: PluginSettingField,
+/**
+ * Render a scalar (non-repeatable) plugin field input. Handles the 8
+ * scalar variant types: text, url, textarea, code, boolean, number,
+ * select, json. Factored out of `renderInput` so the repeatable case
+ * can call back into it per sub-field cell without interleaving with
+ * the repeatable branch.
+ */
+export function renderScalarInput(
+  field: Exclude<PluginSettingField, PluginRepeatableField>,
   id: string,
   value: string,
   invalid: boolean,
@@ -463,5 +494,28 @@ function renderInput(
           className="font-mono text-xs"
         />
       )
+  }
+}
+
+function renderInput(
+  field: PluginSettingField,
+  id: string,
+  value: string,
+  invalid: boolean,
+  onChange: (v: string) => void
+): React.ReactNode {
+  switch (field.type) {
+    case 'repeatable':
+      return (
+        <RepeatableFieldEditor
+          field={field}
+          id={id}
+          value={value}
+          invalid={invalid}
+          onChange={onChange}
+        />
+      )
+    default:
+      return renderScalarInput(field, id, value, invalid, onChange)
   }
 }
