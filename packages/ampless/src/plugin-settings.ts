@@ -251,6 +251,16 @@ export function validatePluginSettingValue(
         validatedItems.push(validatedItem)
       }
 
+      // Re-check minItems against the *validated* item count, not the
+      // raw input. Lenient mode can drop invalid items mid-loop, so a
+      // raw array that passed the upfront length check may end up
+      // below minItems after filtering. Treat that as a field-level
+      // reject in both modes so `minItems` means "this many valid
+      // items present", not "this many entries existed at some point
+      // in the input". Strict mode would have returned null already
+      // on the first invalid item, so this is a no-op there.
+      if (validatedItems.length < minItems) return null
+
       return validatedItems
     }
   }

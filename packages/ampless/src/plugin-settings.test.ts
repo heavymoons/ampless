@@ -509,6 +509,21 @@ describe('validatePluginSettingValue — repeatable 基本', () => {
     expect(validatePluginSettingValue(f, [], 'lenient')).toBe(null)
     expect(validatePluginSettingValue(f, [], 'strict')).toBe(null)
   })
+
+  it('lenient: drop 後に validated 数が minItems を下回ったら field 全体 reject', () => {
+    // raw 配列長は minItems=2 を満たすが、1 件が required sub-field 欠落で
+    // drop され、validated は 1 件のみ。これは minItems の契約 (有効 item 数)
+    // 違反として field 全体 null とする。strict ならそもそも最初の不正 item
+    // で null が返るので、この再チェックは lenient 専用の安全網。
+    const f: PluginRepeatableField = { ...categoriesField, minItems: 2 }
+    const raw = [
+      { id: 'analytics', label: 'Analytics' }, // valid
+      { label: 'No ID' }, // invalid: required `id` 欠落
+    ]
+    expect(validatePluginSettingValue(f, raw, 'lenient')).toBe(null)
+    // strict はそもそも 2 件目で field reject になるので同じく null
+    expect(validatePluginSettingValue(f, raw, 'strict')).toBe(null)
+  })
 })
 
 describe('validatePluginSettingValue — repeatable item 不正', () => {
