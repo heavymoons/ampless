@@ -2,6 +2,7 @@ import { defineConfig } from 'ampless'
 import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
 // import schemaJsonLdPlugin from '@ampless/plugin-schema-jsonld'
+// import readingTimePlugin from '@ampless/plugin-reading-time'
 // import cookieConsentPlugin from '@ampless/plugin-cookie-consent'
 // import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
 // import gtmPlugin from '@ampless/plugin-gtm'
@@ -87,6 +88,13 @@ export default defineConfig({
     // `/admin/plugins`. Banner text and button labels are also admin-editable.
     //
     // cookieConsentPlugin(),
+    //
+    // Reading-time badge. Estimates read time from the post body and injects
+    // a configurable label (default: "3 min read") before or after the post
+    // content. Supports English word count + CJK character count (÷ 2).
+    // Label template and position are editable from `/admin/plugins`.
+    //
+    // readingTimePlugin(),
     //
     // Google Analytics 4. Once registered here, the measurement ID can be
     // edited from `/admin/plugins` without a redeploy — the constructor

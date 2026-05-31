@@ -59,6 +59,7 @@ const AMPLESS_PACKAGES = new Set([
   '@ampless/plugin-gtm',
   '@ampless/plugin-plausible',
   '@ampless/plugin-cookie-consent',
+  '@ampless/plugin-reading-time',
 ])
 
 /**

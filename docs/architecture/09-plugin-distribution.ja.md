@@ -48,6 +48,7 @@ export default defineConfig({
 - `@ampless/plugin-plausible` — Plausible Analytics の head 注入（プライバシー重視、cookie 不使用）。サイトドメインとスクリプト URL は `/admin/plugins` から編集可能。`scriptUrl` はデフォルトでホスト版 plausible.io を指すが、self-hosted へ上書き可能。untrusted。
 - `@ampless/plugin-schema-jsonld` — `publicBodyForPost` 経由で投稿単位の Article / 構造化データ JSON-LD を注入。テーマの post ページテンプレートが `ampless.publicBodyForPost(post)` を呼び、返された `<script type="application/ld+json">` 要素を描画する。untrusted。（Phase 4）
 - `@ampless/plugin-cookie-consent` — GDPR/ePrivacy 対応の cookie 同意バナー。`window.amplessConsent` Consent Convention API（`has` / `isSet` / `on` / `set` + `ampless:consent-ready` / `ampless:consent-changed` イベント）を install し、他プラグインがユーザの同意に gate できる規約を提供する。カテゴリは `PluginRepeatableField` setting 型で設定。GA4 / GTM / Plausible には `consentCategory?: string` オプションがあり、設定すると同意後に動的 loader を注入する gated mode（単一 inlineScript）に切り替わる。untrusted。（Phase 3b）
+- `@ampless/plugin-reading-time` — `publicHtmlForPost`（Phase 6d）経由の読了時間バッジ。投稿本文から読了時間を推定（英語語数 + CJK 文字数 ÷ 2）し、本文の前後に `<p class="ampless-reading-time">` 要素を挿入する。ラベルテンプレート・WPM・位置は admin から編集可能。untrusted。（Phase 6d）
 
 ファーストパーティ集合はプラグイン拡張ロードマップ ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)) に沿って拡張中。後続も descriptor ベースの head/body 注入 API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) を使うプラグインを順次追加していく。
 

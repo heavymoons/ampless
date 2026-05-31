@@ -273,6 +273,12 @@ importers:
         specifier: workspace:*
         version: link:../ampless
 
+  packages/plugin-reading-time:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-rss:
     dependencies:
       ampless:

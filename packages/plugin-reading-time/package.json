@@ -1,0 +1,59 @@
+{
+  "name": "@ampless/plugin-reading-time",
+  "version": "0.1.0-alpha.0",
+  "description": "Reading-time badge plugin for ampless — estimates read time from post content and injects a configurable label before or after the post body",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-reading-time"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-reading-time#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "reading-time",
+    "read-time",
+    "badge",
+    "cms"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "reading-time",
+    "trustLevel": "untrusted",
+    "capabilities": [
+      "publicHtmlForPost",
+      "adminSettings"
+    ],
+    "displayName": {
+      "en": "Reading time",
+      "ja": "読了時間"
+    }
+  }
+}
