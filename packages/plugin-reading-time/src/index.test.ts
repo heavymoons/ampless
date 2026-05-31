@@ -3,6 +3,7 @@ import readingTimePlugin, {
   extractPlainText,
   countWords,
   escapeHtml,
+  normalizeWpm,
 } from './index.js'
 import type { Post } from 'ampless'
 
@@ -298,6 +299,118 @@ describe('position option', () => {
 // ---------------------------------------------------------------------------
 // 8. stored settings override constructor defaults
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// normalizeWpm + integration with the plugin's render path
+// ---------------------------------------------------------------------------
+
+describe('normalizeWpm', () => {
+  it('passes through values inside [50, 1000]', () => {
+    expect(normalizeWpm(200, 999)).toBe(200)
+    expect(normalizeWpm(50, 999)).toBe(50)
+    expect(normalizeWpm(1000, 999)).toBe(1000)
+  })
+
+  it('falls back to fallback for 0 / negative / out-of-range', () => {
+    expect(normalizeWpm(0, 200)).toBe(200)
+    expect(normalizeWpm(-100, 200)).toBe(200)
+    expect(normalizeWpm(49, 200)).toBe(200)
+    expect(normalizeWpm(1001, 200)).toBe(200)
+  })
+
+  it('falls back to fallback for NaN / Infinity / non-numbers', () => {
+    expect(normalizeWpm(Number.NaN, 200)).toBe(200)
+    expect(normalizeWpm(Number.POSITIVE_INFINITY, 200)).toBe(200)
+    expect(normalizeWpm(Number.NEGATIVE_INFINITY, 200)).toBe(200)
+    expect(normalizeWpm(undefined, 200)).toBe(200)
+    expect(normalizeWpm(null, 200)).toBe(200)
+    expect(normalizeWpm({}, 200)).toBe(200)
+    expect(normalizeWpm('not a number', 200)).toBe(200)
+  })
+
+  it('coerces numeric strings inside range', () => {
+    // A stored value round-tripped through JSON may come back as a string.
+    expect(normalizeWpm('250', 999)).toBe(250)
+  })
+})
+
+describe('wordsPerMinute sanitization at the render path', () => {
+  it('readingTimePlugin({ wordsPerMinute: 0 }) does not emit Infinity', () => {
+    // Regression: previously this produced `data-minutes="Infinity"` and
+    // an `Infinity min read` label because `0 || 200` evaluated to 200
+    // ONLY when wpm was falsy at the resolve step — but the constructor
+    // default itself was kept at 0, so the resolve fell back path was
+    // hit for stored undefined, while a direct `wordsPerMinute: 0`
+    // could leak through.
+    const plugin = readingTimePlugin({ wordsPerMinute: 0 })
+    const text = Array(200).fill('word').join(' ')
+    const post = makePost('html', `<p>${text}</p>`)
+    const ctx = makeCtx()
+    const [d] = plugin.publicHtmlForPost!(post, ctx)
+    expect(d.body).not.toContain('Infinity')
+    const minutesMatch = d.body.match(/data-minutes="(\d+)"/)
+    expect(minutesMatch).not.toBeNull()
+    // 200 words / 200 wpm fallback = 1 min
+    expect(Number(minutesMatch![1])).toBe(1)
+  })
+
+  it('stored NaN / non-finite wordsPerMinute falls back to the constructor default', () => {
+    const plugin = readingTimePlugin({ wordsPerMinute: 100 })
+    const text = Array(100).fill('word').join(' ')
+    const post = makePost('html', `<p>${text}</p>`)
+    // Simulate a stored value of NaN reaching the render path
+    // (e.g. corrupted DDB write, schema drift).
+    const ctx = makeCtx({ wordsPerMinute: Number.NaN })
+    const [d] = plugin.publicHtmlForPost!(post, ctx)
+    expect(d.body).not.toContain('Infinity')
+    expect(d.body).not.toContain('NaN')
+    const minutesMatch = d.body.match(/data-minutes="(\d+)"/)
+    // 100 words / 100 wpm (constructor fallback) = 1 min
+    expect(Number(minutesMatch![1])).toBe(1)
+  })
+
+  it('stored Infinity falls back to the constructor default', () => {
+    const plugin = readingTimePlugin({ wordsPerMinute: 500 })
+    const text = Array(500).fill('word').join(' ')
+    const post = makePost('html', `<p>${text}</p>`)
+    const ctx = makeCtx({ wordsPerMinute: Number.POSITIVE_INFINITY })
+    const [d] = plugin.publicHtmlForPost!(post, ctx)
+    expect(d.body).not.toContain('Infinity')
+    const minutesMatch = d.body.match(/data-minutes="(\d+)"/)
+    // 500 / 500 = 1 min (constructor fallback wins)
+    expect(Number(minutesMatch![1])).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// countWords precision: punctuation-only tokens
+// ---------------------------------------------------------------------------
+
+describe('countWords — letter/digit-required tokens', () => {
+  it('does not count pure-punctuation tokens as words', () => {
+    // Mixed-script Japanese: `これはテストです。`
+    // Before the fix the trailing `。` separated by the CJK strip would
+    // count as one English word, inflating the total to 5 (CJK 4 + `。`).
+    // After the fix only tokens with at least one letter or digit are
+    // counted, so `。` drops out and the result is CJK 4 = ceil(8/2) = 4.
+    const text = 'これはテストです。'
+    expect(countWords(text)).toBe(4)
+  })
+
+  it('strips markdown leftover punctuation runs (---, ***)', () => {
+    expect(countWords('Hello --- world')).toBe(2)
+    expect(countWords('one *** two')).toBe(2)
+  })
+
+  it("keeps contractions (don't) and hyphenated compounds (state-of-the-art) as one word", () => {
+    expect(countWords("don't")).toBe(1)
+    expect(countWords('state-of-the-art')).toBe(1)
+  })
+
+  it('still counts digits as words', () => {
+    expect(countWords('2024 was a good year')).toBe(5)
+  })
+})
 
 describe('stored settings override', () => {
   it('stored wordsPerMinute overrides constructor default', () => {

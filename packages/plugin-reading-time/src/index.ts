@@ -137,14 +137,40 @@ export function countWords(text: string): number {
   const cjkChars = cjkMatches ? cjkMatches.length : 0
 
   // Remove CJK characters before counting English words to avoid counting
-  // runs of CJK glyphs joined by no whitespace as "one word".
-  const withoutCjk = trimmed.replace(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu, ' ')
-  const englishWords = withoutCjk
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length
+  // runs of CJK glyphs joined by no whitespace as "one word". Then match
+  // only tokens that contain at least one letter or digit — pure
+  // punctuation clusters like `。` or `…` from mixed-script posts (or
+  // `---` / `***` from markdown stripped output) would otherwise count
+  // as their own "words" and inflate the estimate. The internal
+  // `[\p{L}\p{N}'-]` class keeps contractions (`don't`) and hyphenated
+  // compounds (`state-of-the-art`) intact as a single word.
+  const withoutCjk = trimmed.replace(
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu,
+    ' '
+  )
+  const englishMatches = withoutCjk.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu)
+  const englishWords = englishMatches ? englishMatches.length : 0
 
   return englishWords + Math.ceil(cjkChars / 2)
+}
+
+/**
+ * Coerce an unknown `wordsPerMinute` value (constructor option or stored
+ * setting) to a usable number inside the admin field's `[50, 1000]`
+ * range. Anything outside that — `0`, negative, `NaN`, `Infinity`, a
+ * non-number, or a string that can't parse — falls back to `fallback`.
+ *
+ * The admin UI's `min: 50, max: 1000` validators already gate
+ * hand-edited settings, but the constructor option is public API and
+ * a stored value can in theory be hand-edited in DynamoDB. Without
+ * this guard, `readingTimePlugin({ wordsPerMinute: 0 })` would emit
+ * `data-minutes="Infinity"` and `'Infinity min read'`.
+ */
+export function normalizeWpm(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  if (n < 50 || n > 1000) return fallback
+  return n
 }
 
 /**
@@ -192,11 +218,15 @@ export default function readingTimePlugin(
   options: ReadingTimeOptions = {}
 ): AmplessPlugin {
   const {
-    wordsPerMinute: defaultWpm = 200,
+    wordsPerMinute: rawWpm = 200,
     labelTemplate: defaultTemplate = '{minutes} min read',
     position: defaultPosition = 'beforeContent',
     instanceId,
   } = options
+  // Normalize the constructor default once. A site author passing
+  // `wordsPerMinute: 0` (or NaN, Infinity, ...) gets the hard-coded
+  // 200 instead of `data-minutes="Infinity"` at render time.
+  const defaultWpm = normalizeWpm(rawWpm, 200)
 
   return definePlugin({
     name: 'reading-time',
@@ -268,9 +298,11 @@ export default function readingTimePlugin(
       post: Post,
       ctx
     ): readonly PublicPostHtmlDescriptor[] {
-      // Resolve settings — stored value wins, fall back to constructor default.
-      const wpm =
-        (ctx.setting<number>('wordsPerMinute') ?? defaultWpm) || defaultWpm
+      // Resolve settings — stored value wins, fall back to constructor
+      // default. Both are normalized so a hand-edited DDB row or a
+      // schema drift can't produce `Infinity min read` at the public
+      // surface.
+      const wpm = normalizeWpm(ctx.setting<number>('wordsPerMinute'), defaultWpm)
       const template =
         (ctx.setting<string>('labelTemplate') ?? '').trim() || defaultTemplate
       const position: 'beforeContent' | 'afterContent' =
