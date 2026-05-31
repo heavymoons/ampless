@@ -29,6 +29,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react'
+import sanitizeHtml from 'sanitize-html'
 import {
   isValidPluginKey,
   resolvePluginSettings,
@@ -40,6 +41,8 @@ import {
   type PublicHeadDescriptor,
   type PublicBodyDescriptor,
   type PublicPostBodyDescriptor,
+  type PublicPostHtmlDescriptor,
+  type PublicPostHtmlPosition,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 import {
@@ -74,6 +77,24 @@ export interface PluginHeadApi {
    * scoped to structured data — see `PublicPostBodyDescriptor`.
    */
   renderBodyForPost(post: Post): Promise<ReactNode>
+  /**
+   * Per-post visible HTML (Phase 6d). Aggregates all installed plugins'
+   * `publicHtmlForPost` descriptors, sanitizes bodies under a strict
+   * `sanitize-html` allowlist, resolves namespaces, deduplicates, and
+   * returns position-bucketed ReactNodes ready to embed in theme post
+   * templates. Themes never call `dangerouslySetInnerHTML` themselves.
+   */
+  renderHtmlForPost(post: Post): Promise<PublicHtmlForPostResult>
+}
+
+/**
+ * Position-bucketed result of `renderHtmlForPost`. Themes embed these
+ * directly with `{html.beforeContent}` / `{html.afterContent}`. A `null`
+ * slot means no plugins contributed HTML to that position.
+ */
+export interface PublicHtmlForPostResult {
+  beforeContent: ReactNode | null
+  afterContent: ReactNode | null
 }
 
 // Attribute allowlist for `attrs` on script/iframe descriptors. Any
@@ -599,6 +620,62 @@ function collectFor<D>(
   return createElement(Fragment, null, ...keyed)
 }
 
+// ---------------------------------------------------------------------------
+// Phase 6d — publicHtmlForPost: strict sanitize-html profile
+//
+// All trust levels (untrusted / trusted / privileged) go through the same
+// strict sanitizer — no pass-through escape hatch in v1.
+// ---------------------------------------------------------------------------
+
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ['p', 'span', 'strong', 'em', 'a', 'code', 'br', 'ul', 'ol', 'li'],
+  allowedAttributes: {
+    '*': ['class', 'data-words', 'data-minutes', 'data-ampless-*'],
+    a: ['href', 'rel', 'target'],
+  },
+  allowedSchemes: ['http', 'https'],
+  allowedSchemesAppliedToAttributes: ['href'],
+  allowProtocolRelative: false,
+  transformTags: {
+    a: (tagName, attribs) => {
+      // <a target="_blank"> → force rel="noopener noreferrer"
+      const out = { ...attribs }
+      if (out['target'] === '_blank') {
+        const parts = (out['rel'] ?? '').split(/\s+/).filter(Boolean)
+        if (!parts.includes('noopener')) parts.push('noopener')
+        if (!parts.includes('noreferrer')) parts.push('noreferrer')
+        out['rel'] = parts.join(' ')
+      }
+      return { tagName, attribs: out }
+    },
+  },
+}
+
+/**
+ * Validate a plugin-local `id` string. Empty string, control characters,
+ * and strings longer than 64 chars are rejected with a warning.
+ * Prefix rules are not enforced — that is the plugin author's convention.
+ */
+function validateHtmlId(id: string, pluginLabel: string): boolean {
+  if (id.length === 0) {
+    warn(`${pluginLabel}: publicHtmlForPost descriptor dropped — "id" must not be empty.`)
+    return false
+  }
+  if (/[\x00-\x1f]/.test(id)) {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor "${id}" dropped — "id" contains control characters.`
+    )
+    return false
+  }
+  if (id.length > 64) {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor "${id.slice(0, 32)}…" dropped — "id" exceeds 64 characters.`
+    )
+    return false
+  }
+  return true
+}
+
 /**
  * Per-post variant of `collectFor`. Same ctx-binding / dedup pipeline,
  * but invokes `plugin.publicBodyForPost(post, ctx)` so the plugin can
@@ -635,6 +712,84 @@ function collectForPost(
   if (entries.length === 0) return null
   const keyed = dedupeAndKey(entries)
   return createElement(Fragment, null, ...keyed)
+}
+
+/**
+ * Phase 6d aggregator: collect, sanitize, namespace-resolve, deduplicate,
+ * and ReactNode-ify all `publicHtmlForPost` descriptors across plugins.
+ *
+ * Deduplication is position-scoped: `beforeContent` and `afterContent`
+ * each maintain independent seen-id sets. The dedupe key is
+ * `${namespace}:${id}` — two different plugin instances with the same
+ * short `id` survive because their namespaces differ.
+ */
+function collectHtmlForPost(
+  plugins: readonly AmplessPlugin[],
+  site: Config['site'],
+  snapshot: PluginSettingsSnapshot,
+  post: Post,
+): PublicHtmlForPostResult {
+  // entries keyed by position
+  const before: Array<{ key: string; cleanHtml: string; namespace: string }> = []
+  const after: Array<{ key: string; cleanHtml: string; namespace: string }> = []
+  const seenBefore = new Set<string>()
+  const seenAfter = new Set<string>()
+
+  for (const plugin of plugins) {
+    const factory = plugin.publicHtmlForPost
+    if (!factory) continue
+    const namespace = plugin.instanceId ?? plugin.name
+    const label = `plugin "${plugin.instanceId ?? plugin.name}"`
+    const ctx = makeCtx(plugin, site, snapshot)
+    let descriptors: readonly PublicPostHtmlDescriptor[]
+    try {
+      descriptors = factory.call(plugin, post, ctx) ?? []
+    } catch (err) {
+      warn(
+        `${label}: threw inside publicHtmlForPost callback: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      )
+      continue
+    }
+    for (const descriptor of descriptors) {
+      if (!validateHtmlId(descriptor.id, label)) continue
+      const dedupeKey = `${namespace}:${descriptor.id}`
+      const position: PublicPostHtmlPosition = descriptor.position
+      const seenSet = position === 'beforeContent' ? seenBefore : seenAfter
+      const bucket = position === 'beforeContent' ? before : after
+      if (seenSet.has(dedupeKey)) {
+        warn(
+          `${label}: publicHtmlForPost descriptor "${descriptor.id}" at position "${position}" is a duplicate — keeping the first occurrence.`
+        )
+        continue
+      }
+      seenSet.add(dedupeKey)
+      const cleanHtml = sanitizeHtml(descriptor.body, SANITIZE_OPTIONS)
+      bucket.push({ key: dedupeKey, cleanHtml, namespace })
+    }
+  }
+
+  function toReactNode(
+    entries: Array<{ key: string; cleanHtml: string; namespace: string }>,
+    position: PublicPostHtmlPosition
+  ): ReactNode | null {
+    if (entries.length === 0) return null
+    const elements = entries.map(({ key, cleanHtml, namespace }) =>
+      createElement('div', {
+        key,
+        'data-ampless-plugin': namespace,
+        'data-ampless-position': position,
+        dangerouslySetInnerHTML: { __html: cleanHtml },
+      })
+    )
+    return createElement(Fragment, null, ...elements)
+  }
+
+  return {
+    beforeContent: toReactNode(before, 'beforeContent'),
+    afterContent: toReactNode(after, 'afterContent'),
+  }
 }
 
 /**
@@ -755,6 +910,16 @@ export function createPluginHead(
           `${label}: implements \`publicBodyForPost\` but "schema" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
         )
       }
+      if (caps.includes('publicHtmlForPost') && !plugin.publicHtmlForPost) {
+        warn(
+          `${label}: declares capability "publicHtmlForPost" but no \`publicHtmlForPost\` implementation. Drop the capability or add the function.`
+        )
+      }
+      if (plugin.publicHtmlForPost && !caps.includes('publicHtmlForPost')) {
+        warn(
+          `${label}: implements \`publicHtmlForPost\` but "publicHtmlForPost" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`
+        )
+      }
     }
   }
 
@@ -782,6 +947,10 @@ export function createPluginHead(
     async renderBodyForPost(post: Post): Promise<ReactNode> {
       const snapshot = await pluginSettings.loadAll()
       return collectForPost(validPlugins, cmsConfig.site, snapshot, post)
+    },
+    async renderHtmlForPost(post: Post): Promise<PublicHtmlForPostResult> {
+      const snapshot = await pluginSettings.loadAll()
+      return collectHtmlForPost(validPlugins, cmsConfig.site, snapshot, post)
     },
   }
 }

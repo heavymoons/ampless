@@ -35,6 +35,7 @@ your code where future-you (and other site authors) will look for it.
 | Trusted side effects (S3 writes, external API push) | | ✓ (`writePublicAsset` + `trusted`) |
 | Theme-independent `<head>` / `<body>` injection (analytics, consent) | | ✓ (`publicHead` / `publicBodyEnd`) |
 | Per-post machine-readable metadata (JSON-LD, etc.) | | ✓ (`schema` via `publicBodyForPost`) |
+| Per-post visible HTML around the body (reading-time, breadcrumb, share) | | ✓ (`publicHtmlForPost`) |
 | Code you want to share across multiple ampless sites | | ✓ (publish as npm package) |
 
 Rule of thumb:
@@ -88,6 +89,7 @@ surfaces:
 | `publicHead(ctx)` | root layout `<head>` | sync (called from async layout) | 1 |
 | `publicBodyEnd(ctx)` | root layout end of `<body>` | sync | 1 |
 | `publicBodyForPost(post, ctx)` | theme post page template (per-post) | sync | 4 |
+| `publicHtmlForPost(post, ctx)` | theme post page template (per-post, visible HTML) | sync | 6d |
 | `ogImage` | `/og/[slug]` route | request-time, in public Lambda | Existing |
 | `hooks` | trust_level-matched processor Lambda | async, on SQS event | Existing |
 | `settings.public` | `/admin/plugins` form | declarative manifest | 2 |
@@ -210,6 +212,7 @@ interface AmplessPlugin {
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
+  publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
   ogImage?: OgImageConfig
   settings?: { public?: readonly PluginSettingField[] }
 }
@@ -380,6 +383,7 @@ elevated AWS access.
 | `publicHead(ctx)` | `PublicHeadDescriptor[]` | Analytics loader, fonts, jsonld, hreflang |
 | `publicBodyEnd(ctx)` | `PublicBodyDescriptor[]` | GTM no-script frame, chat widgets, tail snippets |
 | `publicBodyForPost(post, ctx)` | `PublicPostBodyDescriptor[]` | Per-post body injection — JSON-LD structured data; rendered by the theme's post page template |
+| `publicHtmlForPost(post, ctx)` | `PublicPostHtmlDescriptor[]` | Per-post visible HTML at `beforeContent` / `afterContent` — reading-time badge, breadcrumb, share links. Bodies are sanitized by the runtime under a strict `sanitize-html` allowlist |
 
 The `ctx` object carries:
 
@@ -483,6 +487,27 @@ behaviour. `publicBodyForPost` exists solely for the structured data
 use-case (`<script type="application/ld+json">`) that `generateMetadata`
 cannot produce.
 
+### `PublicPostHtmlDescriptor` (Phase 6d)
+
+`publicHtmlForPost` returns `PublicPostHtmlDescriptor[]`:
+
+```ts
+{
+  type: 'html',
+  id: 'display',                  // plugin-local short identifier (≤ 64 chars, no control chars)
+  position: 'beforeContent' | 'afterContent',
+  body: '<p class="reading-time">~3 min read</p>',
+}
+```
+
+The runtime sanitizes `body` with `sanitize-html` under a strict
+allowlist (see the `publicHtmlForPost` example above for the full
+allowlist + dropped-tag list) and wraps the result in
+`<div data-ampless-plugin="${namespace}" data-ampless-position="${position}">`.
+Themes embed `{html.beforeContent}` / `{html.afterContent}` in
+`pages/post.tsx`; they never call `dangerouslySetInnerHTML` on plugin
+output themselves.
+
 ### JSON-LD auto-escape
 
 When `scriptType === 'application/ld+json'`, the runtime **automatically
@@ -574,6 +599,80 @@ and renders the returned descriptors. The runtime inserts a
 `<script type="application/ld+json">` element with the auto-escaped
 body into the page.
 
+### `publicHtmlForPost` example (Phase 6d)
+
+Use `publicHtmlForPost` when you need to render **visible HTML**
+around a post — reading-time badge, breadcrumb, share links,
+micro-format annotations, etc. The runtime sanitizes the body before
+rendering and embeds the result at the `beforeContent` or
+`afterContent` slot, so themes never call `dangerouslySetInnerHTML`
+on plugin output.
+
+```typescript
+import { definePlugin } from 'ampless'
+
+export default function readingTimePlugin() {
+  return definePlugin({
+    name: 'reading-time',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+    capabilities: ['publicHtmlForPost'],
+    publicHtmlForPost(post, _ctx) {
+      const words = countWords(post)
+      const minutes = Math.max(1, Math.round(words / 200))
+      return [{
+        type: 'html',
+        id: 'display',
+        position: 'beforeContent',
+        body: `<p class="reading-time" data-words="${words}" data-minutes="${minutes}">~${minutes} min read</p>`,
+      }]
+    },
+  })
+}
+```
+
+The theme's `pages/post.tsx` calls
+`const html = await ampless.publicHtmlForPost(post)` once and embeds
+the slots:
+
+```tsx
+{postBody}            {/* publicBodyForPost — JSON-LD */}
+{html.beforeContent}  {/* publicHtmlForPost — beforeContent slot */}
+<div className="prose" dangerouslySetInnerHTML={{ __html: renderBody(post) }} />
+{html.afterContent}   {/* publicHtmlForPost — afterContent slot */}
+```
+
+**Slot positions** (v1): `'beforeContent'` and `'afterContent'`.
+
+**Sanitizer (strict, identical across trust levels):**
+
+- Allowed tags: `p` · `span` · `strong` · `em` · `a` · `code` · `br` · `ul` · `ol` · `li`
+- Allowed global attributes: `class` · `data-words` · `data-minutes` · `data-ampless-*`
+- Allowed `<a>` attributes: `href` · `rel` · `target`. `target="_blank"` triggers auto-injection of `rel="noopener noreferrer"`.
+- Allowed URL schemes on `href`: `http` / `https`. Relative URLs (`./path`, `../path`, `/path`, `#anchor`) pass through. `javascript:` / `data:` / `mailto:` / `tel:` / `vbscript:` are dropped.
+- Dropped tags / attributes: `<img>` · `<iframe>` · `<video>` · `<audio>` · `<object>` · `<embed>` · `<form>` · `<style>` · inline `style` · all event handlers (`on*`).
+
+If you need a tag outside this list, open an issue — the allowlist
+expands by design, not by escape hatch.
+
+**`id` is plugin-local.** Use a short identifier (e.g. `'display'`).
+The runtime resolves it to `${instanceId ?? name}:${id}` when building
+the React `key` and the wrapper `<div>`'s `data-ampless-plugin` /
+`data-ampless-position` attributes. Do not embed your own namespace
+in `id`. The validator drops descriptors whose `id` is empty,
+contains control characters, or exceeds 64 characters.
+
+**Dedupe is per-position.** Returning the same `id` to both
+`beforeContent` and `afterContent` from a single plugin instance is
+fine — they live in independent dedupe scopes. Returning the same
+`id` twice to the same position keeps only the first occurrence and
+warns.
+
+**Multiple instances.** Two `reading-time` plugin instances with
+distinct `instanceId` (e.g. `reading-time-en` / `reading-time-jp`)
+can both emit `id: 'display'` to the same position; the runtime
+keeps both because the namespaces differ.
+
 ### Client-side DOM mutation: don't
 
 Inline scripts you return from `publicHead` or `publicBodyEnd` execute
@@ -612,10 +711,10 @@ something like `document.body.append(myNewElement)` may not even fire.
   any client-side rewrite of a server-rendered subtree races against
   hydration
 
-For visible per-post output, return JSON-LD via `publicBodyForPost`
-(see §6's `PublicPostBodyDescriptor`) or stick with the theme's own
-templates. A future ampless capability for server-side per-post HTML
-injection is on the roadmap.
+For visible per-post output, use `publicHtmlForPost` (Phase 6d — see
+the example above and §6's `PublicPostHtmlDescriptor`). The runtime
+emits server-side HTML at fixed slots around the post body, so
+nothing races against hydration.
 
 ---
 

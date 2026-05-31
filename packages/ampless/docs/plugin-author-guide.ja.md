@@ -28,6 +28,7 @@ ampless はテーマとプラグインの両方を提供します。用途に合
 | 信頼できる副作用（S3 書き込み・外部 API 送信） | | ✓ (`writePublicAsset` + `trusted`) |
 | テーマに依存しない `<head>` / `<body>` 注入（アナリティクス・同意バナー） | | ✓ (`publicHead` / `publicBodyEnd`) |
 | 投稿単位の機械可読メタデータ（JSON-LD 等） | | ✓ (`schema` via `publicBodyForPost`) |
+| 投稿本文の周囲の可視 HTML（reading-time、breadcrumb、share など） | | ✓ (`publicHtmlForPost`) |
 | 複数の ampless サイトで共有したいコード | | ✓ (npm パッケージとして公開) |
 
 判断の目安:
@@ -67,6 +68,7 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 | `publicHead(ctx)` | root layout の `<head>` | 同期 (async layout から呼ばれる) | 1 |
 | `publicBodyEnd(ctx)` | root layout の `<body>` 末尾 | 同期 | 1 |
 | `publicBodyForPost(post, ctx)` | テーマの post ページテンプレート（投稿単位） | 同期 | 4 |
+| `publicHtmlForPost(post, ctx)` | テーマの post ページテンプレート（投稿単位、可視 HTML） | 同期 | 6d |
 | `ogImage` | `/og/[slug]` ルート | リクエスト時、公開 Lambda 内 | 既存 |
 | `hooks` | trust_level に応じた processor Lambda | 非同期、SQS イベントで起動 | 既存 |
 | `settings.public` | `/admin/plugins` フォーム | 宣言的なマニフェスト | 2 |
@@ -181,6 +183,7 @@ interface AmplessPlugin {
   publicHead?(ctx): readonly PublicHeadDescriptor[]
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
+  publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
   ogImage?: OgImageConfig
   settings?: { public?: readonly PluginSettingField[] }
 }
@@ -309,6 +312,7 @@ SSR がデッドラインなしでブロックします。ネットワーク呼�
 | `publicHead(ctx)` | `PublicHeadDescriptor[]` | 解析ローダー、フォント、jsonld、hreflang |
 | `publicBodyEnd(ctx)` | `PublicBodyDescriptor[]` | GTM no-script フレーム、チャットウィジェット、末尾スニペット |
 | `publicBodyForPost(post, ctx)` | `PublicPostBodyDescriptor[]` | 投稿単位の body 注入 — JSON-LD 構造化データ。テーマの post ページテンプレートが render する |
+| `publicHtmlForPost(post, ctx)` | `PublicPostHtmlDescriptor[]` | 投稿単位の可視 HTML を `beforeContent` / `afterContent` に注入 — reading-time バッジ、breadcrumb、share リンク等。body は runtime が `sanitize-html` の厳格 allowlist で sanitize |
 
 `ctx` オブジェクトの中身:
 
@@ -402,6 +406,21 @@ TypeScript としてサイトと同一の Node プロセスで動きます。des
 
 `meta` / `link` を除いている理由：投稿単位のメタデータは Next.js `generateMetadata()` 経由の `metadata()` サーフェスが担い、フレームワークの deduplication・streaming と統合されている。`publicBodyForPost` は `generateMetadata` が生成できない構造化データ（`<script type="application/ld+json">`）のためだけに存在する。
 
+### `PublicPostHtmlDescriptor`（Phase 6d）
+
+`publicHtmlForPost` は `PublicPostHtmlDescriptor[]` を返します:
+
+```ts
+{
+  type: 'html',
+  id: 'display',                  // plugin-local 短識別子（≤ 64 文字、制御文字不可）
+  position: 'beforeContent' | 'afterContent',
+  body: '<p class="reading-time">約 3 分で読めます</p>',
+}
+```
+
+runtime は `body` を `sanitize-html` の厳格 allowlist で sanitize し（詳しい allowlist と drop 対象は上の `publicHtmlForPost` 例を参照）、結果を `<div data-ampless-plugin="${namespace}" data-ampless-position="${position}">` で wrap します。テーマは `pages/post.tsx` で `{html.beforeContent}` / `{html.afterContent}` を embed するだけで、plugin の出力に対して `dangerouslySetInnerHTML` を書きません。
+
 ### JSON-LD 自動 escape
 
 `scriptType === 'application/ld+json'` のとき、runtime は描画前に **`body` 文字列を自動 escape** する — `<` → `<`、`>` → `>`、`&` → `&`、U+2028 → ` `、U+2029 → ` `。この処理は `inlineScript` を受け付ける 3 つのサーフェス（`publicHead` / `publicBodyEnd` / `publicBodyForPost`）すべてで行われる。プラグイン作者は生の JSON 文字列を返せばよく、自前で escape しなくてよい。
@@ -470,6 +489,60 @@ export default function schemaJsonldPlugin() {
 
 テーマの `pages/post.tsx` が `ampless.publicBodyForPost(post)` を呼び、返された descriptor を描画します。runtime は自動 escape した body を持つ `<script type="application/ld+json">` 要素をページに挿入します。
 
+### `publicHtmlForPost` 例（Phase 6d）
+
+**可視 HTML** を post の周囲に出したいとき（reading-time バッジ、breadcrumb、share リンク、micro-format 注釈など）は `publicHtmlForPost` を使います。runtime が body を sanitize したうえで `beforeContent` / `afterContent` スロットに embed するので、テーマ側で `dangerouslySetInnerHTML` を書く必要はありません。
+
+```typescript
+import { definePlugin } from 'ampless'
+
+export default function readingTimePlugin() {
+  return definePlugin({
+    name: 'reading-time',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+    capabilities: ['publicHtmlForPost'],
+    publicHtmlForPost(post, _ctx) {
+      const words = countWords(post)
+      const minutes = Math.max(1, Math.round(words / 200))
+      return [{
+        type: 'html',
+        id: 'display',
+        position: 'beforeContent',
+        body: `<p class="reading-time" data-words="${words}" data-minutes="${minutes}">約 ${minutes} 分で読めます</p>`,
+      }]
+    },
+  })
+}
+```
+
+テーマの `pages/post.tsx` は `const html = await ampless.publicHtmlForPost(post)` を 1 回呼び、スロットを embed します:
+
+```tsx
+{postBody}            {/* publicBodyForPost — JSON-LD */}
+{html.beforeContent}  {/* publicHtmlForPost — beforeContent スロット */}
+<div className="prose" dangerouslySetInnerHTML={{ __html: renderBody(post) }} />
+{html.afterContent}   {/* publicHtmlForPost — afterContent スロット */}
+```
+
+**スロット位置**（v1）: `'beforeContent'` / `'afterContent'` の 2 つ。
+
+**Sanitizer（厳格、trust level に関わらず同一）:**
+
+- 許可タグ: `p` · `span` · `strong` · `em` · `a` · `code` · `br` · `ul` · `ol` · `li`
+- 許可グローバル属性: `class` · `data-words` · `data-minutes` · `data-ampless-*`
+- 許可 `<a>` 属性: `href` · `rel` · `target`。`target="_blank"` のとき sanitizer が `rel="noopener noreferrer"` を自動付与
+- `href` で許可するスキーム: `http` / `https`。相対 URL (`./path` / `../path` / `/path` / `#anchor`) は素通り。`javascript:` / `data:` / `mailto:` / `tel:` / `vbscript:` は drop
+- drop されるタグ・属性: `<img>` · `<iframe>` · `<video>` · `<audio>` · `<object>` · `<embed>` · `<form>` · `<style>` · インライン `style` · 全 event handler (`on*`)
+
+allowlist 外のタグが必要になった場合は issue を立ててください。allowlist は設計上拡張するものであって、escape hatch ではありません。
+
+**`id` は plugin-local。** 短い識別子（例: `'display'`）を使います。runtime が React `key` および wrapper `<div>` の `data-ampless-plugin` / `data-ampless-position` 属性を組むときに `${instanceId ?? name}:${id}` で resolve するので、plugin 作者が自前で namespace を埋め込む必要はありません。validator は `id` が空、制御文字を含む、64 文字超のいずれかなら descriptor を drop します。
+
+**dedupe は position ごと。** 1 つの plugin instance が `beforeContent` と `afterContent` の両方に同じ `id` を返すのは OK（dedupe スコープが独立）。同じ position に同じ `id` を 2 回返すと最初の 1 件を残して 2 件目を warn 付きで drop します。
+
+**複数 instance。** distinct な `instanceId` を持つ 2 つの `reading-time` instance（例: `reading-time-en` / `reading-time-jp`）は、同じ position に `id: 'display'` を返しても両方残ります（namespace が違うため）。
+
 ### クライアントサイドの DOM 操作はしない
 
 `publicHead` または `publicBodyEnd` から返したインラインスクリプトは、React がページを hydrate する前、HTML のパース中に実行されます。**React が管理するサブツリー内の見える DOM を操作してはいけません** — hydration が走ると React は仮想 DOM と合わないツリーを検出し、`Hydration failed because the server rendered HTML didn't match the client` エラーを投げてサブツリーをゼロから再生成します。挿入したノードは消えてしまいます。
@@ -488,7 +561,7 @@ React 19 はさらに、クライアントコンポーネントのレンダー�
 - テーマが描画した要素のクラス / 属性 / テキストコンテンツの変更
 - クライアントサイドで `#post-body` のような要素を読み取って投稿単位の HTML を挿入する — 現在 `publicHead`-for-post に相当するサーフェスはなく、サーバーレンダリング済みのサブツリーをクライアントサイドで書き換えると hydration と競合します
 
-投稿単位の見える出力には、`publicBodyForPost` 経由で JSON-LD を返す（§6 の `PublicPostBodyDescriptor` 参照）か、テーマ自身のテンプレートを使ってください。サーバーサイドでの投稿単位 HTML 注入はロードマップに載っています。
+投稿単位の見える出力には `publicHtmlForPost` を使ってください（Phase 6d — 上の例と §6 の `PublicPostHtmlDescriptor` 参照）。runtime が post 本文の周囲の固定スロットにサーバーサイド HTML を出すので、hydration と競合しません。
 
 ---
 

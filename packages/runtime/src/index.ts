@@ -39,7 +39,11 @@ import {
   type EffectiveSiteSettings,
 } from './site-settings.js'
 import { createSeo, type SeoApi } from './seo.js'
-import { createPluginHead, type PluginHeadApi } from './plugin-head.js'
+import {
+  createPluginHead,
+  type PluginHeadApi,
+  type PublicHtmlForPostResult,
+} from './plugin-head.js'
 import {
   createPluginSettings,
   type PluginSettingsApi,
@@ -180,6 +184,16 @@ export interface Ampless {
    * runtime auto-escapes `<`, `>`, `&`, U+2028, U+2029 in the body.
    */
   publicBodyForPost(post: Post): Promise<ReactNode>
+  /**
+   * Per-post visible HTML aggregated across all installed plugins
+   * (Phase 6d `publicHtmlForPost` capability). Returns a position-
+   * bucketed result — themes embed `{html.beforeContent}` and
+   * `{html.afterContent}` around the post body. The runtime sanitizes
+   * every descriptor body with `sanitize-html` under a strict allowlist
+   * before wrapping it in a keyed `<div>` — themes never call
+   * `dangerouslySetInnerHTML` themselves.
+   */
+  publicHtmlForPost(post: Post): Promise<PublicHtmlForPostResult>
 
   // rendering
   renderBody(post: Post): string
@@ -243,6 +257,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     publicHead: () => pluginHead.renderHead(),
     publicBodyEnd: () => pluginHead.renderBodyEnd(),
     publicBodyForPost: (post) => pluginHead.renderBodyForPost(post),
+    publicHtmlForPost: (post) => pluginHead.renderHtmlForPost(post),
 
     renderBody: (post) => renderBody(post),
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),
@@ -271,3 +286,4 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
 // package names. This is a convenience, not a replacement — anything
 // not directly used by the runtime API stays in `ampless`.
 export type { Post, Config, ThemeManifest }
+export type { PublicHtmlForPostResult }
