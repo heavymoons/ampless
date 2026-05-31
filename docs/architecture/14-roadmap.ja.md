@@ -43,6 +43,7 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 - [x] Phase 3: trust-level ドッグフード。Phase 3a 完了 — `@ampless/plugin-gtm` + `@ampless/plugin-plausible`（untrusted）を新規バンドルプラグインとして ship、Phase 1/2 の descriptor + admin 設定 API を実物で叩く。Phase 3c 完了 — `writePublicAsset` を runtime key validation + `instanceId ?? name` namespace 強制付きで正式化し、既存 `seo` / `rss` が新 capability surface を宣言。Phase 3b 完了 — `PluginRepeatableField`（object のリスト型 setting）+ `@ampless/plugin-cookie-consent`（untrusted）+ Consent Convention 規約（`window.amplessConsent` グローバル API + 標準イベント）、GA4 / GTM / Plausible には `consentCategory?: string` で gated mode を実装
 - [x] Phase 4: 投稿単位 body 注入 API（`publicBodyForPost`）+ `schema` capability + JSON-LD 自動 escape（`escapeJsonLdInlineBody`）。同梱第 1 弾：`@ampless/plugin-schema-jsonld`（untrusted）。テーマの post ページテンプレートが `ampless.publicBodyForPost(post)` を呼んで `<script type="application/ld+json">` 要素を描画
 - [x] Phase 5: モノレポ外プラグインの npm install 検証 — 静的 `package.json#amplessPlugin` manifest 規約 + runtime cross-check、`npx create-ampless plugin <name>` scaffold subcommand、プラグイン作者ガイド書き直し。`@ishinao/ampless-plugin-site-verification` を npm 公開して ishinao.net で実装インストール検証済み
+- [x] Phase 6d: `publicHtmlForPost` capability + `PublicPostHtmlDescriptor` 型 + `@ampless/runtime` への `sanitize-html` サニタイズ層。同梱第 1 弾：`@ampless/plugin-reading-time`（untrusted）— 英語語数 + CJK 文字数換算による読了時間バッジ。ラベルテンプレートと位置は admin から編集可能。
 - [ ] Phase 6+（各々独立 RFP）: secret settings 保存先、developer 拡張 capability (`adminPage` / `serverRoute` / `contentFields` / ...)
 
 #### コンテンツ周り

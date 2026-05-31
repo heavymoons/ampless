@@ -121,6 +121,10 @@ Capabilities currently active:
 | `adminSettings` | admin-editable settings declared via `settings.public[]` |
 | `writePublicAsset` | trusted plugins can write namespaced files under `public/plugins/<instanceId>/...` |
 | `schema` | per-post JSON-LD via `publicBodyForPost` (theme template must call `ampless.publicBodyForPost(post)`) |
+| `publicHtmlForPost` | per-post visible HTML (e.g. reading-time badge, breadcrumbs) via `publicHtmlForPost` (theme template must call `ampless.publicHtmlForPost(post)`) |
+
+**First-party plugins that use `publicHtmlForPost`:**
+- `@ampless/plugin-reading-time` — estimates read time from the post body and injects a configurable badge before or after the content.
 
 [guide]: https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md
 

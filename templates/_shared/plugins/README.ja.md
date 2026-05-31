@@ -118,6 +118,10 @@ export default defineConfig({
 | `adminSettings` | `settings.public[]` で宣言する admin 編集可能な設定 |
 | `writePublicAsset` | trusted plugin が `public/plugins/<instanceId>/...` に書き込み |
 | `schema` | post ごとの JSON-LD を `publicBodyForPost` 経由で (テーマ側で `ampless.publicBodyForPost(post)` を呼ぶ前提) |
+| `publicHtmlForPost` | post ごとの可視 HTML（読了時間バッジ等）を `publicHtmlForPost` 経由で（テーマ側で `ampless.publicHtmlForPost(post)` を呼ぶ前提） |
+
+**`publicHtmlForPost` を使うファーストパーティプラグイン:**
+- `@ampless/plugin-reading-time` — 投稿本文から読了時間を推定し、本文の前後に設定可能なバッジを注入します。
 
 [guide]: https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md
 
