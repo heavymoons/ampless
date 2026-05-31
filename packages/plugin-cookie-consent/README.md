@@ -31,7 +31,7 @@ export default defineConfig({
     // List cookie-consent FIRST so its window.amplessConsent API is
     // available when subsequent analytics plugins initialise.
     cookieConsentPlugin(),
-    // analyticsGa4Plugin({ ... }),  // PR D — coming soon
+    // analyticsGa4Plugin({ measurementId: 'G-XXXXXXXX', consentCategory: 'analytics' }),
   ],
 })
 ```
@@ -49,6 +49,7 @@ Configure from `/admin/plugins → Cookie Consent`:
 | `bannerText` | textarea | `'This site uses cookies…'` | Message shown at the top of the banner. |
 | `acceptLabel` | text | `'Accept all'` | Label for the "accept all" button. |
 | `rejectLabel` | text | `'Reject non-essential'` | Label for the "reject" button. |
+| `saveLabel` | text | `'Save selected'` | Label for the button that persists the per-category toggle state as the visitor checked it. |
 | `position` | select | `'bottom'` | `'bottom'` / `'top'` / `'modal'`. |
 | `categories` | repeatable | `[]` | List of consent categories. |
 
@@ -97,9 +98,9 @@ Consent state is persisted in `localStorage` under the key `'ampless:consent'` a
 
 For the full API specification and the analytics consume pattern see [`docs/architecture/08-plugin-architecture.md` — Consent Convention](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#consent-convention).
 
-## Combining with analytics plugins (coming in PR D)
+## Combining with analytics plugins
 
-Once GA4, GTM, and Plausible plugins add `consentCategory` support (Phase 3b PR D), you can gate them like this:
+The bundled `@ampless/plugin-analytics-ga4`, `@ampless/plugin-gtm`, and `@ampless/plugin-plausible` plugins all support `consentCategory`:
 
 ```ts
 plugins: [
@@ -109,9 +110,7 @@ plugins: [
 ]
 ```
 
-With `consentCategory` set, the analytics plugin will not fire until the visitor grants consent for that category. If `window.amplessConsent` is not installed (i.e. `cookieConsentPlugin` is missing from `cms.config.ts`), tracking will **never fire** — this is the intended fail-closed design.
-
-> **Note:** `consentCategory` support in GA4, GTM, and Plausible is implemented in Phase 3b PR D (not yet released).
+With `consentCategory` set, the analytics plugin will not fire until the visitor grants consent for that category. If `window.amplessConsent` is not installed (i.e. `cookieConsentPlugin` is missing from `cms.config.ts`), tracking will **never fire** — this is the intended fail-closed design (a `console.warn` surfaces the misconfiguration after 5s).
 
 ## Trust level
 

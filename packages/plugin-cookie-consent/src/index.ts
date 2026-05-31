@@ -145,6 +145,20 @@ export default function cookieConsentPlugin(
           default: 'Reject non-essential',
         },
         {
+          type: 'text',
+          key: 'saveLabel',
+          maxLength: 50,
+          label: {
+            en: 'Save-selected button label',
+            ja: '「選択を保存」ボタンのラベル',
+          },
+          description: {
+            en: 'Label for the button that saves the per-category toggle state without granting (or rejecting) everything.',
+            ja: '個別トグルの状態をそのまま保存するボタンのラベル。「全て同意」「全て拒否」とは別の選択肢。',
+          },
+          default: 'Save selected',
+        },
+        {
           type: 'select',
           key: 'position',
           label: {
@@ -345,12 +359,15 @@ export default function cookieConsentPlugin(
       const rejectLabel =
         (ctx.setting<string>('rejectLabel') ?? '').trim() ||
         'Reject non-essential'
+      const saveLabel =
+        (ctx.setting<string>('saveLabel') ?? '').trim() || 'Save selected'
       const position = ctx.setting<string>('position') ?? 'bottom'
 
       // Escape user-supplied strings for embedding as JS string literals.
       const bannerTextJs = escapeJsString(bannerText)
       const acceptLabelJs = escapeJsString(acceptLabel)
       const rejectLabelJs = escapeJsString(rejectLabel)
+      const saveLabelJs = escapeJsString(saveLabel)
 
       // Encode non-essential categories for banner UI.
       const nonEssentialJson = JSON.stringify(
@@ -408,6 +425,7 @@ export default function cookieConsentPlugin(
             `  var bannerText = '${bannerTextJs}';`,
             `  var acceptLabel = '${acceptLabelJs}';`,
             `  var rejectLabel = '${rejectLabelJs}';`,
+            `  var saveLabel = '${saveLabelJs}';`,
             '',
             "  // Build banner DOM outside React tree (avoids hydration conflicts).",
             "  var container = document.createElement('div');",
@@ -494,7 +512,7 @@ export default function cookieConsentPlugin(
             '  // Save selected (granular toggle state).',
             "  var saveBtn = document.createElement('button');",
             "  saveBtn.style.cssText = btnBase + 'background:#fff;color:#111;';",
-            "  saveBtn.textContent = 'Save selected';",
+            '  saveBtn.textContent = saveLabel;',
             "  saveBtn.addEventListener('click', function() {",
             '    nonEssential.forEach(function(cat) {',
             '      if (window.amplessConsent) window.amplessConsent.set(cat.id, toggleState[cat.id] === true);',

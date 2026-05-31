@@ -47,10 +47,9 @@ Shipped from this monorepo, published under `@ampless/` on npm:
 - `@ampless/plugin-gtm` — Google Tag Manager head + body injection (loader script in `<head>`, `<noscript>` iframe fallback at end of `<body>`) with the container ID editable from `/admin/plugins`. untrusted.
 - `@ampless/plugin-plausible` — Plausible Analytics head injection (privacy-focused, cookie-free). Site domain + script URL editable from `/admin/plugins`; `scriptUrl` defaults to the hosted plausible.io but can be overridden for self-hosted installs. untrusted.
 - `@ampless/plugin-schema-jsonld` — per-post Article / structured-data JSON-LD via `publicBodyForPost`. The theme's post page template calls `ampless.publicBodyForPost(post)` and injects the returned `<script type="application/ld+json">` element. untrusted. (Phase 4)
+- `@ampless/plugin-cookie-consent` — GDPR/ePrivacy cookie consent banner. Installs the `window.amplessConsent` Consent Convention API (`has` / `isSet` / `on` / `set` + the `ampless:consent-ready` / `ampless:consent-changed` events) so other plugins can gate themselves on user consent. Configures categories via the `PluginRepeatableField` setting type. The GA4 / GTM / Plausible plugins each support a `consentCategory?: string` option that switches them into a gated mode (single inlineScript that defers loading until consent is granted). untrusted. (Phase 3b)
 
-The first-party set is being expanded along the plugin extension roadmap ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)). Future additions also exercise the descriptor-based head/body injection API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)):
-
-- `@ampless/plugin-cookie-consent` — Phase 3b dogfood candidate, exercising `publicBodyEnd` + the repeatable settings field.
+The first-party set is being expanded along the plugin extension roadmap ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)). Future additions also exercise the descriptor-based head/body injection API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)).
 
 The existing `seo` / `rss` plugins migrate to the new capability + descriptor surface in Phase 3c ([docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md), pending) while keeping their existing behaviour as backward-compatible defaults.
 
