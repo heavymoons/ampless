@@ -54,12 +54,17 @@ export interface AmplessPlugin {
   // Phase 4 (implemented). Capability: `schema`.
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
 
+  // Per-post visible HTML — descriptor arrays sanitized and rendered by the
+  // theme's post page template at the beforeContent / afterContent slots.
+  // Phase 6d (implemented). Capability: `publicHtmlForPost`.
+  publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
+
   // Dynamic OG image — rendered at request time via Next.js ImageResponse.
   ogImage?: OgImageConfig
 }
 ```
 
-`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` are the **Phase 1 extension** to the contract — type additions are part of the Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)). `publicBodyForPost` is the **Phase 4 extension** — per-post body injection, primarily for JSON-LD structured data. Existing first-party plugins (`seo`, `rss`, `og-image`, `webhook`) continue to work without declaring these fields.
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` are the **Phase 1 extension** to the contract — type additions are part of the Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)). `publicBodyForPost` is the **Phase 4 extension** — per-post body injection, primarily for JSON-LD structured data. `publicHtmlForPost` is the **Phase 6d extension** — per-post visible HTML for things like reading-time badges, breadcrumbs, share links. Existing first-party plugins (`seo`, `rss`, `og-image`, `webhook`) continue to work without declaring these fields.
 
 A plugin combines any of these surfaces. Activation is a single line in the project's `cms.config.ts`:
 
@@ -95,6 +100,12 @@ Phase 4 additions:
 | capability | meaning | default-allowed trust_level |
 |---|---|---|
 | `schema` | `publicBodyForPost()` — per-post body injection, primarily JSON-LD structured data; rendered by the theme's post page template (Phase 4, implemented) | `untrusted` and up |
+
+Phase 6d additions:
+
+| capability | meaning | default-allowed trust_level |
+|---|---|---|
+| `publicHtmlForPost` | `publicHtmlForPost()` — per-post **visible HTML** at the `beforeContent` / `afterContent` slots of the theme's post page (Phase 6d, implemented). Body is sanitized by the runtime under a strict `sanitize-html` allowlist; same sanitize is applied to every trust level. | `untrusted` and up |
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
@@ -147,6 +158,7 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 | `metadata` / `siteMetadata` | Public Next.js process (request thread) | Inside theme components / `generateMetadata()` |
 | `publicHead` / `publicBodyEnd` | Public Next.js process — root layout | Site-wide render. |
 | `publicBodyForPost` | Public Next.js process — theme post page template | Per-post render. Called from `pages/post.tsx` (or equivalent); `scriptType: 'application/ld+json'` required. |
+| `publicHtmlForPost` | Public Next.js process — theme post page template | Per-post render. Called from `pages/post.tsx`; bodies are sanitized under a strict `sanitize-html` allowlist and embedded at the `beforeContent` / `afterContent` slots. |
 | `ogImage` | Public Next.js process — typically `app/og/[slug]/route.ts` | When an OG-image URL is requested |
 
 `hooks` is the async side of plugins. `metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` are the sync side and execute inside the public site, with no AWS data permissions — they're pure or read-only over what's already passed in. None of these sync surfaces are affected by the plugin's `trust_level` IAM role; the role only governs `hooks`.
@@ -167,6 +179,31 @@ Full descriptor types and the validation contract live in [docs/tmp/plugin-exten
 ### JSON-LD auto-escape
 
 When an `inlineScript` descriptor carries `scriptType: 'application/ld+json'`, the runtime **automatically escapes the `body` string** before rendering — `<` → `<`, `>` → `>`, `&` → `&`, U+2028 → ` `, U+2029 → ` ` (via `escapeJsonLdInlineBody`). This applies across all three surfaces that accept `inlineScript` descriptors (`publicHead`, `publicBodyEnd`, `publicBodyForPost`). Plugin authors should return the raw JSON string; do not pre-escape it.
+
+### `publicHtmlForPost` — per-post visible HTML
+
+`publicHtmlForPost(post, ctx)` returns descriptors for **visible HTML** the theme embeds around the post body. v1 ships two fixed slots:
+
+| `position` | Theme placement |
+|---|---|
+| `'beforeContent'` | Just before the rendered post body (`renderBody(post)`) — typical use: reading-time badge, breadcrumb, byline strip. |
+| `'afterContent'` | Just after the rendered post body — typical use: share links, related-posts widget, edit-on-GitHub footer. |
+
+The hook returns sync (`readonly PublicPostHtmlDescriptor[]`), same as `publicBodyForPost`. Themes call `await ampless.publicHtmlForPost(post)` (Promise — settings are read once per request) and embed `{html.beforeContent}` / `{html.afterContent}` directly. The runtime owns sanitize / wrapper / dedupe / namespace resolution; themes never call `dangerouslySetInnerHTML` themselves.
+
+**Sanitizer (`sanitize-html`, strict profile).** Every descriptor body is passed through `sanitize-html` before rendering, regardless of `trust_level`. The allowlist is:
+
+- Tags: `p` · `span` · `strong` · `em` · `a` · `code` · `br` · `ul` · `ol` · `li`
+- Global attributes: `class` · `data-words` · `data-minutes` · `data-ampless-*`
+- `<a>` attributes: `href` · `rel` · `target`
+- URL schemes on `href`: `http` / `https` (plus relative `./path` / `../path` / `/path` / `#anchor` — schemeless URLs always pass)
+- When `target="_blank"` is set, the sanitizer auto-injects `rel="noopener noreferrer"`
+
+Explicitly rejected: `<img>` · `<iframe>` · `<video>` · `<audio>` · `<object>` · `<embed>` · `<form>` · `<style>` · inline `style` attribute · all event handlers (`on*`) · `data:` / `javascript:` / `vbscript:` / `mailto:` / `tel:` schemes. Pass-through (raw HTML) is not offered as a trust-level escape hatch in v1 — if it's ever needed it will land as a separate, explicitly-named capability.
+
+**`id` is plugin-local.** Descriptors carry a short `id` (e.g. `'display'`) used for dedupe and React `key`. Plugin authors do not embed their own namespace in `id`; the runtime resolves it to `${instanceId ?? name}:${id}` when wrapping the entry. The validator drops descriptors whose `id` is empty, contains control characters, or exceeds 64 characters (with a dev warning).
+
+**Dedupe is per-position.** `beforeContent` and `afterContent` each maintain an independent seen-id set, keyed by `${namespace}:${id}`. The same plugin instance returning `'display'` to both positions yields two distinct entries; two plugin instances returning `'display'` to the same position are both kept because their namespaces differ; a single plugin instance returning `'display'` twice to the same position keeps the first occurrence and warns.
 
 ### Surface-dependent `scriptType` strictness
 
@@ -225,6 +262,8 @@ The runtime checks for declaration-vs-implementation mismatches at startup and w
 | `writePublicAsset` not declared but `ctx.writePublicAsset()` called | at first call |
 | `schema` declared but `publicBodyForPost` not implemented | at startup |
 | `publicBodyForPost` implemented but `schema` not declared | at startup |
+| `publicHtmlForPost` declared but `publicHtmlForPost` not implemented | at startup |
+| `publicHtmlForPost` implemented but `publicHtmlForPost` not declared | at startup |
 
 ### API Versioning
 

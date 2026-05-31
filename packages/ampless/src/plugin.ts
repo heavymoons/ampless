@@ -35,6 +35,8 @@ export type PluginCapability =
   | 'writePublicAsset'
   // Phase 4 active
   | 'schema'
+  // Phase 6d active
+  | 'publicHtmlForPost'
   // Reserved (name-only; later phases)
   | 'contentFields'
   | 'adminPage'
@@ -203,6 +205,31 @@ export type PublicPostBodyDescriptor = Extract<
   /** Required for `publicBodyForPost`; the runtime drops any descriptor
    *  whose scriptType is not 'application/ld+json'. */
   scriptType: 'application/ld+json'
+}
+
+/**
+ * Slot positions for `publicHtmlForPost` descriptors. v1 ships two
+ * fixed slots; additional slots (beforeTitle / sidebar / etc) are
+ * deferred until dogfood reveals the need.
+ */
+export type PublicPostHtmlPosition = 'beforeContent' | 'afterContent'
+
+/**
+ * Per-post visible HTML descriptor returned by `publicHtmlForPost`.
+ * The runtime sanitizes `body` with `sanitize-html` under a strict
+ * allowlist before rendering; see the plugin-author guide for how
+ * trusted plugins compose with the public surface.
+ *
+ * `id` is a plugin-local short identifier (e.g. `'display'`). The
+ * runtime resolves it to `${instanceId ?? name}:${id}` when building
+ * the React wrapper key — plugin authors do not embed their own
+ * namespace in `id`.
+ */
+export interface PublicPostHtmlDescriptor {
+  type: 'html'
+  id: string
+  body: string
+  position: PublicPostHtmlPosition
 }
 
 /**
@@ -605,6 +632,31 @@ export interface AmplessPlugin {
     post: Post,
     ctx: PluginPublicRenderContext,
   ): readonly PublicPostBodyDescriptor[]
+  /**
+   * Per-post visible HTML descriptors (Phase 6d). Themes render the
+   * result by calling `ampless.publicHtmlForPost(post)` in their post
+   * template; descriptors emit inside `<body>` at the `beforeContent`
+   * or `afterContent` slot relative to the post prose. Primary use
+   * cases: reading-time badge, breadcrumb, share links, micro-format
+   * annotations.
+   *
+   * Each descriptor's `body` is sanitized by the runtime under a
+   * strict `sanitize-html` allowlist before rendering — plugin authors
+   * may NOT call `dangerouslySetInnerHTML` themselves. The runtime
+   * wraps each surviving entry in a keyed `<div>` with the sanitized
+   * HTML.
+   *
+   * Plugin-local `id` (e.g. `'display'`) is namespace-resolved to
+   * `${instanceId ?? name}:${id}` by the runtime. Plugin authors do
+   * not embed their own namespace in `id`.
+   *
+   * Plugins implementing this should declare the `'publicHtmlForPost'`
+   * capability.
+   */
+  publicHtmlForPost?(
+    post: Post,
+    ctx: PluginPublicRenderContext,
+  ): readonly PublicPostHtmlDescriptor[]
   /**
    * Dynamic OG image renderer. The dispatcher route (e.g.
    * `app/og/[slug]/route.ts`) reads this and feeds the element into

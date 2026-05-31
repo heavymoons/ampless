@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { isValidElement, Fragment, type ReactElement } from 'react'
+import { isValidElement, Fragment, type ReactElement, type ReactNode } from 'react'
 import {
   definePlugin,
   type Config,
   type PublicHeadDescriptor,
+  type PublicPostHtmlDescriptor,
   type Post,
 } from 'ampless'
 import { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
@@ -1176,6 +1177,606 @@ describe('crossCheckStaticManifest (via createPluginHead)', () => {
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(
       messages.some((m: string) => m.includes('capabilities mismatch'))
+    ).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 6d — publicHtmlForPost
+// ---------------------------------------------------------------------------
+
+describe('renderHtmlForPost(post) — Phase 6d', () => {
+  const samplePost: Post = {
+    postId: 'p1',
+    slug: 'hello',
+    title: 'Hello',
+    format: 'markdown',
+    body: '',
+    status: 'published',
+  }
+
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  // Build a plugin that returns one descriptor with a custom body / id / position.
+  function htmlPlugin(opts: {
+    name?: string
+    instanceId?: string
+    descriptors: readonly PublicPostHtmlDescriptor[]
+    capabilities?: ('publicHtmlForPost' | 'publicHead' | 'schema')[]
+  }) {
+    return definePlugin({
+      name: opts.name ?? 'reading-time',
+      ...(opts.instanceId ? { instanceId: opts.instanceId } : {}),
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: opts.capabilities ?? ['publicHtmlForPost'],
+      publicHtmlForPost() {
+        return opts.descriptors
+      },
+    })
+  }
+
+  // Helpers ------------------------------------------------------------------
+
+  // Pull the sanitized __html out of a position result. The aggregator
+  // wraps entries in <Fragment><div ... dangerouslySetInnerHTML /></Fragment>.
+  function htmlsOf(node: ReactNode | null): string[] {
+    if (node === null || node === undefined) return []
+    if (!isValidElement(node)) return []
+    expect(node.type).toBe(Fragment)
+    const children = (node.props as { children?: unknown }).children
+    const arr = Array.isArray(children)
+      ? (children as ReactElement[])
+      : children
+        ? [children as ReactElement]
+        : []
+    return arr.map((el) => {
+      const props = el.props as { dangerouslySetInnerHTML?: { __html: string } }
+      return props.dangerouslySetInnerHTML?.__html ?? ''
+    })
+  }
+
+  function divsOf(node: ReactNode | null): ReactElement[] {
+    if (node === null || node === undefined) return []
+    if (!isValidElement(node)) return []
+    expect(node.type).toBe(Fragment)
+    const children = (node.props as { children?: unknown }).children
+    const arr = Array.isArray(children)
+      ? (children as ReactElement[])
+      : children
+        ? [children as ReactElement]
+        : []
+    return arr
+  }
+
+  // Sanitize: dangerous content removal --------------------------------------
+
+  it('drops <script> tags', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<p>ok</p><script>alert(1)</script>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    const [html] = htmlsOf(beforeContent)
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('alert(1)')
+  })
+
+  it('strips inline style attribute', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<p style="color:red">x</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('style')
+    expect(html).toContain('<p')
+  })
+
+  it('strips inline event handlers (onclick)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<p onclick="evil()">x</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('evil')
+  })
+
+  it('drops <img> tags', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<p>ok</p><img src=x>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('<img')
+  })
+
+  it('drops <iframe> tags', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<iframe src="x"></iframe>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('<iframe')
+  })
+
+  it('drops <style> tags', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<style>body{display:none}</style><p>ok</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('<style')
+    expect(html).not.toContain('display:none')
+  })
+
+  // Sanitize: URL allow/deny -------------------------------------------------
+
+  it('drops <a href="javascript:..."> (scheme not in allowlist)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="javascript:alert(1)">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('javascript:')
+  })
+
+  it('drops <a href="data:..."> (scheme not in allowlist)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="data:text/html,x">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('data:')
+  })
+
+  it('drops <a href="mailto:..."> (scheme not in allowlist)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="mailto:x@x.com">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('mailto:')
+  })
+
+  it('drops <a href="tel:..."> (scheme not in allowlist)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="tel:+1234">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).not.toContain('tel:')
+  })
+
+  it('keeps <a href="https://..."> (https allowed)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="https://example.com">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('href="https://example.com"')
+  })
+
+  it('keeps <a href="/path"> (absolute internal)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="/path">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('href="/path"')
+  })
+
+  it('keeps <a href="./path"> (relative)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="./path">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('href="./path"')
+  })
+
+  it('keeps <a href="../path"> (relative parent)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="../path">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('href="../path"')
+  })
+
+  it('keeps <a href="#anchor"> (hash)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="#anchor">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('href="#anchor"')
+  })
+
+  // Sanitize: rel transform on target="_blank" -------------------------------
+
+  it('adds rel="noopener noreferrer" when target="_blank" and no rel', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'd', position: 'beforeContent', body: '<a href="https://x.com" target="_blank">x</a>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('noopener')
+    expect(html).toContain('noreferrer')
+  })
+
+  it('does not duplicate noopener when target="_blank" rel="noopener" already set', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        {
+          type: 'html',
+          id: 'd',
+          position: 'beforeContent',
+          body: '<a href="https://x.com" target="_blank" rel="noopener">x</a>',
+        },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    // Should contain exactly one 'noopener'
+    expect(html.match(/noopener/g)?.length).toBe(1)
+    expect(html).toContain('noreferrer')
+  })
+
+  // Sanitize: allowed attribute pass-through ---------------------------------
+
+  it('keeps class / data-words / data-minutes / data-ampless-* attributes', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        {
+          type: 'html',
+          id: 'd',
+          position: 'beforeContent',
+          body: '<p class="reading-time" data-words="100" data-minutes="3" data-ampless-foo="y">x</p>',
+        },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [html] = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(html).toContain('class="reading-time"')
+    expect(html).toContain('data-words="100"')
+    expect(html).toContain('data-minutes="3"')
+    expect(html).toContain('data-ampless-foo="y"')
+  })
+
+  // Descriptor shape validation ----------------------------------------------
+  //
+  // The type narrows the descriptor to PublicPostHtmlDescriptor, but a JS
+  // plugin or one that uses unsafe casts can hand us anything. Without the
+  // shape guard, the subsequent validateHtmlId / sanitizeHtml calls would
+  // throw TypeError and the post page render would fail open. Each of
+  // these cases must drop + warn, not throw.
+
+  it('drops non-object descriptor (null) and warns', async () => {
+    const plugin = htmlPlugin({
+      // Cast: pretend the plugin handed us a null where a descriptor was expected.
+      descriptors: [null as unknown as PublicPostHtmlDescriptor],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent, afterContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    expect(afterContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('must be an object'))).toBe(true)
+  })
+
+  it('drops descriptor with wrong type field and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'script', id: 'display', position: 'beforeContent', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"type" must be "html"'))).toBe(true)
+  })
+
+  it('drops descriptor with non-string id (undefined) and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: undefined, position: 'beforeContent', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"id" must be a string'))).toBe(true)
+  })
+
+  it('drops descriptor with non-string body (undefined) and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'beforeContent', body: undefined } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"body" must be a string'))).toBe(true)
+  })
+
+  it('drops descriptor with unknown position ("sidebar") rather than mis-bucketing it', async () => {
+    // Regression: before runtime shape validation the position field was
+    // trusted blindly, and any non-"beforeContent" value silently fell into
+    // the afterContent bucket. Now invalid positions are rejected outright.
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'sidebar', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent, afterContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    expect(afterContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"position" must be'))).toBe(true)
+  })
+
+  it('drops malformed descriptor but keeps the valid sibling in the same array', async () => {
+    // Ensures one bad descriptor doesn't poison the whole publicHtmlForPost
+    // return value from a single plugin.
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'broken', position: 'sidebar', body: '<p>bad</p>' } as unknown as PublicPostHtmlDescriptor,
+        { type: 'html', id: 'good', position: 'beforeContent', body: '<p>ok</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    const els = divsOf(beforeContent)
+    expect(els).toHaveLength(1)
+    const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+      .dangerouslySetInnerHTML.__html
+    expect(html).toContain('<p>ok</p>')
+  })
+
+  // id validation ------------------------------------------------------------
+
+  it('drops descriptor with empty id and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [{ type: 'html', id: '', position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"id" must not be empty'))).toBe(true)
+  })
+
+  it('drops descriptor with control character in id and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [{ type: 'html', id: 'a\x00b', position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('control characters'))).toBe(true)
+  })
+
+  it('drops descriptor with id longer than 64 chars and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [{ type: 'html', id: 'a'.repeat(65), position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('exceeds 64'))).toBe(true)
+  })
+
+  it('accepts valid id ("display")', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [{ type: 'html', id: 'display', position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    const els = divsOf(beforeContent)
+    expect(els).toHaveLength(1)
+  })
+
+  // Dedupe / namespace -------------------------------------------------------
+
+  it('drops second descriptor with same id from same plugin instance + warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'beforeContent', body: '<p>first</p>' },
+        { type: 'html', id: 'display', position: 'beforeContent', body: '<p>second</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const htmls = htmlsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(htmls).toHaveLength(1)
+    expect(htmls[0]).toContain('first')
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('duplicate'))).toBe(true)
+  })
+
+  it('keeps same id from two different namespaces (instanceId disambiguates)', async () => {
+    const a = htmlPlugin({
+      name: 'reading-time',
+      instanceId: 'reading-time-en',
+      descriptors: [{ type: 'html', id: 'display', position: 'beforeContent', body: '<p>en</p>' }],
+    })
+    const b = htmlPlugin({
+      name: 'reading-time',
+      instanceId: 'reading-time-jp',
+      descriptors: [{ type: 'html', id: 'display', position: 'beforeContent', body: '<p>jp</p>' }],
+    })
+    const head = createPluginHead(makeConfig([a, b]), emptySettings)
+    const els = divsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(els).toHaveLength(2)
+    expect(els[0]!.key).toBe('reading-time-en:display')
+    expect(els[1]!.key).toBe('reading-time-jp:display')
+  })
+
+  it('keeps same id across different positions (dedupe scope is per-position)', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'beforeContent', body: '<p>before</p>' },
+        { type: 'html', id: 'display', position: 'afterContent', body: '<p>after</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const result = await head.renderHtmlForPost(samplePost)
+    expect(htmlsOf(result.beforeContent)).toHaveLength(1)
+    expect(htmlsOf(result.afterContent)).toHaveLength(1)
+  })
+
+  // Aggregation --------------------------------------------------------------
+
+  it('isolates a plugin that throws — other plugins still render', async () => {
+    const bad = definePlugin({
+      name: 'bad',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHtmlForPost'],
+      publicHtmlForPost() {
+        throw new Error('boom')
+      },
+    })
+    const good = htmlPlugin({
+      name: 'good',
+      descriptors: [{ type: 'html', id: 'd', position: 'beforeContent', body: '<p>ok</p>' }],
+    })
+    const head = createPluginHead(makeConfig([bad, good]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(htmlsOf(beforeContent)).toHaveLength(1)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('threw inside publicHtmlForPost'))).toBe(true)
+  })
+
+  it('returns both slots null when no descriptors contributed', async () => {
+    const head = createPluginHead(makeConfig([]), emptySettings)
+    const result = await head.renderHtmlForPost(samplePost)
+    expect(result.beforeContent).toBeNull()
+    expect(result.afterContent).toBeNull()
+  })
+
+  it('returns beforeContent only when no afterContent descriptors', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [{ type: 'html', id: 'd', position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const result = await head.renderHtmlForPost(samplePost)
+    expect(result.beforeContent).not.toBeNull()
+    expect(result.afterContent).toBeNull()
+  })
+
+  it('returns both slots populated when both positions have descriptors', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'a', position: 'beforeContent', body: '<p>before</p>' },
+        { type: 'html', id: 'b', position: 'afterContent', body: '<p>after</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const result = await head.renderHtmlForPost(samplePost)
+    expect(htmlsOf(result.beforeContent)).toHaveLength(1)
+    expect(htmlsOf(result.afterContent)).toHaveLength(1)
+  })
+
+  // Wrapper element shape ----------------------------------------------------
+
+  it('wraps each entry in a <div> with data-ampless-plugin + data-ampless-position', async () => {
+    const plugin = htmlPlugin({
+      name: 'reading-time',
+      descriptors: [{ type: 'html', id: 'display', position: 'beforeContent', body: '<p>x</p>' }],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const [el] = divsOf((await head.renderHtmlForPost(samplePost)).beforeContent)
+    expect(el!.type).toBe('div')
+    const props = el!.props as Record<string, string>
+    expect(props['data-ampless-plugin']).toBe('reading-time')
+    expect(props['data-ampless-position']).toBe('beforeContent')
+  })
+
+  // Capability mismatch ------------------------------------------------------
+
+  it('warns when publicHtmlForPost implemented but capability not declared', () => {
+    const plugin = definePlugin({
+      name: 'reading-time',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'], // intentionally missing 'publicHtmlForPost'
+      publicHtmlForPost() {
+        return []
+      },
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some(
+        (m: string) =>
+          m.includes('implements `publicHtmlForPost`') &&
+          m.includes('not in declared capabilities')
+      )
+    ).toBe(true)
+  })
+
+  it('warns when capability declared but publicHtmlForPost not implemented', () => {
+    const plugin = definePlugin({
+      name: 'reading-time',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHtmlForPost'],
+      // intentionally no publicHtmlForPost
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(
+      messages.some(
+        (m: string) =>
+          m.includes('declares capability "publicHtmlForPost"') &&
+          m.includes('no `publicHtmlForPost` implementation')
+      )
     ).toBe(true)
   })
 })

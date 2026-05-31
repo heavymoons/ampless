@@ -29,6 +29,7 @@ export default async function CorporatePost({ params }: PostCtx) {
   if (!post) notFound()
 
   const postBody = await ampless.publicBodyForPost(post)
+  const html = await ampless.publicHtmlForPost(post)
 
   const defaultLightbox = settings.media.imageDisplay === 'lightbox'
   const maxWidth = settings.media.imageMaxWidth ?? '100%'
@@ -68,12 +69,16 @@ export default async function CorporatePost({ params }: PostCtx) {
 
           {postBody}
 
+          {html.beforeContent}
+
           <div
             id="post-body"
             className="prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
             style={proseStyle}
             dangerouslySetInnerHTML={{ __html: renderBody(post) }}
           />
+
+          {html.afterContent}
 
           <TagList tags={post.tags} className="mt-8 border-t pt-6" />
         </article>

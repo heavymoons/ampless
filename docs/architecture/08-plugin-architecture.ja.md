@@ -51,12 +51,18 @@ export interface AmplessPlugin {
   // Phase 4 (実装済み)。capability: `schema`。
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
 
+  // 投稿単位の可視 HTML。テーマの post ページが beforeContent / afterContent
+  // スロットに render する。本文は runtime が sanitize-html の厳格 allowlist で
+  // 必ず sanitize する。
+  // Phase 6d (実装済み)。capability: `publicHtmlForPost`。
+  publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
+
   // 動的 OG 画像 — リクエスト時に Next.js ImageResponse でレンダリング
   ogImage?: OgImageConfig
 }
 ```
 
-`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` は **Phase 1 拡張**にあたるフィールドで、型追加は Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) の範囲。`publicBodyForPost` は **Phase 4 拡張** — 投稿単位の body 注入、主に JSON-LD 構造化データ向け。既存ファーストパーティプラグイン (`seo` / `rss` / `og-image` / `webhook`) はこれらを宣言しなくても動作し続ける。
+`capabilities` / `instanceId` / `displayName` / `publicHead` / `publicBodyEnd` は **Phase 1 拡張**にあたるフィールドで、型追加は Phase 1 spec ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)) の範囲。`publicBodyForPost` は **Phase 4 拡張** — 投稿単位の body 注入、主に JSON-LD 構造化データ向け。`publicHtmlForPost` は **Phase 6d 拡張** — 投稿単位の可視 HTML で、reading-time badge / breadcrumb / share link 等を想定。既存ファーストパーティプラグイン (`seo` / `rss` / `og-image` / `webhook`) はこれらを宣言しなくても動作し続ける。
 
 これらの面を任意に組み合わせる。有効化はプロジェクトの `cms.config.ts` に 1 行：
 
@@ -92,6 +98,12 @@ Phase 4 で追加:
 | capability | 意味 | 既定許可 trust_level |
 |---|---|---|
 | `schema` | `publicBodyForPost()` — 投稿単位の body 注入、主に JSON-LD 構造化データ向け。テーマの post ページテンプレートが render する (Phase 4、実装済み) | `untrusted` 以上 |
+
+Phase 6d で追加:
+
+| capability | 意味 | 既定許可 trust_level |
+|---|---|---|
+| `publicHtmlForPost` | `publicHtmlForPost()` — テーマの post ページの `beforeContent` / `afterContent` スロットに **可視 HTML** を注入する (Phase 6d、実装済み)。body は runtime が `sanitize-html` の厳格 allowlist で sanitize する。`trust_level` を問わず同じ sanitize を強制 | `untrusted` 以上 |
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
@@ -144,6 +156,7 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 | `metadata` / `siteMetadata` | 公開 Next.js プロセス（リクエストスレッド） | テーマコンポーネント / `generateMetadata()` 内 |
 | `publicHead` / `publicBodyEnd` | 公開 Next.js プロセス — root layout | サイト全体描画時 |
 | `publicBodyForPost` | 公開 Next.js プロセス — テーマの post ページテンプレート | 投稿単位の描画時。`pages/post.tsx`（相当ファイル）から呼ばれる。`scriptType: 'application/ld+json'` 必須 |
+| `publicHtmlForPost` | 公開 Next.js プロセス — テーマの post ページテンプレート | 投稿単位の描画時。`pages/post.tsx` から呼ばれる。body は `sanitize-html` の厳格 allowlist で sanitize され、`beforeContent` / `afterContent` スロットに embed される |
 | `ogImage` | 公開 Next.js プロセス — `app/og/[slug]/route.ts` 等 | OG 画像 URL がリクエストされたとき |
 
 `hooks` がプラグインの非同期面、`metadata` / `siteMetadata` / `publicHead` / `publicBodyEnd` / `ogImage` が同期面で、後者は公開サイト内で動き、AWS データ権限を持たない（純関数か、渡された値だけを読む）。同期面はプラグインの `trust_level` IAM ロールの影響を受けない。IAM ロールが効くのは `hooks` だけ。
@@ -164,6 +177,31 @@ descriptor の完全な型定義と validation contract は [docs/tmp/plugin-ext
 ### JSON-LD 自動 escape
 
 `inlineScript` descriptor が `scriptType: 'application/ld+json'` を持つとき、runtime は **`body` 文字列を自動 escape** してから描画する — `<` → `<`、`>` → `>`、`&` → `&`、U+2028 → ` `、U+2029 → ` `（`escapeJsonLdInlineBody` 経由）。この処理は `inlineScript` を受け付ける 3 つのサーフェス (`publicHead` / `publicBodyEnd` / `publicBodyForPost`) すべてで行われる。plugin 作者は生の JSON 文字列をそのまま返せばよく、自前で escape しなくてよい。
+
+### `publicHtmlForPost` — 投稿単位の可視 HTML
+
+`publicHtmlForPost(post, ctx)` は、テーマが post 本文の周囲に embed する **可視 HTML** descriptor を返す。v1 で提供するスロットは 2 つ:
+
+| `position` | テーマでの位置 |
+|---|---|
+| `'beforeContent'` | post 本文 (`renderBody(post)`) の直前 — 用途例: reading-time バッジ、breadcrumb、byline |
+| `'afterContent'` | post 本文の直後 — 用途例: share リンク、関連記事、edit-on-GitHub footer |
+
+hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` と同じ規約。テーマは `await ampless.publicHtmlForPost(post)` を呼び（settings の取得があるので Promise）、`{html.beforeContent}` / `{html.afterContent}` をそのまま JSX に embed する。sanitize / wrapper / dedupe / namespace 解決はすべて runtime に閉じており、テーマ側で `dangerouslySetInnerHTML` を書く必要はない。
+
+**Sanitizer (`sanitize-html` strict profile)。** descriptor の body は `trust_level` に関係なく `sanitize-html` を通る。allowlist:
+
+- タグ: `p` · `span` · `strong` · `em` · `a` · `code` · `br` · `ul` · `ol` · `li`
+- グローバル属性: `class` · `data-words` · `data-minutes` · `data-ampless-*`
+- `<a>` 属性: `href` · `rel` · `target`
+- `href` で許可するスキーム: `http` / `https`（さらに相対 `./path` / `../path` / `/path` / `#anchor` — scheme なし URL は素通り）
+- `target="_blank"` のとき sanitizer が `rel="noopener noreferrer"` を自動付与
+
+明示的に禁止: `<img>` · `<iframe>` · `<video>` · `<audio>` · `<object>` · `<embed>` · `<form>` · `<style>` · インライン `style` 属性 · 全 event handler (`on*`) · `data:` / `javascript:` / `vbscript:` / `mailto:` / `tel:` スキーム。trust level 別の pass-through (生 HTML) escape hatch は v1 では提供しない — 必要になった時に別の明示 capability として開く。
+
+**`id` は plugin-local。** descriptor は短い `id`（例: `'display'`）を持ち、dedupe と React `key` に使う。plugin 作者が自前で namespace を埋め込む必要はない — runtime が wrap 時に `${instanceId ?? name}:${id}` で解決する。validator は `id` が空、制御文字を含む、64 文字超のいずれかなら descriptor を drop + dev warn する。
+
+**dedupe は position ごと。** `beforeContent` と `afterContent` はそれぞれ独立した seen-id セットを持ち、dedupe key は `${namespace}:${id}`。1 つの plugin instance が両 position に同じ `'display'` を返すと両方残る；異なる namespace の 2 plugin instance が同 position に `'display'` を返すと namespace が違うので両方残る；同じ plugin instance が同 position に `'display'` を 2 回返すと最初の 1 件を残して 2 件目を warn 付きで drop。
 
 ### サーフェス別 scriptType 厳格度
 
@@ -222,6 +260,8 @@ runtime は起動時に宣言と実装の不一致を検出して（エラーで
 | `writePublicAsset` 未宣言だが `ctx.writePublicAsset()` 呼び出し | 初回の呼び出し時 |
 | `schema` 宣言済みだが `publicBodyForPost` 未実装 | スタートアップ時 |
 | `publicBodyForPost` 実装済みだが `schema` 未宣言 | スタートアップ時 |
+| `publicHtmlForPost` 宣言済みだが `publicHtmlForPost` 未実装 | スタートアップ時 |
+| `publicHtmlForPost` 実装済みだが `publicHtmlForPost` 未宣言 | スタートアップ時 |
 
 ### API バージョニング
 

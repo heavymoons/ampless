@@ -41,26 +41,28 @@
   "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/runtime#readme",
   "bugs": "https://github.com/heavymoons/ampless/issues",
   "dependencies": {
-    "ampless": "workspace:*",
     "@ampless/plugin-og-image": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "ampless": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "marked": "^18.0.4",
+    "sanitize-html": "^2.17.4",
     "tailwind-merge": "^3.6.0"
   },
   "peerDependencies": {
+    "@aws-amplify/adapter-nextjs": "^1",
+    "aws-amplify": "^6",
     "next": "^15 || ^16",
     "react": "^18 || ^19",
-    "react-dom": "^18 || ^19",
-    "aws-amplify": "^6",
-    "@aws-amplify/adapter-nextjs": "^1"
+    "react-dom": "^18 || ^19"
   },
   "devDependencies": {
     "@types/react": "^19.2.15",
+    "@types/sanitize-html": "^2.16.1",
     "next": "^16.2.6",
     "react": "^19.2.6"
   },
