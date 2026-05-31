@@ -652,6 +652,60 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 }
 
 /**
+ * Validate the runtime shape of a `publicHtmlForPost` descriptor. The
+ * type narrows it at compile time, but a plugin written in plain JS
+ * or one that lies via unsafe casts can still hand us anything —
+ * `undefined`, a string, an object with the wrong `type`, an unknown
+ * `position`, etc. Without this guard the subsequent
+ * `validateHtmlId(descriptor.id, ...)` / `sanitizeHtml(descriptor.body, ...)`
+ * calls would throw `TypeError` and the runtime caller (here, the post
+ * page render) would fail open with a stack trace.
+ *
+ * Matches the same defensive pattern used by
+ * `renderPostBodyDescriptor` above: silently drop + warn anything
+ * that doesn't conform, so one bad plugin can't take the whole post
+ * down with it.
+ */
+function validateHtmlDescriptor(
+  descriptor: unknown,
+  pluginLabel: string,
+  index: number
+): descriptor is PublicPostHtmlDescriptor {
+  if (descriptor === null || typeof descriptor !== 'object') {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor #${index} dropped — must be an object.`
+    )
+    return false
+  }
+  const d = descriptor as Record<string, unknown>
+  if (d.type !== 'html') {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor #${index} dropped — "type" must be "html" (got ${typeof d.type === 'string' ? `"${d.type}"` : typeof d.type}).`
+    )
+    return false
+  }
+  if (typeof d.id !== 'string') {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor #${index} dropped — "id" must be a string.`
+    )
+    return false
+  }
+  if (typeof d.body !== 'string') {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor "${d.id}" dropped — "body" must be a string.`
+    )
+    return false
+  }
+  if (d.position !== 'beforeContent' && d.position !== 'afterContent') {
+    warn(
+      `${pluginLabel}: publicHtmlForPost descriptor "${d.id}" dropped — "position" must be "beforeContent" or "afterContent" (got ${typeof d.position === 'string' ? `"${d.position}"` : typeof d.position}).`
+    )
+    return false
+  }
+  return true
+}
+
+/**
  * Validate a plugin-local `id` string. Empty string, control characters,
  * and strings longer than 64 chars are rejected with a warning.
  * Prefix rules are not enforced — that is the plugin author's convention.
@@ -752,7 +806,10 @@ function collectHtmlForPost(
       )
       continue
     }
-    for (const descriptor of descriptors) {
+    for (let i = 0; i < descriptors.length; i++) {
+      const raw = descriptors[i]
+      if (!validateHtmlDescriptor(raw, label, i)) continue
+      const descriptor = raw
       if (!validateHtmlId(descriptor.id, label)) continue
       const dedupeKey = `${namespace}:${descriptor.id}`
       const position: PublicPostHtmlPosition = descriptor.position

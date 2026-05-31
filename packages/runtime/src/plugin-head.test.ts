@@ -1482,6 +1482,101 @@ describe('renderHtmlForPost(post) — Phase 6d', () => {
     expect(html).toContain('data-ampless-foo="y"')
   })
 
+  // Descriptor shape validation ----------------------------------------------
+  //
+  // The type narrows the descriptor to PublicPostHtmlDescriptor, but a JS
+  // plugin or one that uses unsafe casts can hand us anything. Without the
+  // shape guard, the subsequent validateHtmlId / sanitizeHtml calls would
+  // throw TypeError and the post page render would fail open. Each of
+  // these cases must drop + warn, not throw.
+
+  it('drops non-object descriptor (null) and warns', async () => {
+    const plugin = htmlPlugin({
+      // Cast: pretend the plugin handed us a null where a descriptor was expected.
+      descriptors: [null as unknown as PublicPostHtmlDescriptor],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent, afterContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    expect(afterContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('must be an object'))).toBe(true)
+  })
+
+  it('drops descriptor with wrong type field and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'script', id: 'display', position: 'beforeContent', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"type" must be "html"'))).toBe(true)
+  })
+
+  it('drops descriptor with non-string id (undefined) and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: undefined, position: 'beforeContent', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"id" must be a string'))).toBe(true)
+  })
+
+  it('drops descriptor with non-string body (undefined) and warns', async () => {
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'beforeContent', body: undefined } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"body" must be a string'))).toBe(true)
+  })
+
+  it('drops descriptor with unknown position ("sidebar") rather than mis-bucketing it', async () => {
+    // Regression: before runtime shape validation the position field was
+    // trusted blindly, and any non-"beforeContent" value silently fell into
+    // the afterContent bucket. Now invalid positions are rejected outright.
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'display', position: 'sidebar', body: '<p>x</p>' } as unknown as PublicPostHtmlDescriptor,
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent, afterContent } = await head.renderHtmlForPost(samplePost)
+    expect(beforeContent).toBeNull()
+    expect(afterContent).toBeNull()
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('"position" must be'))).toBe(true)
+  })
+
+  it('drops malformed descriptor but keeps the valid sibling in the same array', async () => {
+    // Ensures one bad descriptor doesn't poison the whole publicHtmlForPost
+    // return value from a single plugin.
+    const plugin = htmlPlugin({
+      descriptors: [
+        { type: 'html', id: 'broken', position: 'sidebar', body: '<p>bad</p>' } as unknown as PublicPostHtmlDescriptor,
+        { type: 'html', id: 'good', position: 'beforeContent', body: '<p>ok</p>' },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const { beforeContent } = await head.renderHtmlForPost(samplePost)
+    const els = divsOf(beforeContent)
+    expect(els).toHaveLength(1)
+    const html = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+      .dangerouslySetInnerHTML.__html
+    expect(html).toContain('<p>ok</p>')
+  })
+
   // id validation ------------------------------------------------------------
 
   it('drops descriptor with empty id and warns', async () => {
