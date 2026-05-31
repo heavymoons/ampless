@@ -30,7 +30,7 @@
     "@ampless/plugin-gtm": "^0.2.0-alpha.11",
     "@ampless/plugin-og-image": "^0.2.0-alpha.28",
     "@ampless/plugin-plausible": "^0.2.0-alpha.11",
-    "@ampless/plugin-reading-time": "^0.1.0-alpha.0",
+    "@ampless/plugin-reading-time": "^0.1.0-alpha.1",
     "@ampless/plugin-rss": "^0.2.0-alpha.28",
     "@ampless/plugin-schema-jsonld": "^0.1.1-alpha.7",
     "@ampless/plugin-seo": "^0.2.0-alpha.28",
