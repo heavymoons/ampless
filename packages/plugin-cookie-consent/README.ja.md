@@ -46,7 +46,7 @@ export default defineConfig({
 
 | キー | 型 | デフォルト | 備考 |
 |---|---|---|---|
-| `bannerText` | textarea | `'このサイトは…'` | バナー上部に表示するメッセージ。 |
+| `bannerText` | textarea | `'This site uses cookies…'` | バナー上部に表示するメッセージ。デフォルトは英語、日本語サイトでは `/admin/plugins` から日本語に上書きします。 |
 | `acceptLabel` | text | `'Accept all'` | 「すべて同意」ボタンのラベル。 |
 | `rejectLabel` | text | `'Reject non-essential'` | 「拒否」ボタンのラベル。 |
 | `saveLabel` | text | `'Save selected'` | 個別トグルの状態をそのまま保存するボタンのラベル。「全て同意」「全て拒否」とは別の選択肢。 |
