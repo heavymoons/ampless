@@ -6,7 +6,8 @@
 //   3. Generated key is 32 bytes when base64-decoded
 //   4. Existing real key file: confirm=false → cancelled, no overwrite
 //   5. Existing real key file: confirm=true → file overwritten
-//   5b. Existing placeholder file → overwritten without confirmation
+//   5b. Existing empty placeholder file → overwritten without confirmation
+//   5c. Existing non-empty / hand-edited file → confirmation required
 //   6. --gitignore flag: adds entry to .gitignore
 //   7. --gitignore: does not duplicate an existing .gitignore entry
 //   8. File write failure → error exit
@@ -259,7 +260,22 @@ describe('setup-encryption-key — existing key overwrite', () => {
     expect(written!.content).not.toContain("PLUGIN_SECRET_ENCRYPTION_KEY = ''")
   })
 
-  it('overwrites an invalid placeholder without prompting', async () => {
+  it('prompts before overwriting a typed key declaration', async () => {
+    fsStore.set(
+      join(FAKE_CWD, 'amplify/secrets/encryption-key.ts'),
+      `export const PLUGIN_SECRET_ENCRYPTION_KEY: string = '${existingValidKey}'\n`
+    )
+    confirmResponse.value = false
+
+    await runCmd()
+
+    const { confirm } = await import('@clack/prompts')
+    expect(confirm).toHaveBeenCalled()
+    const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
+    expect(written).toBeUndefined()
+  })
+
+  it('prompts before overwriting non-empty unrecognized content', async () => {
     fsStore.set(
       join(FAKE_CWD, 'amplify/secrets/encryption-key.ts'),
       "export const PLUGIN_SECRET_ENCRYPTION_KEY = 'replace-me'\n"
@@ -269,10 +285,9 @@ describe('setup-encryption-key — existing key overwrite', () => {
     await runCmd()
 
     const { confirm } = await import('@clack/prompts')
-    expect(confirm).not.toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalled()
     const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
-    expect(written).toBeDefined()
-    expect(written!.content).not.toContain('replace-me')
+    expect(written).toBeUndefined()
   })
 })
 

@@ -49,13 +49,14 @@ function buildFileContent(keyB64: string): string {
 }
 
 function extractKeyValue(source: string): string | null {
-  const match = source.match(/PLUGIN_SECRET_ENCRYPTION_KEY\s*=\s*(['"])(.*?)\1/)
+  const match = source.match(
+    /\bPLUGIN_SECRET_ENCRYPTION_KEY\b\s*(?::\s*[^=]+)?=\s*(['"])(.*?)\1/
+  )
   return match?.[2] ?? null
 }
 
-function isValidEncryptionKey(keyB64: string | null): boolean {
-  if (!keyB64) return false
-  return Buffer.from(keyB64, 'base64').byteLength === 32
+function isEmptyPlaceholder(source: string): boolean {
+  return extractKeyValue(source) === ''
 }
 
 // ---------------------------------------------------------------------------
@@ -91,13 +92,13 @@ export async function runSetupEncryptionKey(args: ParsedArgs): Promise<void> {
 
   const keyFilePath = join(cwd, KEY_FILE_PATH)
 
-  // 2. Check for existing key file. A scaffolded placeholder is safe to
-  // overwrite without confirmation; a real 32-byte key requires an
+  // 2. Check for existing key file. Only the scaffolded empty placeholder is
+  // safe to overwrite without confirmation. Any non-empty or unrecognized
+  // content could be a real key (or a hand-edited variant), so require an
   // explicit rotation confirmation because old ciphertext becomes unreadable.
   if (existsSync(keyFilePath)) {
     const existingContent = await readFile(keyFilePath, 'utf-8')
-    const existingKey = extractKeyValue(existingContent)
-    if (isValidEncryptionKey(existingKey)) {
+    if (!isEmptyPlaceholder(existingContent)) {
       log.warn(
         pc.yellow(
           `${KEY_FILE_PATH} already exists.\n` +

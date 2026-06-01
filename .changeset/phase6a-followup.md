@@ -34,9 +34,9 @@ key provisioning. Works identically for sandbox and production.
 
 - `setup-encryption-key.ts`: complete rewrite — generates key locally, writes to
   `amplify/secrets/encryption-key.ts`. No SSM, no AWS credentials required.
-  `--gitignore` flag adds the key file to `.gitignore`. Scaffold placeholders
-  are overwritten without prompting; existing real 32-byte keys still require
-  an explicit rotation confirmation.
+  `--gitignore` flag adds the key file to `.gitignore`. The scaffolded empty
+  placeholder is overwritten without prompting; any non-empty or hand-edited
+  existing key file requires an explicit rotation confirmation.
 - `upgrade.ts`: treats `amplify/secrets/encryption-key.ts` as seed-if-missing so
   older sites get the import target, while generated real keys are never
   overwritten by `update-ampless`.
