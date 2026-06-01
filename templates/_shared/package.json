@@ -34,7 +34,7 @@
     "@ampless/plugin-rss": "^0.2.0-alpha.29",
     "@ampless/plugin-schema-jsonld": "^0.1.1-alpha.8",
     "@ampless/plugin-seo": "^0.2.0-alpha.29",
-    "@ampless/plugin-webhook": "^0.2.0-alpha.29",
+    "@ampless/plugin-webhook": "^0.2.0-alpha.30",
     "@ampless/admin": "^1.0.0-alpha.58",
     "@ampless/backend": "^1.0.0-alpha.46",
     "@ampless/runtime": "^1.0.0-alpha.37",
