@@ -1,3 +1,4 @@
+import { createDecipheriv } from 'node:crypto'
 import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb'
@@ -49,6 +50,45 @@ function requireEnv(name: string): string {
 }
 
 const POST_BY_STATUS_INDEX = 'byStatus'
+
+// ---------------------------------------------------------------------------
+// AES-256-GCM decryption (node:crypto)
+// ---------------------------------------------------------------------------
+//
+// Ciphertext format on disk (base64-encoded):
+//   IV[12] || ciphertext || authTag[16]
+//
+// The admin-side (browser Web Crypto) stores it in this layout:
+//   - `crypto.subtle.encrypt({ name: 'AES-GCM', iv })` returns
+//     ciphertext || authTag[16] as one buffer.
+//   - The admin prepends IV[12] before base64-encoding.
+//
+// Node.js `createDecipheriv` requires ciphertext and authTag separately,
+// so we slice them back out after base64-decoding.
+
+const ENCRYPTION_KEY_SK = '__internal:encryption-key'
+
+/**
+ * Decrypt one AES-256-GCM ciphertext blob.
+ * @param rawKey   32-byte Buffer
+ * @param b64      base64( IV[12] || ciphertext || authTag[16] )
+ */
+export function decryptSecret(rawKey: Buffer, b64: string): string {
+  const combined = Buffer.from(b64, 'base64')
+  if (combined.byteLength < 12 + 16) {
+    throw new Error(
+      `[trusted-processor] decryptSecret: ciphertext blob too short (${combined.byteLength} bytes)`
+    )
+  }
+  const iv = combined.subarray(0, 12)
+  const authTag = combined.subarray(combined.byteLength - 16)
+  const ciphertext = combined.subarray(12, combined.byteLength - 16)
+
+  const decipher = createDecipheriv('aes-256-gcm', rawKey, iv)
+  decipher.setAuthTag(authTag)
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  return plaintext.toString('utf8')
+}
 
 function safeParse(s: string): unknown {
   try {
@@ -127,6 +167,39 @@ export function createProcessorTrustedHandler(
   // boundary — secret reads are sensitive operations and we want the
   // code path to be as clear as possible.
   const rawDdb = new DynamoDBClient({})
+
+  // Lambda-lifetime cache for the AES-256 encryption key.
+  // Fetched once from the `__internal:encryption-key` row, then reused
+  // for all subsequent ctx.secret() calls without re-hitting DynamoDB.
+  // Storing the resolved Buffer (not the promise) so parallel callers
+  // within the same invocation all get the same object after the first
+  // fetch resolves.
+  let encryptionKeyPromise: Promise<Buffer | null> | undefined
+
+  async function getEncryptionKey(): Promise<Buffer | null> {
+    if (!encryptionKeyPromise) {
+      encryptionKeyPromise = (async () => {
+        try {
+          const result = await rawDdb.send(
+            new GetItemCommand({
+              TableName: PLUGIN_SECRET_TABLE,
+              Key: marshall({ siteId: 'default', sk: ENCRYPTION_KEY_SK }),
+            })
+          )
+          if (!result.Item) return null
+          const b64 = unmarshall(result.Item).value as string | undefined
+          if (!b64) return null
+          return Buffer.from(b64, 'base64')
+        } catch (err) {
+          console.error('[trusted-processor] failed to fetch encryption key', err)
+          // Reset so the next call can retry (transient DDB failure).
+          encryptionKeyPromise = undefined
+          return null
+        }
+      })()
+    }
+    return encryptionKeyPromise
+  }
 
   // One Query against the `byStatus` GSI: PK = 'published', SK
   // (publishedAt) gives newest-first ordering with `ScanIndexForward:
@@ -214,6 +287,9 @@ export function createProcessorTrustedHandler(
         // Cache key is compound: plugin namespace + field key. This
         // prevents cross-plugin collisions when two plugin instances
         // both declare a field named e.g. 'signingSecret'.
+        // The cached value is the decrypted plaintext — not the
+        // ciphertext — so repeated calls within one invocation never
+        // re-decrypt or re-fetch.
         const cacheKey = `${namespace}:${key}`
         if (secretCache.has(cacheKey)) {
           return secretCache.get(cacheKey) as T | undefined
@@ -222,15 +298,55 @@ export function createProcessorTrustedHandler(
         // DDB sort key convention: `plugins.<instanceId ?? name>.<fieldKey>`
         const sk = `plugins.${namespace}.${key}`
         try {
-          const result = await rawDdb.send(
-            new GetItemCommand({
-              TableName: PLUGIN_SECRET_TABLE,
-              Key: marshall({ siteId: 'default', sk }),
-            })
-          )
-          const value = result.Item ? (unmarshall(result.Item).value as string) : undefined
-          secretCache.set(cacheKey, value)
-          return value as T | undefined
+          const [result, encKey] = await Promise.all([
+            rawDdb.send(
+              new GetItemCommand({
+                TableName: PLUGIN_SECRET_TABLE,
+                Key: marshall({ siteId: 'default', sk }),
+              })
+            ),
+            getEncryptionKey(),
+          ])
+          if (!result.Item) {
+            secretCache.set(cacheKey, undefined)
+            return undefined
+          }
+          const storedValue = unmarshall(result.Item).value as string | undefined
+          if (!storedValue) {
+            secretCache.set(cacheKey, undefined)
+            return undefined
+          }
+
+          // Decrypt the ciphertext. If the encryption key is missing
+          // (fresh site not yet set up), fall through to undefined so
+          // the plugin receives no secret rather than crashing.
+          let plaintext: string | undefined
+          if (encKey) {
+            try {
+              plaintext = decryptSecret(encKey, storedValue)
+            } catch (decErr) {
+              console.error(
+                `[trusted-processor] ${label}: ctx.secret("${key}") decryption failed`,
+                decErr
+              )
+              // Cache undefined so repeated calls don't retry a bad ciphertext.
+              secretCache.set(cacheKey, undefined)
+              return undefined
+            }
+          } else {
+            // No encryption key — legacy plaintext fallback. This path
+            // handles sites created before Phase 6a follow-up shipped,
+            // before any secrets were saved with encryption. Emit a
+            // warning so operators know to rotate secrets.
+            console.warn(
+              `[trusted-processor] ${label}: ctx.secret("${key}") — no encryption key found; ` +
+                `returning stored value as plaintext. Rotate this secret via admin UI to enable encryption.`
+            )
+            plaintext = storedValue
+          }
+
+          secretCache.set(cacheKey, plaintext)
+          return plaintext as T | undefined
         } catch (err) {
           console.error(
             `[trusted-processor] ${label}: ctx.secret("${key}") DDB read failed`,

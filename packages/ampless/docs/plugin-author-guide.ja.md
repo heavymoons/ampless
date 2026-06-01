@@ -713,8 +713,9 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 `settings.secret` はストレージモデルが構造的に異なります:
 
 - KvStore とは **別テーブル** の `PluginSecret` DynamoDB model に保存。
-- admin/editor グループは **書き込み・削除のみ可**。AppSync が `getPluginSecret` / `listPluginSecrets` を生成しない（read 権限がない）。
-- trusted-processor Lambda IAM role だけが DDB `GetItem` で読み取れる。
+- 値は保存前に **AES-256-GCM 暗号化**される — 平文が DynamoDB に保存されることはない。admin/editor グループは AppSync 経由で `value` 列を読めるが、読めるのは暗号化済みブロブのみ。暗号化はブラウザ側で `crypto.subtle` を使ってから AppSync 呼び出しが行われる。
+- 防衛層多重化: AppSync/Cognito がアクセスを制御し、AES-256-GCM が DynamoDB を直接参照できる者（AWS Console 等）からの平文漏洩を防ぐ。
+- trusted-processor Lambda が `node:crypto` で復号する。`ctx.secret<T>(key)` は平文 string を返す（ciphertext ではない）。
 - S3 mirror 経路に絶対に流れない（mirror は KvStore のみを query する）。
 - 公開 render surface (`publicHead` など) からは読めない。
 
@@ -803,7 +804,8 @@ ctx.secret<T = string>(key: string): Promise<T | undefined>
 
 - admin が未保存なら `undefined` を返す。
 - `T` は convenience cast (ctx.setting と同じ)。値は常に string として保存される。
-- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しは 1 回。
+- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しと復号処理は 1 回ずつ。暗号化キー自体は Lambda コンテナ lifetime でキャッシュされ、cold start 以降は再 fetch しない。
+- キャッシュされる値は **復号済みの平文** — ciphertext ではない。2 回目の呼び出しで再復号は発生しない。
 - cache key は namespace 化される: `${instanceId ?? name}:${fieldKey}`。異なる plugin instance が同名フィールドを持っても混線しない。
 
 ### admin UI

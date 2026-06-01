@@ -710,7 +710,7 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 
 - `settings.secret` は `trust_level: 'trusted'` + `'secretSettings'` capability 必須。
 - フィールド型は `PluginSecretField` = `Omit<PluginTextField, 'default'> | Omit<PluginTextareaField, 'default'>`。`default` は型レベルで禁止。fallback は closure-private 変数で保持。
-- hook 内で `await ctx.secret<string>('signingSecret')` で読む。per-invocation キャッシュ済み。
+- 値は保存前にブラウザ側で **AES-256-GCM 暗号化**される。DynamoDB に平文は保存されない。`ctx.secret<T>(key)` は trusted Lambda が復号した平文を返す。per-invocation でキャッシュされる (平文; ciphertext ではない)。暗号化キーは Lambda コンテナ lifetime でキャッシュ。
 - admin UI が「保存済み」表示 (`••••••••`) + Replace + Clear を提供。値は取得・表示されない。
 
 ---

@@ -299,10 +299,18 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
       ],
     })
   )
+  // PluginSecret: trusted processor reads plaintext values (via
+  // AES-256-GCM decrypt) so plugins can call ctx.secret(). Write
+  // access is needed for lazy encryption-key row creation — the first
+  // setPluginSecret call from the admin side triggers a conditional
+  // PutItem that is race-safe with ConditionExpression.
+  const pluginSecretTable = backend.data.resources.tables['PluginSecret']
+  pluginSecretTable.grantReadWriteData(trustedFn)
   trustedFn.addEnvironment('AMPLESS_BUCKET_NAME', backend.storage.resources.bucket.bucketName)
   trustedFn.addEnvironment('AMPLESS_POST_TABLE', postTable.tableName)
   trustedFn.addEnvironment('AMPLESS_KV_TABLE', kvTable.tableName)
   trustedFn.addEnvironment('AMPLESS_POSTTAG_TABLE', postTagTable.tableName)
+  trustedFn.addEnvironment('AMPLESS_PLUGIN_SECRET_TABLE', pluginSecretTable.tableName)
 
   // 6. Untrusted processor: SQS only, zero AWS data permissions.
   const untrustedFn = backend.processorUntrusted.resources.lambda

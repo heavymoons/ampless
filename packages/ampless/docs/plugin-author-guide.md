@@ -923,11 +923,17 @@ etc. — but completely wrong for a webhook signing secret.
 `settings.secret` has a structurally different storage model:
 
 - Stored in the `PluginSecret` DynamoDB model (separate from KvStore).
-- Admin/editor groups can **write and delete** but have **no read
-  authorization** — the AppSync schema does not generate
-  `getPluginSecret` or `listPluginSecrets` queries for those groups.
-- Only the trusted-processor Lambda IAM role can read, via DDB
-  `GetItem` directly.
+- Values are **AES-256-GCM encrypted** before reaching DynamoDB —
+  the plaintext never rests in the database. Admin/editor groups have
+  full AppSync access, but the `value` column they can read is a
+  ciphertext blob. The encryption happens client-side in the browser
+  using `crypto.subtle` before the AppSync call.
+- Defense in depth: AppSync/Cognito access control limits who can
+  write; AES-256-GCM encryption protects the plaintext from anyone
+  who can read the DynamoDB table directly (AWS Console, data exports).
+- The trusted-processor Lambda decrypts with `node:crypto` on read.
+  `ctx.secret<T>(key)` returns the plaintext string, never the
+  ciphertext.
 - Never queried by the site-settings mirror path.
 - Never passed to any public-render surface
   (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
@@ -1035,10 +1041,14 @@ ctx.secret<T = string>(key: string): Promise<T | undefined>
 - The generic `T` is a convenience cast (same as `ctx.setting<T>()`).
   Values are always stored as strings; `T` defaults to `string`.
 - Results are per-invocation cached. Calling `ctx.secret('key')`
-  twice in the same hook batch costs one DDB round-trip.
+  twice in the same hook batch costs one DDB round-trip (and one
+  decrypt). The encryption key itself is cached for the Lambda
+  container lifetime, so it is fetched at most once per cold start.
 - Cache keys are namespaced: `${instanceId ?? name}:${fieldKey}`.
   Two plugin instances both declaring `'signingSecret'` never get
   each other's values.
+- The cached value is the **decrypted plaintext** — not the
+  ciphertext. There is no redundant decrypt on repeated calls.
 
 ### Admin UI
 

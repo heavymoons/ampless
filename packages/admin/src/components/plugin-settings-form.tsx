@@ -376,7 +376,7 @@ export function PluginSettingsForm({
               key={field.key}
               field={field}
               hasValue={secretHasValue[field.key] ?? false}
-              onSave={(value) => setPluginSecret(instanceId, field.key, value)}
+              onSave={(value) => setPluginSecret(field, instanceId, value)}
               onClear={() => clearPluginSecret(instanceId, field.key)}
             />
           ))}

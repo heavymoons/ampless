@@ -923,11 +923,16 @@ etc. — but completely wrong for a webhook signing secret.
 `settings.secret` has a structurally different storage model:
 
 - Stored in the `PluginSecret` DynamoDB model (separate from KvStore).
-- Admin/editor groups can **write and delete** but have **no read
-  authorization** — the AppSync schema does not generate
-  `getPluginSecret` or `listPluginSecrets` queries for those groups.
-- Only the trusted-processor Lambda IAM role can read, via DDB
-  `GetItem` directly.
+- Values are **AES-256-GCM encrypted** before reaching DynamoDB —
+  the plaintext never rests in the database. Admin/editor groups have
+  full AppSync access, but the `value` column is a ciphertext blob.
+  Encryption happens client-side in the browser using `crypto.subtle`
+  before the AppSync call.
+- Defense in depth: AppSync/Cognito controls who can write;
+  AES-256-GCM protects the plaintext from anyone who reads the DDB
+  table directly (AWS Console, exports).
+- The trusted-processor Lambda decrypts with `node:crypto` on read.
+  `ctx.secret<T>(key)` returns the plaintext string, never ciphertext.
 - Never queried by the site-settings mirror path.
 - Never passed to any public-render surface
   (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
@@ -994,9 +999,11 @@ fallback variable instead; never put credentials in the manifest.
 ### Reading secrets: `ctx.secret<T>(key)`
 
 `ctx.secret<T>(key)` is only available in trusted hook handlers.
-Returns `undefined` when no value has been saved by admin. Results
-are per-invocation cached; cache keys are namespaced by
-`${instanceId ?? name}:${fieldKey}`.
+Returns `undefined` when no value has been saved by admin. Returns
+the **decrypted plaintext** — never the ciphertext blob.
+Results are per-invocation cached (plaintext, not ciphertext);
+the encryption key is cached for the Lambda container lifetime.
+Cache keys are namespaced by `${instanceId ?? name}:${fieldKey}`.
 
 ### Admin UI
 

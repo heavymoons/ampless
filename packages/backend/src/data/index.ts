@@ -304,20 +304,31 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         siteId: a.string().required(),
         // Composite sort key: `plugins.<instanceId>.<fieldKey>`
         sk: a.string().required(),
-        // The secret value (plaintext string). DynamoDB's server-side
-        // encryption (SSE) with AWS-owned KMS protects the value at
-        // rest. IAM controls Lambda read; AppSync controls admin write.
+        // The secret value stored as AES-256-GCM ciphertext (base64).
+        // Defense in depth: even if an AWS account user reads this
+        // column in DDB Console they only see ciphertext, not the
+        // plaintext API key / signing secret. The encryption key is
+        // stored in a separate row in this same table (sk=
+        // '__internal:encryption-key') and is never exposed via AppSync.
+        // Admin/editor can now read this column — they still can't
+        // derive the plaintext because they never receive the key.
         value: a.string().required(),
       })
       .identifier(['siteId', 'sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
-        // admin/editor can create/update/delete but NOT read.
-        // 'read' is intentionally omitted so AppSync does not generate
-        // getPluginSecret / listPluginSecrets queries for these groups.
-        allow.groups(['ampless-admin', 'ampless-editor']).to(['create', 'update', 'delete']),
+        // admin/editor can fully read, create, update, delete.
+        // The value column is AES-256-GCM ciphertext — reading it via
+        // AppSync reveals only the encrypted blob, not the plaintext.
+        // This lets hasPluginSecret() do a real .get() existence check
+        // and setPluginSecret() do a proper get-then-create-or-update
+        // upsert, both of which previously failed silently because the
+        // read leg of each operation was blocked.
+        allow.groups(['ampless-admin', 'ampless-editor']).to(['read', 'create', 'update', 'delete']),
         // Trusted Lambda reads via IAM-signed requests (SigV4).
-        allow.authenticated('iam').to(['read']),
+        // Needs read+write to lazy-create the encryption key row on
+        // first setPluginSecret call (ConditionExpression-safe).
+        allow.authenticated('iam').to(['read', 'create', 'update', 'delete']),
       ]),
 
     // Custom return type for public post reads. Decoupling from `Post` lets
