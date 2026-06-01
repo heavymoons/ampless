@@ -53,7 +53,6 @@
   "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/backend#readme",
   "bugs": "https://github.com/heavymoons/ampless/issues",
   "dependencies": {
-    "ampless": "workspace:*",
     "@ampless/mcp-server": "workspace:*",
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/client-appsync": "^3.1053.0",
@@ -66,6 +65,7 @@
     "@aws-sdk/util-dynamodb": "^3.996.2",
     "@smithy/protocol-http": "^5.4.4",
     "@smithy/signature-v4": "^5.4.4",
+    "ampless": "workspace:*",
     "fflate": "^0.8.3"
   },
   "peerDependencies": {

@@ -52,6 +52,8 @@ function baseArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     upgrade: false,
     copyTheme: false,
     createPlugin: true,
+    setupEncryptionKey: false,
+    gitignore: false,
     dryRun: false,
     noInstall: false,
     githubPrivate: false,

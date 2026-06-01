@@ -712,19 +712,47 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 
 `settings.secret` はストレージモデルが構造的に異なります:
 
-- KvStore とは **別テーブル** の `PluginSecret` DynamoDB model に保存。
-- 値は保存前に **AES-256-GCM 暗号化**される — 平文が DynamoDB に保存されることはない。admin/editor グループは AppSync 経由で `value` 列を読めるが、読めるのは暗号化済みブロブのみ。暗号化はブラウザ側で `crypto.subtle` を使ってから AppSync 呼び出しが行われる。
-- 防衛層多重化: AppSync/Cognito がアクセスを制御し、AES-256-GCM が DynamoDB を直接参照できる者（AWS Console 等）からの平文漏洩を防ぐ。
+- KvStore とは **別テーブル** の `PluginSecret` DynamoDB テーブルに保存。admin/editor Cognito ユーザーは AppSync 経由でこのテーブルに**直接アクセスできない** — すべての書き込みは `setPluginSecret` mutation を通じて `plugin-secret-handler` Lambda 経由で行われる。
+- 値は保存前に **AES-256-GCM 暗号化**される。admin ブラウザが plaintext を Lambda に TLS 経由で送信 → Lambda がバリデーション + `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`（CDK が `amplify/secrets/encryption-key.ts` から注入）から鍵を読み取り + 暗号化 → ciphertext のみを DDB に書き込む。平文は DynamoDB に保存されず、ブラウザにも返らない。
+- **脅威モデル（Phase 6a v2.2）**:
+
+  | 脅威 | 状態 |
+  |---|---|
+  | PluginSecret テーブルを閲覧する AWS Console オペレータ | ✓ 対策済み — ciphertext のみ、DDB に鍵なし |
+  | ソースリポジトリ / デプロイアーティファクトへのアクセス | ⚠ 対策なし — 鍵は `amplify/secrets/encryption-key.ts` に存在。リポジトリを private にし、アーティファクトアクセスを制限すること |
+  | 同一 Lambda 内の悪意ある trusted plugin | ✗ 対策なし — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` はプラグインコードから読める。真の分離 = per-plugin Lambda（privileged tier, ロードマップ） |
+  | S3 mirror 漏洩 | ✓ 対策済み — PluginSecret テーブルは mirror されない |
+
 - trusted-processor Lambda が `node:crypto` で復号する。`ctx.secret<T>(key)` は平文 string を返す（ciphertext ではない）。
 - S3 mirror 経路に絶対に流れない（mirror は KvStore のみを query する）。
 - 公開 render surface (`publicHead` など) からは読めない。
 
 ### 要件
 
-`settings.secret` には 2 つの要件があります:
+`settings.secret` には 3 つの要件があります:
 
 1. `trust_level: 'trusted'` — untrusted Lambda には PluginSecret table への DDB read 権限がない。他の trust level で宣言すると `definePlugin()` 時に throw する。
 2. `'secretSettings'` を `capabilities` に含める — admin UI や将来の allow-list から capability を参照できるようにするため必須。省略すると console.warn（`'schema'` vs `publicBodyForPost` の不整合パターンと同じ）。
+3. **鍵の初回セットアップ** — プロジェクトルートで実行:
+   ```sh
+   npx create-ampless setup-encryption-key
+   ```
+   32 バイトのランダムな鍵を生成し、`amplify/secrets/encryption-key.ts` に書き込む。AWS 認証情報不要 — ローカルファイル操作のみ。
+
+   次に `amplify/backend.ts` でその定数を import し、`defineAmplessBackend({ pluginSecretEncryptionKey })` に渡す。その後デプロイ（またはサンドボックス再起動）して Lambda env var に注入する。
+
+   public リポジトリの場合は `--gitignore` を渡してバージョン管理から除外し、鍵を別途配布する。
+
+### Dual-write 整合性
+
+`setPluginSecret` と `clearPluginSecret` は各操作で **2 テーブル**に連続して書き込む: `PluginSecret`（ciphertext）と `PluginSecretIndicator`（存在タイムスタンプ）。2 回目の書き込みが失敗した場合、テーブルは以下の予測可能な状態になる:
+
+| 障害ポイント | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
+|---|---|---|---|---|
+| **set**: indicator PutItem 失敗 | ciphertext 存在 | 不在 | plaintext を返す ✓ | `false`（UI: 「未保存」） |
+| **clear**: indicator DeleteItem 失敗 | 不在 | stale（古いタイムスタンプ） | `undefined` ✓ | `true`（UI: 「保存済み」） |
+
+clear パスの失敗は「安全側」: secret は発火しなくなるが、UI は一時的に「保存済み」と表示する。set パスの失敗は軽微な UI 不整合: secret は機能するが、存在インジケータはリトライが成功するまで不在となる。
 
 ### secret フィールドの宣言
 
@@ -804,7 +832,7 @@ ctx.secret<T = string>(key: string): Promise<T | undefined>
 
 - admin が未保存なら `undefined` を返す。
 - `T` は convenience cast (ctx.setting と同じ)。値は常に string として保存される。
-- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しと復号処理は 1 回ずつ。暗号化キー自体は Lambda コンテナ lifetime でキャッシュされ、cold start 以降は再 fetch しない。
+- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しと復号処理は 1 回ずつ。暗号化キーは Lambda env var から cold-start 時に decode される（DDB への余分な fetch は不要）。
 - キャッシュされる値は **復号済みの平文** — ciphertext ではない。2 回目の呼び出しで再復号は発生しない。
 - cache key は namespace 化される: `${instanceId ?? name}:${fieldKey}`。異なる plugin instance が同名フィールドを持っても混線しない。
 

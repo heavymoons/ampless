@@ -12,6 +12,13 @@ const pluginSecretRows = vi.hoisted(
   () => new Map<string, string>()
 )
 
+// ---------------------------------------------------------------------------
+// Encryption key — controlled via process.env (v2.2: no SSM).
+// Tests that want "no key provisioned" clear the env var.
+// ---------------------------------------------------------------------------
+const TEST_ENC_KEY_HOISTED = vi.hoisted(() => Buffer.alloc(32, 0xab))
+const TEST_ENC_KEY_B64_HOISTED = vi.hoisted(() => TEST_ENC_KEY_HOISTED.toString('base64'))
+
 vi.mock('@aws-sdk/client-s3', () => {
   class PutObjectCommand {
     input: Record<string, unknown>
@@ -133,13 +140,22 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
 
 const site: Config['site'] = { name: 'Test', url: 'https://example.com' }
 
-function setEnv(): void {
+// TEST_ENC_KEY matches what is set in process.env (same Buffer as hoisted).
+const TEST_ENC_KEY = TEST_ENC_KEY_HOISTED
+
+function setEnv(withEncKey = true): void {
   process.env.AMPLESS_BUCKET_NAME = 'test-bucket'
   process.env.AMPLESS_POST_TABLE = 'posts'
   process.env.AMPLESS_KV_TABLE = 'kv'
   process.env.AMPLESS_POSTTAG_TABLE = 'posttags'
   process.env.AMPLESS_PLUGIN_SECRET_TABLE = 'plugin-secrets'
   process.env.AWS_REGION = 'us-east-1'
+  // withEncKey=false simulates key not provisioned (env var absent)
+  if (withEncKey) {
+    process.env.PLUGIN_SECRET_ENCRYPTION_KEY = TEST_ENC_KEY_B64_HOISTED
+  } else {
+    delete process.env.PLUGIN_SECRET_ENCRYPTION_KEY
+  }
 }
 
 function event(type = 'content.published'): Parameters<ReturnType<typeof createProcessorTrustedHandler>>[0] {
@@ -357,7 +373,8 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   }
 
   it('reads a stored secret from PluginSecret table via ctx.secret', async () => {
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', 'test-secret-value')
+    // Seed an AES-256-GCM ciphertext (env-var key = TEST_ENC_KEY).
+    pluginSecretRows.set('default:plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'test-secret-value'))
 
     let capturedSecret: string | undefined
     const handler = createProcessorTrustedHandler({
@@ -401,7 +418,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('uses instanceId in the DDB sort key when instanceId is set', async () => {
-    pluginSecretRows.set('default:plugins.webhook-main.signingSecret', 'instance-secret')
+    pluginSecretRows.set('default:plugins.webhook-main.signingSecret', encryptForTest(TEST_ENC_KEY, 'instance-secret'))
 
     let capturedSecret: string | undefined
     const handler = createProcessorTrustedHandler({
@@ -425,8 +442,8 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('does not confuse secrets across different plugin instances (namespace isolation)', async () => {
-    pluginSecretRows.set('default:plugins.webhook-a.signingSecret', 'secret-for-a')
-    pluginSecretRows.set('default:plugins.webhook-b.signingSecret', 'secret-for-b')
+    pluginSecretRows.set('default:plugins.webhook-a.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-a'))
+    pluginSecretRows.set('default:plugins.webhook-b.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-b'))
 
     const capturedSecrets: Array<{ instanceId: string; value: string | undefined }> = []
 
@@ -466,7 +483,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('reads the secret only once from DDB for repeated calls (per-invocation cache)', async () => {
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', 'cached-secret')
+    pluginSecretRows.set('default:plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'cached-secret'))
 
     // Track raw DynamoDB client calls specifically for GetItemCommand.
     // We need to count how many times the raw DDB client's send() is called
@@ -616,12 +633,12 @@ describe('decryptSecret — AES-256-GCM round-trip', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ctx.secret — AES-256-GCM decrypt path (encrypted values in DDB)
+// ctx.secret — AES-256-GCM decrypt path (process.env key, encrypted values in DDB)
 // ---------------------------------------------------------------------------
 
 describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () => {
   beforeEach(() => {
-    setEnv()
+    setEnv(/* withEncKey= */ true)
     s3Commands.length = 0
     ddbCommands.length = 0
     pluginSecretRows.clear()
@@ -641,13 +658,12 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
     }
   }
 
-  it('decrypts an AES-256-GCM encrypted secret from DDB', async () => {
-    const rawKey = randomBytes(32)
+  it('decrypts an AES-256-GCM encrypted secret from DDB (key from process.env)', async () => {
+    // Encrypt the plaintext using the same key that is in the env var.
     const plaintext = 'my-encrypted-api-key'
-    const ciphertext = encryptForTest(rawKey, plaintext)
+    const ciphertext = encryptForTest(TEST_ENC_KEY, plaintext)
 
-    // Seed the encryption key row and the secret row
-    pluginSecretRows.set('default:__internal:encryption-key', rawKey.toString('base64'))
+    // Seed only the secret row.
     pluginSecretRows.set('default:plugins.webhook.apiKey', ciphertext)
 
     let capturedSecret: string | undefined
@@ -669,8 +685,9 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
     expect(capturedSecret).toBe(plaintext)
   })
 
-  it('returns undefined when no encryption key is found and logs a warning', async () => {
-    // No encryption key row — simulates a site that never set a secret
+  it('returns plaintext with warning when SSM parameter is absent (legacy fallback)', async () => {
+    // Simulate a site that has not provisioned the SSM parameter yet.
+    setEnv(/* withEncKey= */ false)
     pluginSecretRows.set('default:plugins.webhook.signingSecret', 'not-encrypted-value')
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -691,15 +708,13 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 
     await handler(event(), {} as never, vi.fn() as never)
 
-    // Falls back to plaintext with a warning (legacy / pre-encryption path)
+    // Falls back to treating the stored value as plaintext with a warning.
     expect(capturedSecret).toBe('not-encrypted-value')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no encryption key found'))
   })
 
   it('caches decrypted plaintext — DDB fetch only once per invocation', async () => {
-    const rawKey = randomBytes(32)
-    const ciphertext = encryptForTest(rawKey, 'cached-decrypted')
-    pluginSecretRows.set('default:__internal:encryption-key', rawKey.toString('base64'))
+    const ciphertext = encryptForTest(TEST_ENC_KEY, 'cached-decrypted')
     pluginSecretRows.set('default:plugins.webhook.token', ciphertext)
 
     const callCount = { n: 0 }

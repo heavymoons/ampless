@@ -922,15 +922,25 @@ etc. — but completely wrong for a webhook signing secret.
 
 `settings.secret` has a structurally different storage model:
 
-- Stored in the `PluginSecret` DynamoDB model (separate from KvStore).
-- Values are **AES-256-GCM encrypted** before reaching DynamoDB —
-  the plaintext never rests in the database. Admin/editor groups have
-  full AppSync access, but the `value` column is a ciphertext blob.
-  Encryption happens client-side in the browser using `crypto.subtle`
-  before the AppSync call.
-- Defense in depth: AppSync/Cognito controls who can write;
-  AES-256-GCM protects the plaintext from anyone who reads the DDB
-  table directly (AWS Console, exports).
+- Stored in the `PluginSecret` DynamoDB table (separate from KvStore).
+  Admin/editor Cognito users have **no direct AppSync access** to this
+  table — all writes go through the `setPluginSecret` mutation backed
+  by the `plugin-secret-handler` Lambda.
+- Values are **AES-256-GCM encrypted** before reaching DynamoDB.
+  The admin browser sends the plaintext to the Lambda via AppSync
+  (TLS); the Lambda validates, reads the 32-byte encryption key from
+  `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by CDK from
+  `amplify/secrets/encryption-key.ts`), and writes only the ciphertext.
+  The plaintext never rests in DynamoDB and never flows back to the browser.
+- **Threat model (Phase 6a v2.2)**:
+
+  | Threat | Status |
+  |---|---|
+  | AWS Console operator browsing PluginSecret table | ✓ defeated — ciphertext only, no key in DDB |
+  | Source repo / deploy artifact access | ⚠ NOT defeated — key is in `amplify/secrets/encryption-key.ts`. Private repo + restricted artifact access expected. |
+  | Malicious trusted plugin in same Lambda | ✗ NOT defeated — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` reachable from plugin code. True isolation = per-plugin Lambda (privileged tier, roadmap). |
+  | S3 mirror leak | ✓ defeated — PluginSecret table never mirrored. |
+
 - The trusted-processor Lambda decrypts with `node:crypto` on read.
   `ctx.secret<T>(key)` returns the plaintext string, never ciphertext.
 - Never queried by the site-settings mirror path.
@@ -948,6 +958,29 @@ etc. — but completely wrong for a webhook signing secret.
 2. `'secretSettings'` in `capabilities` — required so admin UI and
    future allow-lists can gate the capability. Omitting it produces
    a console warning (same pattern as `'schema'` vs `publicBodyForPost`).
+3. **One-time key setup** — run from your project root:
+   ```sh
+   npx create-ampless setup-encryption-key
+   ```
+   Generates a cryptographically random 32-byte key and writes it to
+   `amplify/secrets/encryption-key.ts`. No AWS credentials required.
+   Then import it in `amplify/backend.ts` and pass it to
+   `defineAmplessBackend({ pluginSecretEncryptionKey })`. Redeploy (or
+   restart the sandbox) to inject the key into Lambda env vars.
+   For public repos, add `--gitignore` to exclude from version control.
+
+### Dual-write integrity
+
+The `setPluginSecret` and `clearPluginSecret` operations each write to
+**two DynamoDB tables** in sequence. If the second write fails, the
+tables are left in a predictable state:
+
+| Failure | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
+|---|---|---|---|---|
+| **set**: indicator PutItem fails | ciphertext present | absent | returns plaintext ✓ | `false` (UI: "not saved") |
+| **clear**: indicator DeleteItem fails | absent | stale | `undefined` ✓ | `true` (UI: "saved") |
+
+The clear-path failure is the "safe side": the secret stops firing.
 
 ### Declaring secret fields
 
@@ -1001,8 +1034,9 @@ fallback variable instead; never put credentials in the manifest.
 `ctx.secret<T>(key)` is only available in trusted hook handlers.
 Returns `undefined` when no value has been saved by admin. Returns
 the **decrypted plaintext** — never the ciphertext blob.
-Results are per-invocation cached (plaintext, not ciphertext);
-the encryption key is cached for the Lambda container lifetime.
+Results are per-invocation cached (plaintext, not ciphertext).
+The encryption key is decoded from the Lambda env var at cold-start
+(no extra DDB fetch).
 Cache keys are namespaced by `${instanceId ?? name}:${fieldKey}`.
 
 ### Admin UI

@@ -2,54 +2,64 @@
 "ampless": patch
 "@ampless/admin": minor
 "@ampless/backend": minor
-"create-ampless": patch
+"create-ampless": minor
 ---
 
-Phase 6a follow-up — 4 review fixes + AES-256-GCM secret encryption.
+Phase 6a v2.2 — file-based encryption key; `setup-encryption-key` CLI rewrite.
+
+Supersedes v2 (Amplify `secret()` env var, sandbox-only) and v2.1 (SSM Parameter
+Store, required AWS credentials for provisioning). v2.2 stores the key in
+`amplify/secrets/encryption-key.ts` (adjacent to `amplify/backend.ts`); CDK
+injects it as a Lambda env var at deploy time. No AWS credentials needed for
+key provisioning. Works identically for sandbox and production.
 
 **`@ampless/backend`** (minor):
-- High 1: `backend.ts` now grants `grantReadWriteData` on the
-  `PluginSecret` table to the trusted Lambda and sets
-  `AMPLESS_PLUGIN_SECRET_TABLE` env var. Previously the Lambda
-  cold-started with a missing-env-var crash.
-- High 2: `PluginSecret` `@auth` updated to allow admin/editor
-  `read` (was create/update/delete only). Defense in depth shifts
-  to AES-256-GCM encryption — the `value` column is ciphertext.
-- Lambda-lifetime encryption-key cache added so the key is fetched
-  at most once per container. `ctx.secret<T>(key)` now AES-256-GCM-
-  decrypts the stored ciphertext and caches the plaintext for the
-  invocation lifetime. Legacy plaintext fallback for sites created
-  before encryption shipped (warns to rotate).
-- `decryptSecret(key, b64)` exported for unit testing.
-- New tests: `decryptSecret` round-trip, authTag mismatch/wrong-key
-  throw, `ctx.secret` encrypted-value path, plaintext-cache test.
 
-**`@ampless/admin`** (minor):
-- High 2 (admin side): `hasPluginSecret` now gets a real `.get()`
-  result because admin/editor have read authorization. Upsert in
-  `setPluginSecret` works correctly.
-- Low 4: `setPluginSecret` signature changed to
-  `setPluginSecret(field: PluginSecretField, instanceId, value)`.
-  Calls `validatePluginSettingValue(field, value, 'strict')` before
-  writing — enforces `maxLength`, `pattern`, `required` server-side
-  to prevent UI bypass.
-- Encryption: admin browser uses Web Crypto `crypto.subtle`
-  (AES-GCM) to encrypt the plaintext before calling AppSync. Per-site
-  32-byte key is lazily created in the `__internal:encryption-key`
-  row; race-safe re-fetch on concurrent-tab conflict.
-- `plugin-settings-form.tsx` updated to pass `field` to `setPluginSecret`.
-- New test file `plugin-secret.test.ts`: 21 tests covering key
-  management, encryption, field validation, upsert logic, and
-  race-safe key creation.
+- `DefineAmplessBackendOpts`: new optional `pluginSecretEncryptionKey?: string`
+  field. When provided, CDK injects `PLUGIN_SECRET_ENCRYPTION_KEY` env var into
+  both `processorTrusted` and `pluginSecretHandler` Lambdas.
+- `backend.ts`: removed SSM `GetParameter` IAM grants and `AMPLESS_APPSYNC_API_ID`
+  env var from both Lambdas. Added `addEnvironment('PLUGIN_SECRET_ENCRYPTION_KEY')`
+  conditional on `pluginSecretEncryptionKey` being provided.
+- `plugin-secret-handler.ts`: replaced `SSMClient` / `GetParameterCommand` with
+  module-load-time decode of `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`. Fail-fast
+  throw if env var is absent or not 32 bytes.
+- `processor-trusted.ts`: same — SSM fetch replaced with synchronous env-var read
+  inside the `createProcessorTrustedHandler` factory. Null fallback with warning
+  if env var absent (legacy sites not yet provisioned).
+- Removed `@aws-sdk/client-ssm` from `package.json` dependencies.
+- Tests: SSM mock removed; env var set directly in `setEnv()`.
+
+**`create-ampless`** (minor):
+
+- `setup-encryption-key.ts`: complete rewrite — generates key locally, writes to
+  `amplify/secrets/encryption-key.ts`. No SSM, no AWS credentials required.
+  `--gitignore` flag adds the key file to `.gitignore`.
+- `args.ts`: added `gitignore: boolean` to `ParsedArgs`; `--gitignore` flag;
+  updated HELP_TEXT for v2.2.
+- Removed `@aws-sdk/client-ssm` from `package.json` dependencies.
+- `setup-encryption-key.test.ts`: full rewrite for file-based behaviour (7 tests).
 
 **`ampless`** (patch):
-- Docs: `docs/architecture/08-plugin-architecture.{md,ja.md}` and
-  `packages/ampless/docs/plugin-author-guide.{md,ja.md}` updated to
-  reflect encryption design (defense-in-depth shift, ciphertext
-  storage, Lambda-lifetime key cache, plaintext invocation cache).
 
-**`create-ampless`** (patch):
-- Retroactive fix for PR #196 omission: `templates/_shared/docs/
-  plugin-author-guide.{md,ja.md}` (shipped in the create-ampless
-  tarball) now describes AES-256-GCM encryption in the secret
-  settings section.
+- New guard test: `encryption-key-import-guard.test.ts` — scans client code paths
+  for any import of `amplify/secrets/encryption-key` and fails if found.
+- `docs/architecture/08-plugin-architecture{,.ja}.md`: secret settings row updated
+  with v2.2 threat model table; SSM references removed.
+- `packages/ampless/docs/plugin-author-guide{,.ja}.md`: same updates + v2.2 threat
+  model table; setup instructions updated to file-based flow.
+
+**`@ampless/admin`** (minor — from prior commit in this PR):
+
+- No new changes in this commit. Bump retained from the prior
+  "4 review fixes + AES-GCM" commit.
+
+**Templates**:
+
+- `templates/_shared/amplify/backend.ts`: added import of
+  `PLUGIN_SECRET_ENCRYPTION_KEY` from `./secrets/encryption-key.js`; passes it
+  to `defineAmplessBackend({ pluginSecretEncryptionKey })`.
+- `templates/_shared/amplify/secrets/encryption-key.ts`: placeholder stub with
+  empty key value; replaced by `npx create-ampless setup-encryption-key` output.
+- `templates/_shared/docs/plugin-author-guide{,.ja}.md`: same v2.2 threat model
+  and setup instruction updates.

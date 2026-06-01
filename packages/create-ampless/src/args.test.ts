@@ -217,4 +217,36 @@ describe('parseDeployArgs', () => {
     expect(out.createPlugin).toBe(false)
     expect(out.projectName).toBeUndefined()
   })
+
+  // ---- setup-encryption-key subcommand tests ----
+
+  it('setup-encryption-key sets setupEncryptionKey to true', () => {
+    const out = parseDeployArgs(['setup-encryption-key'])
+    expect(out.setupEncryptionKey).toBe(true)
+    expect(out.projectName).toBeUndefined()
+    expect(out.createPlugin).toBe(false)
+    expect(out.upgrade).toBe(false)
+  })
+
+  it('setupEncryptionKey defaults to false when not specified', () => {
+    const out = parseDeployArgs(['my-site'])
+    expect(out.setupEncryptionKey).toBe(false)
+  })
+
+  it('setup-encryption-key does not conflict with unrelated flags', () => {
+    const out = parseDeployArgs(['setup-encryption-key', '--aws-region', 'us-east-1'])
+    expect(out.setupEncryptionKey).toBe(true)
+    expect(out.awsRegion).toBe('us-east-1')
+  })
+
+  it('--gitignore sets gitignore to true', () => {
+    const out = parseDeployArgs(['setup-encryption-key', '--gitignore'])
+    expect(out.setupEncryptionKey).toBe(true)
+    expect(out.gitignore).toBe(true)
+  })
+
+  it('gitignore defaults to false when not specified', () => {
+    const out = parseDeployArgs(['setup-encryption-key'])
+    expect(out.gitignore).toBe(false)
+  })
 })
