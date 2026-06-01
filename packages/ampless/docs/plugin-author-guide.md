@@ -93,6 +93,7 @@ surfaces:
 | `ogImage` | `/og/[slug]` route | request-time, in public Lambda | Existing |
 | `hooks` | trust_level-matched processor Lambda | async, on SQS event | Existing |
 | `settings.public` | `/admin/plugins` form | declarative manifest | 2 |
+| `settings.secret` | `/admin/plugins` secret section | declarative manifest, trusted Lambda only | 6a |
 
 A few surfaces don't exist yet — they're reserved for later phases
 and aren't shaped by `definePlugin` today:
@@ -111,8 +112,6 @@ and aren't shaped by `definePlugin` today:
   work belongs there.
 - **Admin routes / server routes / content fields.** Reserved for
   Phase 6b.
-- **Secrets.** The `secretSettings` capability is reserved for
-  Phase 6a; nothing in `settings.public` should be a credential.
 
 ---
 
@@ -903,6 +902,193 @@ Each plugin instance has its own settings namespace keyed by
 `analyticsGa4Plugin({ instanceId: 'b' })` calls in `cms.config.ts`
 get distinct DDB rows; `ctx.setting()` automatically scopes to the
 plugin's own `instanceId`.
+
+---
+
+## 9a. Secret settings: `ctx.secret<T>(key)` (Phase 6a)
+
+Secret settings let trusted plugins store and rotate credentials
+(webhook signing secrets, SMTP passwords, external API tokens)
+through the admin UI **without exposing them to the public site or
+browser-side code**.
+
+### Why a separate API from `settings.public`?
+
+Values in `settings.public` are designed to flow to the public
+runtime: they're mirrored to `public/site-settings.json` and read
+by `ctx.setting()` inside sync render surfaces. That flow is
+intentional for analytics measurement IDs, consent category names,
+etc. — but completely wrong for a webhook signing secret.
+
+`settings.secret` has a structurally different storage model:
+
+- Stored in the `PluginSecret` DynamoDB model (separate from KvStore).
+- Admin/editor groups can **write and delete** but have **no read
+  authorization** — the AppSync schema does not generate
+  `getPluginSecret` or `listPluginSecrets` queries for those groups.
+- Only the trusted-processor Lambda IAM role can read, via DDB
+  `GetItem` directly.
+- Never queried by the site-settings mirror path.
+- Never passed to any public-render surface
+  (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
+  `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
+
+### Requirements
+
+`settings.secret` requires:
+
+1. `trust_level: 'trusted'` — untrusted Lambdas have no DDB read
+   access to the PluginSecret table. `definePlugin()` throws if you
+   declare `settings.secret` with any other trust level.
+2. `'secretSettings'` in `capabilities` — required so admin UI and
+   future allow-lists can gate the capability. Omitting it produces
+   a console warning (same pattern as `'schema'` vs `publicBodyForPost`).
+
+### Declaring secret fields
+
+```ts
+import { definePlugin } from 'ampless'
+
+export default function webhookPlugin(opts?: { signingSecret?: string }) {
+  // Keep any constructor-provided secret as a closure-private fallback.
+  // It is NEVER exposed in the manifest or the stored descriptor.
+  const constructorSecret = opts?.signingSecret
+
+  return definePlugin({
+    name: 'webhook',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    capabilities: ['eventHooks', 'secretSettings'],
+    settings: {
+      secret: [
+        {
+          type: 'text',
+          key: 'signingSecret',
+          label: { en: 'Webhook signing secret', ja: 'Webhook 署名 secret' },
+          maxLength: 256,
+          required: false,
+          // NO `default` — secret fields forbid it at the type level.
+          // Use a closure-private fallback instead (see below).
+        },
+      ],
+    },
+    hooks: {
+      async 'content.published'(event, ctx) {
+        // ctx.secret() reads from PluginSecret DDB table.
+        // Returns undefined when no value has been saved by admin yet.
+        const storedSecret = await ctx.secret<string>('signingSecret')
+
+        // Closure-private fallback: use the constructor argument when
+        // the admin has not saved a value yet. This preserves backward
+        // compatibility with sites that pass the secret at install time.
+        const secret = storedSecret ?? constructorSecret
+        if (!secret) return // no secret → skip signing
+
+        // ... use secret to sign and POST
+      },
+    },
+  })
+}
+```
+
+### Important: no `default` on secret fields
+
+The type `PluginSecretField` is defined as `Omit<PluginTextField,
+'default'> | Omit<PluginTextareaField, 'default'>` — the `default`
+property is **removed at the type level** and TypeScript will error
+if you try to add one.
+
+This is intentional: `default` values propagate into admin UI form
+props (visible in the browser), static manifests cross-checked by
+the runtime, and JS bundles. For a credential, these are all leak
+paths.
+
+If you have a fallback value (e.g. the constructor argument), keep
+it as a **closure-private variable** inside the plugin factory
+function — never in the manifest:
+
+```ts
+// ✓ correct — closure-private, never in the manifest
+const constructorSecret = opts?.signingSecret
+
+// ✗ wrong — TypeScript error, would also leak to browser
+settings: {
+  secret: [{
+    type: 'text',
+    key: 'signingSecret',
+    label: 'Secret',
+    default: opts?.signingSecret, // ← TS compile error
+  }],
+}
+```
+
+### Reading secrets: `ctx.secret<T>(key)`
+
+`ctx.secret<T>(key)` is only available in trusted hook handlers
+(injected by `processor-trusted.ts`). The signature is:
+
+```ts
+ctx.secret<T = string>(key: string): Promise<T | undefined>
+```
+
+- Returns `undefined` when no value has been saved by admin yet.
+- The generic `T` is a convenience cast (same as `ctx.setting<T>()`).
+  Values are always stored as strings; `T` defaults to `string`.
+- Results are per-invocation cached. Calling `ctx.secret('key')`
+  twice in the same hook batch costs one DDB round-trip.
+- Cache keys are namespaced: `${instanceId ?? name}:${fieldKey}`.
+  Two plugin instances both declaring `'signingSecret'` never get
+  each other's values.
+
+### Admin UI
+
+When `settings.secret` is declared, the admin plugin settings page
+renders a **Secret settings** section below the public fields.
+Each secret field shows:
+
+- **Unset**: a plain text input + Save button.
+- **Stored**: a masked placeholder `••••••••` + Replace + Clear
+  buttons. The actual value is never fetched or displayed.
+- **Editing**: after clicking Replace — new text input + Save + Cancel.
+
+Admins can rotate a secret at any time without redeploying. The
+change takes effect on the next trusted-Lambda invocation (within
+~5–10 seconds of saving).
+
+### Testing hooks that use `ctx.secret`
+
+Mock `ctx.secret` alongside the other context methods:
+
+```ts
+import { describe, it, expect, vi } from 'vitest'
+import webhookPlugin from './index.js'
+import type { TrustedPluginRuntimeContext } from 'ampless'
+
+function makeCtx(secrets: Record<string, string> = {}): TrustedPluginRuntimeContext {
+  return {
+    site: { name: 'Test', url: 'https://example.com' },
+    listPublishedPosts: vi.fn().mockResolvedValue([]),
+    writePublicAsset: vi.fn().mockResolvedValue(''),
+    secret: vi.fn().mockImplementation(async (key: string) => secrets[key]),
+  }
+}
+
+describe('webhookPlugin signing', () => {
+  it('uses admin-stored secret when available', async () => {
+    const plugin = webhookPlugin()
+    const ctx = makeCtx({ signingSecret: 'stored-secret' })
+    await plugin.hooks?.['content.published']?.({ type: 'content.published', payload: {} as never }, ctx)
+    // assert that the request was signed with 'stored-secret'
+  })
+
+  it('falls back to constructor secret when admin has not saved one', async () => {
+    const plugin = webhookPlugin({ signingSecret: 'fallback-secret' })
+    const ctx = makeCtx({}) // no stored secret
+    await plugin.hooks?.['content.published']?.({ type: 'content.published', payload: {} as never }, ctx)
+    // assert that the request was signed with 'fallback-secret'
+  })
+})
+```
 
 ---
 

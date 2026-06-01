@@ -88,7 +88,7 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
   Lambda (`hooks`) でやる
 - **admin ルート / server ルート / コンテンツフィールドの追加** —
   Phase 6b 予約
-- **secret の読み書き**。`secretSettings` capability は Phase 6a 予約。
+- **Admin routes / server routes / content fields.** Phase 6b 予約。
   `settings.public` に credential を置かないこと
 
 ---
@@ -699,6 +699,19 @@ stored 値 (validated)
 ### 複数インスタンス
 
 各プラグインインスタンスは `instanceId` でスコープされた独立 namespace を持ちます。`cms.config.ts` 内の 2 回の `analyticsGa4Plugin({ instanceId: 'a' })` と `analyticsGa4Plugin({ instanceId: 'b' })` は別々の DDB 行を見ます。`ctx.setting()` は自プラグインの `instanceId` に自動スコープします。
+
+---
+
+## 9a. Secret settings: `ctx.secret<T>(key)` (Phase 6a)
+
+Secret settings を使うと、trusted プラグインが認証情報 (Webhook 署名 secret・SMTP パスワード・外部 API トークン等) を admin UI 経由で保存・ローテーションできます。**公開サイトやブラウザ側コードに値が流れることはありません**。
+
+詳しいリファレンスは [`packages/ampless/docs/plugin-author-guide.md`](../../packages/ampless/docs/plugin-author-guide.md) §9a を参照してください。概要:
+
+- `settings.secret` は `trust_level: 'trusted'` + `'secretSettings'` capability 必須。
+- フィールド型は `PluginSecretField` = `Omit<PluginTextField, 'default'> | Omit<PluginTextareaField, 'default'>`。`default` は型レベルで禁止。fallback は closure-private 変数で保持。
+- hook 内で `await ctx.secret<string>('signingSecret')` で読む。per-invocation キャッシュ済み。
+- admin UI が「保存済み」表示 (`••••••••`) + Replace + Clear を提供。値は取得・表示されない。
 
 ---
 

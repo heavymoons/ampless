@@ -1,6 +1,7 @@
 import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb'
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb'
 import {
   DynamoDBDocumentClient,
   DeleteCommand,
@@ -14,7 +15,7 @@ import {
   type AmplessEvent,
   type AmplessPlugin,
   type Config,
-  type PluginRuntimeContext,
+  type TrustedPluginRuntimeContext,
   type Post,
   type PostIndexEventPayload,
 } from 'ampless'
@@ -115,10 +116,17 @@ export function createProcessorTrustedHandler(
   const POST_TABLE = requireEnv('AMPLESS_POST_TABLE')
   const KV_TABLE = requireEnv('AMPLESS_KV_TABLE')
   const POSTTAG_TABLE = requireEnv('AMPLESS_POSTTAG_TABLE')
+  const PLUGIN_SECRET_TABLE = requireEnv('AMPLESS_PLUGIN_SECRET_TABLE')
   // AWS_REGION is always set by the Lambda runtime; require it so a
   // misconfigured deploy fails at cold start instead of producing wrong
   // regional URLs at runtime.
   const REGION = requireEnv('AWS_REGION')
+
+  // Raw DynamoDB client for PluginSecret GetItem. We use the raw client
+  // (not DocumentClient) to stay explicit about the marshall/unmarshall
+  // boundary — secret reads are sensitive operations and we want the
+  // code path to be as clear as possible.
+  const rawDdb = new DynamoDBClient({})
 
   // One Query against the `byStatus` GSI: PK = 'published', SK
   // (publishedAt) gives newest-first ordering with `ScanIndexForward:
@@ -156,9 +164,18 @@ export function createProcessorTrustedHandler(
     return items
   }
 
-  function makeContext(plugin: AmplessPlugin): PluginRuntimeContext {
+  function makeContext(plugin: AmplessPlugin): TrustedPluginRuntimeContext {
     const namespace = plugin.instanceId ?? plugin.name
     const label = plugin.instanceId ? `${plugin.name}#${plugin.instanceId}` : plugin.name
+
+    // Per-invocation cache for secret reads. Key is
+    // `${instanceId ?? name}:${fieldKey}` — must be compound to prevent
+    // cross-plugin collisions when two plugin instances declare the same
+    // field key (e.g. both have 'signingSecret').
+    // Lifetime: this Map is created fresh per makeContext() call (once per
+    // plugin per SQS batch), so it's scoped to one plugin's hook execution
+    // within the batch. Two different plugins never share a cache.
+    const secretCache = new Map<string, unknown>()
 
     return {
       site: opts.site,
@@ -191,6 +208,38 @@ export function createProcessorTrustedHandler(
           })
         )
         return formatPublicAssetUrl(BUCKET, REGION, objectKey)
+      },
+
+      async secret<T = string>(key: string): Promise<T | undefined> {
+        // Cache key is compound: plugin namespace + field key. This
+        // prevents cross-plugin collisions when two plugin instances
+        // both declare a field named e.g. 'signingSecret'.
+        const cacheKey = `${namespace}:${key}`
+        if (secretCache.has(cacheKey)) {
+          return secretCache.get(cacheKey) as T | undefined
+        }
+
+        // DDB sort key convention: `plugins.<instanceId ?? name>.<fieldKey>`
+        const sk = `plugins.${namespace}.${key}`
+        try {
+          const result = await rawDdb.send(
+            new GetItemCommand({
+              TableName: PLUGIN_SECRET_TABLE,
+              Key: marshall({ siteId: 'default', sk }),
+            })
+          )
+          const value = result.Item ? (unmarshall(result.Item).value as string) : undefined
+          secretCache.set(cacheKey, value)
+          return value as T | undefined
+        } catch (err) {
+          console.error(
+            `[trusted-processor] ${label}: ctx.secret("${key}") DDB read failed`,
+            err
+          )
+          // Do not cache errors — allow retry on next call in case of
+          // transient DDB error.
+          return undefined
+        }
       },
     }
   }

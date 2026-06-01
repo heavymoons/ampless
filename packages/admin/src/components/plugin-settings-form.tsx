@@ -15,11 +15,12 @@
 // invalidation would race the trusted processor and re-populate the
 // Next.js fetch cache with the pre-save value.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   resolveLocalized,
   type LocalizedString,
   type PluginSettingField,
+  type PluginSecretField,
   type PluginRepeatableField,
 } from 'ampless'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
@@ -27,9 +28,15 @@ import {
   setPluginPublicSetting,
   deletePluginPublicSetting,
 } from '../lib/plugin-settings.js'
+import {
+  setPluginSecret,
+  clearPluginSecret,
+  hasPluginSecret,
+} from '../lib/plugin-secret.js'
 import { invalidateSiteSettingsCache } from '../lib/theme-actions.js'
 import { useT, useLocale } from './i18n-provider.js'
 import { RepeatableFieldEditor } from './repeatable-field-editor.js'
+import { SecretFieldInput } from './secret-field-input.js'
 
 // Same delay as theme-settings-form. The trusted processor rebuilds
 // the S3 cache JSON in 5–10 s; firing earlier risks re-fetching the
@@ -46,6 +53,13 @@ interface Props {
    * still come through the manifest.
    */
   initialValues: Record<string, unknown>
+  /**
+   * Secret fields declared in `settings.secret`. Rendered below the
+   * public fields in a visually distinct section. Values are NEVER
+   * fetched — each SecretFieldInput independently checks existence via
+   * `hasPluginSecret()` at mount time.
+   */
+  secretFields?: ReadonlyArray<PluginSecretField>
 }
 
 interface FormState {
@@ -139,9 +153,36 @@ export function PluginSettingsForm({
   displayName,
   fields,
   initialValues,
+  secretFields,
 }: Props) {
   const t = useT()
   const locale = useLocale()
+
+  // Track which secret fields have a stored value (existence-check only;
+  // value is never returned). Loaded once at mount via hasPluginSecret().
+  const [secretHasValue, setSecretHasValue] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    if (!secretFields || secretFields.length === 0) return
+    let cancelled = false
+    async function check() {
+      const results: Record<string, boolean> = {}
+      for (const field of secretFields!) {
+        try {
+          results[field.key] = await hasPluginSecret(instanceId, field.key)
+        } catch {
+          results[field.key] = false
+        }
+      }
+      if (!cancelled) setSecretHasValue(results)
+    }
+    void check()
+    return () => {
+      cancelled = true
+    }
+  // Only run on mount / instanceId change; secretFields is stable from manifest
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceId])
 
   // Display value priority: stored DDB value → manifest.default →
   // empty string. Showing the default in the input box (when no
@@ -304,6 +345,43 @@ export function PluginSettingsForm({
       <Button type="submit" disabled={saving}>
         {saving ? t('plugins.saving') : t('plugins.save')}
       </Button>
+
+      {/* Secret settings section — visually separated, below public fields */}
+      {secretFields && secretFields.length > 0 && (
+        <div className="mt-6 space-y-4 border-t pt-4">
+          <div>
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-amber-700 dark:text-amber-400">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a2 2 0 0 0-2 2v4.5A2.5 2.5 0 0 0 4.5 15h7a2.5 2.5 0 0 0 2.5-2.5V8a2 2 0 0 0-2-2h-.5V4.5A3.5 3.5 0 0 0 8 1Zm2 5V4.5a2 2 0 1 0-4 0V6h4Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Secret settings
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Values are stored securely and never displayed after saving. They are only
+              accessible by the trusted processor Lambda — not by the public site or admin UI.
+            </p>
+          </div>
+          {secretFields.map((field) => (
+            <SecretFieldInput
+              key={field.key}
+              field={field}
+              hasValue={secretHasValue[field.key] ?? false}
+              onSave={(value) => setPluginSecret(instanceId, field.key, value)}
+              onClear={() => clearPluginSecret(instanceId, field.key)}
+            />
+          ))}
+        </div>
+      )}
     </form>
   )
 }

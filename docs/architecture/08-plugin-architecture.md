@@ -107,9 +107,15 @@ Phase 6d additions:
 |---|---|---|
 | `publicHtmlForPost` | `publicHtmlForPost()` — per-post **visible HTML** at the `beforeContent` / `afterContent` slots of the theme's post page (Phase 6d, implemented). Body is sanitized by the runtime under a strict `sanitize-html` allowlist; same sanitize is applied to every trust level. | `untrusted` and up |
 
+Phase 6a additions:
+
+| capability | meaning | default-allowed trust_level |
+|---|---|---|
+| `secretSettings` | declares one or more `settings.secret` fields — admin-editable values stored in the isolated `PluginSecret` DDB model (no read authorization for admin/editor groups). Trusted hooks read via `ctx.secret<T>(key)`. Requires `trust_level: 'trusted'`. | `trusted` only — untrusted plugins that declare this capability throw at `definePlugin()` time. |
+
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
-`contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
+`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
 
 Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
 
@@ -133,10 +139,10 @@ This is what prevents a casually-installed npm package from silently adding admi
 
 #### `trusted`
 
-- **IAM**: `dynamodb:Query` / `Scan` on Post + GSIs, `dynamodb:Read` on KvStore, `dynamodb:Write` on PostTag, `s3:PutObject` / `DeleteObject` under `public/plugins/*`, plus an exact-match grant on `public/site-settings.json` for the built-in site-settings handler.
-- **Runtime context**: `listPublishedPosts()` does one Query against the `byStatus` GSI; `writePublicAsset(key, body, contentType)` writes to `public/plugins/{instanceId ?? name}/{key}`.
-- **Use cases**: SEO metadata, RSS feed generation, sitemap rebuild, custom index maintenance.
-- **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`.
+- **IAM**: `dynamodb:Query` / `Scan` on Post + GSIs, `dynamodb:Read` on KvStore, `dynamodb:GetItem` on PluginSecret (Phase 6a), `dynamodb:Write` on PostTag, `s3:PutObject` / `DeleteObject` under `public/plugins/*`, plus an exact-match grant on `public/site-settings.json` for the built-in site-settings handler.
+- **Runtime context**: `listPublishedPosts()` does one Query against the `byStatus` GSI; `writePublicAsset(key, body, contentType)` writes to `public/plugins/{instanceId ?? name}/{key}`; `ctx.secret<T>(key)` reads from the PluginSecret table (per-invocation cached, compound cache key prevents cross-plugin collisions).
+- **Use cases**: SEO metadata, RSS feed generation, sitemap rebuild, custom index maintenance, webhook signing with admin-rotatable secrets.
+- **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`, `@ampless/plugin-webhook` (Phase 6b retrofit).
 
 The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context namespaces keys by plugin instance so a plugin can't write to a sibling's prefix without bypassing it. The Phase 3 `writePublicAsset` formalisation keeps this split: **IAM enforces the processor-wide prefix; plugin-instance prefix enforcement stays at the runtime context layer**. The trusted processor hands each plugin a storage handle bound to `instanceId ?? name`, validates keys before writing (no absolute paths, `.` / `..` segments, backslashes, control characters, or keys over 256 characters), and warns once when a plugin declares capabilities but calls `writePublicAsset` without declaring that capability. Existing plugins with no `capabilities` field keep working without warnings. Plugin-per-Lambda with capability-based IAM is the bigger redesign on the [roadmap](./14-roadmap.md), only invoked if Phase 3 dogfood shows the runtime-layer enforcement is insufficient.
 
@@ -223,7 +229,7 @@ Plugins persist state through several mechanisms — none of them is a dedicated
 | `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{instanceId ?? name}/{key}` | Rendered assets the public site fetches: RSS feed, sitemap XML, JSON indexes | `trusted` only; Phase 3 formalises the capability + key validation + namespace enforcement at the runtime context level. IAM grant remains bucket-wide on `public/plugins/*` |
 | `KvStore` (admin/editor-write via AppSync) | DynamoDB row `pk='pluginstate:{plugin}:...'` with optional TTL | Small state the plugin needs to read back later (counters, last-run timestamps) | Current |
 | Admin-managed public settings | DynamoDB `pk='siteconfig'`, `sk='plugins.<instanceId>.<fieldKey>'`, mirrored to S3 `public/site-settings.json` | Values an admin edits from `/admin/plugins`; sync-readable from the public Next.js process via `ctx.setting<T>(key)` inside `publicHead` / `publicBodyEnd`. The runtime resolves `stored → manifest.default → undefined` per request; admin reads via `Admin.loadPluginPublicSettings(instanceId)` for the form pre-fill. Independent of `loadSiteSettings()` (which stays scoped to the curated core surface) | Implemented (Phase 2) |
-| Admin-managed secret settings | TBD — `PluginSecret` admin-only AppSync model or Secrets Manager / SSM | API keys, signing secrets, etc. Never reach the public runtime | Planned (Phase 6a) |
+| Admin-managed secret settings | `PluginSecret` AppSync model, separate table from KvStore. `siteId` + `sk` (`plugins.<instanceId>.<fieldKey>`) identifier. Admin/editor may `create`/`update`/`delete` but **no `read`** — AppSync never generates `getPluginSecret`/`listPluginSecrets` for those groups. Trusted Lambda IAM is the only read principal (via DDB `GetItem`, not AppSync). Never flows to the S3 site-settings mirror (the mirror path only queries KvStore). Per-invocation cache in the Lambda (compound key `${instanceId ?? name}:${fieldKey}`). Admin UI write path: `setPluginSecret` / `clearPluginSecret` / `hasPluginSecret` — **no `getPluginSecret` exists**. Hook-side read: `ctx.secret<T>(key)`. | Implemented (Phase 6a). Requires `trust_level: 'trusted'` + `'secretSettings'` capability. |
 
 There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If a plugin needs private storage outside the above, that's part of what the privileged tier will eventually grant.
 
