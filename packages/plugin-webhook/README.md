@@ -7,7 +7,7 @@ POST ampless events to one or more external URLs.
 
 > **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
 
-Runs in the **untrusted** Lambda — it makes outbound HTTPS calls and never touches AWS data, so a compromised webhook receiver can't pivot into your CMS.
+Runs in the **trusted** Lambda so it can access the admin-managed signing secret for zero-deploy key rotation.
 
 ## Install
 
@@ -92,6 +92,34 @@ function verify(rawBody: string, signatureHeader: string, secret: string): boole
 ```
 
 Always compute the HMAC over the **raw request body** before any JSON parsing, and use a constant-time comparison.
+
+## Signing secret (admin-managed)
+
+Since Phase 6a the webhook plugin supports an admin-managed signing secret that lets you rotate the HMAC key without redeploying.
+
+### Setting the secret in the admin UI
+
+1. Open `/admin/plugins/webhook` → **Secret settings**.
+2. Enter your signing secret and click **Save**.
+3. The new key is active within seconds — no `git push`, no Amplify rebuild.
+
+### How the secret applies
+
+- **Admin secret is set** → applied to **all** endpoints uniformly. This is the recommended production setup because it gives you a single place to rotate the key.
+- **Admin secret is not set** → each endpoint falls back to its per-endpoint `secret` from the constructor options (see [Configure](#configure) below). Use this for initial setup before you've migrated to admin-managed.
+
+The per-endpoint constructor `secret` is closure-private and is **never** included in the plugin manifest or any public artifact — it stays server-side by construction.
+
+### Rotating the secret
+
+1. Generate a new secret (e.g. `openssl rand -hex 32`).
+2. Update your receiver to accept both old and new secrets for a brief window (dual-verify).
+3. Paste the new secret in the admin UI → **Replace** → **Save**.
+4. Once all in-flight webhooks have drained (~30 s), remove the old secret from your receiver.
+
+### Verifying the signature on the receiver
+
+See [Verifying the signature](#verifying-the-signature-nodejs) below for the receiver-side implementation — the verification code is identical regardless of whether the key came from the admin UI or from the constructor.
 
 ## Retry behavior
 

@@ -44,7 +44,8 @@ WordPress 互換性は **WXR データインポートのみスコープに入れ
 - [x] Phase 4: 投稿単位 body 注入 API（`publicBodyForPost`）+ `schema` capability + JSON-LD 自動 escape（`escapeJsonLdInlineBody`）。同梱第 1 弾：`@ampless/plugin-schema-jsonld`（untrusted）。テーマの post ページテンプレートが `ampless.publicBodyForPost(post)` を呼んで `<script type="application/ld+json">` 要素を描画
 - [x] Phase 5: モノレポ外プラグインの npm install 検証 — 静的 `package.json#amplessPlugin` manifest 規約 + runtime cross-check、`npx create-ampless plugin <name>` scaffold subcommand、プラグイン作者ガイド書き直し。`@ishinao/ampless-plugin-site-verification` を npm 公開して ishinao.net で実装インストール検証済み
 - [x] Phase 6d: `publicHtmlForPost` capability + `PublicPostHtmlDescriptor` 型 + `@ampless/runtime` への `sanitize-html` サニタイズ層。同梱第 1 弾：`@ampless/plugin-reading-time`（untrusted）— 英語語数 + CJK 文字数換算による読了時間バッジ。ラベルテンプレートと位置は admin から編集可能。
-- [ ] Phase 6+（各々独立 RFP）: secret settings 保存先、developer 拡張 capability (`adminPage` / `serverRoute` / `contentFields` / ...)
+- [x] Phase 6a: `secretSettings` capability + `PluginSecretField` 型（`default` を `Omit` で除去し漏洩を防止）+ `TrustedPluginRuntimeContext.secret<T>(key)` 非同期アクセサ + `PluginSecret` DynamoDB モデル（admin/editor: 書き込みのみ; IAM Lambda: 読み取りのみ）。`@ampless/plugin-webhook` を `trust_level: 'trusted'` に retrofit し、admin 管理の署名シークレットで再デプロイ不要のキーローテーションを実現。
+- [ ] Phase 6+（各々独立 RFP）: developer 拡張 capability (`adminPage` / `serverRoute` / `contentFields` / ...)
 
 #### コンテンツ周り
 - [ ] Markdown / HTML canonical 対応（tiptap 以外を編集時の一級扱い）

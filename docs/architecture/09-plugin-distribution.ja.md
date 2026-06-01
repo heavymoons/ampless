@@ -42,7 +42,7 @@ export default defineConfig({
 - `@ampless/plugin-seo` — 投稿単位とサイト単位の SEO メタデータ。trusted。
 - `@ampless/plugin-rss` — 公開イベント時に `public/plugins/rss/feed.xml` を生成。trusted。
 - `@ampless/plugin-og-image` — リクエスト時に OG 画像を動的描画。untrusted（公開 Next.js プロセス内で描画するので AWS データ権限は不要）。
-- `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。untrusted。
+- `@ampless/plugin-webhook` — コンテンツイベントで外向き Webhook を配送。trusted。`secretSettings` capability（Phase 6a）を使用し、HMAC 署名シークレットを admin UI で管理。すべてのエンドポイントに対して再デプロイ不要のキーローテーションが可能。
 - `@ampless/plugin-analytics-ga4` — descriptor API + admin 管理設定で `<head>` に GA4 のスニペットを注入。untrusted（公開 Next.js プロセスで動くので AWS データ権限は不要）。
 - `@ampless/plugin-gtm` — Google Tag Manager の head + body 注入（`<head>` にローダー script、`<body>` 末尾に `<noscript>` iframe フォールバック）。コンテナ ID は `/admin/plugins` から編集可能。untrusted。
 - `@ampless/plugin-plausible` — Plausible Analytics の head 注入（プライバシー重視、cookie 不使用）。サイトドメインとスクリプト URL は `/admin/plugins` から編集可能。`scriptUrl` はデフォルトでホスト版 plausible.io を指すが、self-hosted へ上書き可能。untrusted。

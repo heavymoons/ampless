@@ -42,7 +42,7 @@ Shipped from this monorepo, published under `@ampless/` on npm:
 - `@ampless/plugin-seo` — per-post and site-level SEO metadata. trusted.
 - `@ampless/plugin-rss` — generates `public/plugins/rss/feed.xml` on content publish. trusted.
 - `@ampless/plugin-og-image` — dynamic OG-image rendering at request time. untrusted (renders inside the public Next.js process, no AWS data permissions needed).
-- `@ampless/plugin-webhook` — outbound webhook delivery on content events. untrusted.
+- `@ampless/plugin-webhook` — outbound webhook delivery on content events. trusted. Uses the `secretSettings` capability (Phase 6a) to store the HMAC signing secret in the admin UI, enabling zero-deploy key rotation across all endpoints.
 - `@ampless/plugin-analytics-ga4` — Google Analytics 4 head injection via the descriptor API + admin-managed settings. untrusted (runs inside the public Next.js process, no AWS data permissions needed).
 - `@ampless/plugin-gtm` — Google Tag Manager head + body injection (loader script in `<head>`, `<noscript>` iframe fallback at end of `<body>`) with the container ID editable from `/admin/plugins`. untrusted.
 - `@ampless/plugin-plausible` — Plausible Analytics head injection (privacy-focused, cookie-free). Site domain + script URL editable from `/admin/plugins`; `scriptUrl` defaults to the hosted plausible.io but can be overridden for self-hosted installs. untrusted.
