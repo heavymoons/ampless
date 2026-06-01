@@ -81,6 +81,7 @@ describe('amplessSchemaModels', () => {
         'PostTag',
         'KvStore',
         'McpToken',
+        'PluginSecret',
         'PublicPost',
         'PublicPostConnection',
         'PublicMedia',

@@ -105,9 +105,15 @@ Phase 6d で追加:
 |---|---|---|
 | `publicHtmlForPost` | `publicHtmlForPost()` — テーマの post ページの `beforeContent` / `afterContent` スロットに **可視 HTML** を注入する (Phase 6d、実装済み)。body は runtime が `sanitize-html` の厳格 allowlist で sanitize する。`trust_level` を問わず同じ sanitize を強制 | `untrusted` 以上 |
 
+Phase 6a で追加:
+
+| capability | 意味 | 既定許可 trust_level |
+|---|---|---|
+| `secretSettings` | `settings.secret` フィールドを宣言し、分離された `PluginSecret` DDB model に admin 編集可能な secret 値を保存する。admin/editor グループには read 権限なし。trusted Lambda のみが `ctx.secret<T>(key)` で読み取れる。`trust_level: 'trusted'` 必須。 | `trusted` のみ — untrusted プラグインがこれを宣言すると `definePlugin()` 時に throw する。 |
+
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
-`contentFields` · `adminPage` · `serverRoute` · `secretSettings` (Phase 6a) · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
+`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
 
 「危険」カテゴリ (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) は、プラグインパッケージ側で宣言されていても `cms.config.ts` 側で明示許可しないと有効化されない:
 
@@ -131,10 +137,10 @@ plugins: [
 
 #### `trusted`
 
-- **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
-- **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。
-- **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持。
-- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`。
+- **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PluginSecret に対する `dynamodb:GetItem`（Phase 6a）、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
+- **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。`ctx.secret<T>(key)` は PluginSecret table から読み取る（per-invocation キャッシュあり、複合キーで cross-plugin 衝突防止）。
+- **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持、admin でローテーション可能な signing secret を使った Webhook 配送。
+- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6b retrofit 後）。
 
 trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーを plugin instance でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。Phase 3 で `writePublicAsset` を正式化するときもこの分離方針を維持する: **IAM は processor 全体の prefix のみ強制、plugin instance 単位の prefix は runtime context 層で強制**。trusted processor は各 plugin に `instanceId ?? name` に bound された storage handle を渡し、書き込み前に key を検証する（絶対パス、`.` / `..` segment、backslash、制御文字、256 文字超を禁止）。また、`capabilities` を宣言している plugin が `writePublicAsset` を含めずに実際に `ctx.writePublicAsset()` を呼んだ場合は 1 回だけ warn する。`capabilities` 未宣言の旧 plugin は warn なしで動き続ける。プラグインごとに Lambda を分離して capability ベース IAM を発行する大規模再設計は[ロードマップ](./14-roadmap.md)に残るが、Phase 3 のドッグフードで runtime 層の強制が不十分と判明した場合のみ着手する。
 
@@ -221,7 +227,7 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 | `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{instanceId ?? name}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス | `trusted` 限定。Phase 3 で capability、key validation、namespace 強制を runtime context 層で正式化。IAM grant は引き続き `public/plugins/*` のバケットワイルドカード |
 | `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） | 現行 |
 | admin 管理の public settings | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'`、 S3 `public/site-settings.json` にミラー | admin が `/admin/plugins` から編集する値。`publicHead` / `publicBodyEnd` の `ctx.setting<T>(key)` から同期読み出し可能。runtime は毎リクエスト `stored → manifest.default → undefined` の順で解決し、admin form 初期表示は `Admin.loadPluginPublicSettings(instanceId)` から取得する。`loadSiteSettings()` (コアサーフェスに限定) とは独立 | Implemented (Phase 2) |
-| admin 管理の secret settings | TBD — admin-only AppSync model `PluginSecret` か Secrets Manager / SSM | API キー、署名 secret 等。公開 runtime には絶対に出さない | Planned (Phase 6a) |
+| admin 管理の secret settings | `PluginSecret` AppSync model（KvStore とは別テーブル）。`siteId` + `sk`（`plugins.<instanceId>.<fieldKey>`）で識別。admin/editor グループは `create`/`update`/`delete` のみ可—**`read` 権限なし**（AppSync が `getPluginSecret` / `listPluginSecrets` を生成しない）。trusted Lambda IAM のみが DDB `GetItem` で読み取れる。S3 mirror 経路には絶対に流れない（mirror path は KvStore のみ query する）。Lambda 内でのキャッシュは per-invocation（複合キー `${instanceId ?? name}:${fieldKey}`）。admin UI 書き込み: `setPluginSecret` / `clearPluginSecret` / `hasPluginSecret`（**`getPluginSecret` は存在しない**）。hook 側読み取り: `ctx.secret<T>(key)`。 | 実装済み (Phase 6a)。`trust_level: 'trusted'` + `'secretSettings'` capability 必須。 |
 
 上記以外で `private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
 

@@ -18,6 +18,9 @@ export type TrustLevel = 'untrusted' | 'trusted' | 'privileged'
  *     scoped to JSON-LD `<script type="application/ld+json">`. Themes
  *     render the descriptors by calling `ampless.publicBodyForPost(post)`
  *     in their post template.
+ *   - `secretSettings`: admin-managed secret settings stored in the isolated
+ *     `PluginSecret` DynamoDB model. Requires `trust_level: 'trusted'`.
+ *     Trusted hooks access secrets via `ctx.secret<T>(key)`.
  *
  * Reserved capabilities are accepted by the type so that plugins can
  * declare future intent, but the runtime does nothing with them yet —
@@ -37,11 +40,12 @@ export type PluginCapability =
   | 'schema'
   // Phase 6d active
   | 'publicHtmlForPost'
+  // Phase 6a active
+  | 'secretSettings'
   // Reserved (name-only; later phases)
   | 'contentFields'
   | 'adminPage'
   | 'serverRoute'
-  | 'secretSettings'
   | 'network'
   | 'scheduler'
   | 'storageWrite'
@@ -283,6 +287,36 @@ export interface PluginRuntimeContext {
 }
 
 /**
+ * Extended runtime context for **trusted** hook handlers. Adds
+ * `secret<T>(key)` — an async accessor that reads from the isolated
+ * `PluginSecret` DynamoDB model (which admin / editor groups cannot
+ * query). The result is per-invocation cached to avoid redundant DDB
+ * calls when the same key is read multiple times inside one hook batch.
+ *
+ * Cache key is `${instanceId ?? name}:${fieldKey}` to prevent
+ * cross-plugin collisions when two plugin instances declare the same
+ * `key` (e.g. both have a `'signingSecret'` field).
+ *
+ * Only available in the trusted processor (`processor-trusted.ts`).
+ * The untrusted processor never constructs a `TrustedPluginRuntimeContext`
+ * — untrusted hook handlers receive plain `PluginRuntimeContext`, which
+ * does not expose `secret`.
+ */
+export interface TrustedPluginRuntimeContext extends PluginRuntimeContext {
+  /**
+   * Read a secret value stored under the plugin's namespace in the
+   * `PluginSecret` table. Returns `undefined` when no value has been
+   * saved yet. The generic `T` is a convenience cast (same pattern as
+   * `ctx.setting<T>()`) — values are always stored as strings, so `T`
+   * defaults to `string`.
+   *
+   * Per-invocation cached: calling `ctx.secret('key')` twice within
+   * the same SQS batch hit costs one DDB round-trip.
+   */
+  secret<T = string>(key: string): Promise<T | undefined>
+}
+
+/**
  * A font registered with a plugin's OG image renderer. Satori (the engine
  * inside Next.js `ImageResponse`) requires at least one font. We accept
  * either eager `ArrayBuffer` data or a lazy loader so plugins can be
@@ -514,12 +548,43 @@ export interface PluginPackageManifest {
 }
 
 /**
+ * Secret field types for `settings.secret`. Restricted to `text` /
+ * `textarea` — the only types useful for opaque string secrets
+ * (API keys, signing secrets, SMTP passwords). More complex types
+ * (number, boolean, select, repeatable) are excluded: structured
+ * secrets are out of scope for v1.
+ *
+ * The `default` property is intentionally stripped via `Omit`. If it
+ * were allowed, the default value would propagate into the admin form
+ * props (visible in the browser), static manifests cross-checked by
+ * the runtime, and JS bundles — multiple leak paths for a value that
+ * must stay server-side. Plugin authors that have a constructor-time
+ * fallback value should keep it as a **closure-private variable** that
+ * is never exposed in the manifest (see the plugin author guide for
+ * the "closure-private fallback" pattern).
+ */
+export type PluginSecretField =
+  | Omit<PluginTextField, 'default'>
+  | Omit<PluginTextareaField, 'default'>
+
+/**
  * Per-plugin settings declaration. Phase 2 implements `public`;
- * `secret` is reserved for Phase 6a (admin-only storage; never reaches
- * the public runtime).
+ * Phase 6a adds `secret` (admin-only storage; never reaches the public
+ * runtime or S3 mirror).
  */
 export interface PluginSettingsManifest {
   public?: readonly PluginSettingField[]
+  /**
+   * Admin-managed secret settings. Values are stored in the isolated
+   * `PluginSecret` DynamoDB model, which has no `read` authorization
+   * for admin / editor groups — only trusted Lambda IAM can read them.
+   * Secrets never reach the public runtime or the S3 site-settings
+   * mirror. Requires `trust_level: 'trusted'` and the
+   * `'secretSettings'` capability. Declaring this with an untrusted
+   * plugin throws at `definePlugin()` time; declaring it without the
+   * capability warns.
+   */
+  secret?: readonly PluginSecretField[]
 }
 
 export interface AmplessPlugin {
@@ -668,5 +733,33 @@ export interface AmplessPlugin {
 }
 
 export function definePlugin(p: AmplessPlugin): AmplessPlugin {
+  // --- Manifest validation for settings.secret ---
+  //
+  // Fail-fast when a plugin declares secret fields but cannot actually
+  // use them. The DDB isolation model only works when:
+  //   1. The plugin runs in the trusted Lambda (trust_level === 'trusted').
+  //      Untrusted Lambda has no IAM read access to PluginSecret.
+  //   2. The plugin has declared the 'secretSettings' capability so that
+  //      admin UI gates and future `cms.config.ts` allow-lists can act on
+  //      the declaration. Missing the capability is a soft warning, not a
+  //      hard error, to match the existing capability-mismatch pattern
+  //      for 'schema' / 'publicHtmlForPost'.
+  if (p.settings?.secret && p.settings.secret.length > 0) {
+    if (p.trust_level !== 'trusted') {
+      throw new Error(
+        `[ampless] Plugin "${p.name}": settings.secret requires trust_level "trusted" ` +
+          `but got "${p.trust_level}". Secret fields are only accessible from the trusted ` +
+          `Lambda — the untrusted and privileged Lambdas have no IAM read access to the ` +
+          `PluginSecret table. Either change trust_level to "trusted" or remove settings.secret.`
+      )
+    }
+    if (p.capabilities && !p.capabilities.includes('secretSettings')) {
+      console.warn(
+        `[ampless] Plugin "${p.name}": settings.secret is declared but "secretSettings" is ` +
+          `not in capabilities. Add "secretSettings" to capabilities so admin UI and future ` +
+          `capability gates can see the declaration.`
+      )
+    }
+  }
   return p
 }

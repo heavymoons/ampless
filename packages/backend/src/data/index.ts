@@ -274,6 +274,52 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.groups(['ampless-admin']),
       ]),
 
+    // Isolated secret storage for trusted plugins (Phase 6a).
+    //
+    // This is a COMPLETELY SEPARATE model from KvStore. KvStore grants
+    // admin/editor full read access through AppSync, which means any
+    // value stored there can be read by anyone with admin/editor
+    // credentials. PluginSecret has NO read authorization for any
+    // Cognito group — read is exclusively granted to IAM-authenticated
+    // principals (i.e. the trusted-processor Lambda role).
+    //
+    // Authorization design:
+    //   - admin / editor: CREATE, UPDATE, DELETE only. The AppSync
+    //     schema will not generate getPluginSecret / listPluginSecrets
+    //     queries for these groups because 'read' is absent.
+    //   - IAM (Lambda): read only. The trusted-processor Lambda uses
+    //     DDB SDK GetItem directly (not AppSync) to read secrets.
+    //
+    // Storage key convention:
+    //   siteId = 'default'   (single-site architecture)
+    //   sk = `plugins.${instanceId ?? name}.${fieldKey}`
+    //
+    // DynamoDB auto-encrypts at rest (AWS-managed KMS key). Secrets
+    // never flow to the S3 site-settings mirror because the trusted
+    // processor only queries KvStore (pk='siteconfig') for that path —
+    // PluginSecret is a structurally separate table.
+    PluginSecret: a
+      .model({
+        // Single-site architecture: siteId is always 'default'.
+        siteId: a.string().required(),
+        // Composite sort key: `plugins.<instanceId>.<fieldKey>`
+        sk: a.string().required(),
+        // The secret value (plaintext string). DynamoDB's server-side
+        // encryption (SSE) with AWS-owned KMS protects the value at
+        // rest. IAM controls Lambda read; AppSync controls admin write.
+        value: a.string().required(),
+      })
+      .identifier(['siteId', 'sk'])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .authorization((allow: any) => [
+        // admin/editor can create/update/delete but NOT read.
+        // 'read' is intentionally omitted so AppSync does not generate
+        // getPluginSecret / listPluginSecrets queries for these groups.
+        allow.groups(['ampless-admin', 'ampless-editor']).to(['create', 'update', 'delete']),
+        // Trusted Lambda reads via IAM-signed requests (SigV4).
+        allow.authenticated('iam').to(['read']),
+      ]),
+
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
     //

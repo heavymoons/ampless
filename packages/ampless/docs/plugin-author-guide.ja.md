@@ -88,7 +88,7 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
   Lambda (`hooks`) でやる
 - **admin ルート / server ルート / コンテンツフィールドの追加** —
   Phase 6b 予約
-- **secret の読み書き**。`secretSettings` capability は Phase 6a 予約。
+- **Admin routes / server routes / content fields.** Phase 6b 予約。
   `settings.public` に credential を置かないこと
 
 ---
@@ -699,6 +699,122 @@ stored 値 (validated)
 ### 複数インスタンス
 
 各プラグインインスタンスは `instanceId` でスコープされた独立 namespace を持ちます。`cms.config.ts` 内の 2 回の `analyticsGa4Plugin({ instanceId: 'a' })` と `analyticsGa4Plugin({ instanceId: 'b' })` は別々の DDB 行を見ます。`ctx.setting()` は自プラグインの `instanceId` に自動スコープします。
+
+---
+
+## 9a. Secret settings: `ctx.secret<T>(key)` (Phase 6a)
+
+Secret settings を使うと、trusted プラグインが認証情報 (Webhook 署名 secret・SMTP パスワード・外部 API トークン等) を admin UI 経由で保存・ローテーションできます。**公開サイトやブラウザ側コードに値が流れることはありません**。
+
+### なぜ `settings.public` と API が違うのか
+
+`settings.public` の値は公開 runtime に流れる設計です。`public/site-settings.json` にミラーされ、`ctx.setting()` で sync render surface から読めます。analytics の measurementId などには適切ですが、Webhook 署名 secret には絶対に使えません。
+
+`settings.secret` はストレージモデルが構造的に異なります:
+
+- KvStore とは **別テーブル** の `PluginSecret` DynamoDB model に保存。
+- admin/editor グループは **書き込み・削除のみ可**。AppSync が `getPluginSecret` / `listPluginSecrets` を生成しない（read 権限がない）。
+- trusted-processor Lambda IAM role だけが DDB `GetItem` で読み取れる。
+- S3 mirror 経路に絶対に流れない（mirror は KvStore のみを query する）。
+- 公開 render surface (`publicHead` など) からは読めない。
+
+### 要件
+
+`settings.secret` には 2 つの要件があります:
+
+1. `trust_level: 'trusted'` — untrusted Lambda には PluginSecret table への DDB read 権限がない。他の trust level で宣言すると `definePlugin()` 時に throw する。
+2. `'secretSettings'` を `capabilities` に含める — admin UI や将来の allow-list から capability を参照できるようにするため必須。省略すると console.warn（`'schema'` vs `publicBodyForPost` の不整合パターンと同じ）。
+
+### secret フィールドの宣言
+
+```ts
+import { definePlugin } from 'ampless'
+
+export default function webhookPlugin(opts?: { signingSecret?: string }) {
+  // constructor から渡された secret は closure-private な fallback として保持。
+  // manifest にも descriptor にも出さない。
+  const constructorSecret = opts?.signingSecret
+
+  return definePlugin({
+    name: 'webhook',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    capabilities: ['eventHooks', 'secretSettings'],
+    settings: {
+      secret: [
+        {
+          type: 'text',
+          key: 'signingSecret',
+          label: { en: 'Webhook signing secret', ja: 'Webhook 署名 secret' },
+          maxLength: 256,
+          required: false,
+          // `default` は型レベルで除外されている。closure-private fallback を使うこと。
+        },
+      ],
+    },
+    hooks: {
+      async 'content.published'(event, ctx) {
+        // ctx.secret() は PluginSecret DDB table から読む。
+        // admin が未保存なら undefined を返す。
+        const storedSecret = await ctx.secret<string>('signingSecret')
+
+        // closure-private fallback: admin が未保存の場合 constructor 引数を使う。
+        // これで既存サイトとの後方互換を維持できる。
+        const secret = storedSecret ?? constructorSecret
+        if (!secret) return
+
+        // ... secret で署名して POST
+      },
+    },
+  })
+}
+```
+
+### 重要: secret フィールドに `default` を書かない
+
+`PluginSecretField` 型は `Omit<PluginTextField, 'default'> | Omit<PluginTextareaField, 'default'>` として定義されており、**`default` プロパティは型レベルで除去**されています。追加しようとすると TypeScript がエラーを出します。
+
+理由: `default` は admin UI のフォーム props (ブラウザに送出される)、静的 manifest の cross-check、JS bundle など複数の経路で漏洩します。認証情報に使えない設計です。
+
+fallback 値がある場合は、プラグイン factory 関数の closure-private 変数として保持してください:
+
+```ts
+// ✓ 正解 — closure-private、manifest に出さない
+const constructorSecret = opts?.signingSecret
+
+// ✗ 誤り — TypeScript エラー、さらに browser にも漏れる
+settings: {
+  secret: [{
+    type: 'text',
+    key: 'signingSecret',
+    label: 'Secret',
+    default: opts?.signingSecret, // ← TS compile error
+  }],
+}
+```
+
+### secret の読み出し: `ctx.secret<T>(key)`
+
+`ctx.secret<T>(key)` は trusted hook handler 内でのみ利用できます (`processor-trusted.ts` が注入)。シグネチャ:
+
+```ts
+ctx.secret<T = string>(key: string): Promise<T | undefined>
+```
+
+- admin が未保存なら `undefined` を返す。
+- `T` は convenience cast (ctx.setting と同じ)。値は常に string として保存される。
+- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しは 1 回。
+- cache key は namespace 化される: `${instanceId ?? name}:${fieldKey}`。異なる plugin instance が同名フィールドを持っても混線しない。
+
+### admin UI
+
+`settings.secret` を宣言すると、admin plugin settings ページの public フィールドの下に **Secret settings** セクションが表示されます。各フィールド:
+
+- **未保存**: 通常テキスト入力 + Save ボタン。
+- **保存済み**: マスク表示 `••••••••` + Replace + Clear ボタン。値は絶対に取得・表示されない。
+- **編集中**: Replace クリック後 — 新値入力 + Save + Cancel。
+
+admin は再デプロイなしにいつでも secret をローテーションできます。保存後 ~5〜10 秒以内に次の trusted Lambda 実行から新値が使われます。
 
 ---
 
