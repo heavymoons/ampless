@@ -947,6 +947,14 @@ etc. — but completely wrong for a webhook signing secret.
 - Never passed to any public-render surface
   (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
   `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
+- **Field-manifest validation scope**: the admin client validates
+  `pattern` / `maxLength` / `required` for UX feedback, but the
+  Lambda only enforces a generic 10,000-character hard cap +
+  safe-character sanitizer. An admin/editor calling the AppSync
+  mutation directly can bypass field-level constraints — by design,
+  since admin/editor are trusted operators authorised to set
+  secrets. The manifest checks are UX guidance, not a security
+  boundary.
 
 ### Requirements
 

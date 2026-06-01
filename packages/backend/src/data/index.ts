@@ -296,8 +296,10 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // admin/editor Cognito users via AppSync — the only way to write
     // a secret is through the `setPluginSecret` / `clearPluginSecret`
     // AppSync mutations which are backed by the plugin-secret-handler
-    // Lambda. The Lambda receives the plaintext, fetches the encryption
-    // key from SSM Parameter Store (/ampless/{apiId}/PLUGIN_SECRET_ENCRYPTION_KEY),
+    // Lambda. The Lambda receives the plaintext, reads the encryption
+    // key from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by
+    // CDK at deploy time from `amplify/secrets/encryption-key.ts` — see
+    // Phase 6a v2.2 in docs/architecture/08-plugin-architecture.md),
     // and performs the DDB PutItem using its own IAM role. Ciphertext
     // never flows back to the browser.
     //
@@ -325,11 +327,15 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         // The secret value stored as AES-256-GCM ciphertext (base64).
         // Format: base64( IV[12] || ciphertext || authTag[16] ).
         // Encrypted by the plugin-secret-handler Lambda using the key
-        // fetched from SSM Parameter Store at cold start
-        // (/ampless/{apiId}/PLUGIN_SECRET_ENCRYPTION_KEY).
-        // Even if an AWS account operator reads this column via the
-        // DDB Console they only see ciphertext — the key lives in SSM,
-        // which requires a separate IAM ssm:GetParameter permission.
+        // in `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (set by CDK at
+        // deploy time from the `amplify/secrets/encryption-key.ts`
+        // constant). Even if an AWS account operator reads this column
+        // via the DDB Console they only see ciphertext — the key lives
+        // outside DynamoDB. The honest threat model is documented in
+        // docs/architecture/08-plugin-architecture.md: defeated for
+        // DDB-only browsing, NOT defeated for anyone with source repo
+        // / deploy artifact access, NOT defeated for a malicious
+        // trusted plugin co-located in the same Lambda.
         value: a.string().required(),
       })
       .identifier(['siteId', 'sk'])

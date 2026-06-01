@@ -36,6 +36,10 @@
     "./functions/mcp-handler": {
       "import": "./dist/functions/mcp-handler.js",
       "types": "./dist/functions/mcp-handler.d.ts"
+    },
+    "./functions/plugin-secret-handler": {
+      "import": "./dist/functions/plugin-secret-handler.js",
+      "types": "./dist/functions/plugin-secret-handler.d.ts"
     }
   },
   "files": [

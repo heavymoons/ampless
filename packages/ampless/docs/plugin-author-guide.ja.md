@@ -726,6 +726,7 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 - trusted-processor Lambda が `node:crypto` で復号する。`ctx.secret<T>(key)` は平文 string を返す（ciphertext ではない）。
 - S3 mirror 経路に絶対に流れない（mirror は KvStore のみを query する）。
 - 公開 render surface (`publicHead` など) からは読めない。
+- **field manifest 検証の範囲**: admin クライアントは UX フィードバック目的で `pattern` / `maxLength` / `required` を検証するが、Lambda 側は **汎用の 10,000 文字ハードキャップと安全文字サニタイザのみ**を強制する。admin/editor が AppSync mutation を直接呼ぶと field 単位の制約は迂回できる。設計上意図したもので、admin/editor は secret 設定を許可された信頼されたオペレータと位置づけている。manifest チェックは UX ガイダンスであり、セキュリティ境界ではない。
 
 ### 要件
 

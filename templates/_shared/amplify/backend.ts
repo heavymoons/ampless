@@ -10,6 +10,7 @@ import { processorUntrusted } from './events/processor-untrusted/resource.js'
 import { apiKeyRenewer } from './functions/api-key-renewer/resource.js'
 import { mcpHandler } from './functions/mcp-handler/resource.js'
 import { userAdmin } from './functions/user-admin/resource.js'
+import { pluginSecretHandler } from './functions/plugin-secret-handler/resource.js'
 import { customizeBackend } from './backend.custom.js'
 // Plugin secret encryption key (Phase 6a v2.2).
 // Generate with: npx create-ampless setup-encryption-key
@@ -35,6 +36,7 @@ const backend = defineAmplessBackend({
   apiKeyRenewer,
   mcpHandler,
   userAdmin,
+  pluginSecretHandler,
   pluginSecretEncryptionKey: PLUGIN_SECRET_ENCRYPTION_KEY,
 })
 

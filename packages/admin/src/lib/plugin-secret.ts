@@ -133,9 +133,18 @@ function requireClearMutation(
 /**
  * Save (insert or overwrite) a secret value for one plugin field.
  *
- * Validates the field manifest constraints client-side first (fast UX
- * feedback before the network round-trip). The Lambda re-validates
- * server-side, so skipping this call does not bypass security.
+ * Validates the field manifest constraints (`pattern`, `maxLength`,
+ * `required`) **client-side only** — fast UX feedback before the
+ * network round-trip. The Lambda does NOT re-validate against the
+ * plugin manifest: it enforces only a generic hard cap (10,000 chars)
+ * and a safe-character sanitizer. An admin/editor user calling the
+ * AppSync mutation directly can therefore bypass `pattern` /
+ * field-level `maxLength` / `required`. This is by design — the
+ * threat model treats admin/editor as trusted operators authorised to
+ * set secrets; the manifest checks here are UX guidance, not a
+ * security boundary. See the Phase 6a v2.2 section of
+ * docs/architecture/08-plugin-architecture.md for the full threat
+ * model.
  *
  * The plaintext is sent to the Lambda via the AppSync mutation (TLS).
  * The Lambda encrypts with AES-256-GCM using the env-var key and writes

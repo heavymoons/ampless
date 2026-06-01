@@ -713,6 +713,7 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 - admin ブラウザは AppSync mutation (`setPluginSecret`) 経由で書き込む → `plugin-secret-handler` Lambda が env var から鍵取得・AES-256-GCM 暗号化・DDB PutItem。平文は DDB に保存されずブラウザにも返らない。`ctx.secret<T>(key)` は trusted Lambda が復号した平文を返す（`process.env.PLUGIN_SECRET_ENCRYPTION_KEY` を使用; DDB に鍵は保存しない）。per-invocation でキャッシュ。
 - admin UI が「保存済み」表示 (`••••••••`) + Replace + Clear を提供。値は取得・表示されない。
 - **Dual-write 整合性**: set/clear は 2 テーブルに連続して書く。2 回目失敗時 — set パス部分失敗は「secret 機能する・indicator 不在（UI: 未保存誤表示）」; clear パス部分失敗は「secret 削除済・indicator stale（UI: 保存済み誤表示、secret は発火しない安全側）」。
+- **field manifest 検証の範囲**: admin クライアントは UX フィードバック用に `pattern` / `maxLength` / `required` を検証するが、Lambda は **汎用 10,000 文字キャップと安全文字サニタイザのみ**を強制。admin/editor が AppSync mutation を直接呼ぶと field 単位の制約は迂回可能 — admin/editor は信頼されたオペレータと扱う設計のため、manifest チェックはセキュリティ境界ではなく UX ガイダンス。
 
 ---
 
