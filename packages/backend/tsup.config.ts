@@ -10,6 +10,7 @@ export default defineConfig({
     'src/events/processor-untrusted.ts',
     'src/functions/api-key-renewer.ts',
     'src/functions/mcp-handler.ts',
+    'src/functions/plugin-secret-handler.ts',
   ],
   format: ['esm'],
   dts: true,

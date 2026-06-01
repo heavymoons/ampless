@@ -922,14 +922,38 @@ etc. — but completely wrong for a webhook signing secret.
 
 `settings.secret` has a structurally different storage model:
 
-- Stored in the `PluginSecret` DynamoDB model (separate from KvStore).
-- Admin/editor groups can **write and delete** but have **no read
-  authorization** — the AppSync schema does not generate
-  `getPluginSecret` or `listPluginSecrets` queries for those groups.
-- Only the trusted-processor Lambda IAM role can read, via DDB
-  `GetItem` directly.
+- Stored in the `PluginSecret` DynamoDB table (separate from KvStore).
+  Admin/editor Cognito users have **no direct AppSync access** to this
+  table — all writes go through the `setPluginSecret` mutation, which
+  is backed by the `plugin-secret-handler` Lambda.
+- Values are **AES-256-GCM encrypted** before reaching DynamoDB.
+  The admin browser sends the plaintext to the Lambda via AppSync
+  (TLS in transit); the Lambda validates it, reads the 32-byte
+  encryption key from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`
+  (injected by CDK from `amplify/secrets/encryption-key.ts`), encrypts
+  the value, and writes only the ciphertext to DDB. The plaintext
+  never rests in DynamoDB and never flows back to the browser.
+- **Threat model (Phase 6a v2.2)**:
+
+  | Threat | Status |
+  |---|---|
+  | AWS Console operator browsing PluginSecret table | ✓ defeated — ciphertext only, no key in DDB |
+  | Source repo / deploy artifact access | ⚠ NOT defeated — key is in `amplify/secrets/encryption-key.ts`. Private repo + restricted artifact access expected. |
+  | Malicious trusted plugin in same Lambda | ✗ NOT defeated — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` reachable from plugin code. True isolation = per-plugin Lambda (privileged tier, roadmap). |
+  | S3 mirror leak | ✓ defeated — PluginSecret table never mirrored. |
+
+- The trusted-processor Lambda decrypts with `node:crypto` on read.
+  `ctx.secret<T>(key)` returns the plaintext string, never the
+  ciphertext.
 - Never queried by the site-settings mirror path.
 - Never passed to any public-render surface
+- **Field-manifest validation scope**: the admin client validates
+  `pattern` / `maxLength` / `required` for UX feedback, but the
+  Lambda only enforces a generic 10,000-character hard cap + safe-
+  character sanitizer. An admin/editor calling the AppSync mutation
+  directly can bypass field-level constraints — by design, since
+  admin/editor are trusted operators authorised to set secrets.
+  The manifest checks are UX guidance, not a security boundary.
   (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
   `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
 
@@ -943,6 +967,37 @@ etc. — but completely wrong for a webhook signing secret.
 2. `'secretSettings'` in `capabilities` — required so admin UI and
    future allow-lists can gate the capability. Omitting it produces
    a console warning (same pattern as `'schema'` vs `publicBodyForPost`).
+3. **One-time key setup** — run from your project root:
+   ```sh
+   npx create-ampless setup-encryption-key
+   ```
+   This generates a cryptographically random 32-byte key and writes
+   it to `amplify/secrets/encryption-key.ts`. No AWS credentials
+   required — this is a local file operation only.
+
+   Then import the constant in `amplify/backend.ts` and pass it to
+   `defineAmplessBackend({ pluginSecretEncryptionKey })`. Redeploy (or
+   restart the sandbox) to inject the key into the Lambda env vars.
+
+   For public repos, pass `--gitignore` to exclude the key file from
+   version control and distribute the key separately.
+
+### Dual-write integrity
+
+The `setPluginSecret` and `clearPluginSecret` operations each write
+to **two DynamoDB tables** in sequence: `PluginSecret` (ciphertext)
+and `PluginSecretIndicator` (existence timestamp). If the second
+write fails, the tables are left in a predictable, documented state:
+
+| Failure point | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
+|---|---|---|---|---|
+| **set**: indicator PutItem fails | ciphertext present | absent | returns plaintext ✓ | `false` (UI: "not saved") |
+| **clear**: indicator DeleteItem fails | absent | stale (old timestamp) | `undefined` ✓ | `true` (UI: "saved") |
+
+The clear-path failure is the "safe side": the secret stops firing even
+though the UI briefly shows it as saved. The set-path failure is a minor
+UI inaccuracy: the secret is functional but the existence indicator is
+absent until a retry succeeds.
 
 ### Declaring secret fields
 
@@ -1035,10 +1090,14 @@ ctx.secret<T = string>(key: string): Promise<T | undefined>
 - The generic `T` is a convenience cast (same as `ctx.setting<T>()`).
   Values are always stored as strings; `T` defaults to `string`.
 - Results are per-invocation cached. Calling `ctx.secret('key')`
-  twice in the same hook batch costs one DDB round-trip.
+  twice in the same hook batch costs one DDB round-trip (and one
+  decrypt). The encryption key is decoded from the Lambda env var
+  at cold-start (no extra DDB fetch).
 - Cache keys are namespaced: `${instanceId ?? name}:${fieldKey}`.
   Two plugin instances both declaring `'signingSecret'` never get
   each other's values.
+- The cached value is the **decrypted plaintext** — not the
+  ciphertext. There is no redundant decrypt on repeated calls.
 
 ### Admin UI
 

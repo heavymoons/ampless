@@ -11,6 +11,7 @@ import { validateMountableProject } from './mount.js'
 import { runUpgrade } from './upgrade.js'
 import { runCopyTheme } from './copy-theme.js'
 import { runCreatePlugin } from './plugin.js'
+import { runSetupEncryptionKey } from './setup-encryption-key.js'
 import pc from 'picocolors'
 
 // Default scaffolds install every shipped theme so the
@@ -130,6 +131,11 @@ async function main() {
 
   if (args.createPlugin) {
     await runCreatePlugin(args)
+    return
+  }
+
+  if (args.setupEncryptionKey) {
+    await runSetupEncryptionKey(args)
     return
   }
 

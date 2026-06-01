@@ -56,6 +56,19 @@ export interface AmplessSchemaModelsOpts {
    * pattern as `AmplessAuthConfigOpts.postConfirmation`.
    */
   userAdminFunction?: unknown
+  /**
+   * Optional Amplify `defineFunction` ref backing the plugin-secret
+   * mutation ops (`setPluginSecret`, `clearPluginSecret`).
+   *
+   * When supplied, the mutations are added to the schema and routed to
+   * this Lambda. The Lambda receives the plaintext from admin browser,
+   * encrypts with the env-var key, and writes ciphertext to the
+   * PluginSecret table. Admin/editor Cognito users never touch
+   * PluginSecret directly — only the Lambda (via IAM) does.
+   *
+   * Typed as `unknown` for the same reason as `userAdminFunction`.
+   */
+  pluginSecretHandlerFunction?: unknown
 }
 
 /**
@@ -279,16 +292,23 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // This is a COMPLETELY SEPARATE model from KvStore. KvStore grants
     // admin/editor full read access through AppSync, which means any
     // value stored there can be read by anyone with admin/editor
-    // credentials. PluginSecret has NO read authorization for any
-    // Cognito group — read is exclusively granted to IAM-authenticated
-    // principals (i.e. the trusted-processor Lambda role).
+    // credentials. PluginSecret is intentionally inaccessible to
+    // admin/editor Cognito users via AppSync — the only way to write
+    // a secret is through the `setPluginSecret` / `clearPluginSecret`
+    // AppSync mutations which are backed by the plugin-secret-handler
+    // Lambda. The Lambda receives the plaintext, reads the encryption
+    // key from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by
+    // CDK at deploy time from `amplify/secrets/encryption-key.ts` — see
+    // Phase 6a v2.2 in docs/architecture/08-plugin-architecture.md),
+    // and performs the DDB PutItem using its own IAM role. Ciphertext
+    // never flows back to the browser.
     //
     // Authorization design:
-    //   - admin / editor: CREATE, UPDATE, DELETE only. The AppSync
-    //     schema will not generate getPluginSecret / listPluginSecrets
-    //     queries for these groups because 'read' is absent.
-    //   - IAM (Lambda): read only. The trusted-processor Lambda uses
-    //     DDB SDK GetItem directly (not AppSync) to read secrets.
+    //   - admin / editor: NO direct AppSync access. All writes go
+    //     through the plugin-secret-handler Lambda mutation.
+    //   - IAM (Lambda): full read+write. Both the plugin-secret-handler
+    //     (writes ciphertext) and the trusted-processor (reads +
+    //     decrypts) use IAM-signed DDB SDK calls.
     //
     // Storage key convention:
     //   siteId = 'default'   (single-site architecture)
@@ -304,20 +324,61 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         siteId: a.string().required(),
         // Composite sort key: `plugins.<instanceId>.<fieldKey>`
         sk: a.string().required(),
-        // The secret value (plaintext string). DynamoDB's server-side
-        // encryption (SSE) with AWS-owned KMS protects the value at
-        // rest. IAM controls Lambda read; AppSync controls admin write.
+        // The secret value stored as AES-256-GCM ciphertext (base64).
+        // Format: base64( IV[12] || ciphertext || authTag[16] ).
+        // Encrypted by the plugin-secret-handler Lambda using the key
+        // in `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (set by CDK at
+        // deploy time from the `amplify/secrets/encryption-key.ts`
+        // constant). Even if an AWS account operator reads this column
+        // via the DDB Console they only see ciphertext — the key lives
+        // outside DynamoDB. The honest threat model is documented in
+        // docs/architecture/08-plugin-architecture.md: defeated for
+        // DDB-only browsing, NOT defeated for anyone with source repo
+        // / deploy artifact access, NOT defeated for a malicious
+        // trusted plugin co-located in the same Lambda.
         value: a.string().required(),
       })
       .identifier(['siteId', 'sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
-        // admin/editor can create/update/delete but NOT read.
-        // 'read' is intentionally omitted so AppSync does not generate
-        // getPluginSecret / listPluginSecrets queries for these groups.
-        allow.groups(['ampless-admin', 'ampless-editor']).to(['create', 'update', 'delete']),
-        // Trusted Lambda reads via IAM-signed requests (SigV4).
-        allow.authenticated('iam').to(['read']),
+        // IAM only — no Cognito group has any AppSync access.
+        // plugin-secret-handler Lambda writes (PutItem / DeleteItem).
+        // trusted-processor Lambda reads (GetItem, read-only grant
+        // in backend.ts via grantReadData).
+        allow.authenticated('iam').to(['read', 'create', 'update', 'delete']),
+      ]),
+
+    // Existence-only indicator for PluginSecret rows.
+    //
+    // Admin/editor Cognito users cannot read from PluginSecret at all
+    // (IAM-only authorization above). But the admin UI needs to know
+    // whether a secret has been saved so it can show the "stored"
+    // indicator (••••••••) vs an empty input. PluginSecretIndicator
+    // solves this without ever exposing ciphertext or plaintext to the
+    // browser — it stores only the timestamp of the last write.
+    //
+    // The plugin-secret-handler Lambda writes to both tables atomically
+    // (in practice: two sequential DDB puts; true DDB transactions would
+    // require TransactWriteItems which adds latency; an extra indicator
+    // row is at most stale-indicator-but-no-secret, which degrades
+    // gracefully as a false "stored" indicator in the UI).
+    PluginSecretIndicator: a
+      .model({
+        siteId: a.string().required(),
+        // Same sort-key format as PluginSecret:
+        //   `plugins.${instanceId ?? name}.${fieldKey}`
+        sk: a.string().required(),
+        // ISO 8601 datetime string — set by plugin-secret-handler on
+        // every write. Admin UI may show this as "last updated" hint.
+        lastSetAt: a.datetime().required(),
+      })
+      .identifier(['siteId', 'sk'])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .authorization((allow: any) => [
+        // Admin/editor can read and write (write needed for clear).
+        allow.groups(['ampless-admin', 'ampless-editor']),
+        // plugin-secret-handler Lambda also writes via IAM.
+        allow.authenticated('iam').to(['read', 'create', 'update', 'delete']),
       ]),
 
     // Custom return type for public post reads. Decoupling from `Post` lets
@@ -461,6 +522,50 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.publicApiKey(),
         allow.groups(['ampless-admin', 'ampless-editor']),
       ]),
+
+    // Plugin secret mutation ops, only wired when the caller supplies a
+    // Lambda function ref. Conditionally spread because
+    // `a.handler.function(undefined)` is not a valid call.
+    //
+    // setPluginSecret:   admin browser sends plaintext → Lambda encrypts
+    //                    (AES-256-GCM, env-var key) → DDB PutItem on
+    //                    PluginSecret + PutItem on PluginSecretIndicator.
+    // clearPluginSecret: Lambda deletes from both tables.
+    //
+    // Both ops require Cognito group admin-or-editor — the Lambda still
+    // re-checks via the Cognito token in the AppSync event context so
+    // a raw IAM call bypassing AppSync cannot skip the group gate.
+    ...(opts.pluginSecretHandlerFunction
+      ? {
+          setPluginSecret: a
+            .mutation()
+            .arguments({
+              fieldKey: a.string().required(),
+              instanceId: a.string().required(),
+              value: a.string().required(),
+            })
+            .returns(a.string())
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .handler(a.handler.function(opts.pluginSecretHandlerFunction as any))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .authorization((allow: any) => [
+              allow.groups(['ampless-admin', 'ampless-editor']),
+            ]),
+          clearPluginSecret: a
+            .mutation()
+            .arguments({
+              fieldKey: a.string().required(),
+              instanceId: a.string().required(),
+            })
+            .returns(a.string())
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .handler(a.handler.function(opts.pluginSecretHandlerFunction as any))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .authorization((allow: any) => [
+              allow.groups(['ampless-admin', 'ampless-editor']),
+            ]),
+        }
+      : {}),
 
     // User management ops, only wired when the caller supplies a
     // Lambda function ref. Conditionally spread because

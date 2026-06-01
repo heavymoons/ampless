@@ -109,7 +109,7 @@ Phase 6a で追加:
 
 | capability | 意味 | 既定許可 trust_level |
 |---|---|---|
-| `secretSettings` | `settings.secret` フィールドを宣言し、分離された `PluginSecret` DDB model に admin 編集可能な secret 値を保存する。admin/editor グループには read 権限なし。trusted Lambda のみが `ctx.secret<T>(key)` で読み取れる。`trust_level: 'trusted'` 必須。 | `trusted` のみ — untrusted プラグインがこれを宣言すると `definePlugin()` 時に throw する。 |
+| `secretSettings` | `settings.secret` フィールドを宣言し、`PluginSecret` DDB テーブル（IAM 専用; Cognito グループのアクセス不可）に暗号化して保存する。admin は `setPluginSecret` / `clearPluginSecret` AppSync mutation（plugin-secret-handler Lambda 経由）で書き込み、Lambda が AES-256-GCM 暗号化を行ってから DDB に書く。trusted Lambda のみが `ctx.secret<T>(key)` で復号読み取りできる。`trust_level: 'trusted'` 必須。 | `trusted` のみ — untrusted プラグインがこれを宣言すると `definePlugin()` 時に throw する。 |
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
@@ -137,8 +137,8 @@ plugins: [
 
 #### `trusted`
 
-- **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PluginSecret に対する `dynamodb:GetItem`（Phase 6a）、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
-- **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。`ctx.secret<T>(key)` は PluginSecret table から読み取る（per-invocation キャッシュあり、複合キーで cross-plugin 衝突防止）。
+- **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PluginSecret に対する `dynamodb:GetItem`（read-only; Phase 6a v2 — 書き込みは plugin-secret-handler Lambda 専用）、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
+- **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。`ctx.secret<T>(key)` は PluginSecret table から ciphertext を読み取り、`process.env.PLUGIN_SECRET_ENCRYPTION_KEY`（CDK が `amplify/secrets/encryption-key.ts` の値から注入）で AES-256-GCM 復号して plaintext を返す（invocation lifetime で plaintext をキャッシュ、複合キーで cross-plugin 衝突防止）。
 - **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持、admin でローテーション可能な signing secret を使った Webhook 配送。
 - **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6b retrofit 後）。
 
@@ -227,7 +227,7 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 | `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{instanceId ?? name}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス | `trusted` 限定。Phase 3 で capability、key validation、namespace 強制を runtime context 層で正式化。IAM grant は引き続き `public/plugins/*` のバケットワイルドカード |
 | `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） | 現行 |
 | admin 管理の public settings | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'`、 S3 `public/site-settings.json` にミラー | admin が `/admin/plugins` から編集する値。`publicHead` / `publicBodyEnd` の `ctx.setting<T>(key)` から同期読み出し可能。runtime は毎リクエスト `stored → manifest.default → undefined` の順で解決し、admin form 初期表示は `Admin.loadPluginPublicSettings(instanceId)` から取得する。`loadSiteSettings()` (コアサーフェスに限定) とは独立 | Implemented (Phase 2) |
-| admin 管理の secret settings | `PluginSecret` AppSync model（KvStore とは別テーブル）。`siteId` + `sk`（`plugins.<instanceId>.<fieldKey>`）で識別。admin/editor グループは `create`/`update`/`delete` のみ可—**`read` 権限なし**（AppSync が `getPluginSecret` / `listPluginSecrets` を生成しない）。trusted Lambda IAM のみが DDB `GetItem` で読み取れる。S3 mirror 経路には絶対に流れない（mirror path は KvStore のみ query する）。Lambda 内でのキャッシュは per-invocation（複合キー `${instanceId ?? name}:${fieldKey}`）。admin UI 書き込み: `setPluginSecret` / `clearPluginSecret` / `hasPluginSecret`（**`getPluginSecret` は存在しない**）。hook 側読み取り: `ctx.secret<T>(key)`。 | 実装済み (Phase 6a)。`trust_level: 'trusted'` + `'secretSettings'` capability 必須。 |
+| admin 管理の secret settings | `PluginSecret` DDB テーブル（IAM 専用 AppSync 認証 — Cognito グループは直接アクセス不可）。`siteId` + `sk`（`plugins.<instanceId>.<fieldKey>`）で識別。`value` 列は **AES-256-GCM ciphertext**（base64; フォーマット: `IV[12] \|\| ciphertext \|\| authTag[16]`）。暗号化キーは `amplify/secrets/encryption-key.ts`（`npx create-ampless setup-encryption-key` で生成、`amplify/backend.ts` と同じ階層）に保存し、`defineAmplessBackend({ pluginSecretEncryptionKey })` 経由で CDK が Lambda env var `PLUGIN_SECRET_ENCRYPTION_KEY` に注入する — DDB には保存しない。**脅威モデル（Phase 6a v2.2）**: DDB テーブルを読める AWS Console オペレータが見るのは ciphertext のみ（✓ 対策済み）。ソースリポジトリやデプロイアーティファクトへのアクセスがあれば鍵を取得できる（⚠ 対策なし — リポジトリは private に保つか `--gitignore` で鍵を外部配布する）。同じ Lambda プロセス内で動く悪意ある trusted plugin は `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` を読める（✗ 対策なし — per-plugin Lambda 分離はロードマップ）。admin 書き込みパス: admin ブラウザ → `setPluginSecret` / `clearPluginSecret` AppSync mutation → plugin-secret-handler Lambda が検証・env var から鍵取得・暗号化・DDB PutItem → 平文は DDB に保存されずブラウザにも返らない。存在チェック: admin ブラウザは `PluginSecretIndicator`（admin/editor-accessible, `lastSetAt` のみ保持）を読む。hook 側読み取り: `ctx.secret<T>(key)`。初期設定: `npx create-ampless setup-encryption-key` で鍵ファイルを生成してからデプロイ（AWS 認証情報不要）。S3 mirror 経路には流れない。**Dual-write 整合性**: set/clear は 2 テーブルに連続して書く。2 回目の書き込みが失敗すると予測可能な状態が残る — set パス部分失敗は「secret は機能するが indicator なし（UI は「未保存」と誤表示）」; clear パス部分失敗は「indicator が stale だが secret は削除済（UI は「保存済み」と誤表示、secret は実際には発火しない）」。 | 実装済み (Phase 6a + Phase 6a v2.2)。`trust_level: 'trusted'` + `'secretSettings'` capability 必須。 |
 
 上記以外で `private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
 

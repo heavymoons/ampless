@@ -8,6 +8,7 @@ import {
 } from '@ampless/backend'
 import { userAdmin } from '../functions/user-admin/resource.js'
 import { mcpHandler } from '../functions/mcp-handler/resource.js'
+import { pluginSecretHandler } from '../functions/plugin-secret-handler/resource.js'
 import { customSchemaModels } from './resource.custom.js'
 
 // AppSync's `a.handler.custom({ entry })` paths are resolved by CDK
@@ -38,6 +39,7 @@ const schema = a
     ...amplessSchemaModels(a, {
       resolverPaths,
       userAdminFunction: userAdmin,
+      pluginSecretHandlerFunction: pluginSecretHandler,
     }),
     ...customSchemaModels(a),
   })

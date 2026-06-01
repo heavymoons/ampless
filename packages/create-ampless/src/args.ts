@@ -33,6 +33,18 @@ export interface ParsedArgs {
    *     `./<name>/` ready for `npm publish`.
    */
   createPlugin: boolean
+  /**
+   * `setup-encryption-key` subcommand: generates the AES-256-GCM
+   * plugin secret encryption key and writes it to
+   * `amplify/secrets/encryption-key.ts`. No AWS credentials required.
+   */
+  setupEncryptionKey: boolean
+  /**
+   * `--gitignore` flag for `setup-encryption-key`: if true, adds the
+   * generated key file path to `.gitignore` so it is not committed.
+   * Default false (commit-friendly — safe for private repos).
+   */
+  gitignore: boolean
   pluginName?: string
   /** 'local' (default) or 'standalone'. Resolved from --local / --standalone. */
   pluginMode?: 'local' | 'standalone'
@@ -117,6 +129,8 @@ const BOOLEAN_FLAGS = new Set([
   // Phase 5 `plugin <name>` mode flags
   '--local',
   '--standalone',
+  // setup-encryption-key flags
+  '--gitignore',
 ])
 
 export function parseDeployArgs(argv: string[]): ParsedArgs {
@@ -126,6 +140,8 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
     upgrade: false,
     copyTheme: false,
     createPlugin: false,
+    setupEncryptionKey: false,
+    gitignore: false,
     dryRun: false,
     noInstall: false,
     githubPrivate: false,
@@ -187,6 +203,9 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
             throw new Error('Cannot combine --local and --standalone')
           }
           out.pluginMode = 'standalone'
+          break
+        case '--gitignore':
+          out.gitignore = true
           break
       }
       continue
@@ -286,6 +305,20 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
       continue
     }
 
+    // `setup-encryption-key` as first positional: generate the file-based
+    // encryption key for plugin secret storage (Phase 6a v2.2).
+    if (
+      raw === 'setup-encryption-key' &&
+      out.projectName === undefined &&
+      !out.setupEncryptionKey &&
+      !out.upgrade &&
+      !out.copyTheme &&
+      !out.createPlugin
+    ) {
+      out.setupEncryptionKey = true
+      continue
+    }
+
     // `copy-theme <source> <target>` as first positional triggers the
     // theme-copy mode. The next two non-flag positionals are consumed
     // as source / target; anything beyond that falls through to unknown.
@@ -339,6 +372,7 @@ Usage:
   npx create-ampless@latest upgrade [options]               # in an existing project dir
   npx create-ampless@latest copy-theme <src> <dst>          # in an existing project dir
   npx create-ampless@latest plugin <name> [options]         # scaffold a plugin (Phase 5)
+  npx create-ampless@latest setup-encryption-key [--gitignore]  # generate encryption key file
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -415,4 +449,32 @@ plugin <name>
          Examples:
            npx create-ampless@latest plugin site-verification
            npx create-ampless@latest plugin @ishinao/ampless-plugin-foo --standalone
+
+setup-encryption-key
+         Generate the AES-256-GCM encryption key for plugin secret storage
+         and write it to amplify/secrets/encryption-key.ts (adjacent to
+         amplify/backend.ts). No AWS credentials required — this is a
+         local file operation only.
+
+         After generating, import the constant in amplify/backend.ts and
+         pass it to defineAmplessBackend({ pluginSecretEncryptionKey: ... }).
+         Then redeploy (or restart the sandbox) to inject the key into the
+         Lambda env vars.
+
+  --gitignore                 Add amplify/secrets/encryption-key.ts to
+                              .gitignore. Default: file is committed
+                              (safe for private repos). Use this flag only
+                              for public repos; distribute the key separately.
+
+         Threat model:
+           ✓ DDB Console operator sees ciphertext only
+           ⚠ Source repo / deploy artifact access defeats encryption
+           ✗ Malicious trusted plugin in the same Lambda can also read
+             the key (per-plugin Lambda isolation = roadmap)
+
+         Rotation: re-run with confirm overwrite. Existing ciphertext
+         becomes unreadable; re-save each secret via /admin/plugins.
+
+         Example: npx create-ampless@latest setup-encryption-key
+         Example: npx create-ampless@latest setup-encryption-key --gitignore
 `

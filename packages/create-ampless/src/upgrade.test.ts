@@ -503,6 +503,47 @@ export {}
     }
   })
 
+  // 8c. seed-if-missing encryption key placeholder: old projects need the
+  // import target, but generated real keys must survive future upgrades.
+  it('seeds amplify/secrets/encryption-key.ts when missing', async () => {
+    const placeholder = "export const PLUGIN_SECRET_ENCRYPTION_KEY = ''\n"
+    const tplWithSecretPlaceholder = makeTemplateDir({
+      'amplify/secrets/encryption-key.ts': placeholder,
+    })
+    try {
+      expect(existsSync(join(projectDir, 'amplify', 'secrets', 'encryption-key.ts'))).toBe(false)
+
+      const result = await runUpgradeIn(projectDir, tplWithSecretPlaceholder, { noInstall: true })
+
+      const keyPath = join(projectDir, 'amplify', 'secrets', 'encryption-key.ts')
+      expect(existsSync(keyPath)).toBe(true)
+      expect(readFileSync(keyPath, 'utf-8')).toBe(placeholder)
+      expect(result.seeded).toContain('amplify/secrets/encryption-key.ts')
+    } finally {
+      rmSync(tplWithSecretPlaceholder, { recursive: true, force: true })
+    }
+  })
+
+  it('does not overwrite an existing amplify/secrets/encryption-key.ts', async () => {
+    const userKey = "export const PLUGIN_SECRET_ENCRYPTION_KEY = 'real-user-key'\n"
+    mkdirSync(join(projectDir, 'amplify', 'secrets'), { recursive: true })
+    writeFileSync(join(projectDir, 'amplify', 'secrets', 'encryption-key.ts'), userKey)
+
+    const tplWithSecretPlaceholder = makeTemplateDir({
+      'amplify/secrets/encryption-key.ts': "export const PLUGIN_SECRET_ENCRYPTION_KEY = ''\n",
+    })
+    try {
+      const result = await runUpgradeIn(projectDir, tplWithSecretPlaceholder, { noInstall: true })
+
+      const after = readFileSync(join(projectDir, 'amplify', 'secrets', 'encryption-key.ts'), 'utf-8')
+      expect(after).toBe(userKey)
+      expect(result.seeded).not.toContain('amplify/secrets/encryption-key.ts')
+      expect(result.updated).not.toContain('amplify/secrets/encryption-key.ts')
+    } finally {
+      rmSync(tplWithSecretPlaceholder, { recursive: true, force: true })
+    }
+  })
+
   // substituteVars: {{projectName}} in replaced file uses project's name
   it('substitutes {{projectName}} in replaced text files', async () => {
     mkdirSync(join(templateDir, 'lib'), { recursive: true })
