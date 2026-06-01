@@ -304,20 +304,25 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // never flows back to the browser.
     //
     // Authorization design:
-    //   - admin / editor: NO direct AppSync access. All writes go
-    //     through the plugin-secret-handler Lambda mutation.
-    //   - `allow.resource(pluginSecretHandlerFunction)`: grants the
-    //     plugin-secret-handler Lambda AppSync access to this model
-    //     (used internally by the mutation's resolver path).
-    //   - trusted-processor Lambda reads directly via DDB SDK with the
-    //     `grantReadData` IAM grant in `backend.ts`, bypassing AppSync
-    //     entirely — no `@auth` rule needed for that path.
-    //   - Fallback (when `pluginSecretHandlerFunction` is not provided
-    //     by the caller): admin-only Cognito group. Encryption renders
-    //     ciphertext meaningless without the env-var key, but the
-    //     feature won't actually work without the handler — this
-    //     fallback only exists to keep CDK synth from failing in a
-    //     partially-wired deployment.
+    //   - admin / editor: NO AppSync access. The model uses a
+    //     placeholder group (`__ampless_internal__`) that no Cognito
+    //     user belongs to. Amplify Gen 2 requires every model to have
+    //     at least one auth rule, and this is the minimum-viable one
+    //     that synthesizes cleanly while denying all AppSync access.
+    //   - plugin-secret-handler Lambda: full DDB access via the
+    //     `grantReadWriteData` IAM grant in `backend.ts`. It calls
+    //     the DDB SDK directly (NOT through AppSync), so the model's
+    //     @auth rule is irrelevant to its actual write path.
+    //   - trusted-processor Lambda: read-only DDB access via the
+    //     `grantReadData` IAM grant in `backend.ts`. Same pattern —
+    //     bypasses AppSync entirely.
+    //   - Lambda `allow.resource(...)` is unavailable at the model
+    //     level in `@aws-amplify/data-schema` (the `resource` helper
+    //     is destructured out of `allow` before model-level callbacks
+    //     run; see line 141 in this file). Schema-level resource auth
+    //     would grant the Lambda AppSync access to ALL models — too
+    //     broad for our needs. The DDB-SDK direct path keeps the
+    //     access scoped to the table the Lambda needs.
     //
     // Storage key convention:
     //   siteId = 'default'   (single-site architecture)
@@ -349,22 +354,12 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       })
       .identifier(['siteId', 'sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .authorization((allow: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rules: any[] = []
-        if (opts.pluginSecretHandlerFunction) {
-          rules.push(
-            allow
-              .resource(opts.pluginSecretHandlerFunction)
-              .to(['read', 'create', 'update', 'delete'])
-          )
-        } else {
-          // Partially-wired deployment — keep synth from failing.
-          // Encryption keeps ciphertext useless without the env-var key.
-          rules.push(allow.groups(['ampless-admin']))
-        }
-        return rules
-      }),
+      .authorization((allow: any) => [
+        // Deny-all-via-AppSync sentinel. See the comment above this
+        // model for why this is a non-existent group name and how the
+        // real Lambda access path works (DDB SDK + IAM grants).
+        allow.groups(['__ampless_internal__']),
+      ]),
 
     // Existence-only indicator for PluginSecret rows.
     //
@@ -392,25 +387,16 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       })
       .identifier(['siteId', 'sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .authorization((allow: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rules: any[] = [
-          // Admin/editor have AppSync read for `hasPluginSecret` and
-          // direct write+delete as a fallback path (the Lambda is the
-          // normal write path, but allowing admin write here keeps the
-          // indicator and ciphertext aligned if a clear operation is
-          // retried after a partial failure).
-          allow.groups(['ampless-admin', 'ampless-editor']),
-        ]
-        if (opts.pluginSecretHandlerFunction) {
-          rules.push(
-            allow
-              .resource(opts.pluginSecretHandlerFunction)
-              .to(['read', 'create', 'update', 'delete'])
-          )
-        }
-        return rules
-      }),
+      .authorization((allow: any) => [
+        // Admin/editor have AppSync read for `hasPluginSecret` and
+        // direct write+delete as a recovery path. The Lambda is the
+        // normal write path (it calls the DDB SDK directly with IAM,
+        // not through AppSync — same pattern as PluginSecret above),
+        // but allowing admin write here lets a clear-retry after a
+        // partial dual-write failure heal the inconsistency from the
+        // admin side without redeploying.
+        allow.groups(['ampless-admin', 'ampless-editor']),
+      ]),
 
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
