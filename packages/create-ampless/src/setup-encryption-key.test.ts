@@ -4,8 +4,9 @@
 //   1. amplify/ dir not found → error exit
 //   2. Generates amplify/secrets/encryption-key.ts with correct content
 //   3. Generated key is 32 bytes when base64-decoded
-//   4. Existing key file: confirm=false → cancelled, no overwrite
-//   5. Existing key file: confirm=true → file overwritten
+//   4. Existing real key file: confirm=false → cancelled, no overwrite
+//   5. Existing real key file: confirm=true → file overwritten
+//   5b. Existing placeholder file → overwritten without confirmation
 //   6. --gitignore flag: adds entry to .gitignore
 //   7. --gitignore: does not duplicate an existing .gitignore entry
 //   8. File write failure → error exit
@@ -99,6 +100,10 @@ vi.mock('@clack/prompts', async (importOriginal) => {
 const FAKE_CWD = '/fake/project'
 
 vi.spyOn(process, 'cwd').mockReturnValue(FAKE_CWD)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -198,6 +203,8 @@ describe('setup-encryption-key — key generation', () => {
 // ---------------------------------------------------------------------------
 
 describe('setup-encryption-key — existing key overwrite', () => {
+  const existingValidKey = Buffer.alloc(32, 1).toString('base64')
+
   beforeEach(() => {
     fsStore.clear()
     fsDirs.clear()
@@ -208,7 +215,7 @@ describe('setup-encryption-key — existing key overwrite', () => {
     // Seed an existing key file
     fsStore.set(
       join(FAKE_CWD, 'amplify/secrets/encryption-key.ts'),
-      "export const PLUGIN_SECRET_ENCRYPTION_KEY = 'existing-key'\n"
+      `export const PLUGIN_SECRET_ENCRYPTION_KEY = '${existingValidKey}'\n`
     )
   })
 
@@ -226,7 +233,7 @@ describe('setup-encryption-key — existing key overwrite', () => {
     const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
     expect(written).toBeDefined()
     // New content should be different from old
-    expect(written!.content).not.toContain('existing-key')
+    expect(written!.content).not.toContain(existingValidKey)
   })
 
   it('does NOT overwrite file when confirm=false', async () => {
@@ -234,6 +241,38 @@ describe('setup-encryption-key — existing key overwrite', () => {
     await runCmd()
     const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
     expect(written).toBeUndefined()
+  })
+
+  it('overwrites the scaffold placeholder without prompting', async () => {
+    fsStore.set(
+      join(FAKE_CWD, 'amplify/secrets/encryption-key.ts'),
+      "export const PLUGIN_SECRET_ENCRYPTION_KEY = ''\n"
+    )
+    confirmResponse.value = false
+
+    await runCmd()
+
+    const { confirm } = await import('@clack/prompts')
+    expect(confirm).not.toHaveBeenCalled()
+    const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
+    expect(written).toBeDefined()
+    expect(written!.content).not.toContain("PLUGIN_SECRET_ENCRYPTION_KEY = ''")
+  })
+
+  it('overwrites an invalid placeholder without prompting', async () => {
+    fsStore.set(
+      join(FAKE_CWD, 'amplify/secrets/encryption-key.ts'),
+      "export const PLUGIN_SECRET_ENCRYPTION_KEY = 'replace-me'\n"
+    )
+    confirmResponse.value = false
+
+    await runCmd()
+
+    const { confirm } = await import('@clack/prompts')
+    expect(confirm).not.toHaveBeenCalled()
+    const written = writtenFiles.find((f) => f.path.includes('encryption-key.ts'))
+    expect(written).toBeDefined()
+    expect(written!.content).not.toContain('replace-me')
   })
 })
 

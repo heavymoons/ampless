@@ -48,6 +48,16 @@ function buildFileContent(keyB64: string): string {
   )
 }
 
+function extractKeyValue(source: string): string | null {
+  const match = source.match(/PLUGIN_SECRET_ENCRYPTION_KEY\s*=\s*(['"])(.*?)\1/)
+  return match?.[2] ?? null
+}
+
+function isValidEncryptionKey(keyB64: string | null): boolean {
+  if (!keyB64) return false
+  return Buffer.from(keyB64, 'base64').byteLength === 32
+}
+
 // ---------------------------------------------------------------------------
 // .gitignore helper
 // ---------------------------------------------------------------------------
@@ -81,22 +91,28 @@ export async function runSetupEncryptionKey(args: ParsedArgs): Promise<void> {
 
   const keyFilePath = join(cwd, KEY_FILE_PATH)
 
-  // 2. Check for existing key file — prompt before overwriting.
+  // 2. Check for existing key file. A scaffolded placeholder is safe to
+  // overwrite without confirmation; a real 32-byte key requires an
+  // explicit rotation confirmation because old ciphertext becomes unreadable.
   if (existsSync(keyFilePath)) {
-    log.warn(
-      pc.yellow(
-        `${KEY_FILE_PATH} already exists.\n` +
-          'Overwriting it will make all existing plugin secrets unreadable\n' +
-          'until each secret is re-saved through the admin UI.'
+    const existingContent = await readFile(keyFilePath, 'utf-8')
+    const existingKey = extractKeyValue(existingContent)
+    if (isValidEncryptionKey(existingKey)) {
+      log.warn(
+        pc.yellow(
+          `${KEY_FILE_PATH} already exists.\n` +
+            'Overwriting it will make all existing plugin secrets unreadable\n' +
+            'until each secret is re-saved through the admin UI.'
+        )
       )
-    )
-    const confirmed = await confirm({
-      message: 'Overwrite the existing encryption key?',
-      initialValue: false,
-    })
-    if (confirmed === false || confirmed === undefined) {
-      cancel('Cancelled — existing key preserved.')
-      return
+      const confirmed = await confirm({
+        message: 'Overwrite the existing encryption key?',
+        initialValue: false,
+      })
+      if (confirmed === false || confirmed === undefined) {
+        cancel('Cancelled — existing key preserved.')
+        return
+      }
     }
   }
 

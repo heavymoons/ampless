@@ -685,8 +685,8 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
     expect(capturedSecret).toBe(plaintext)
   })
 
-  it('returns plaintext with warning when SSM parameter is absent (legacy fallback)', async () => {
-    // Simulate a site that has not provisioned the SSM parameter yet.
+  it('returns undefined with warning when the encryption key is absent', async () => {
+    // Simulate a site that has not provisioned the file-based encryption key yet.
     setEnv(/* withEncKey= */ false)
     pluginSecretRows.set('default:plugins.webhook.signingSecret', 'not-encrypted-value')
 
@@ -708,8 +708,8 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 
     await handler(event(), {} as never, vi.fn() as never)
 
-    // Falls back to treating the stored value as plaintext with a warning.
-    expect(capturedSecret).toBe('not-encrypted-value')
+    // Fails closed instead of handing an opaque ciphertext/plaintext blob to plugin code.
+    expect(capturedSecret).toBeUndefined()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no encryption key found'))
   })
 

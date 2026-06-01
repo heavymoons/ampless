@@ -118,8 +118,8 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
 })
 
 // ---------------------------------------------------------------------------
-// SSM mock — returns the predictable TEST_KEY_BYTES for the standard path.
-// Tests that need ParameterNotFound can throw directly in the mock.
+// DynamoDB marshalling mock — keeps the stored Item shape close to the SDK
+// enough for handler tests without pulling in the real util-dynamodb runtime.
 // ---------------------------------------------------------------------------
 
 vi.mock('@aws-sdk/util-dynamodb', () => {

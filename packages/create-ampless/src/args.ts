@@ -305,8 +305,8 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
       continue
     }
 
-    // `setup-encryption-key` as first positional: provision the SSM
-    // encryption key for plugin secret storage (Phase 6a v2.1).
+    // `setup-encryption-key` as first positional: generate the file-based
+    // encryption key for plugin secret storage (Phase 6a v2.2).
     if (
       raw === 'setup-encryption-key' &&
       out.projectName === undefined &&

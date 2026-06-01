@@ -25,8 +25,8 @@ key provisioning. Works identically for sandbox and production.
   module-load-time decode of `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`. Fail-fast
   throw if env var is absent or not 32 bytes.
 - `processor-trusted.ts`: same — SSM fetch replaced with synchronous env-var read
-  inside the `createProcessorTrustedHandler` factory. Null fallback with warning
-  if env var absent (legacy sites not yet provisioned).
+  inside the `createProcessorTrustedHandler` factory. If the env var is absent,
+  `ctx.secret()` now fails closed (`undefined`) with a warning.
 - Removed `@aws-sdk/client-ssm` from `package.json` dependencies.
 - Tests: SSM mock removed; env var set directly in `setEnv()`.
 
@@ -34,7 +34,12 @@ key provisioning. Works identically for sandbox and production.
 
 - `setup-encryption-key.ts`: complete rewrite — generates key locally, writes to
   `amplify/secrets/encryption-key.ts`. No SSM, no AWS credentials required.
-  `--gitignore` flag adds the key file to `.gitignore`.
+  `--gitignore` flag adds the key file to `.gitignore`. Scaffold placeholders
+  are overwritten without prompting; existing real 32-byte keys still require
+  an explicit rotation confirmation.
+- `upgrade.ts`: treats `amplify/secrets/encryption-key.ts` as seed-if-missing so
+  older sites get the import target, while generated real keys are never
+  overwritten by `update-ampless`.
 - `args.ts`: added `gitignore: boolean` to `ParsedArgs`; `--gitignore` flag;
   updated HELP_TEXT for v2.2.
 - Removed `@aws-sdk/client-ssm` from `package.json` dependencies.

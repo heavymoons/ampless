@@ -307,9 +307,10 @@ export function createProcessorTrustedHandler(
 
           // Decrypt the ciphertext using the key read from the env var at
           // cold start (v2.2: file-based key, no SSM round-trip).
-          // If the key is absent (not yet provisioned), fall back to
-          // treating the stored value as plaintext and emit a warning so
-          // operators know to run `npx create-ampless setup-encryption-key`.
+          // If the key is absent (not yet provisioned), fail closed and
+          // return undefined. Never treat the stored value as plaintext:
+          // v2.2 stores AES-GCM ciphertext here, and leaking that opaque
+          // blob into plugin code makes misconfiguration harder to detect.
           const encryptionKey = getEncryptionKey()
           let plaintext: string | undefined
           if (encryptionKey) {
@@ -330,10 +331,11 @@ export function createProcessorTrustedHandler(
             // Emit a warning so operators know to generate and configure the key.
             console.warn(
               `[trusted-processor] ${label}: ctx.secret("${key}") — no encryption key found; ` +
-                `returning stored value as plaintext. Run ` +
+                `returning undefined. Run ` +
                 '`npx create-ampless setup-encryption-key` and rotate secrets.'
             )
-            plaintext = storedValue
+            secretCache.set(cacheKey, undefined)
+            return undefined
           }
 
           secretCache.set(cacheKey, plaintext)

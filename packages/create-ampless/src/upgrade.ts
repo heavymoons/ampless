@@ -118,7 +118,7 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
 ]
 
 // Files that must be COPIED IN on first encounter but never overwritten
-// once present. Two cases live here:
+// once present. Three cases live here:
 //
 //   1. `*.custom.ts` — user extension stubs. The matching `resource.ts`
 //      / `backend.ts` template files import from `./*.custom.js`, so a
@@ -131,10 +131,16 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
 //      change that introduced `plugins/`. Once present, it's
 //      user-owned — contributors edit it to document site-specific
 //      conventions.
+//   3. `amplify/secrets/encryption-key.ts` — a placeholder is needed
+//      when older sites upgrade to a template that imports it from
+//      `amplify/backend.ts`, but once the operator runs
+//      `create-ampless setup-encryption-key` the real key must never be
+//      overwritten by a later upgrade.
 //
 // The classifier checks SEED_IF_MISSING_PATTERN before PROTECTED so the
 // matched files escape the protected-skip path. See `isProtected`.
-const SEED_IF_MISSING_PATTERN = /\.custom\.ts$|^plugins\/README(\.ja)?\.md$/
+const SEED_IF_MISSING_PATTERN =
+  /\.custom\.ts$|^plugins\/README(\.ja)?\.md$|^amplify\/secrets\/encryption-key\.ts$/
 
 const TEXT_EXTENSIONS = new Set([
   '.json', '.md', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
