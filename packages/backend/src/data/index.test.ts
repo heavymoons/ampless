@@ -131,6 +131,28 @@ describe('amplessSchemaModels', () => {
     const resourceCalls = calls.filter((c) => c.method === 'resource')
     expect(resourceCalls).toHaveLength(0)
   })
+
+  it('still avoids allow.resource at the model level when pluginSecretHandlerFunction is supplied', () => {
+    // Regression guard: an earlier hot-fix tried to add
+    // `allow.resource(opts.pluginSecretHandlerFunction)` to the
+    // PluginSecret / PluginSecretIndicator model auth blocks. That
+    // throws `TypeError: allow.resource is not a function` at CDK
+    // synth time because @aws-amplify/data-schema strips `resource`
+    // off the `allow` arg passed to model-level callbacks (it's only
+    // available on schema-level `.authorization`). The real Lambda
+    // access path goes through `grantReadWriteData` on the CDK
+    // construct in backend.ts, not through AppSync, so model-level
+    // auth must stay free of any `allow.resource(...)` call even when
+    // the handler function ref is wired up.
+    const { a, calls } = makeFakeBuilder()
+    amplessSchemaModels(a, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pluginSecretHandlerFunction: {} as any,
+    })
+    const resourceCalls = calls.filter((c) => c.method === 'resource')
+    expect(resourceCalls).toHaveLength(0)
+  })
+
 })
 
 describe('amplessSchemaAuthorization', () => {
