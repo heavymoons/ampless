@@ -44,7 +44,8 @@ Phased work tracked in [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-exte
 - [x] Phase 4: per-post body injection API (`publicBodyForPost`) + `schema` capability + JSON-LD auto-escape (`escapeJsonLdInlineBody`). First plugin: `@ampless/plugin-schema-jsonld` (untrusted). Theme post templates call `ampless.publicBodyForPost(post)` to render `<script type="application/ld+json">` elements.
 - [x] Phase 5: external (out-of-monorepo) plugin npm-install proof — static `package.json#amplessPlugin` manifest convention + runtime cross-check, `npx create-ampless plugin <name>` scaffold subcommand, plugin author guide rewrite, dogfooded with `@ishinao/ampless-plugin-site-verification` published to npm and consumed by ishinao.net
 - [x] Phase 6d: `publicHtmlForPost` capability + `PublicPostHtmlDescriptor` type + `sanitize-html` sanitize layer in `@ampless/runtime`. First plugin: `@ampless/plugin-reading-time` (untrusted) — reading-time badge with English/CJK word count, admin-editable label template and position.
-- [ ] Phase 6+ (each is its own RFP): secret settings storage, developer-extension capabilities (`adminPage` / `serverRoute` / `contentFields` / ...)
+- [x] Phase 6a: `secretSettings` capability + `PluginSecretField` type (`default` stripped via `Omit` to prevent leakage) + `TrustedPluginRuntimeContext.secret<T>(key)` async accessor + `PluginSecret` DynamoDB model (admin/editor: write-only; IAM Lambda: read-only). `@ampless/plugin-webhook` retrofitted to `trust_level: 'trusted'` with admin-managed signing secret for zero-deploy key rotation.
+- [ ] Phase 6+ (each is its own RFP): developer-extension capabilities (`adminPage` / `serverRoute` / `contentFields` / ...)
 
 #### Content
 - [ ] Markdown / HTML canonical support (first-class treatment of non-tiptap formats in editing)
