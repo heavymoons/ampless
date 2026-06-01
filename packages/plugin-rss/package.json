@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-rss",
-  "version": "0.2.0-alpha.29",
+  "version": "0.2.0-alpha.30",
   "description": "RSS / Atom feed plugin for ampless",
   "license": "MIT",
   "type": "module",
