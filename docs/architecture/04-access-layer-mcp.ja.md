@@ -145,18 +145,28 @@ MCP クライアント → Lambda Function URL に HTTPS POST
 - **トークン形式：** `amk_` プレフィックス + base64url エンコードされた乱数。
 - **保管：** 平文トークンの SHA-256 hex のみを保存。検証は `McpToken` テーブルへの `GetItem` 1 回で済み、認証パスで AppSync を経由しない。
 - **発行：** 管理画面 `/admin/mcp-tokens` から。McpToken モデルは admin-only なので editor は発行できない。
-- **実効認可：** トークン自体にロールは載っていない。Lambda の IAM ロールがセキュリティ境界。スキーマの `allow.resource(mcpHandler).to(['query', 'mutate'])` は **schema scope に付与され、モデル単位ではない**。したがって AppSync スキーマに宣言された全モデルが MCP Lambda から到達可能になる:
+- **実効認可：** トークン自体にロールは載っていない。Lambda の IAM ロールがセキュリティ境界。スキーマの `allow.resource(mcpHandler).to(['query', 'mutate'])` は **schema scope に付与され、モデル単位ではない**。したがって AppSync スキーマに宣言された全モデルが MCP Lambda の IAM principal から到達可能になる。現時点での具体的な到達範囲:
    - 組み込み CMS モデル（Post / Page / PostTag / Media / Taxonomy / KvStore）
+   - `McpToken`（トークン発行・失効メタデータ）
+   - `PluginSecret` / `PluginSecretIndicator`（Phase 6a の secret 保管テーブル — model-level の Cognito group sentinel は MCP Lambda を block しない。理由は下記の前例ノートに）
    - テンプレートの [`amplify/data/resource.ts`](../../templates/_shared/amplify/data/resource.ts) で `customSchemaModels(a)` 経由で追加されたカスタムモデル
    - 今後 [`packages/backend/src/data/index.ts`](../../packages/backend/src/data/index.ts) の `amplessSchemaModels` に追加される全モデル
 
-   schema 全体 grant は意図的: `@aws-amplify/data-schema` は `allow.resource(...)` を schema scope でしか honor しない（model-level callback では `resource` が `allow` から strip される）ため、モデル単位の resource auth は Amplify Gen 2 では構造的に不可能。現状の MCP ツールレジストリは raw GraphQL を露出していないため、トークン保持者が任意の未登録モデルを直接読み出すパスはないが、**IAM grant 自体はツールレジストリより広い**。したがって **MCP トークンを所持していること = AppSync スキーマ全体（現在および将来追加されるものを含む）に対する admin 相当のアクセス**。発行は慎重に。
+   schema 全体 grant は意図的: `@aws-amplify/data-schema` は `allow.resource(...)` を schema scope でしか honor しない（model-level callback では `resource` が `allow` から strip される）ため、モデル単位の resource auth は Amplify Gen 2 では構造的に不可能。
 
-   AppSync スキーマに新規モデルを追加するときは、MCP Lambda が到達してよいか必ず明示的に判断する。到達させたくない場合は次の 2 つのパスを取る:
-   - そのモデルのアクセス経路を AppSync から完全に外す（Lambda の DDB SDK + IAM grant + AppSync auth は「誰も所属しない placeholder group」に設定。Phase 6a の `PluginSecret` で採用したパターン）。
+   現状の MCP ツールレジストリは raw GraphQL を露出しておらず、McpToken / PluginSecret / PluginSecretIndicator に触れるツールも含んでいないため、トークン保持者がこれらのモデルに到達する運用上のパスは存在しない。ただし IAM grant はレジストリより広い — もし将来 `client.models.PluginSecret.list(...)` 系を wrap した MCP ツールが追加されれば、現状の grant のままで AppSync リクエストが成功する。したがって **MCP トークンを所持していること = AppSync スキーマ全体（現在および将来追加されるものを含む）に対する admin 相当の IAM アクセス**。発行は慎重に。sensitive model に触れる新規 MCP ツールの追加は明示的な scope 拡張として扱うこと。
+
+   AppSync スキーマに新規 sensitive モデルを追加するときは、MCP Lambda が到達してよいか必ず明示的に判断する。次の 2 つのパスを取る:
+   - そのモデルの persistence を AppSync から完全に外す（Lambda の DDB SDK + IAM grant + AppSync auth は「誰も所属しない placeholder Cognito group」に設定。Phase 6a の `PluginSecret` で採用したパターン）。
    - `amplessSchemaModels` の差分を allowlist と突き合わせて新規モデルでビルド失敗させる CI ガードを追加する（docs/threat model 更新を強制）。
 
-   `PluginSecret` の placeholder-group パターンは「Lambda 直接 DDB アクセス + AppSync 露出ゼロ」の in-tree 前例であり、新規 sensitive モデルには推奨される実装方針。
+   ##### 前例：`PluginSecret` の placeholder-group パターン (Phase 6a)
+
+   `PluginSecret` は model-level の auth rule として `allow.groups(['__ampless_internal__'])` だけを宣言している。このグループに属する Cognito ユーザは存在しないので、admin/editor のブラウザセッションから AppSync 経由でこのモデルへ到達するパスは塞がれている — この防御は実体があり、本ドキュメントや source コメントで使われている「Cognito-group sentinel」の表現はこのレイヤを指している。
+
+   しかし model-level rule が制限するのは **Cognito user pool auth mode のみ**。schema-level の `allow.resource(mcpHandler).to(['query', 'mutate'])` は独立した **IAM (SigV4) auth mode** で評価されるため、MCP Lambda（および AppSync の caller の中で MCP Lambda *だけ*）は SigV4 経由で今でも `PluginSecret` を read / write できる。プレーンテキストが漏れていないのは構造的な保証ではなく運用上の状況: MCP ツールレジストリに `read_plugin_secret` 的なツールが存在しないだけ。plugin-secret-handler Lambda は AppSync を完全に bypass している（直接 DDB SDK + 構築物への `grantReadWriteData` IAM）ので、仮に AppSync 経路を塞いでも secret 系の通常パスは動く — これは独立した設計要素。
+
+   したがって新規 sensitive モデルに対する正確な表現は次の通り: 「Cognito user-pool auth は placeholder group で deny されている。AppSync IAM auth（および MCP Lambda）は、ツールレジストリがそのモデルを surface しない選択をしている限りで deny されている」。将来 MCP ツールがそのモデルを使う PR が出れば暗黙的にこの判断を再評価する必要がある。構造的な fix は上の CI ガードであって、placeholder-group パターン単体ではない。
 - **ペイロード上限：** Function URL の呼び出しサイズ上限は base64 展開後で約 6 MB。大きな静的バンドルは差分系ツール（`upload_static_file` / `commit_static_post`）に分割する。
 
 #### ツールレジストリ ([`packages/mcp-server`](../../packages/mcp-server))
