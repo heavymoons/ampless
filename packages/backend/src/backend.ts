@@ -183,19 +183,24 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   }
 
   // --- Auth: post-confirmation Lambda permissions ---
+  //
+  // Scoped to the actual user pool ARN — defense-in-depth: even if this
+  // Lambda is compromised or has a handler bug, it cannot reach any other
+  // user pool in the same AWS account.
   backend.postConfirmation.resources.lambda.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['cognito-idp:AdminAddUserToGroup', 'cognito-idp:ListUsersInGroup'],
-      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
+      resources: [backend.auth.resources.userPool.userPoolArn],
     })
   )
 
   // --- Auth: user-admin Lambda permissions ---
   //
-  // Backs the admin UI's user-management page. Scoped wildcard on
-  // userpool arn matches the post-confirmation pattern — the Lambda
-  // reads `AMPLESS_USER_POOL_ID` at runtime and addresses one pool.
+  // Backs the admin UI's user-management page. Scoped to the actual user
+  // pool ARN — even if the Lambda is compromised or reads a tampered
+  // AMPLESS_USER_POOL_ID env var, it cannot reach other user pools in
+  // the same AWS account.
   backend.userAdmin.resources.lambda.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
@@ -205,7 +210,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
         'cognito-idp:AdminAddUserToGroup',
         'cognito-idp:AdminRemoveUserFromGroup',
       ],
-      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
+      resources: [backend.auth.resources.userPool.userPoolArn],
     })
   )
   backend.userAdmin.resources.lambda.addEnvironment(
