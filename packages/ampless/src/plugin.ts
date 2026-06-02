@@ -174,13 +174,31 @@ export type PublicHeadDescriptor =
        * supplied (analytics fallbacks, etc.) and cannot be modelled
        * as typed props without an unbounded discriminated union.
        *
-       * **Safety implications:**
-       * - Plugin author is responsible for the HTML being well-formed
-       *   and not containing `</noscript>` sequences mid-content
-       *   (such a sequence breaks out of the `<noscript>` element).
-       * - Untrusted plugin output should not flow here — this is
-       *   intended for trusted plugin authors who own the rendered
-       *   page anyway (the same trust tier as `inlineScript`).
+       * **Trust model.** This is part of the same public injection
+       * surface as `inlineScript` and `script`. It is **not** gated
+       * by the plugin's `trust_level` — `untrusted` plugins can emit
+       * a `noscript` descriptor too, and the runtime tests in
+       * `packages/runtime/src/plugin-head.test.ts` explicitly cover
+       * the untrusted case. The trust decision is **plugin install**:
+       * an admin installs a plugin, accepting whatever it eventually
+       * renders into `<head>` / `<body>`. The boundary is structurally
+       * the same as the [editor trust
+       * model](../../docs/architecture/04-access-layer-mcp.md#editor-trust-model-specification)
+       * — editors can already inject arbitrary `<script>` via post
+       * body anyway, so a per-plugin sandbox here wouldn't change the
+       * upper bound. If a tighter sandbox is needed, scope it at
+       * install time: do not install plugins you do not trust to
+       * render arbitrary HTML into your pages.
+       *
+       * **Author guidance.** Plugin authors are still responsible
+       * for the HTML being well-formed — in particular, do not embed
+       * `</noscript>` sequences mid-content (such a sequence breaks
+       * out of the element and the remainder of the string is parsed
+       * as page-level HTML). The runtime does not detect or mask
+       * this; the regression test in
+       * [`packages/runtime/src/plugin-head.test.ts`](../../packages/runtime/src/plugin-head.test.ts)
+       * pins the current passthrough behaviour so any future move
+       * to sanitization becomes a deliberate, reviewed change.
        */
       html: string
     }
