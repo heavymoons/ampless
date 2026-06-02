@@ -327,24 +327,28 @@ export function PluginSettingsForm({
         <p className="text-xs text-muted-foreground">{instanceId}</p>
       </div>
 
-      {fields.map((field) => (
-        <FieldRow
-          key={field.key}
-          field={field}
-          value={state.values[field.key] ?? ''}
-          invalid={!!state.invalid[field.key]}
-          onChange={(v) => update(field.key, v)}
-          onReset={() => void reset(field)}
-          hasStoredValue={storedKeys.has(field.key)}
-        />
-      ))}
+      {fields.length > 0 && (
+        <>
+          {fields.map((field) => (
+            <FieldRow
+              key={field.key}
+              field={field}
+              value={state.values[field.key] ?? ''}
+              invalid={!!state.invalid[field.key]}
+              onChange={(v) => update(field.key, v)}
+              onReset={() => void reset(field)}
+              hasStoredValue={storedKeys.has(field.key)}
+            />
+          ))}
 
-      {info && <p className="text-sm text-muted-foreground">{info}</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+          {info && <p className="text-sm text-muted-foreground">{info}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Button type="submit" disabled={saving}>
-        {saving ? t('plugins.saving') : t('plugins.save')}
-      </Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? t('plugins.saving') : t('plugins.save')}
+          </Button>
+        </>
+      )}
 
       {/* Secret settings section — visually separated, below public fields */}
       {secretFields && secretFields.length > 0 && (

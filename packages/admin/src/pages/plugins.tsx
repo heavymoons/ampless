@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import type {
   AmplessPlugin,
   PluginSettingField,
+  PluginSecretField,
   LocalizedString,
 } from 'ampless'
 import { isValidPluginKey } from 'ampless'
@@ -19,20 +20,23 @@ interface PluginEntry {
   instanceId: string
   displayName?: LocalizedString
   fields: ReadonlyArray<PluginSettingField>
-  /** Stored values keyed by field `key`. */
+  /** Stored values keyed by public field `key`. */
   values: Record<string, unknown>
+  secretFields: ReadonlyArray<PluginSecretField>
 }
 
 /**
  * Server-rendered `/admin/plugins` page factory. Walks
- * `cmsConfig.plugins`, surfaces only the entries that declare a
- * `settings.public` manifest, and reads their current stored values
- * up front so the form can pre-fill without round-tripping AppSync
- * on mount.
+ * `cmsConfig.plugins`, surfaces every entry that declares a
+ * `settings.public` OR `settings.secret` manifest, and reads any
+ * stored public values up front so the form can pre-fill without
+ * round-tripping AppSync on mount. Secret presence is detected
+ * client-side per-field via `hasPluginSecret()` so this server page
+ * never touches the secret indicator table.
  *
- * Plugins without a manifest still appear in `cms.config.ts` but
- * disappear from this listing — they have nothing for the admin to
- * edit. That's deliberate: a "Plugins" listing with everything is
+ * Plugins without either manifest still appear in `cms.config.ts`
+ * but disappear from this listing — they have nothing for the admin
+ * to edit. That's deliberate: a "Plugins" listing with everything is
  * coming in a later phase that wires the broader plugin inspector,
  * not here.
  */
@@ -53,20 +57,30 @@ export function createPluginsPage(admin: Admin) {
     const raw = cmsConfig.plugins ?? []
     for (const p of raw) {
       if (!isPlugin(p)) continue
-      const fields = p.settings?.public
-      if (!fields || fields.length === 0) continue
       const instanceId = p.instanceId ?? p.name
       if (!isValidPluginKey(instanceId)) continue
       // Filter manifest to fields with valid keys — they're the only
       // ones the runtime will actually round-trip through DDB.
-      const validFields = fields.filter((f) => isValidPluginKey(f.key))
-      if (validFields.length === 0) continue
-      const values = await admin.loadPluginPublicSettings(instanceId)
+      const validPublic = (p.settings?.public ?? []).filter((f) =>
+        isValidPluginKey(f.key),
+      )
+      const validSecret = (p.settings?.secret ?? []).filter((f) =>
+        isValidPluginKey(f.key),
+      )
+      if (validPublic.length === 0 && validSecret.length === 0) continue
+      // Skip the public-values load entirely when the plugin only has
+      // secret fields — there's nothing to pre-fill and the DDB read
+      // would be wasted.
+      const values =
+        validPublic.length > 0
+          ? await admin.loadPluginPublicSettings(instanceId)
+          : {}
       entries.push({
         instanceId,
         displayName: p.displayName,
-        fields: validFields,
+        fields: validPublic,
         values,
+        secretFields: validSecret,
       })
     }
 
@@ -92,6 +106,7 @@ export function createPluginsPage(admin: Admin) {
                 displayName={entry.displayName}
                 fields={entry.fields}
                 initialValues={entry.values}
+                secretFields={entry.secretFields}
               />
             ))}
           </div>
