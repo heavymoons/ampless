@@ -1780,3 +1780,135 @@ describe('renderHtmlForPost(post) — Phase 6d', () => {
     ).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// noscript descriptor — raw HTML passthrough regression tests
+//
+// These tests pin the CURRENT SPEC: noscript content is trusted raw HTML
+// emitted via dangerouslySetInnerHTML, with no sanitization applied by the
+// runtime. The noscript variant is an intentional escape hatch for vendor-
+// supplied analytics fallbacks and similar content that cannot be modelled
+// as typed props.
+//
+// If we ever decide to sanitize noscript content, these tests become the
+// deliberate trigger to update — a failing test here means the change is
+// intentional and reviewed.
+// ---------------------------------------------------------------------------
+
+describe('noscript descriptor — raw HTML passthrough (current spec)', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it('renders analytics fallback noscript via dangerouslySetInnerHTML', async () => {
+    // test 1: normal analytics fallback (e.g. GTM noscript pixel) renders correctly
+    const plugin = definePlugin({
+      name: 'analytics',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'noscript',
+          id: 'analytics-fallback',
+          html: '<img src="https://example.com/track.gif" width="1" height="1" alt="">',
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.type).toBe('noscript')
+    expect(els[0]!.props).toMatchObject({
+      id: 'analytics-fallback',
+      dangerouslySetInnerHTML: {
+        __html: '<img src="https://example.com/track.gif" width="1" height="1" alt="">',
+      },
+    })
+  })
+
+  it('passes </noscript> breakout string through unmodified — documents current trusted-passthrough spec', async () => {
+    // test 2: This documents the current spec — noscript content is trusted raw
+    // HTML. If we ever decide to sanitize, this test becomes the deliberate
+    // trigger to update. The runtime does NOT escape or strip the breakout
+    // sequence; plugin authors are responsible for the HTML being well-formed.
+    const breakoutHtml = '</noscript><script>alert(1)</script>'
+    const plugin = definePlugin({
+      name: 'breakout-demo',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'noscript',
+          id: 'breakout-demo',
+          html: breakoutHtml,
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    // The runtime passes the string through as-is — dangerouslySetInnerHTML
+    // receives the original string with no modification.
+    const innerHtml = (els[0]!.props as { dangerouslySetInnerHTML: { __html: string } })
+      .dangerouslySetInnerHTML.__html
+    expect(innerHtml).toBe(breakoutHtml)
+  })
+
+  it('renders <noscript></noscript> when html is empty string', async () => {
+    // test 3: empty html produces a noscript element with empty content
+    const plugin = definePlugin({
+      name: 'empty-noscript',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'noscript',
+          html: '',
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.type).toBe('noscript')
+    expect(els[0]!.props).toMatchObject({
+      dangerouslySetInnerHTML: { __html: '' },
+    })
+  })
+
+  it('renders noscript descriptor from publicBodyEnd as well', async () => {
+    // PublicBodyDescriptor re-uses the noscript variant from PublicHeadDescriptor
+    // via Extract — same passthrough behaviour applies.
+    const plugin = definePlugin({
+      name: 'gtm-noscript',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicBody'],
+      publicBodyEnd: () => [
+        {
+          type: 'noscript',
+          id: 'gtm-body-noscript',
+          html: '<img src="https://www.googletagmanager.com/ns.html?id=GTM-XYZ" height="0" width="0" alt="">',
+        },
+      ],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderBodyEnd())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.type).toBe('noscript')
+    expect(els[0]!.props).toMatchObject({
+      id: 'gtm-body-noscript',
+      dangerouslySetInnerHTML: {
+        __html: '<img src="https://www.googletagmanager.com/ns.html?id=GTM-XYZ" height="0" width="0" alt="">',
+      },
+    })
+  })
+})
