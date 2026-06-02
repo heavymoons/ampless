@@ -206,10 +206,42 @@ describe('mcp-handler', () => {
     expect(updateCall.input).toMatchObject({
       TableName: 'McpToken-test',
       UpdateExpression: 'SET lastUsedAt = :now',
-      ConditionExpression: 'attribute_not_exists(lastUsedAt) OR lastUsedAt < :threshold',
+      ConditionExpression:
+        'attribute_not_exists(lastUsedAt) OR attribute_type(lastUsedAt, :nullType) OR lastUsedAt < :threshold',
     })
-    expect((updateCall.input.ExpressionAttributeValues as Record<string, string>)[':now']).toBeTruthy()
-    expect((updateCall.input.ExpressionAttributeValues as Record<string, string>)[':threshold']).toBeTruthy()
+    const values = updateCall.input.ExpressionAttributeValues as Record<string, string>
+    expect(values[':now']).toBeTruthy()
+    expect(values[':threshold']).toBeTruthy()
+    expect(values[':nullType']).toBe('NULL')
+  })
+
+  // Regression guard for the case admin-side `createToken` writes new
+  // rows with `lastUsedAt: null` (see
+  // `packages/admin/src/lib/mcp-token-storage.ts`). DDB persists that
+  // as `{ NULL: true }`, so without `attribute_type(lastUsedAt, NULL)`
+  // in the ConditionExpression the very first validation would hit
+  // `attribute_not_exists = false` (the column exists) and
+  // `null < :threshold = false` (NULL is not orderable against a
+  // string), throw ConditionalCheckFailedException, and silently
+  // leave the column null forever. The test pins the NULL-branch into
+  // the condition string so a future refactor cannot accidentally
+  // drop it. We cannot exercise the DDB condition evaluator from the
+  // mock — pinning the expression text is the strongest available
+  // guard.
+  it('UpdateItem ConditionExpression includes attribute_type(NULL) branch so the first update on a newly-created (lastUsedAt: null) row is not silently skipped', async () => {
+    mockValidTokenLookup({ lastUsedAt: null })
+    await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
+    expect(mockSend).toHaveBeenCalledTimes(2)
+    const updateCall = mockSend.mock.calls[1]![0] as { input: Record<string, unknown> }
+    const condition = updateCall.input.ConditionExpression as string
+    expect(condition).toContain('attribute_type(lastUsedAt, :nullType)')
+    const values = updateCall.input.ExpressionAttributeValues as Record<string, string>
+    expect(values[':nullType']).toBe('NULL')
   })
 
   it('ConditionalCheckFailedException from UpdateItem is silently swallowed (throttle skip) and request succeeds', async () => {

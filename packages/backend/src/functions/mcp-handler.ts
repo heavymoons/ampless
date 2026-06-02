@@ -167,11 +167,25 @@ async function validateBearer(plaintext: string): Promise<McpTokenRow | null> {
  * Write `lastUsedAt = now` on the token row, throttled to one write per
  * LAST_USED_THROTTLE_MS via a ConditionExpression:
  *
- *   attribute_not_exists(lastUsedAt) OR lastUsedAt < :threshold
+ *   attribute_not_exists(lastUsedAt)
+ *     OR attribute_type(lastUsedAt, NULL)
+ *     OR lastUsedAt < :threshold
+ *
+ * The middle branch is load-bearing: the admin-side `createToken`
+ * stores fresh rows with `lastUsedAt: null` (see
+ * `packages/admin/src/lib/mcp-token-storage.ts`), which DDB persists
+ * as `{ NULL: true }`. Without the `attribute_type` check the row's
+ * first validation would hit `attribute_not_exists = false` (the
+ * column exists) and `null < :threshold = false` (NULL is not
+ * orderable against a string), so the very first lastUsedAt update
+ * would silently fail with ConditionalCheckFailedException and the
+ * column would stay null forever.
  *
  * ConditionalCheckFailedException means the row was already updated
- * within the throttle window — that is expected and silently skipped.
- * Any other error is logged (fail-open: the MCP request continues).
+ * within the throttle window (or the column was set to a fresh
+ * timestamp between our GetItem and UpdateItem on the same request)
+ * — that is expected and silently skipped. Any other error is logged
+ * (fail-open: the MCP request continues regardless).
  */
 async function touchLastUsedAt(hash: string): Promise<void> {
   const now = new Date()
@@ -182,10 +196,12 @@ async function touchLastUsedAt(hash: string): Promise<void> {
         TableName: MCP_TOKEN_TABLE,
         Key: { hash },
         UpdateExpression: 'SET lastUsedAt = :now',
-        ConditionExpression: 'attribute_not_exists(lastUsedAt) OR lastUsedAt < :threshold',
+        ConditionExpression:
+          'attribute_not_exists(lastUsedAt) OR attribute_type(lastUsedAt, :nullType) OR lastUsedAt < :threshold',
         ExpressionAttributeValues: {
           ':now': now.toISOString(),
           ':threshold': threshold,
+          ':nullType': 'NULL',
         },
       })
     )
