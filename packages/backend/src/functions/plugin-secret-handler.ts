@@ -1,6 +1,10 @@
 import { createCipheriv, randomBytes } from 'node:crypto'
 import type { Handler } from 'aws-lambda'
-import { DynamoDBClient, PutItemCommand, DeleteItemCommand } from '@aws-sdk/client-dynamodb'
+import {
+  DynamoDBClient,
+  UpdateItemCommand,
+  DeleteItemCommand,
+} from '@aws-sdk/client-dynamodb'
 import { marshall } from '@aws-sdk/util-dynamodb'
 import { isValidPluginKey, validatePluginSettingValue } from 'ampless'
 
@@ -174,19 +178,53 @@ async function handleSet(args: SetArgs): Promise<string> {
   const indicatorTable = requireEnv('AMPLESS_PLUGIN_SECRET_INDICATOR_TABLE')
   const now = new Date().toISOString()
 
-  // Write ciphertext to PluginSecret.
+  // Write ciphertext to PluginSecret. Amplify Gen 2 auto-generates
+  // non-nullable `createdAt` / `updatedAt` (AWSDateTime!) fields on
+  // every model, so the AppSync resolver refuses to project a row
+  // that lacks them — even though admin/editor never read PluginSecret
+  // via AppSync, the trusted-processor's direct DDB SDK read does not
+  // need them either. We still write them for consistency with the
+  // indicator and to avoid surprises if anyone ever wires an AppSync
+  // path to this table (e.g. ops debugging via the schema-level
+  // userPool with a future change). `if_not_exists` preserves the
+  // original createdAt across Replace operations.
   await ddb.send(
-    new PutItemCommand({
+    new UpdateItemCommand({
       TableName: secretTable,
-      Item: marshall({ sk, value: ciphertext }),
+      Key: marshall({ sk }),
+      UpdateExpression:
+        'SET #value = :value, #createdAt = if_not_exists(#createdAt, :now), #updatedAt = :now',
+      ExpressionAttributeNames: {
+        '#value': 'value',
+        '#createdAt': 'createdAt',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: marshall({
+        ':value': ciphertext,
+        ':now': now,
+      }),
     })
   )
 
-  // Write existence indicator to PluginSecretIndicator.
+  // Write existence indicator to PluginSecretIndicator. Same Amplify
+  // timestamp requirement — without these the AppSync `get` resolver
+  // returns null for the entire row because the projection fails on
+  // the auto-generated non-nullable AWSDateTime columns (this is what
+  // broke the `hasPluginSecret()` reload check on ishinao.net during
+  // Phase 6a dogfood).
   await ddb.send(
-    new PutItemCommand({
+    new UpdateItemCommand({
       TableName: indicatorTable,
-      Item: marshall({ sk, lastSetAt: now }),
+      Key: marshall({ sk }),
+      UpdateExpression:
+        'SET lastSetAt = :now, #createdAt = if_not_exists(#createdAt, :now), #updatedAt = :now',
+      ExpressionAttributeNames: {
+        '#createdAt': 'createdAt',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: marshall({
+        ':now': now,
+      }),
     })
   )
 
