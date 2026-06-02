@@ -297,8 +297,16 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
     return jsonResponse(401, { error: 'invalid_token' })
   }
 
-  // Fire-and-forget lastUsedAt update (throttled, fail-open).
-  void touchLastUsedAt(meta.hash)
+  // Throttled lastUsedAt update. Awaited so the write is bounded to
+  // the request lifecycle — Lambda's default execution model drains
+  // the event loop before freeze, but relying on that is fragile if
+  // anyone later flips `callbackWaitsForEmptyEventLoop` or adopts a
+  // streaming response style. `touchLastUsedAt` is fail-open
+  // internally (catches and logs) so the await never blocks the
+  // request on a DDB hiccup, and the 60 s ConditionExpression
+  // ensures the wire latency is paid at most once per token per
+  // minute.
+  await touchLastUsedAt(meta.hash)
 
   // Parse JSON-RPC body.
   let req: JsonRpcRequest
