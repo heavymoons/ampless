@@ -145,7 +145,28 @@ MCP client → HTTPS POST to Lambda Function URL
 - **Token format:** `amk_` prefix followed by a base64url-encoded random value.
 - **At rest:** Only the SHA-256 hex of the plaintext is stored — token validation is one `GetItem` against the `McpToken` table; AppSync is not touched in the auth path.
 - **Token issuance:** Admin UI at `/admin/mcp-tokens`. The McpToken AppSync model is `admin`-only, so editors can't mint tokens.
-- **Effective authorization:** Tokens themselves carry no per-token role — they authenticate the holder, and the Lambda's IAM role is the security boundary. The schema's `allow.resource(mcpHandler).to(['query', 'mutate'])` grant gives the handler admin-equivalent access to Post / Page / PostTag / Media. Therefore: **possessing an MCP token = admin-equivalent CMS access.** Issue them carefully.
+- **Effective authorization:** Tokens themselves carry no per-token role — they authenticate the holder, and the Lambda's IAM role is the security boundary. The schema's `allow.resource(mcpHandler).to(['query', 'mutate'])` grant is applied **at schema scope, not per-model**: every model declared in the AppSync schema is reachable from the MCP Lambda's IAM principal, including all currently-declared models and any added later. Concrete current scope at the time of writing:
+   - The built-in CMS models (Post, Page, PostTag, Media, Taxonomy, KvStore)
+   - `McpToken` (token issuance + revocation metadata)
+   - `PluginSecret` and `PluginSecretIndicator` (the Phase 6a secret-storage tables — see the precedent note below for why the model-level Cognito-group sentinel does NOT block the MCP Lambda)
+   - Any custom models added by the template's [`amplify/data/resource.ts`](../../templates/_shared/amplify/data/resource.ts) via `customSchemaModels(a)`
+   - Any model added by future patches to `amplessSchemaModels` in [`packages/backend/src/data/index.ts`](../../packages/backend/src/data/index.ts)
+
+   The schema-wide grant is intentional — `@aws-amplify/data-schema` only honours `allow.resource(...)` at schema scope (model-level callbacks strip `resource` out of `allow`), so per-model resource auth is structurally unavailable in Amplify Gen 2.
+
+   The current MCP tool registry does **not** expose raw GraphQL and does not include any tool that touches McpToken / PluginSecret / PluginSecretIndicator, so a token holder has no operational path to those models today. But the IAM grant is broader than the registry — if a new MCP tool is added that wraps `client.models.PluginSecret.list(...)` (or similar), the AppSync request will succeed under the current grant. Therefore: **possessing an MCP token = admin-equivalent IAM access to the entire AppSync schema, present and future.** Issue them carefully, and treat any new MCP tool that reads a sensitive model as a deliberate scope expansion.
+
+   When adding a new sensitive model to the AppSync schema, decide deliberately whether the MCP Lambda should reach it. Two paths are available:
+   - Move that model's persistence off AppSync entirely (Lambda direct DDB SDK + IAM grant on the Lambdas that legitimately need it, AppSync auth set to a placeholder Cognito group with no members — the pattern used for `PluginSecret` in Phase 6a).
+   - Add a CI guard that diffs `amplessSchemaModels` against an allowlist and fails on additions until the docs/threat model are updated.
+
+   ##### Precedent: `PluginSecret`'s placeholder-group pattern (Phase 6a)
+
+   `PluginSecret` declares `allow.groups(['__ampless_internal__'])` as its only model-level auth rule. No Cognito user belongs to that group, so admin/editor browser sessions cannot reach the model via AppSync — that protection is real and is the source of the "Cognito-group-sentinel" framing used elsewhere in this doc and in the source comments.
+
+   But the model-level rule only restricts the **Cognito user-pool auth mode**. The schema-level `allow.resource(mcpHandler).to(['query', 'mutate'])` is enforced under the **IAM (SigV4) auth mode**, which is independent. So the MCP Lambda — and *only* the MCP Lambda among AppSync callers — can still read and write `PluginSecret` via SigV4 today. The reason no plaintext leaks happen is operational, not structural: the MCP tool registry has no `read_plugin_secret` tool. The plugin-secret-handler Lambda goes around AppSync entirely (direct DDB SDK + `grantReadWriteData` IAM on the underlying construct), so even with AppSync access disabled the secret path would still work — that part of the design is independent.
+
+   The honest framing for new sensitive models is therefore: "Cognito user-pool auth is denied via the placeholder group; AppSync IAM auth (and so the MCP Lambda) is denied only as long as the tool registry chooses not to surface the model." A future PR that wires an MCP tool against the model would need to revisit this implicitly. The CI guard above is the structural fix; the placeholder-group pattern alone is not.
 - **Payload limit:** Function URL caps invocations at ~6 MB base64-inflated. Large static bundles should be split via the incremental `upload_static_file` / `commit_static_post` tools.
 
 #### Tool Registry ([`packages/mcp-server`](../../packages/mcp-server))
