@@ -45,13 +45,13 @@ vi.hoisted(() => {
 })
 
 vi.mock('@aws-sdk/client-dynamodb', () => {
-  class PutItemCommand {
+  class UpdateItemCommand {
     input: Record<string, unknown>
     constructor(input: Record<string, unknown>) {
       this.input = input
     }
     get ['constructor']() {
-      return { name: 'PutItemCommand' }
+      return { name: 'UpdateItemCommand' }
     }
   }
 
@@ -66,19 +66,21 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
   }
 
   class DynamoDBClient {
-    async send(command: PutItemCommand | DeleteItemCommand) {
+    async send(command: UpdateItemCommand | DeleteItemCommand) {
       const name = command.constructor.name
       ddbCommands.push({ name, input: command.input as Record<string, unknown> })
 
       const item = command.input as {
         TableName: string
-        Item?: Record<string, { S?: string }>
         Key?: Record<string, { S?: string }>
+        UpdateExpression?: string
+        ExpressionAttributeNames?: Record<string, string>
+        ExpressionAttributeValues?: Record<string, { S?: string }>
       }
 
       // Unmarshal helper (S-only for these tests)
-      function unm(m: Record<string, { S?: string }>): DdbItem {
-        const out: DdbItem = { sk: '' }
+      function unm(m: Record<string, { S?: string }>): Record<string, unknown> {
+        const out: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(m)) {
           out[k] = v.S ?? v
         }
@@ -89,18 +91,91 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
       const indicatorTable =
         process.env.AMPLESS_PLUGIN_SECRET_INDICATOR_TABLE ?? 'plugin-secret-indicators'
 
-      if (name === 'PutItemCommand' && item.Item) {
-        const row = unm(item.Item)
-        const mapKey = row.sk
+      function applyUpdate(store: Map<string, DdbItem>): void {
+        if (!item.Key) return
+        const key = unm(item.Key) as DdbItem
+        const mapKey = key.sk
+        const existing = store.get(mapKey) ?? { ...key }
+
+        // Parse the UpdateExpression. The handler always uses a SET-only
+        // expression in the shape:
+        //   SET <field> = :v, <field2> = if_not_exists(<field>, :now), ...
+        // We only need to handle that shape — anything else is a test
+        // mismatch and should fail loudly.
+        const expr = item.UpdateExpression ?? ''
+        const names = item.ExpressionAttributeNames ?? {}
+        const values = item.ExpressionAttributeValues
+          ? unm(item.ExpressionAttributeValues)
+          : {}
+
+        if (!/^\s*SET\s+/i.test(expr)) {
+          throw new Error(
+            `Mock UpdateItem only supports SET expressions; got: ${expr}`
+          )
+        }
+        const body = expr.replace(/^\s*SET\s+/i, '')
+        // Paren-aware split: top-level commas separate assignments, but
+        // commas inside `if_not_exists(...)` are arguments to that
+        // function call and must not split. (Naive `body.split(',')`
+        // chops `if_not_exists(x, :y)` in half and quietly loses
+        // assignments — which silently dropped createdAt/updatedAt
+        // until this regression surfaced.)
+        const assignments: string[] = []
+        let depth = 0
+        let start = 0
+        for (let i = 0; i < body.length; i++) {
+          const c = body[i]
+          if (c === '(') depth++
+          else if (c === ')') depth--
+          else if (c === ',' && depth === 0) {
+            assignments.push(body.slice(start, i).trim())
+            start = i + 1
+          }
+        }
+        assignments.push(body.slice(start).trim())
+        const next: DdbItem = { ...existing }
+
+        for (const assign of assignments) {
+          const [lhsRaw, rhsRaw] = assign.split(/\s*=\s*/)
+          if (!lhsRaw || !rhsRaw) continue
+          const fieldName = names[lhsRaw.trim()] ?? lhsRaw.trim()
+          const rhs = rhsRaw.trim()
+
+          const ifNotExistsMatch = rhs.match(
+            /^if_not_exists\(\s*(#?\w+)\s*,\s*(:\w+)\s*\)$/
+          )
+          if (ifNotExistsMatch) {
+            const checkRef = ifNotExistsMatch[1]!
+            const fallbackRef = ifNotExistsMatch[2]!
+            const checkField = names[checkRef] ?? checkRef
+            if (checkField in next && next[checkField] !== undefined) {
+              // Keep the existing value
+              continue
+            }
+            next[fieldName] = values[fallbackRef] as unknown
+            continue
+          }
+
+          // Plain value reference (e.g. `:value`)
+          if (rhs.startsWith(':')) {
+            next[fieldName] = values[rhs] as unknown
+            continue
+          }
+        }
+
+        store.set(mapKey, next)
+      }
+
+      if (name === 'UpdateItemCommand') {
         if (item.TableName === secretTable) {
-          secretStore.set(mapKey, row)
+          applyUpdate(secretStore)
         } else if (item.TableName === indicatorTable) {
-          indicatorStore.set(mapKey, row)
+          applyUpdate(indicatorStore)
         }
       }
 
       if (name === 'DeleteItemCommand' && item.Key) {
-        const row = unm(item.Key)
+        const row = unm(item.Key) as DdbItem
         const mapKey = row.sk
         if (item.TableName === secretTable) {
           secretStore.delete(mapKey)
@@ -113,7 +188,7 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
     }
   }
 
-  return { DynamoDBClient, PutItemCommand, DeleteItemCommand }
+  return { DynamoDBClient, UpdateItemCommand, DeleteItemCommand }
 })
 
 // ---------------------------------------------------------------------------
@@ -382,6 +457,86 @@ describe('plugin-secret-handler — DDB write shape', () => {
     expect(typeof row?.lastSetAt).toBe('string')
     // lastSetAt should be an ISO 8601 string
     expect(new Date(row!.lastSetAt as string).getTime()).toBeGreaterThan(0)
+  })
+
+  // Regression guard for the Phase 6a dogfood read-after-reload failure
+  // on ishinao.net. Amplify Gen 2 auto-generates non-nullable
+  // `createdAt` / `updatedAt` (`AWSDateTime!`) on every model, so an
+  // AppSync `get` resolver refuses to project a row that lacks them and
+  // returns the entire row as `null` (with errors on the missing
+  // fields). Without these timestamps in the DDB row,
+  // `hasPluginSecret()` always returned `false` on reload even when the
+  // sk row was clearly present in DynamoDB.
+  it('populates createdAt + updatedAt on both rows so the AppSync resolver can project them', async () => {
+    const evt = makeEvent('setPluginSecret', {
+      fieldKey: 'signingSecret',
+      instanceId: 'webhook',
+      value: 'my-secret',
+    })
+    await handler(evt, {} as never, cb)
+
+    const secretRow = secretStore.get('plugins.webhook.signingSecret')
+    expect(typeof secretRow?.createdAt).toBe('string')
+    expect(typeof secretRow?.updatedAt).toBe('string')
+    expect(new Date(secretRow!.createdAt as string).getTime()).toBeGreaterThan(0)
+
+    const indicatorRow = indicatorStore.get('plugins.webhook.signingSecret')
+    expect(typeof indicatorRow?.createdAt).toBe('string')
+    expect(typeof indicatorRow?.updatedAt).toBe('string')
+    expect(new Date(indicatorRow!.createdAt as string).getTime()).toBeGreaterThan(0)
+  })
+
+  // The Replace path must keep the original createdAt and only bump
+  // updatedAt — that's what the `if_not_exists(createdAt, :now)` clause
+  // in the UpdateExpression buys us. Without it, every Replace would
+  // reset createdAt and there'd be no audit trail of when the secret
+  // was first stored.
+  it('preserves createdAt across a Replace (UpdateExpression uses if_not_exists)', async () => {
+    // First write
+    await handler(
+      makeEvent('setPluginSecret', {
+        fieldKey: 'signingSecret',
+        instanceId: 'webhook',
+        value: 'initial-secret',
+      }),
+      {} as never,
+      cb
+    )
+    const firstSecretCreatedAt = secretStore.get('plugins.webhook.signingSecret')!
+      .createdAt as string
+    const firstIndicatorCreatedAt = indicatorStore.get(
+      'plugins.webhook.signingSecret'
+    )!.createdAt as string
+
+    // Force a different `now` on the Replace so we can assert the
+    // timestamp didn't change. 5ms sleep is enough — Date.now() ticks
+    // every ms and we use ISO strings which are millisecond-precision.
+    await new Promise((r) => setTimeout(r, 5))
+
+    // Replace
+    await handler(
+      makeEvent('setPluginSecret', {
+        fieldKey: 'signingSecret',
+        instanceId: 'webhook',
+        value: 'replaced-secret',
+      }),
+      {} as never,
+      cb
+    )
+
+    const secretRow = secretStore.get('plugins.webhook.signingSecret')!
+    const indicatorRow = indicatorStore.get('plugins.webhook.signingSecret')!
+
+    expect(secretRow.createdAt).toBe(firstSecretCreatedAt)
+    expect(indicatorRow.createdAt).toBe(firstIndicatorCreatedAt)
+
+    // updatedAt must have moved forward
+    expect(
+      new Date(secretRow.updatedAt as string).getTime()
+    ).toBeGreaterThanOrEqual(new Date(firstSecretCreatedAt).getTime())
+    expect(
+      new Date(indicatorRow.updatedAt as string).getTime()
+    ).toBeGreaterThanOrEqual(new Date(firstIndicatorCreatedAt).getTime())
   })
 })
 
