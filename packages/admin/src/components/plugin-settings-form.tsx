@@ -160,10 +160,26 @@ export function PluginSettingsForm({
 
   // Track which secret fields have a stored value (existence-check only;
   // value is never returned). Loaded once at mount via hasPluginSecret().
-  const [secretHasValue, setSecretHasValue] = useState<Record<string, boolean>>({})
+  //
+  // `null` = check has not completed yet. We use this to gate the render
+  // of `<SecretFieldInput>` because that component initializes its
+  // useReducer state from the `hasValue` prop ONCE on mount — if we
+  // rendered with `hasValue={false}` first and then changed to `true`
+  // after the async check completes, the reducer state would stay
+  // `'unset'` forever and the masked Replace UI would never appear,
+  // even though the DDB row clearly exists. (This was the final
+  // dogfood-blocking bug on `ishinao.net` after PR #210 made the
+  // AppSync read itself work.)
+  const [secretHasValue, setSecretHasValue] = useState<Record<
+    string,
+    boolean
+  > | null>(null)
 
   useEffect(() => {
-    if (!secretFields || secretFields.length === 0) return
+    if (!secretFields || secretFields.length === 0) {
+      setSecretHasValue({})
+      return
+    }
     let cancelled = false
     async function check() {
       const results: Record<string, boolean> = {}
@@ -375,15 +391,25 @@ export function PluginSettingsForm({
               accessible by the trusted processor Lambda — not by the public site or admin UI.
             </p>
           </div>
-          {secretFields.map((field) => (
-            <SecretFieldInput
-              key={field.key}
-              field={field}
-              hasValue={secretHasValue[field.key] ?? false}
-              onSave={(value) => setPluginSecret(field, instanceId, value)}
-              onClear={() => clearPluginSecret(instanceId, field.key)}
+          {secretHasValue === null ? (
+            // Loading placeholder. Keep layout height stable so the
+            // section doesn't jump when the check resolves.
+            <div
+              className="h-10 animate-pulse rounded-md bg-muted/50"
+              aria-busy="true"
+              aria-label={t('plugins.loading')}
             />
-          ))}
+          ) : (
+            secretFields.map((field) => (
+              <SecretFieldInput
+                key={field.key}
+                field={field}
+                hasValue={secretHasValue[field.key] ?? false}
+                onSave={(value) => setPluginSecret(field, instanceId, value)}
+                onClear={() => clearPluginSecret(instanceId, field.key)}
+              />
+            ))
+          )}
         </div>
       )}
     </form>
