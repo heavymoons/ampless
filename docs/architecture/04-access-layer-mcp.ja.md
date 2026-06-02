@@ -145,7 +145,18 @@ MCP クライアント → Lambda Function URL に HTTPS POST
 - **トークン形式：** `amk_` プレフィックス + base64url エンコードされた乱数。
 - **保管：** 平文トークンの SHA-256 hex のみを保存。検証は `McpToken` テーブルへの `GetItem` 1 回で済み、認証パスで AppSync を経由しない。
 - **発行：** 管理画面 `/admin/mcp-tokens` から。McpToken モデルは admin-only なので editor は発行できない。
-- **実効認可：** トークン自体にロールは載っていない。Lambda の IAM ロールがセキュリティ境界。スキーマの `allow.resource(mcpHandler).to(['query', 'mutate'])` により、ハンドラは Post / Page / PostTag / Media に対して admin 相当のアクセス権を持つ。したがって **MCP トークンを所持していること = admin 相当の CMS アクセス**。発行は慎重に。
+- **実効認可：** トークン自体にロールは載っていない。Lambda の IAM ロールがセキュリティ境界。スキーマの `allow.resource(mcpHandler).to(['query', 'mutate'])` は **schema scope に付与され、モデル単位ではない**。したがって AppSync スキーマに宣言された全モデルが MCP Lambda から到達可能になる:
+   - 組み込み CMS モデル（Post / Page / PostTag / Media / Taxonomy / KvStore）
+   - テンプレートの [`amplify/data/resource.ts`](../../templates/_shared/amplify/data/resource.ts) で `customSchemaModels(a)` 経由で追加されたカスタムモデル
+   - 今後 [`packages/backend/src/data/index.ts`](../../packages/backend/src/data/index.ts) の `amplessSchemaModels` に追加される全モデル
+
+   schema 全体 grant は意図的: `@aws-amplify/data-schema` は `allow.resource(...)` を schema scope でしか honor しない（model-level callback では `resource` が `allow` から strip される）ため、モデル単位の resource auth は Amplify Gen 2 では構造的に不可能。現状の MCP ツールレジストリは raw GraphQL を露出していないため、トークン保持者が任意の未登録モデルを直接読み出すパスはないが、**IAM grant 自体はツールレジストリより広い**。したがって **MCP トークンを所持していること = AppSync スキーマ全体（現在および将来追加されるものを含む）に対する admin 相当のアクセス**。発行は慎重に。
+
+   AppSync スキーマに新規モデルを追加するときは、MCP Lambda が到達してよいか必ず明示的に判断する。到達させたくない場合は次の 2 つのパスを取る:
+   - そのモデルのアクセス経路を AppSync から完全に外す（Lambda の DDB SDK + IAM grant + AppSync auth は「誰も所属しない placeholder group」に設定。Phase 6a の `PluginSecret` で採用したパターン）。
+   - `amplessSchemaModels` の差分を allowlist と突き合わせて新規モデルでビルド失敗させる CI ガードを追加する（docs/threat model 更新を強制）。
+
+   `PluginSecret` の placeholder-group パターンは「Lambda 直接 DDB アクセス + AppSync 露出ゼロ」の in-tree 前例であり、新規 sensitive モデルには推奨される実装方針。
 - **ペイロード上限：** Function URL の呼び出しサイズ上限は base64 展開後で約 6 MB。大きな静的バンドルは差分系ツール（`upload_static_file` / `commit_static_post`）に分割する。
 
 #### ツールレジストリ ([`packages/mcp-server`](../../packages/mcp-server))

@@ -145,7 +145,18 @@ MCP client → HTTPS POST to Lambda Function URL
 - **Token format:** `amk_` prefix followed by a base64url-encoded random value.
 - **At rest:** Only the SHA-256 hex of the plaintext is stored — token validation is one `GetItem` against the `McpToken` table; AppSync is not touched in the auth path.
 - **Token issuance:** Admin UI at `/admin/mcp-tokens`. The McpToken AppSync model is `admin`-only, so editors can't mint tokens.
-- **Effective authorization:** Tokens themselves carry no per-token role — they authenticate the holder, and the Lambda's IAM role is the security boundary. The schema's `allow.resource(mcpHandler).to(['query', 'mutate'])` grant gives the handler admin-equivalent access to Post / Page / PostTag / Media. Therefore: **possessing an MCP token = admin-equivalent CMS access.** Issue them carefully.
+- **Effective authorization:** Tokens themselves carry no per-token role — they authenticate the holder, and the Lambda's IAM role is the security boundary. The schema's `allow.resource(mcpHandler).to(['query', 'mutate'])` grant is applied **at schema scope, not per-model**: every model declared in the AppSync schema is reachable from the MCP Lambda, including:
+   - The built-in CMS models (Post, Page, PostTag, Media, Taxonomy, KvStore)
+   - Any custom models added by the template's [`amplify/data/resource.ts`](../../templates/_shared/amplify/data/resource.ts) via `customSchemaModels(a)`
+   - Any model added by future patches to `amplessSchemaModels` in [`packages/backend/src/data/index.ts`](../../packages/backend/src/data/index.ts)
+
+   The schema-wide grant is intentional — `@aws-amplify/data-schema` only honours `allow.resource(...)` at schema scope (model-level callbacks strip `resource` out of `allow`), so per-model resource auth is structurally unavailable in Amplify Gen 2. The current MCP tool registry does **not** expose raw GraphQL, so there is no immediate path for a token holder to read an arbitrary model the registry didn't surface — but the IAM grant itself is broader than the registry. Therefore: **possessing an MCP token = admin-equivalent access to the entire AppSync schema, present and future.** Issue them carefully.
+
+   When adding a new model to the AppSync schema, decide deliberately whether the MCP Lambda should reach it. If not, two paths are available:
+   - Move that model's access path off AppSync entirely (DDB SDK + IAM grant on the Lambdas that legitimately need it, AppSync auth set to a placeholder group with no members — the pattern used for `PluginSecret` in Phase 6a).
+   - Add a CI guard that diffs `amplessSchemaModels` against an allowlist and fails on additions until the docs/threat model are updated.
+
+   The placeholder-group pattern for `PluginSecret` is the in-tree precedent for "Lambda direct DDB access + zero AppSync surface", and is the recommended path for any new sensitive model.
 - **Payload limit:** Function URL caps invocations at ~6 MB base64-inflated. Large static bundles should be split via the incremental `upload_static_file` / `commit_static_post` tools.
 
 #### Tool Registry ([`packages/mcp-server`](../../packages/mcp-server))
