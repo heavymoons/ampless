@@ -7,7 +7,8 @@ const s3Commands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown>
 const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown> }>)
 
 // Simulate PluginSecret table rows for ctx.secret tests.
-// Map key: `${siteId}:${sk}` → value string
+// Map key: `sk` → value string (single-id identifier — no `siteId`
+// partition column after the `remove-siteid-from-schema` migration).
 const pluginSecretRows = vi.hoisted(
   () => new Map<string, string>()
 )
@@ -49,16 +50,12 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
       if (commandName === 'GetItemCommand') {
         const key = command.input.Key as Record<string, Record<string, string>> | undefined
         if (key) {
-          // Extract siteId and sk from the marshalled key
-          const siteId = key['siteId']?.S
           const sk = key['sk']?.S
-          if (siteId && sk) {
-            const mapKey = `${siteId}:${sk}`
-            const value = pluginSecretRows.get(mapKey)
+          if (sk) {
+            const value = pluginSecretRows.get(sk)
             if (value !== undefined) {
               return {
                 Item: {
-                  siteId: { S: siteId },
                   sk: { S: sk },
                   value: { S: value },
                 },
@@ -374,7 +371,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
 
   it('reads a stored secret from PluginSecret table via ctx.secret', async () => {
     // Seed an AES-256-GCM ciphertext (env-var key = TEST_ENC_KEY).
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'test-secret-value'))
+    pluginSecretRows.set('plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'test-secret-value'))
 
     let capturedSecret: string | undefined
     const handler = createProcessorTrustedHandler({
@@ -418,7 +415,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('uses instanceId in the DDB sort key when instanceId is set', async () => {
-    pluginSecretRows.set('default:plugins.webhook-main.signingSecret', encryptForTest(TEST_ENC_KEY, 'instance-secret'))
+    pluginSecretRows.set('plugins.webhook-main.signingSecret', encryptForTest(TEST_ENC_KEY, 'instance-secret'))
 
     let capturedSecret: string | undefined
     const handler = createProcessorTrustedHandler({
@@ -442,8 +439,8 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('does not confuse secrets across different plugin instances (namespace isolation)', async () => {
-    pluginSecretRows.set('default:plugins.webhook-a.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-a'))
-    pluginSecretRows.set('default:plugins.webhook-b.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-b'))
+    pluginSecretRows.set('plugins.webhook-a.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-a'))
+    pluginSecretRows.set('plugins.webhook-b.signingSecret', encryptForTest(TEST_ENC_KEY, 'secret-for-b'))
 
     const capturedSecrets: Array<{ instanceId: string; value: string | undefined }> = []
 
@@ -483,7 +480,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
   })
 
   it('reads the secret only once from DDB for repeated calls (per-invocation cache)', async () => {
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'cached-secret'))
+    pluginSecretRows.set('plugins.webhook.signingSecret', encryptForTest(TEST_ENC_KEY, 'cached-secret'))
 
     // Track raw DynamoDB client calls specifically for GetItemCommand.
     // We need to count how many times the raw DDB client's send() is called
@@ -535,7 +532,7 @@ describe('S3 site-settings mirror excludes PluginSecret table', () => {
 
   it('site-settings.json does not include PluginSecret values even when secrets exist', async () => {
     // Seed a secret value in the PluginSecret table.
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', 'super-secret-do-not-leak')
+    pluginSecretRows.set('plugins.webhook.signingSecret', 'super-secret-do-not-leak')
 
     // Trigger a site.settings.updated event — this rebuilds the S3 mirror.
     const handler = createProcessorTrustedHandler({ site })
@@ -664,7 +661,7 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
     const ciphertext = encryptForTest(TEST_ENC_KEY, plaintext)
 
     // Seed only the secret row.
-    pluginSecretRows.set('default:plugins.webhook.apiKey', ciphertext)
+    pluginSecretRows.set('plugins.webhook.apiKey', ciphertext)
 
     let capturedSecret: string | undefined
     const handler = createProcessorTrustedHandler({
@@ -688,7 +685,7 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
   it('returns undefined with warning when the encryption key is absent', async () => {
     // Simulate a site that has not provisioned the file-based encryption key yet.
     setEnv(/* withEncKey= */ false)
-    pluginSecretRows.set('default:plugins.webhook.signingSecret', 'not-encrypted-value')
+    pluginSecretRows.set('plugins.webhook.signingSecret', 'not-encrypted-value')
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let capturedSecret: unknown = 'sentinel'
@@ -715,7 +712,7 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 
   it('caches decrypted plaintext — DDB fetch only once per invocation', async () => {
     const ciphertext = encryptForTest(TEST_ENC_KEY, 'cached-decrypted')
-    pluginSecretRows.set('default:plugins.webhook.token', ciphertext)
+    pluginSecretRows.set('plugins.webhook.token', ciphertext)
 
     const callCount = { n: 0 }
     const handler = createProcessorTrustedHandler({

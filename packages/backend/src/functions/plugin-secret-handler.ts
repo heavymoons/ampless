@@ -178,7 +178,7 @@ async function handleSet(args: SetArgs): Promise<string> {
   await ddb.send(
     new PutItemCommand({
       TableName: secretTable,
-      Item: marshall({ siteId: 'default', sk, value: ciphertext }),
+      Item: marshall({ sk, value: ciphertext }),
     })
   )
 
@@ -186,7 +186,7 @@ async function handleSet(args: SetArgs): Promise<string> {
   await ddb.send(
     new PutItemCommand({
       TableName: indicatorTable,
-      Item: marshall({ siteId: 'default', sk, lastSetAt: now }),
+      Item: marshall({ sk, lastSetAt: now }),
     })
   )
 
@@ -211,7 +211,7 @@ async function handleClear(args: ClearArgs): Promise<string> {
   await ddb.send(
     new DeleteItemCommand({
       TableName: secretTable,
-      Key: marshall({ siteId: 'default', sk }),
+      Key: marshall({ sk }),
     })
   )
 
@@ -219,7 +219,7 @@ async function handleClear(args: ClearArgs): Promise<string> {
   await ddb.send(
     new DeleteItemCommand({
       TableName: indicatorTable,
-      Key: marshall({ siteId: 'default', sk }),
+      Key: marshall({ sk }),
     })
   )
 

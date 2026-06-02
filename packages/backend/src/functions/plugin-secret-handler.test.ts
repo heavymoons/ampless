@@ -19,7 +19,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // ---------------------------------------------------------------------------
 
 interface DdbItem {
-  siteId: string
   sk: string
   [k: string]: unknown
 }
@@ -79,7 +78,7 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
 
       // Unmarshal helper (S-only for these tests)
       function unm(m: Record<string, { S?: string }>): DdbItem {
-        const out: DdbItem = { siteId: '', sk: '' }
+        const out: DdbItem = { sk: '' }
         for (const [k, v] of Object.entries(m)) {
           out[k] = v.S ?? v
         }
@@ -92,7 +91,7 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
 
       if (name === 'PutItemCommand' && item.Item) {
         const row = unm(item.Item)
-        const mapKey = `${row.siteId}:${row.sk}`
+        const mapKey = row.sk
         if (item.TableName === secretTable) {
           secretStore.set(mapKey, row)
         } else if (item.TableName === indicatorTable) {
@@ -102,7 +101,7 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
 
       if (name === 'DeleteItemCommand' && item.Key) {
         const row = unm(item.Key)
-        const mapKey = `${row.siteId}:${row.sk}`
+        const mapKey = row.sk
         if (item.TableName === secretTable) {
           secretStore.delete(mapKey)
         } else if (item.TableName === indicatorTable) {
@@ -313,7 +312,7 @@ describe('plugin-secret-handler — sanitized value encrypted', () => {
     })
     await handler(evt, {} as never, cb)
 
-    const row = secretStore.get('default:plugins.myplugin.apiKey')
+    const row = secretStore.get('plugins.myplugin.apiKey')
     expect(row).toBeDefined()
     const decrypted = decryptForTest(TEST_KEY_BYTES, row!.value as string)
     // Angle brackets stripped; script tags become 'script' content without tag delimiters
@@ -333,7 +332,7 @@ describe('plugin-secret-handler — sanitized value encrypted', () => {
     })
     await handler(evt, {} as never, cb)
 
-    const row = secretStore.get('default:plugins.myplugin.apiKey')
+    const row = secretStore.get('plugins.myplugin.apiKey')
     expect(row).toBeDefined()
     expect(row!.value).not.toBe(plaintext)
     // Valid base64
@@ -355,7 +354,7 @@ describe('plugin-secret-handler — DDB write shape', () => {
     ddbCommands.length = 0
   })
 
-  it('writes PluginSecret row with siteId=default and correct sk', async () => {
+  it('writes PluginSecret row with correct sk', async () => {
     const evt = makeEvent('setPluginSecret', {
       fieldKey: 'signingSecret',
       instanceId: 'webhook',
@@ -363,9 +362,9 @@ describe('plugin-secret-handler — DDB write shape', () => {
     })
     await handler(evt, {} as never, cb)
 
-    const row = secretStore.get('default:plugins.webhook.signingSecret')
-    expect(row?.siteId).toBe('default')
+    const row = secretStore.get('plugins.webhook.signingSecret')
     expect(row?.sk).toBe('plugins.webhook.signingSecret')
+    expect(row?.siteId).toBeUndefined()
     expect(typeof row?.value).toBe('string')
   })
 
@@ -377,9 +376,9 @@ describe('plugin-secret-handler — DDB write shape', () => {
     })
     await handler(evt, {} as never, cb)
 
-    const row = indicatorStore.get('default:plugins.webhook.signingSecret')
-    expect(row?.siteId).toBe('default')
+    const row = indicatorStore.get('plugins.webhook.signingSecret')
     expect(row?.sk).toBe('plugins.webhook.signingSecret')
+    expect(row?.siteId).toBeUndefined()
     expect(typeof row?.lastSetAt).toBe('string')
     // lastSetAt should be an ISO 8601 string
     expect(new Date(row!.lastSetAt as string).getTime()).toBeGreaterThan(0)
@@ -399,13 +398,11 @@ describe('plugin-secret-handler — clearPluginSecret', () => {
 
   it('removes rows from both tables', async () => {
     // Seed both stores
-    secretStore.set('default:plugins.webhook.signingSecret', {
-      siteId: 'default',
+    secretStore.set('plugins.webhook.signingSecret', {
       sk: 'plugins.webhook.signingSecret',
       value: 'ciphertext',
     })
-    indicatorStore.set('default:plugins.webhook.signingSecret', {
-      siteId: 'default',
+    indicatorStore.set('plugins.webhook.signingSecret', {
       sk: 'plugins.webhook.signingSecret',
       lastSetAt: '2026-06-01T00:00:00.000Z',
     })
@@ -416,8 +413,8 @@ describe('plugin-secret-handler — clearPluginSecret', () => {
     })
     await handler(evt, {} as never, cb)
 
-    expect(secretStore.has('default:plugins.webhook.signingSecret')).toBe(false)
-    expect(indicatorStore.has('default:plugins.webhook.signingSecret')).toBe(false)
+    expect(secretStore.has('plugins.webhook.signingSecret')).toBe(false)
+    expect(indicatorStore.has('plugins.webhook.signingSecret')).toBe(false)
   })
 
   it('is a no-op when rows do not exist', async () => {
@@ -514,13 +511,13 @@ describe('plugin-secret-handler — dual-write integrity', () => {
     indicatorSpy.mockRestore()
 
     // PluginSecret row exists (ciphertext was written before the failure)
-    const secretRow = secretStore.get('default:plugins.webhook.signingSecret')
+    const secretRow = secretStore.get('plugins.webhook.signingSecret')
     expect(secretRow).toBeDefined()
     const decrypted = decryptForTest(TEST_KEY_BYTES, secretRow!.value as string)
     expect(decrypted).toBe('test-secret')
 
     // PluginSecretIndicator row is absent (write was intercepted before it wrote)
-    const indicatorRow = indicatorStore.get('default:plugins.webhook.signingSecret')
+    const indicatorRow = indicatorStore.get('plugins.webhook.signingSecret')
     expect(indicatorRow).toBeUndefined()
     void originalSecretSet
     void originalIndicatorSet
@@ -529,13 +526,11 @@ describe('plugin-secret-handler — dual-write integrity', () => {
 
   it('clear path partial failure: secret deleted, indicator stale — ctx.secret returns undefined, hasPluginSecret true', async () => {
     // Seed both stores to simulate existing data
-    secretStore.set('default:plugins.webhook.signingSecret', {
-      siteId: 'default',
+    secretStore.set('plugins.webhook.signingSecret', {
       sk: 'plugins.webhook.signingSecret',
       value: 'some-ciphertext',
     })
-    indicatorStore.set('default:plugins.webhook.signingSecret', {
-      siteId: 'default',
+    indicatorStore.set('plugins.webhook.signingSecret', {
       sk: 'plugins.webhook.signingSecret',
       lastSetAt: '2026-06-01T00:00:00.000Z',
     })
@@ -557,10 +552,10 @@ describe('plugin-secret-handler — dual-write integrity', () => {
     indicatorSpy.mockRestore()
 
     // PluginSecret row is gone (first delete succeeded)
-    expect(secretStore.has('default:plugins.webhook.signingSecret')).toBe(false)
+    expect(secretStore.has('plugins.webhook.signingSecret')).toBe(false)
 
     // PluginSecretIndicator row still exists (second delete was intercepted)
-    expect(indicatorStore.has('default:plugins.webhook.signingSecret')).toBe(true)
+    expect(indicatorStore.has('plugins.webhook.signingSecret')).toBe(true)
 
     // Invariant:
     // - hasPluginSecret reads from PluginSecretIndicator → returns true (stale)
