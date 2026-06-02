@@ -94,6 +94,43 @@ export const deleteMediaSchema = {
  * caller can sweep orphan files by passing `src` of objects the Media
  * table no longer references.
  */
+const MEDIA_PREFIX = 'public/media/'
+
+/**
+ * Validate that an S3 key is strictly within the `public/media/` prefix.
+ *
+ * The check is performed on the normalised path so that traversal sequences
+ * such as `public/media/../static/foo` are caught even though they start with
+ * the correct prefix as a raw string.
+ *
+ * Normalisation: reject backslashes first, then collapse each `..` segment
+ * against its predecessor until none remain.  We do NOT use `path.normalize`
+ * because that is OS-dependent and may produce backslashes on Windows; instead
+ * we perform a pure-string resolution loop.
+ */
+function assertMediaPrefix(key: string): void {
+  // Reject embedded backslashes before normalising (belt-and-suspenders).
+  if (key.includes('\\')) {
+    throw new Error(`delete_media: src must start with "${MEDIA_PREFIX}" — got: ${key}`)
+  }
+
+  // Resolve `..` segments without touching the OS.
+  const parts = key.split('/')
+  const resolved: string[] = []
+  for (const part of parts) {
+    if (part === '..') {
+      resolved.pop()
+    } else {
+      resolved.push(part)
+    }
+  }
+  const normalised = resolved.join('/')
+
+  if (!normalised.startsWith(MEDIA_PREFIX)) {
+    throw new Error(`delete_media: src must start with "${MEDIA_PREFIX}" — got: ${key}`)
+  }
+}
+
 export async function deleteMedia(
   graphql: GraphqlClient,
   storage: StorageClient,
@@ -104,6 +141,11 @@ export async function deleteMedia(
 > {
   if (!args.mediaId && !args.src) {
     throw new Error('delete_media: provide `mediaId` or `src`')
+  }
+
+  // Validate the caller-supplied src before any I/O so we fail early.
+  if (args.src !== undefined) {
+    assertMediaPrefix(args.src)
   }
 
   const dryRun = args.dryRun === true
@@ -117,6 +159,8 @@ export async function deleteMedia(
     if (data.getMedia) {
       mediaId = data.getMedia.mediaId
       src = data.getMedia.src
+      // Guard against rows with corrupt / unexpected src values.
+      assertMediaPrefix(src)
     }
   } else {
     const data = await graphql.query<{
@@ -125,6 +169,8 @@ export async function deleteMedia(
     if (data.getMediaBySrc) {
       mediaId = data.getMediaBySrc.mediaId
       src = data.getMediaBySrc.src
+      // Guard against rows with corrupt / unexpected src values.
+      assertMediaPrefix(src)
     }
   }
 

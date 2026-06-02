@@ -142,6 +142,75 @@ describe('delete_media', () => {
     expect(s.deletes[0]).toBe(ROW.src)
   })
 
+  describe('prefix guard (public/media/ enforcement)', () => {
+    it('rejects src outside public/media/ — public/static/ prefix', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      await expect(
+        deleteMedia(g.graphql, s.storage, { src: 'public/static/foo.zip' }),
+      ).rejects.toThrow(/must start with "public\/media\/"/)
+      expect(s.deletes).toHaveLength(0)
+    })
+
+    it('rejects traversal escape: public/media/../static/foo.zip', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      await expect(
+        deleteMedia(g.graphql, s.storage, { src: 'public/media/../static/foo.zip' }),
+      ).rejects.toThrow(/must start with "public\/media\/"/)
+      expect(s.deletes).toHaveLength(0)
+    })
+
+    it('rejects traversal escape: public/media/../../etc/passwd', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      await expect(
+        deleteMedia(g.graphql, s.storage, { src: 'public/media/../../etc/passwd' }),
+      ).rejects.toThrow(/must start with "public\/media\/"/)
+      expect(s.deletes).toHaveLength(0)
+    })
+
+    it('rejects src containing backslash', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      await expect(
+        deleteMedia(g.graphql, s.storage, { src: 'public\\media\\foo.jpg' }),
+      ).rejects.toThrow(/must start with "public\/media\/"/)
+      expect(s.deletes).toHaveLength(0)
+    })
+
+    it('accepts a valid public/media/ src (regression)', async () => {
+      const g = makeGraphql([]) // no row → orphan path
+      const s = makeStorage([{ key: 'public/media/2026/foo.jpg', size: 1 }])
+
+      const result = await deleteMedia(g.graphql, s.storage, {
+        src: 'public/media/2026/foo.jpg',
+      })
+
+      expect(result.deleted).toBe(false)
+      // S3 delete was still attempted (orphan cleanup)
+      expect(s.deletes).toEqual(['public/media/2026/foo.jpg'])
+    })
+
+    it('rejects even when dryRun is true — no I/O either way', async () => {
+      const g = makeGraphql([])
+      const s = makeStorage()
+
+      await expect(
+        deleteMedia(g.graphql, s.storage, {
+          src: 'public/static/bundle.js',
+          dryRun: true,
+        }),
+      ).rejects.toThrow(/must start with "public\/media\/"/)
+      expect(s.deletes).toHaveLength(0)
+      expect(g.calls).toHaveLength(0)
+    })
+  })
+
   describe('dryRun', () => {
     it('resolves the row but deletes nothing (no S3, no DDB mutation)', async () => {
       const g = makeGraphql([ROW])
