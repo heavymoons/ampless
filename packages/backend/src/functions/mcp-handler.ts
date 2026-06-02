@@ -1,5 +1,5 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
+import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
 import { dispatchToolCall, tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
@@ -13,8 +13,8 @@ import { createMcpStorageClient } from './mcp-storage-client.js'
  *   1. Reads the admin-only `McpToken` DynamoDB table directly
  *      (identifier = SHA-256 hex of plaintext) to validate
  *      `Authorization: Bearer amk_...`. The Lambda has a narrow IAM
- *      grant: `dynamodb:GetItem` on the McpToken table only — no
- *      AppSync round-trip for token validation.
+ *      grant: `dynamodb:GetItem` and `dynamodb:UpdateItem` on the
+ *      McpToken table — no AppSync round-trip for token validation.
  *   2. Parses the incoming JSON-RPC envelope by hand (no MCP SDK
  *      stdio transport in a Lambda runtime — overkill for the three
  *      verbs we actually need).
@@ -91,6 +91,11 @@ const JSON_RPC_INTERNAL_ERROR = -32603
 // capability.
 const MCP_PROTOCOL_VERSION = '2024-11-05'
 
+// Minimum gap between `lastUsedAt` writes per token. High-frequency MCP
+// requests (e.g. a tool loop) would otherwise hammer DDB with UpdateItem
+// on every call. One write per 60 seconds is fine for the UI display.
+const LAST_USED_THROTTLE_MS = 60_000
+
 function requireEnv(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`[mcp-handler] missing required env var ${name}`)
@@ -137,7 +142,7 @@ function jsonRpcError(
 /**
  * Validate a Bearer token by:
  *  1. Hashing the plaintext to its SHA-256 hex.
- *  2. GetItem on the McpToken table at `{ hash }`.
+ *  2. GetItem on the McpToken table at { hash }.
  *  3. Rejecting if missing, revoked, or expired.
  * Returns the row on success, or `null` on any failure (caller
  * surfaces the same 401 either way — exposing which check failed would
@@ -156,6 +161,55 @@ async function validateBearer(plaintext: string): Promise<McpTokenRow | null> {
   if (row.revokedAt) return null
   if (row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now()) return null
   return row
+}
+
+/**
+ * Write `lastUsedAt = now` on the token row, throttled to one write per
+ * LAST_USED_THROTTLE_MS via a ConditionExpression:
+ *
+ *   attribute_not_exists(lastUsedAt)
+ *     OR attribute_type(lastUsedAt, NULL)
+ *     OR lastUsedAt < :threshold
+ *
+ * The middle branch is load-bearing: the admin-side `createToken`
+ * stores fresh rows with `lastUsedAt: null` (see
+ * `packages/admin/src/lib/mcp-token-storage.ts`), which DDB persists
+ * as `{ NULL: true }`. Without the `attribute_type` check the row's
+ * first validation would hit `attribute_not_exists = false` (the
+ * column exists) and `null < :threshold = false` (NULL is not
+ * orderable against a string), so the very first lastUsedAt update
+ * would silently fail with ConditionalCheckFailedException and the
+ * column would stay null forever.
+ *
+ * ConditionalCheckFailedException means the row was already updated
+ * within the throttle window (or the column was set to a fresh
+ * timestamp between our GetItem and UpdateItem on the same request)
+ * — that is expected and silently skipped. Any other error is logged
+ * (fail-open: the MCP request continues regardless).
+ */
+async function touchLastUsedAt(hash: string): Promise<void> {
+  const now = new Date()
+  const threshold = new Date(now.getTime() - LAST_USED_THROTTLE_MS).toISOString()
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: MCP_TOKEN_TABLE,
+        Key: { hash },
+        UpdateExpression: 'SET lastUsedAt = :now',
+        ConditionExpression:
+          'attribute_not_exists(lastUsedAt) OR attribute_type(lastUsedAt, :nullType) OR lastUsedAt < :threshold',
+        ExpressionAttributeValues: {
+          ':now': now.toISOString(),
+          ':threshold': threshold,
+          ':nullType': 'NULL',
+        },
+      })
+    )
+  } catch (err) {
+    // ConditionalCheckFailedException = updated within the throttle window; skip silently.
+    if (err instanceof ConditionalCheckFailedException) return
+    console.error('[mcp-handler] failed to update lastUsedAt:', err)
+  }
 }
 
 // Lazy clients: instantiated on first tools/call request so
@@ -258,6 +312,17 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
   if (!meta) {
     return jsonResponse(401, { error: 'invalid_token' })
   }
+
+  // Throttled lastUsedAt update. Awaited so the write is bounded to
+  // the request lifecycle — Lambda's default execution model drains
+  // the event loop before freeze, but relying on that is fragile if
+  // anyone later flips `callbackWaitsForEmptyEventLoop` or adopts a
+  // streaming response style. `touchLastUsedAt` is fail-open
+  // internally (catches and logs) so the await never blocks the
+  // request on a DDB hiccup, and the 60 s ConditionExpression
+  // ensures the wire latency is paid at most once per token per
+  // minute.
+  await touchLastUsedAt(meta.hash)
 
   // Parse JSON-RPC body.
   let req: JsonRpcRequest
