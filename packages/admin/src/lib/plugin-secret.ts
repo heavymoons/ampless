@@ -5,14 +5,16 @@
 // Storage model (v2 — key in Lambda env var):
 //
 //   PluginSecret table (IAM-only access):
-//     siteId = 'default'
-//     sk     = `plugins.${instanceId}.${fieldKey}`
-//     value  = base64(IV[12] || ciphertext || authTag[16]) — AES-256-GCM
+//     sk    = `plugins.${instanceId}.${fieldKey}`
+//     value = base64(IV[12] || ciphertext || authTag[16]) — AES-256-GCM
 //
 //   PluginSecretIndicator table (admin/editor R/W):
-//     siteId    = 'default'
 //     sk        = `plugins.${instanceId}.${fieldKey}`
 //     lastSetAt = ISO 8601 datetime
+//
+// Single-id identifier (no `siteId` partition column) — same convention
+// as KvStore / Post / Page / Media after the `remove-siteid-from-schema`
+// migration.
 //
 // Admin browser NEVER touches PluginSecret directly. All writes go
 // through the `setPluginSecret` / `clearPluginSecret` AppSync mutations,
@@ -26,8 +28,7 @@
 // can access) to determine existence without touching ciphertext.
 //
 // Storage key convention (mirrors processor-trusted.ts ctx.secret):
-//   siteId = 'default'
-//   sk     = `plugins.${instanceId ?? name}.${fieldKey}`
+//   sk = `plugins.${instanceId ?? name}.${fieldKey}`
 
 import { generateClient } from 'aws-amplify/api'
 import { isValidPluginKey, validatePluginSettingValue, type PluginSecretField } from 'ampless'
@@ -46,7 +47,6 @@ export function pluginSecretKey(instanceId: string, fieldKey: string): string {
 // ---------------------------------------------------------------------------
 
 interface PluginSecretIndicatorRow {
-  siteId: string
   sk: string
   lastSetAt: string
 }
@@ -62,7 +62,7 @@ interface MutationResult {
 }
 
 interface PluginSecretIndicatorModel {
-  get(args: { siteId: string; sk: string }): Promise<ModelResult<PluginSecretIndicatorRow>>
+  get(args: { sk: string }): Promise<ModelResult<PluginSecretIndicatorRow>>
 }
 
 interface MutationsShape {
@@ -236,7 +236,7 @@ export async function hasPluginSecret(instanceId: string, fieldKey: string): Pro
     const client = requireClient()
     const model = requireIndicatorModel(client)
     const sk = pluginSecretKey(instanceId, fieldKey)
-    const result = await model.get({ siteId: 'default', sk })
+    const result = await model.get({ sk })
     return result.data !== null
   } catch {
     // Any error (network, AppSync auth, model unavailable) → treat as

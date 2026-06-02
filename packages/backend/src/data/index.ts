@@ -325,8 +325,11 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     //     access scoped to the table the Lambda needs.
     //
     // Storage key convention:
-    //   siteId = 'default'   (single-site architecture)
     //   sk = `plugins.${instanceId ?? name}.${fieldKey}`
+    //
+    // Single-site architecture: no `siteId` partition column. The same
+    // single-table convention as KvStore / Post / Page / Media after
+    // the `remove-siteid-from-schema` migration.
     //
     // DynamoDB auto-encrypts at rest (AWS-managed KMS key). Secrets
     // never flow to the S3 site-settings mirror because the trusted
@@ -334,9 +337,8 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // PluginSecret is a structurally separate table.
     PluginSecret: a
       .model({
-        // Single-site architecture: siteId is always 'default'.
-        siteId: a.string().required(),
-        // Composite sort key: `plugins.<instanceId>.<fieldKey>`
+        // Sort key (also the partition key — single-id identifier):
+        // `plugins.<instanceId>.<fieldKey>`
         sk: a.string().required(),
         // The secret value stored as AES-256-GCM ciphertext (base64).
         // Format: base64( IV[12] || ciphertext || authTag[16] ).
@@ -352,7 +354,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         // trusted plugin co-located in the same Lambda.
         value: a.string().required(),
       })
-      .identifier(['siteId', 'sk'])
+      .identifier(['sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         // Deny-all-via-AppSync sentinel. See the comment above this
@@ -377,7 +379,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // gracefully as a false "stored" indicator in the UI).
     PluginSecretIndicator: a
       .model({
-        siteId: a.string().required(),
         // Same sort-key format as PluginSecret:
         //   `plugins.${instanceId ?? name}.${fieldKey}`
         sk: a.string().required(),
@@ -385,7 +386,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         // every write. Admin UI may show this as "last updated" hint.
         lastSetAt: a.datetime().required(),
       })
-      .identifier(['siteId', 'sk'])
+      .identifier(['sk'])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .authorization((allow: any) => [
         // Admin/editor have AppSync read for `hasPluginSecret` and

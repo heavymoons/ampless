@@ -20,9 +20,10 @@ import type { PluginSecretField } from 'ampless'
 // ---------------------------------------------------------------------------
 
 // In-memory store for PluginSecretIndicator (what admin can read).
-// Map key: `${siteId}:${sk}`
+// Map key: `sk` (single-id identifier; no `siteId` partition since the
+// `remove-siteid-from-schema` migration).
 const indicatorStore = vi.hoisted(
-  () => new Map<string, { siteId: string; sk: string; lastSetAt: string }>()
+  () => new Map<string, { sk: string; lastSetAt: string }>()
 )
 
 // Track mutation calls.
@@ -36,8 +37,8 @@ vi.mock('aws-amplify/api', () => {
       models: {
         // PluginSecretIndicator — admin can read (existence check).
         PluginSecretIndicator: {
-          async get({ siteId, sk }: { siteId: string; sk: string }) {
-            const row = indicatorStore.get(`${siteId}:${sk}`)
+          async get({ sk }: { sk: string }) {
+            const row = indicatorStore.get(sk)
             return { data: row ?? null, errors: null }
           },
         },
@@ -185,8 +186,7 @@ describe('hasPluginSecret', () => {
   })
 
   it('returns true when indicator row exists', async () => {
-    indicatorStore.set('default:plugins.myplugin.apiKey', {
-      siteId: 'default',
+    indicatorStore.set('plugins.myplugin.apiKey', {
       sk: 'plugins.myplugin.apiKey',
       lastSetAt: '2026-06-01T00:00:00.000Z',
     })

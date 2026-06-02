@@ -292,7 +292,7 @@ export function createProcessorTrustedHandler(
           const result = await rawDdb.send(
             new GetItemCommand({
               TableName: PLUGIN_SECRET_TABLE,
-              Key: marshall({ siteId: 'default', sk }),
+              Key: marshall({ sk }),
             })
           )
           if (!result.Item) {
