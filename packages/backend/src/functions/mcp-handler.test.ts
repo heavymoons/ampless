@@ -20,14 +20,27 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
         this.input = input
       }
     },
+    // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+    UpdateCommand: class {
+      input: unknown
+      constructor(input: unknown) {
+        this.input = input
+      }
+    },
   }
 })
+
+// ConditionalCheckFailedException used in touchLastUsedAt to detect throttled updates.
+class MockConditionalCheckFailedException extends Error {
+  name = 'ConditionalCheckFailedException'
+}
 vi.mock('@aws-sdk/client-dynamodb', () => {
   return {
     // eslint-disable-next-line @typescript-eslint/no-extraneous-class
     DynamoDBClient: class {
       constructor() {}
     },
+    ConditionalCheckFailedException: MockConditionalCheckFailedException,
   }
 })
 
@@ -102,9 +115,23 @@ function makeValidTokenRow(overrides: Record<string, unknown> = {}) {
 
 const VALID_TOKEN = 'Bearer amk_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
-function mockValidTokenLookup(overrides: Record<string, unknown> = {}) {
+/**
+ * Sets up mockSend for a successful token validation flow:
+ *   call 1 (GetItem) → returns the token row
+ *   call 2 (UpdateItem for lastUsedAt) → resolves successfully (default)
+ *     or rejects with the provided error.
+ */
+function mockValidTokenLookup(
+  overrides: Record<string, unknown> = {},
+  updateResult: unknown = {}
+) {
   const row = makeValidTokenRow(overrides)
   mockSend.mockResolvedValueOnce({ Item: row })
+  if (updateResult instanceof Error) {
+    mockSend.mockRejectedValueOnce(updateResult)
+  } else {
+    mockSend.mockResolvedValueOnce(updateResult)
+  }
   return row
 }
 
@@ -148,17 +175,79 @@ describe('mcp-handler', () => {
   })
 
   it('Bearer matches a revoked token → 401 invalid_token', async () => {
-    mockValidTokenLookup({ revokedAt: new Date().toISOString() })
+    // Revoked token: only GetItem is called — touchLastUsedAt is never reached.
+    mockSend.mockResolvedValueOnce({ Item: makeValidTokenRow({ revokedAt: new Date().toISOString() }) })
     const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
   })
 
   it('Bearer matches an expired token → 401 invalid_token', async () => {
-    mockValidTokenLookup({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+    // Expired token: only GetItem is called — touchLastUsedAt is never reached.
+    mockSend.mockResolvedValueOnce({ Item: makeValidTokenRow({ expiresAt: new Date(Date.now() - 1000).toISOString() }) })
     const res = await handler(makeEvent({ authorization: VALID_TOKEN }))
     expect(res.statusCode).toBe(401)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_token' })
+  })
+
+  // --- lastUsedAt update ---
+
+  it('valid token: UpdateItem is called after successful validation', async () => {
+    mockValidTokenLookup()
+    await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
+    // First call = GetItem, second call = UpdateItem for lastUsedAt.
+    expect(mockSend).toHaveBeenCalledTimes(2)
+    const updateCall = mockSend.mock.calls[1]![0] as { input: Record<string, unknown> }
+    expect(updateCall.input).toMatchObject({
+      TableName: 'McpToken-test',
+      UpdateExpression: 'SET lastUsedAt = :now',
+      ConditionExpression: 'attribute_not_exists(lastUsedAt) OR lastUsedAt < :threshold',
+    })
+    expect((updateCall.input.ExpressionAttributeValues as Record<string, string>)[':now']).toBeTruthy()
+    expect((updateCall.input.ExpressionAttributeValues as Record<string, string>)[':threshold']).toBeTruthy()
+  })
+
+  it('ConditionalCheckFailedException from UpdateItem is silently swallowed (throttle skip) and request succeeds', async () => {
+    // Simulate a lastUsedAt that is fresh (within the 60s window):
+    // UpdateItem rejects with ConditionalCheckFailedException.
+    mockValidTokenLookup(
+      { lastUsedAt: new Date().toISOString() },
+      new MockConditionalCheckFailedException('Conditional check failed')
+    )
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
+    // Request still succeeds — fail-open.
+    expect(res.statusCode).toBe(200)
+    // Both GetItem and UpdateItem were called.
+    expect(mockSend).toHaveBeenCalledTimes(2)
+  })
+
+  it('non-ConditionalCheckFailed UpdateItem error is logged but does not block the request (fail-open)', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockValidTokenLookup({}, new Error('DDB throughput exceeded'))
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
+    // Request succeeds despite the UpdateItem error.
+    expect(res.statusCode).toBe(200)
+    // console.error was called with the expected prefix.
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\[mcp-handler\] failed to update lastUsedAt/),
+      expect.anything()
+    )
+    consoleErrorSpy.mockRestore()
   })
 
   // --- JSON-RPC dispatch ---

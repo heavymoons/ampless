@@ -440,14 +440,15 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // grant on a model.
   const mcpHandlerFn = backend.mcpHandler.resources.lambda
 
-  // McpToken: read the single row that backs each Bearer token. The
-  // table is admin-only at the AppSync layer; the Lambda bypasses
-  // AppSync and reads the row directly, which is why it gets a narrow
-  // DDB GetItem grant instead of a `resource(...).to(['query'])` rule.
+  // McpToken: read and update the token row (GetItem for validation,
+  // UpdateItem for lastUsedAt). The table is admin-only at the AppSync
+  // layer; the Lambda bypasses AppSync and operates on the row directly,
+  // which is why it gets a narrow DDB grant instead of a
+  // `resource(...).to(['query'])` rule.
   mcpHandlerFn.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
-      actions: ['dynamodb:GetItem'],
+      actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
       resources: [mcpTokenTable.tableArn],
     })
   )
