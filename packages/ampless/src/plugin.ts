@@ -166,7 +166,22 @@ export type PublicHeadDescriptor =
   | {
       type: 'noscript'
       id?: string
-      /** Raw HTML emitted inside `<noscript>`. */
+      /**
+       * Raw HTML emitted inside `<noscript>` via React's
+       * `dangerouslySetInnerHTML`. This is an intentional escape hatch:
+       * descriptors otherwise constrain shape (typed props on `meta` /
+       * `link` / `script`), but `<noscript>` content is often vendor-
+       * supplied (analytics fallbacks, etc.) and cannot be modelled
+       * as typed props without an unbounded discriminated union.
+       *
+       * **Safety implications:**
+       * - Plugin author is responsible for the HTML being well-formed
+       *   and not containing `</noscript>` sequences mid-content
+       *   (such a sequence breaks out of the `<noscript>` element).
+       * - Untrusted plugin output should not flow here — this is
+       *   intended for trusted plugin authors who own the rendered
+       *   page anyway (the same trust tier as `inlineScript`).
+       */
       html: string
     }
 
