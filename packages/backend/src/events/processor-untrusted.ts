@@ -69,6 +69,10 @@ export function createProcessorUntrustedHandler(
         const hook = plugin.hooks?.[parsed.type]
         if (!hook) continue
         try {
+          // Phase 1 reservation: hook return value (PluginHookResult)
+          // is accepted by the type but ignored by the runtime. Future
+          // directive semantics (e.g. metrics emission) will land with
+          // their matching capability PRs.
           await hook(parsed as never, makeContext())
         } catch (err) {
           console.error(`[untrusted-processor] ${plugin.name}.${parsed.type} failed`, err)

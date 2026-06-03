@@ -617,7 +617,28 @@ npm 公開のスタンドアロンプラグインの場合は、`package.json#am
 
 ## 7. 非同期イベントフック
 
-`hooks` は SQS から到着したイベントを trust_level に対応する processor Lambda が受けて実行します。runtime context (`ctx`) の中身:
+`hooks` は SQS から到着したイベントを trust_level に対応する processor Lambda が受けて実行します。
+
+### 戻り値の予約
+
+`PluginEventHandler` の戻り値型は `Promise<void | PluginHookResult>`。
+runtime は現状この戻り値を完全に無視する — 既存 plugin が
+`Promise<void>` を返す形は migration 不要で動き続ける。
+`PluginHookResult` は将来の directive (最初の用例として有力:
+`metrics?: Record<string, number>` による observability emission) のた
+めの予約で、今宣言するのは forward-compatibility のヒントとして
+の扱い。注意: rewrite / cancel 系 directive は本 widening だけで
+は有効化されない — `before:*` event の plugin 配線と payload 拡張
+が別 PR で必要。
+
+`PluginHookResult` には private な `__amplessPluginHookResult`
+marker が付いており、union が `Promise<string>` / `Promise<number>`
+等の無関係な promise を silently 受け入れないようになっている —
+plugin 作者がこの marker を明示的に設定する必要は無い。
+
+### Runtime context
+
+runtime context (`ctx`) の中身:
 
 ```ts
 interface PluginRuntimeContext {

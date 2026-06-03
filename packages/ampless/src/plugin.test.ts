@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { definePlugin, type PluginSecretField } from './plugin.js'
+import {
+  definePlugin,
+  type PluginEventHandler,
+  type PluginHookResult,
+  type PluginSecretField,
+} from './plugin.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -51,6 +56,44 @@ afterEach(() => {
   }
   void _validTextarea
 })
+
+// ---------------------------------------------------------------------------
+// PluginEventHandler / PluginHookResult type-level tests
+// ---------------------------------------------------------------------------
+//
+// Verified by `tsc --noEmit` (= `pnpm -F ampless lint`), NOT by vitest —
+// vitest only transpiles and does not surface `@ts-expect-error` failures.
+// If a regression breaks the private-marker reservation, `pnpm lint`
+// catches it; `pnpm test` would silently pass.
+
+// Compile-time only block — never executed.
+;(() => {
+  // 1. Existing `Promise<void>` hooks remain assignable (regression).
+  const _voidHook: PluginEventHandler<'content.published'> = async () => {}
+  void _voidHook
+
+  // 2. Explicit `Promise<PluginHookResult>` hooks are accepted (the
+  //    reservation surface). Plugin authors do not need to set the
+  //    private marker — an empty cast to PluginHookResult suffices.
+  const _structuredHook: PluginEventHandler<'content.published'> = async () =>
+    ({}) as PluginHookResult
+  void _structuredHook
+
+  // 3. Unrelated promise types are REJECTED at compile time by the
+  //    `__amplessPluginHookResult` private marker. If this stops being
+  //    a TS error, the marker is broken and `pnpm lint` will report
+  //    `@ts-expect-error` having no effect.
+  const _wrongHook: PluginEventHandler<'content.published'> = async () =>
+    // @ts-expect-error — string is not assignable to void | PluginHookResult
+    'oops'
+  void _wrongHook
+
+  // 4. Numbers are also rejected (same marker, second variant).
+  const _wrongNumberHook: PluginEventHandler<'content.published'> = async () =>
+    // @ts-expect-error — number is not assignable to void | PluginHookResult
+    42
+  void _wrongNumberHook
+})()
 
 // ---------------------------------------------------------------------------
 // definePlugin — manifest validation

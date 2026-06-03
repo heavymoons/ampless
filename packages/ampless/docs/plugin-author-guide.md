@@ -794,7 +794,28 @@ manifest and the factory return value:
 ## 7. Async event hooks
 
 `hooks` runs inside the trust_level-matched processor Lambda when an
-event arrives via SQS. The runtime context (`ctx`) carries:
+event arrives via SQS.
+
+### Return value reservation
+
+`PluginEventHandler` returns `Promise<void | PluginHookResult>`. The
+runtime currently ignores the return value entirely — existing
+plugins returning `Promise<void>` keep working without migration.
+`PluginHookResult` is reserved for a future directive (likely first:
+`metrics?: Record<string, number>` for observability emission);
+declaring it today is a forward-compatibility hint. Note: rewrite
+or cancel directives are NOT enabled by this widening alone — they
+require additional `before:*` event support and payload extensions
+in separate PRs.
+
+`PluginHookResult` carries a private `__amplessPluginHookResult`
+marker so that the union does not silently accept unrelated promise
+types (`Promise<string>` / `Promise<number>` etc.) — plugin authors
+do not need to set this field.
+
+### Runtime context
+
+The runtime context (`ctx`) carries:
 
 ```ts
 interface PluginRuntimeContext {
