@@ -174,7 +174,7 @@ This lands once the trusted/untrusted split has settled and a real privileged pl
 `publicHead` and `publicBodyEnd` return **descriptor arrays**, never `ReactNode`. The descriptor whitelist is:
 
 - `script` (external `src`, allowed `strategy`: `afterInteractive` / `lazyOnload`)
-- `inlineScript` (id-required, body string; CSP nonce integration is deferred to a future RFP)
+- `inlineScript` (id-required, body string; CSP nonce: API surface reserved (Phase 1 no-op). The 3-layer opt-in design is in place — `ctx.cspNonce` on `PluginPublicRenderContext` (always `undefined` today), `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` on descriptors (accepted by the type, not propagated yet), and the name-only `'cspReady'` capability (declarative badge). Runtime stamping lands with the middleware/SSR CSP nonce threading PR.)
 - `meta`, `link`, `noscript`
 - `iframe` (body only)
 

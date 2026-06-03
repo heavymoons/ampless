@@ -540,8 +540,12 @@ a console warning** and never rendered.
   index numbers no one can map back to a plugin.
 - **Duplicate `id`**: the last occurrence wins. A dev warning prints
   which key was duplicated.
-- **CSP nonce**: not propagated in Phase 1. The `nonce` attr is
-  declared in the type for forward-compat but discarded today.
+- **CSP nonce**: `inlineScript.nonce` and `script.nonce` are accepted
+  by the type (`'auto'` is the sentinel for future runtime stamping;
+  any string is an explicit literal). Phase 1 reservation: the runtime
+  accepts the field but does not propagate it to the rendered element.
+  See [CSP nonce (Phase 1 reservation)](#csp-nonce-phase-1-reservation)
+  below.
 - **Strategy**: `afterInteractive` adds `async` to external scripts.
   `lazyOnload` adds `defer`. Explicit `async` / `defer` always
   wins. `beforeInteractive` is not supported.
@@ -714,6 +718,76 @@ For visible per-post output, use `publicHtmlForPost` (Phase 6d — see
 the example above and §6's `PublicPostHtmlDescriptor`). The runtime
 emits server-side HTML at fixed slots around the post body, so
 nothing races against hydration.
+
+
+### CSP nonce (Phase 1 reservation)
+
+Content Security Policy (CSP) is a near-mandatory requirement for production
+sites. To avoid breaking every plugin at once when nonce propagation lands,
+ampless reserves the API surface today (Phase 1 no-op) so plugins can opt in
+ahead of time.
+
+The 3-layer design:
+
+1. **`ctx.cspNonce?: string`** on `PluginPublicRenderContext` — type-reserved
+   on the interface; always `undefined` today. The runtime does not populate
+   this field yet; reads resolve to `undefined`. Middleware/SSR nonce threading
+   lands with the future CSP RFP.
+
+2. **`descriptor.nonce: 'auto' | string`** — accepted by the type on both
+   `inlineScript` and `script` descriptor variants. `'auto'` is the sentinel
+   for future runtime stamping; any other string is an explicit literal;
+   `undefined` emits no `nonce` attribute (default, backward-compatible).
+   Phase 1: the runtime accepts but does not propagate it. Declaring
+   `nonce: 'auto'` today is a forward-compatibility hint and does not change
+   the rendered HTML.
+
+3. **`'cspReady'` capability** — a name-only declarative badge. Declaring it
+   signals intent; future admin UI / sanity checks may surface it. No runtime
+   cross-check or enforcement exists in Phase 1.
+
+**How to be ready:**
+
+```ts
+// src/index.ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['publicHead', 'cspReady'],
+  publicHead: () => [{
+    type: 'inlineScript',
+    id: 'my-snippet',
+    body: '...',
+    nonce: 'auto',    // forward-compat hint; no effect in Phase 1
+  }],
+})
+```
+
+For standalone npm-published plugins, also update `package.json#amplessPlugin.capabilities`
+to match — the runtime cross-check warns on disagreement between the static
+manifest and the factory return value:
+
+```json
+{
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "my-plugin",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "cspReady"]
+  }
+}
+```
+
+**What "cspReady" means:**
+
+- Site-level CSP compliance depends on middleware / response headers / other
+  inline content the runtime does not control.
+- Once the middleware-driven nonce threading PR lands, plugin-supplied scripts
+  that carry `nonce: 'auto'` will become candidates for runtime nonce stamping.
+- `'cspReady'` does **not** appear in `create-ampless plugin --capabilities`
+  output — it is a reserved capability and the scaffold excludes it to avoid
+  implying active enforcement.
 
 ---
 

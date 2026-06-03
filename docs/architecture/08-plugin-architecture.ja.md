@@ -172,7 +172,7 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 `publicHead` / `publicBodyEnd` は **descriptor 配列** を返す。`ReactNode` は返さない。descriptor のホワイトリスト:
 
 - `script`（外部 `src`、`strategy` は `afterInteractive` / `lazyOnload` のみ許可）
-- `inlineScript`（id 必須、body 文字列。CSP nonce 連携は別 RFP で）
+- `inlineScript`（id 必須、body 文字列。CSP nonce: API サーフェス予約済み（Phase 1 no-op）。3 層 opt-in 設計が整備済み — `PluginPublicRenderContext` の `ctx.cspNonce`（今のところ常に `undefined`）、descriptor の `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'`（型として受け入れ、まだ伝搬なし）、name-only `'cspReady'` capability（declarative バッジ）。runtime スタンプは middleware/SSR CSP nonce threading PR とともに landing する）
 - `meta`、`link`、`noscript`
 - `iframe`（body 側のみ）
 
