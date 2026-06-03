@@ -115,7 +115,9 @@ Phase 6a additions:
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
-`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem`.
+`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`.
+
+`cspReady` is the declarative-badge half of the CSP nonce reservation that shipped alongside `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` (Phase 1: types only, runtime no-op). Plugins can declare it today; the runtime does not cross-check or warn yet, and the planned admin-UI badge + render-time sanity check land with the middleware/SSR CSP nonce threading PR.
 
 Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
 
