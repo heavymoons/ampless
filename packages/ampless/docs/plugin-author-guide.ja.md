@@ -441,7 +441,7 @@ runtime は `body` を `sanitize-html` の厳格 allowlist で sanitize し（�
 - **`attrs` allowlist**: `data-*`、`crossorigin`、`referrerpolicy`、`integrity`、`fetchpriority`、`loading`、`sandbox`、`allow`、`allowfullscreen`。それ以外は dev warn 付きで drop
 - **`inlineScript.id` は必須**。無いとプラグイン同士が似たスニペットを emit したときに dedup できず、dev warning も index 番号を指すだけで原因プラグインを特定できません
 - **id 重複**: 最後の出現が勝ち。dev warning でどの key が重複したか表示されます
-- **CSP nonce**: Phase 1 では伝搬しません。`nonce` attr は型上は宣言してありますが今のところ無視されます
+- **CSP nonce**: `inlineScript.nonce` と `script.nonce` は型として受け入れられます（`'auto'` は将来の runtime スタンプ用 sentinel。文字列リテラルも可）。Phase 1 予約: runtime はフィールドを受け入れますが描画要素には伝搬しません。詳細は下記の [CSP nonce（Phase 1 予約）](#csp-nonce-phase-1-) を参照。
 - **strategy**: `afterInteractive` は外部 script に `async` を付ける。`lazyOnload` は `defer`。明示的な `async` / `defer` が常に勝ち。`beforeInteractive` は非対応
 
 ### runtime が描画する形
@@ -562,6 +562,56 @@ React 19 はさらに、クライアントコンポーネントのレンダー�
 - クライアントサイドで `#post-body` のような要素を読み取って投稿単位の HTML を挿入する — 現在 `publicHead`-for-post に相当するサーフェスはなく、サーバーレンダリング済みのサブツリーをクライアントサイドで書き換えると hydration と競合します
 
 投稿単位の見える出力には `publicHtmlForPost` を使ってください（Phase 6d — 上の例と §6 の `PublicPostHtmlDescriptor` 参照）。runtime が post 本文の周囲の固定スロットにサーバーサイド HTML を出すので、hydration と競合しません。
+
+
+### CSP nonce（Phase 1 予約）
+
+CSP（Content Security Policy）は本番公開サイトのほぼ必須要件です。nonce 伝搬を後から追加した場合に既存プラグインが一斉に動かなくなるのを防ぐため、ampless は今のうちに API サーフェスだけ予約しておきます（Phase 1 は完全 no-op）。
+
+3 層設計:
+
+1. **`ctx.cspNonce?: string`** — `PluginPublicRenderContext` の型に予約済み。今のところ常に `undefined`。runtime はこのフィールドをまだ populate しません。middleware/SSR nonce threading は将来の CSP RFP とともに landing します。
+
+2. **`descriptor.nonce: 'auto' | string`** — `inlineScript` と `script` の両 descriptor variant の型で受け入れられます。`'auto'` は将来の runtime スタンプ用 sentinel。その他の文字列は明示的リテラル。`undefined` は `nonce` 属性を emit しない（デフォルト、非 CSP サイトと後方互換）。Phase 1: runtime は受け入れますが伝搬しません。`nonce: 'auto'` を今日宣言することは前方互換性のヒントであり、描画 HTML を変更しません。
+
+3. **`'cspReady'` capability** — name-only の declarative バッジ。将来の admin UI / サニティチェックの対象になります。Phase 1 では runtime の cross-check や enforcement は一切なし。
+
+**対応方法:**
+
+```ts
+// src/index.ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['publicHead', 'cspReady'],
+  publicHead: () => [{
+    type: 'inlineScript',
+    id: 'my-snippet',
+    body: '...',
+    nonce: 'auto',    // 前方互換性ヒント。Phase 1 では効果なし
+  }],
+})
+```
+
+npm 公開のスタンドアロンプラグインの場合は、`package.json#amplessPlugin.capabilities` も合わせて更新してください — static manifest と factory return value が一致しない場合、runtime cross-check が警告を出します:
+
+```json
+{
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "my-plugin",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "cspReady"]
+  }
+}
+```
+
+**`'cspReady'` の意味:**
+
+- サイト全体の CSP 適合は middleware / レスポンスヘッダー / runtime が制御しない他の inline コンテンツにも依存します。
+- middleware-driven nonce threading PR が landing した後は、`nonce: 'auto'` を持つ plugin-supplied script が runtime nonce スタンプの候補になります。
+- `'cspReady'` は `create-ampless plugin --capabilities` には表示されません — reserved capability であり、scaffold はアクティブな enforcement を示唆しないよう除外しています。
 
 ---
 

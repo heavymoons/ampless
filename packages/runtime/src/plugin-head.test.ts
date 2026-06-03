@@ -1912,3 +1912,110 @@ describe('noscript descriptor — raw HTML passthrough (current spec)', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// CSP nonce (Phase 1 reservation)
+// ---------------------------------------------------------------------------
+
+describe('CSP nonce reservation (Phase 1 no-op)', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it('inlineScript nonce: "auto" is accepted without warning and no nonce attr emitted', async () => {
+    // Phase 1 reservation: the runtime accepts nonce: 'auto' on inlineScript
+    // but does not propagate it to the rendered element.
+    const plugin = definePlugin({
+      name: 'csp-inline',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'inlineScript',
+          id: 'csp-snippet',
+          body: "console.log('csp')",
+          nonce: 'auto',
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.type).toBe('script')
+    // nonce must NOT be present in the rendered element (Phase 1 no-op)
+    expect(els[0]!.props).not.toHaveProperty('nonce')
+    // No warnings should have been emitted
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('script (external src) nonce: "auto" is accepted without warning and no nonce attr emitted', async () => {
+    // Phase 1 reservation: the runtime accepts nonce: 'auto' on the external
+    // script variant but does not propagate it to the rendered element.
+    const plugin = definePlugin({
+      name: 'csp-external',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead'],
+      publicHead: () => [
+        {
+          type: 'script',
+          id: 'csp-loader',
+          src: 'https://cdn.example.com/csp-test.js',
+          nonce: 'auto',
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els).toHaveLength(1)
+    expect(els[0]!.type).toBe('script')
+    // nonce must NOT be present in the rendered element (Phase 1 no-op)
+    expect(els[0]!.props).not.toHaveProperty('nonce')
+    // No warnings should have been emitted
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('"cspReady" capability declaration does not trigger a capability mismatch warning', () => {
+    // 'cspReady' is a name-only reserved capability. Declaring it without any
+    // paired implementation surface must not produce a mismatch warning.
+    const plugin = definePlugin({
+      name: 'csp-ready',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'cspReady'],
+      publicHead: () => [],
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('cspReady'))).toBe(false)
+  })
+
+  it('"cspReady" capability + no nonce descriptor does not warn', () => {
+    // Cross-check is not implemented in Phase 1: a plugin can declare
+    // 'cspReady' without any descriptor carrying nonce: 'auto', or vice
+    // versa — no runtime enforcement in either direction.
+    const plugin = definePlugin({
+      name: 'csp-ready-no-nonce',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'cspReady'],
+      publicHead: () => [
+        {
+          type: 'meta',
+          name: 'test',
+          content: 'value',
+        },
+      ] satisfies PublicHeadDescriptor[],
+    })
+    createPluginHead(makeConfig([plugin]), emptySettings)
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(messages.some((m: string) => m.includes('cspReady'))).toBe(false)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})

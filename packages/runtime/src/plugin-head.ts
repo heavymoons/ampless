@@ -358,9 +358,11 @@ function renderInlineScript(
   // require an idle-callback wrapper which we intentionally don't add
   // here. See spec §10.
   //
-  // `nonce` is type-only in Phase 1 (see plugin.ts comment) — we
-  // intentionally do NOT forward it to the rendered element; the
-  // CSP-nonce RFP will land middleware/SSR propagation later.
+  // `nonce` (including the `'auto'` sentinel) is a Phase 1 reservation:
+  // the type accepts it but the runtime intentionally does not propagate
+  // it to the rendered element. The middleware/SSR CSP nonce threading
+  // PR will land both the per-request `ctx.cspNonce` source and the
+  // stamping logic together.
   const body =
     descriptor.scriptType === 'application/ld+json'
       ? escapeJsonLdInlineBody(descriptor.body)
@@ -410,6 +412,11 @@ function renderHeadDescriptor(
         }
       }
       applyAttrs(props, descriptor.attrs, `${pluginLabel} script#${descriptor.id ?? index}`)
+      // `descriptor.nonce` (including the `'auto'` sentinel) is a Phase 1
+      // reservation: the type accepts it but the runtime intentionally does
+      // not propagate it to the rendered element. The middleware/SSR CSP
+      // nonce threading PR will land both the per-request `ctx.cspNonce`
+      // source and the stamping logic together.
       return {
         id: descriptor.id ?? null,
         element: createElement('script', props),

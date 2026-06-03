@@ -113,7 +113,9 @@ Phase 6a で追加:
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
-`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem`。
+`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`。
+
+`cspReady` は CSP nonce 予約 (`inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` と同時 ship、Phase 1: 型のみ、runtime no-op) の declarative-badge 部分。今宣言しても runtime cross-check や warning は出ない。admin UI バッジ + render-time sanity check は middleware/SSR CSP nonce threading PR で landing する。
 
 「危険」カテゴリ (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) は、プラグインパッケージ側で宣言されていても `cms.config.ts` 側で明示許可しないと有効化されない:
 
@@ -172,7 +174,7 @@ trusted / untrusted の運用が固まり、実需が出た時点で着手する
 `publicHead` / `publicBodyEnd` は **descriptor 配列** を返す。`ReactNode` は返さない。descriptor のホワイトリスト:
 
 - `script`（外部 `src`、`strategy` は `afterInteractive` / `lazyOnload` のみ許可）
-- `inlineScript`（id 必須、body 文字列。CSP nonce 連携は別 RFP で）
+- `inlineScript`（id 必須、body 文字列。CSP nonce: API サーフェス予約済み（Phase 1 no-op）。3 層 opt-in 設計が整備済み — `PluginPublicRenderContext` の `ctx.cspNonce`（今のところ常に `undefined`）、descriptor の `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'`（型として受け入れ、まだ伝搬なし）、name-only `'cspReady'` capability（declarative バッジ）。runtime スタンプは middleware/SSR CSP nonce threading PR とともに landing する）
 - `meta`、`link`、`noscript`
 - `iframe`（body 側のみ）
 

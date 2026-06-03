@@ -50,6 +50,7 @@ export type PluginCapability =
   | 'scheduler'
   | 'storageWrite'
   | 'privilegedSystem'
+  | 'cspReady'
 
 /**
  * Loading strategy for `script` / `inlineScript` descriptors.
@@ -93,6 +94,16 @@ export interface PluginPublicRenderContext {
    * field's declared shape, so the cast is safe in practice.
    */
   setting<T = unknown>(key: string): T | undefined
+  /**
+   * Request-scoped CSP nonce reservation. Always `undefined` in Phase 1
+   * — the runtime does not populate this field yet. Middleware/SSR
+   * threading lands with the future CSP RFP. Plugin authors who want to
+   * be ready for the future stamping can declare
+   * `inlineScript.nonce: 'auto'` today; once the middleware-driven
+   * threading PR lands, those descriptors will become candidates for
+   * runtime nonce stamping.
+   */
+  cspNonce?: string
 }
 
 /**
@@ -115,6 +126,15 @@ export type PublicHeadDescriptor =
       defer?: boolean
       /** Allow-listed attributes only (data-*, crossorigin, referrerpolicy, ...). */
       attrs?: Record<string, string | boolean>
+      /**
+       * Optional CSP nonce. Same semantics as inlineScript.nonce
+       * (`'auto'` is the sentinel for future runtime stamping; any
+       * other string is an explicit literal; undefined emits no
+       * `nonce` attribute). Phase 1 reservation: runtime accepts
+       * but does not propagate. See `inlineScript.nonce` JSDoc for
+       * the full description.
+       */
+      nonce?: 'auto' | string
     }
   | {
       type: 'inlineScript'
@@ -143,9 +163,25 @@ export type PublicHeadDescriptor =
        */
       scriptType?: 'application/ld+json'
       /**
-       * Type-only reservation. CSP nonce resolution (including the
-       * planned `'auto'` mode) is deferred to a future RFP; Phase 1
-       * does not propagate this field to the rendered element.
+       * Optional CSP nonce.
+       *
+       *   - `'auto'`: sentinel reserved for future runtime stamping.
+       *     When the middleware/SSR CSP nonce threading PR lands, the
+       *     runtime will read `ctx.cspNonce` from the request scope
+       *     and stamp the rendered `<script>` tag automatically.
+       *   - any other `string`: explicit nonce literal (advanced;
+       *     rarely needed).
+       *   - `undefined`: no `nonce` attribute emitted (default,
+       *     backward-compatible with non-CSP sites).
+       *
+       * Phase 1 reservation: the runtime accepts the field but does
+       * not propagate it to the rendered element. Declaring
+       * `nonce: 'auto'` today is a forward-compatibility hint and
+       * does not change the rendered HTML.
+       *
+       * Note: TypeScript does not type-widen here — `string` already
+       * accepts `'auto'` as a literal. The semantic reservation is
+       * documented above.
        */
       nonce?: string
     }
