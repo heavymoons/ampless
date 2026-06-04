@@ -26,3 +26,4 @@ docs/tmp/
 # Codex CLI local artifacts (user's tool, not part of the project)
 .codex/
 /AGENTS.md
+.claude/worktrees/
