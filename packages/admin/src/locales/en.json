@@ -94,6 +94,9 @@
         "noBundle": "Pick a bundle before saving.",
         "previewHint": "Static bundles render as the served HTML at /<slug>/. Preview by saving and visiting the public URL."
       },
+      "publishedAt": "Publish date",
+      "publishedAtHint": "When the post goes live. Leave empty to use the current time when publishing. A future time schedules the post.",
+      "scheduledNotice": "Scheduled — will be hidden until {date}.",
       "saveChanges": "Save changes",
       "createPost": "Create post",
       "delete": "Delete",

@@ -1,6 +1,25 @@
 import { createCipheriv, randomBytes } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AmplessPlugin, Config, TrustedPluginRuntimeContext } from 'ampless'
+
+// Mock `ampless` so this test file runs without the package being built.
+// Only the runtime exports used by processor-trusted.ts need stubs.
+vi.mock('ampless', async (importOriginal) => {
+  // Types are erased at runtime — we only need the value exports.
+  const original = await importOriginal<Record<string, unknown>>().catch(() => ({}))
+  return {
+    ...original,
+    formatPublicAssetUrl: (_bucket: string, _region: string, key: string) =>
+      `https://test.s3.amazonaws.com/${key}`,
+    isValidPluginKey: (key: string) => /^[a-zA-Z0-9_-]+$/.test(key),
+    validatePublicAssetKey: (key: string) => {
+      if (key.startsWith('/')) return 'key must not start with /'
+      if (key.includes('..')) return 'key must not contain ..'
+      return null
+    },
+  }
+})
+
 import { createProcessorTrustedHandler, decryptSecret } from './processor-trusted.js'
 
 const s3Commands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown> }>)
@@ -801,5 +820,63 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 
     await handler(event(), {} as never, vi.fn() as never)
     expect(callCount.n).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// listPublished — scheduled-publish upper-bound guard
+// ---------------------------------------------------------------------------
+
+describe('listPublished — scheduled-publish now-clamp', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    pluginSecretRows.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('QueryCommand includes #publishedAt <= :now in KeyConditionExpression', async () => {
+    // A plugin that calls ctx.listPublishedPosts() forces listPublished() to run.
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [
+        {
+          name: 'feed-writer',
+          apiVersion: 1,
+          trust_level: 'trusted',
+          capabilities: ['eventHooks'],
+          hooks: {
+            'content.published': async (_evt, ctx) => {
+              await ctx.listPublishedPosts()
+            },
+          },
+        },
+      ],
+    })
+
+    await handler(event(), {} as never, vi.fn() as never)
+
+    // Find the QueryCommand that targets the posts table + byStatus index.
+    const queryCmd = ddbCommands.find(
+      (cmd) =>
+        cmd.input.TableName === process.env.AMPLESS_POST_TABLE &&
+        cmd.input.IndexName === 'byStatus'
+    )
+    expect(queryCmd).toBeDefined()
+    expect(queryCmd!.input.KeyConditionExpression).toContain('#publishedAt <= :now')
+    expect(
+      (queryCmd!.input.ExpressionAttributeNames as Record<string, string>)?.['#publishedAt']
+    ).toBe('publishedAt')
+    expect(
+      (queryCmd!.input.ExpressionAttributeValues as Record<string, unknown>)?.[':now']
+    ).toBeDefined()
+    // :now must be a non-empty ISO 8601 string (YYYY-MM-DDT...)
+    const nowValue = (queryCmd!.input.ExpressionAttributeValues as Record<string, string>)[':now']
+    expect(typeof nowValue).toBe('string')
+    expect(nowValue).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 })

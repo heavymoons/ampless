@@ -192,9 +192,11 @@ export function createProcessorTrustedHandler(
     return ENCRYPTION_KEY
   }
 
-  // One Query against the `byStatus` GSI: PK = 'published', SK
-  // (publishedAt) gives newest-first ordering with `ScanIndexForward:
-  // false`. No filter needed — drafts live in a different partition.
+  // One Query (with auto-pagination) against the `byStatus` GSI:
+  // PK = 'published', SK (publishedAt) gives newest-first ordering with
+  // `ScanIndexForward: false`. Scheduled-publish: the SK upper bound is
+  // clamped to `now` so future-dated published posts (scheduled but not
+  // yet live) are excluded from plugin-generated feeds and sitemaps.
   async function listPublished(): Promise<Post[]> {
     const items: Post[] = []
     let exclusiveStartKey: Record<string, unknown> | undefined
@@ -203,9 +205,9 @@ export function createProcessorTrustedHandler(
         new QueryCommand({
           TableName: POST_TABLE,
           IndexName: POST_BY_STATUS_INDEX,
-          KeyConditionExpression: '#status = :status',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':status': 'published' },
+          KeyConditionExpression: '#status = :status AND #publishedAt <= :now',
+          ExpressionAttributeNames: { '#status': 'status', '#publishedAt': 'publishedAt' },
+          ExpressionAttributeValues: { ':status': 'published', ':now': new Date().toISOString() },
           ScanIndexForward: false,
           ExclusiveStartKey: exclusiveStartKey as never,
         })

@@ -30,6 +30,11 @@ import {
   type ExtractedFile,
 } from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
+import {
+  isoToLocalInput,
+  resolvePublishedAtForSave,
+  isFuture,
+} from '../lib/post-published-at.js'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -101,9 +106,25 @@ export function PostForm({ post }: PostFormProps) {
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
+  const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+
+  // The field's value at mount, used to detect whether the user edited
+  // publishedAt. When untouched, `resolvePublishedAtForSave` preserves the
+  // stored value verbatim so an unrelated edit never rewrites publishedAt
+  // (which would shift the public sort key) nor truncates its precision.
+  const initialPublishedAtInput = isoToLocalInput(post?.publishedAt)
+  // Render-scope resolution — for the preview pane and the scheduled
+  // notice only. `save()` re-resolves at submit time so a first-publish
+  // "now" stamp reflects the actual save moment, not this render.
+  const resolvedPublishedAt = resolvePublishedAtForSave({
+    status,
+    currentInput: publishedAtInput,
+    initialInput: initialPublishedAtInput,
+    existing: post?.publishedAt,
+  })
 
   // Pending bundle for static posts. Held in memory until save so the
   // user can cancel without leaving an orphan upload in S3. On save,
@@ -234,6 +255,18 @@ export function PostForm({ post }: PostFormProps) {
       let metadata = buildMetadata()
       const finalSlug = slug || slugify(title)
 
+      // Resolve publishedAt at SUBMIT time, not render time: a first
+      // publish with an empty field stamps `new Date()` inside
+      // `resolvePublishedAtForSave`, so it must run now (the render-scope
+      // `resolvedPublishedAt` below is only for preview and could be a
+      // stale "now" if the user idled before saving).
+      const publishedAt = resolvePublishedAtForSave({
+        status,
+        currentInput: publishedAtInput,
+        initialInput: initialPublishedAtInput,
+        existing: post?.publishedAt,
+      })
+
       // For static posts, push the pending bundle to S3 before saving
       // the post row. The returned manifest becomes the body so the
       // DB always references files that actually exist. If no new
@@ -270,8 +303,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt:
-            status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
+          publishedAt,
           tags,
           metadata,
         })
@@ -283,7 +315,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: status === 'published' ? new Date().toISOString() : undefined,
+          publishedAt,
           tags,
           metadata,
         })
@@ -328,10 +360,7 @@ export function PostForm({ post }: PostFormProps) {
     format,
     body,
     status,
-    publishedAt:
-      status === 'published'
-        ? (post?.publishedAt ?? new Date().toISOString())
-        : undefined,
+    publishedAt: resolvedPublishedAt,
     tags: parseTags(tagsInput),
   }
 
@@ -530,6 +559,23 @@ export function PostForm({ post }: PostFormProps) {
           <option value="draft">{t('common.draft')}</option>
           <option value="published">{t('common.published')}</option>
         </select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="publishedAt">{t('posts.form.publishedAt')}</Label>
+        <input
+          id="publishedAt"
+          type="datetime-local"
+          value={publishedAtInput}
+          onChange={(e) => setPublishedAtInput(e.target.value)}
+          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+        />
+        <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
+        {status === 'published' && isFuture(resolvedPublishedAt) && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            {t('posts.form.scheduledNotice', { date: publishedAtInput })}
+          </p>
+        )}
       </div>
 
       {format === 'html' && (

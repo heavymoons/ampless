@@ -7,6 +7,7 @@ import {
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { getPost } from './get-post.js'
+import { normalizePublishedAt } from './published-at.js'
 
 // PostTag denormalized index is rebuilt by the trusted-processor
 // Lambda directly off the Post DynamoDB stream — see
@@ -79,10 +80,21 @@ export async function upsertStaticPost(
     if (fields.title !== undefined) input.title = fields.title
     if (fields.excerpt !== undefined) input.excerpt = fields.excerpt
     if (fields.status !== undefined) input.status = fields.status
-    if (fields.publishedAt !== undefined) input.publishedAt = fields.publishedAt
+    // Normalize an explicit publishedAt to canonical UTC Z form.
+    if (fields.publishedAt !== undefined) {
+      input.publishedAt = normalizePublishedAt(fields.publishedAt)
+    }
     if (fields.tags !== undefined) input.tags = fields.tags
     if (fields.metadata !== undefined) {
       input.metadata = encodeAwsJson(fields.metadata)
+    }
+
+    // Read-then-fill: when the effective status is `published` and no
+    // publishedAt was provided, fill now only if the existing row lacks one.
+    // Never overwrite an existing publishedAt (e.g. a scheduled future date).
+    const effectiveStatus = fields.status ?? existing.status
+    if (effectiveStatus === 'published' && fields.publishedAt === undefined && !existing.publishedAt) {
+      input.publishedAt = new Date().toISOString()
     }
 
     const data = await graphql.query<{
@@ -102,9 +114,11 @@ export async function upsertStaticPost(
   }
 
   const status = fields.status ?? 'draft'
-  const publishedAt =
-    fields.publishedAt ??
-    (status === 'published' ? new Date().toISOString() : undefined)
+  // Normalize an explicit publishedAt; otherwise default to now for
+  // published posts (leave undefined for drafts).
+  const publishedAt = fields.publishedAt !== undefined
+    ? normalizePublishedAt(fields.publishedAt)
+    : (status === 'published' ? new Date().toISOString() : undefined)
   const postId =
     fields.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
