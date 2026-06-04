@@ -116,6 +116,9 @@ export function PostForm({ post }: PostFormProps) {
   // stored value verbatim so an unrelated edit never rewrites publishedAt
   // (which would shift the public sort key) nor truncates its precision.
   const initialPublishedAtInput = isoToLocalInput(post?.publishedAt)
+  // Render-scope resolution — for the preview pane and the scheduled
+  // notice only. `save()` re-resolves at submit time so a first-publish
+  // "now" stamp reflects the actual save moment, not this render.
   const resolvedPublishedAt = resolvePublishedAtForSave({
     status,
     currentInput: publishedAtInput,
@@ -252,6 +255,18 @@ export function PostForm({ post }: PostFormProps) {
       let metadata = buildMetadata()
       const finalSlug = slug || slugify(title)
 
+      // Resolve publishedAt at SUBMIT time, not render time: a first
+      // publish with an empty field stamps `new Date()` inside
+      // `resolvePublishedAtForSave`, so it must run now (the render-scope
+      // `resolvedPublishedAt` below is only for preview and could be a
+      // stale "now" if the user idled before saving).
+      const publishedAt = resolvePublishedAtForSave({
+        status,
+        currentInput: publishedAtInput,
+        initialInput: initialPublishedAtInput,
+        existing: post?.publishedAt,
+      })
+
       // For static posts, push the pending bundle to S3 before saving
       // the post row. The returned manifest becomes the body so the
       // DB always references files that actually exist. If no new
@@ -288,7 +303,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: resolvedPublishedAt,
+          publishedAt,
           tags,
           metadata,
         })
@@ -300,7 +315,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: resolvedPublishedAt,
+          publishedAt,
           tags,
           metadata,
         })
