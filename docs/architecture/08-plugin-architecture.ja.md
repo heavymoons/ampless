@@ -33,7 +33,10 @@ export interface AmplessPlugin {
   capabilities?: readonly PluginCapability[]
 
   // イベントフック — trust_level に対応する Lambda が SQS から受けて実行
-  hooks?: { [K in EventType]?: (event, ctx) => Promise<void> }
+  // 戻り値は予約: `Promise<void | PluginHookResult>`。runtime は現状これを
+  // 無視する（`Promise<void>` を返す既存プラグインはそのまま動く）。
+  // `PluginHookResult` は forward-compat の予約。
+  hooks?: { [K in EventType]?: (event, ctx) => Promise<void | PluginHookResult> }
 
   // 投稿・サイトレベルのメタデータ — 純関数、リクエスト時に呼ばれる
   metadata?(post: Post, site): PluginMetadata

@@ -441,7 +441,7 @@ runtime は `body` を `sanitize-html` の厳格 allowlist で sanitize し（�
 - **`attrs` allowlist**: `data-*`、`crossorigin`、`referrerpolicy`、`integrity`、`fetchpriority`、`loading`、`sandbox`、`allow`、`allowfullscreen`。それ以外は dev warn 付きで drop
 - **`inlineScript.id` は必須**。無いとプラグイン同士が似たスニペットを emit したときに dedup できず、dev warning も index 番号を指すだけで原因プラグインを特定できません
 - **id 重複**: 最後の出現が勝ち。dev warning でどの key が重複したか表示されます
-- **CSP nonce**: Phase 1 では伝搬しません。`nonce` attr は型上は宣言してありますが今のところ無視されます
+- **CSP nonce**: `inlineScript.nonce` と `script.nonce` は型として受け入れられます（`'auto'` は将来の runtime スタンプ用 sentinel。文字列リテラルも可）。Phase 1 予約: runtime はフィールドを受け入れますが描画要素には伝搬しません。詳細は下記の [CSP nonce（Phase 1 予約）](#csp-nonce-phase-1-) を参照。
 - **strategy**: `afterInteractive` は外部 script に `async` を付ける。`lazyOnload` は `defer`。明示的な `async` / `defer` が常に勝ち。`beforeInteractive` は非対応
 
 ### runtime が描画する形
@@ -608,9 +608,81 @@ hooks: {
 
 ---
 
+### CSP nonce（Phase 1 予約）
+
+CSP（Content Security Policy）は本番公開サイトのほぼ必須要件です。nonce 伝搬を後から追加した場合に既存プラグインが一斉に動かなくなるのを防ぐため、ampless は今のうちに API サーフェスだけ予約しておきます（Phase 1 は完全 no-op）。
+
+3 層設計:
+
+1. **`ctx.cspNonce?: string`** — `PluginPublicRenderContext` の型に予約済み。今のところ常に `undefined`。runtime はこのフィールドをまだ populate しません。middleware/SSR nonce threading は将来の CSP RFP とともに landing します。
+
+2. **`descriptor.nonce: 'auto' | string`** — `inlineScript` と `script` の両 descriptor variant の型で受け入れられます。`'auto'` は将来の runtime スタンプ用 sentinel。その他の文字列は明示的リテラル。`undefined` は `nonce` 属性を emit しない（デフォルト、非 CSP サイトと後方互換）。Phase 1: runtime は受け入れますが伝搬しません。`nonce: 'auto'` を今日宣言することは前方互換性のヒントであり、描画 HTML を変更しません。
+
+3. **`'cspReady'` capability** — name-only の declarative バッジ。将来の admin UI / サニティチェックの対象になります。Phase 1 では runtime の cross-check や enforcement は一切なし。
+
+**対応方法:**
+
+```ts
+// src/index.ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['publicHead', 'cspReady'],
+  publicHead: () => [{
+    type: 'inlineScript',
+    id: 'my-snippet',
+    body: '...',
+    nonce: 'auto',    // 前方互換性ヒント。Phase 1 では効果なし
+  }],
+})
+```
+
+npm 公開のスタンドアロンプラグインの場合は、`package.json#amplessPlugin.capabilities` も合わせて更新してください — static manifest と factory return value が一致しない場合、runtime cross-check が警告を出します:
+
+```json
+{
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "my-plugin",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "cspReady"]
+  }
+}
+```
+
+**`'cspReady'` の意味:**
+
+- サイト全体の CSP 適合は middleware / レスポンスヘッダー / runtime が制御しない他の inline コンテンツにも依存します。
+- middleware-driven nonce threading PR が landing した後は、`nonce: 'auto'` を持つ plugin-supplied script が runtime nonce スタンプの候補になります。
+- `'cspReady'` は `create-ampless plugin --capabilities` には表示されません — reserved capability であり、scaffold はアクティブな enforcement を示唆しないよう除外しています。
+
+---
+
 ## 7. 非同期イベントフック
 
-`hooks` は SQS から到着したイベントを trust_level に対応する processor Lambda が受けて実行します。runtime context (`ctx`) の中身:
+`hooks` は SQS から到着したイベントを trust_level に対応する processor Lambda が受けて実行します。
+
+### 戻り値の予約
+
+`PluginEventHandler` の戻り値型は `Promise<void | PluginHookResult>`。
+runtime は現状この戻り値を完全に無視する — 既存 plugin が
+`Promise<void>` を返す形は migration 不要で動き続ける。
+`PluginHookResult` は将来の directive (最初の用例として有力:
+`metrics?: Record<string, number>` による observability emission) のた
+めの予約で、今宣言するのは forward-compatibility のヒントとして
+の扱い。注意: rewrite / cancel 系 directive は本 widening だけで
+は有効化されない — `before:*` event の plugin 配線と payload 拡張
+が別 PR で必要。
+
+`PluginHookResult` には private な `__amplessPluginHookResult`
+marker が付いており、union が `Promise<string>` / `Promise<number>`
+等の無関係な promise を silently 受け入れないようになっている —
+plugin 作者がこの marker を明示的に設定する必要は無い。
+
+### Runtime context
+
+runtime context (`ctx`) の中身:
 
 ```ts
 interface PluginRuntimeContext {
@@ -749,14 +821,146 @@ stored 値 (validated)
 
 Secret settings を使うと、trusted プラグインが認証情報 (Webhook 署名 secret・SMTP パスワード・外部 API トークン等) を admin UI 経由で保存・ローテーションできます。**公開サイトやブラウザ側コードに値が流れることはありません**。
 
-詳しいリファレンスは [`packages/ampless/docs/plugin-author-guide.md`](../../packages/ampless/docs/plugin-author-guide.md) §9a を参照してください。概要:
+### なぜ `settings.public` と API が違うのか
 
-- `settings.secret` は `trust_level: 'trusted'` + `'secretSettings'` capability 必須。鍵の初回セットアップ: `npx create-ampless setup-encryption-key` を実行して `amplify/secrets/encryption-key.ts` を生成し、`defineAmplessBackend({ pluginSecretEncryptionKey })` に渡してデプロイ（AWS 認証情報不要）。
-- フィールド型は `PluginSecretField` = `Omit<PluginTextField, 'default'> | Omit<PluginTextareaField, 'default'>`。`default` は型レベルで禁止。fallback は closure-private 変数で保持。
-- admin ブラウザは AppSync mutation (`setPluginSecret`) 経由で書き込む → `plugin-secret-handler` Lambda が env var から鍵取得・AES-256-GCM 暗号化・DDB PutItem。平文は DDB に保存されずブラウザにも返らない。`ctx.secret<T>(key)` は trusted Lambda が復号した平文を返す（`process.env.PLUGIN_SECRET_ENCRYPTION_KEY` を使用; DDB に鍵は保存しない）。per-invocation でキャッシュ。
-- admin UI が「保存済み」表示 (`••••••••`) + Replace + Clear を提供。値は取得・表示されない。
-- **Dual-write 整合性**: set/clear は 2 テーブルに連続して書く。2 回目失敗時 — set パス部分失敗は「secret 機能する・indicator 不在（UI: 未保存誤表示）」; clear パス部分失敗は「secret 削除済・indicator stale（UI: 保存済み誤表示、secret は発火しない安全側）」。
-- **field manifest 検証の範囲**: admin クライアントは UX フィードバック用に `pattern` / `maxLength` / `required` を検証するが、Lambda は **汎用 10,000 文字キャップと安全文字サニタイザのみ**を強制。admin/editor が AppSync mutation を直接呼ぶと field 単位の制約は迂回可能 — admin/editor は信頼されたオペレータと扱う設計のため、manifest チェックはセキュリティ境界ではなく UX ガイダンス。
+`settings.public` の値は公開 runtime に流れる設計です。`public/site-settings.json` にミラーされ、`ctx.setting()` で sync render surface から読めます。analytics の measurementId などには適切ですが、Webhook 署名 secret には絶対に使えません。
+
+`settings.secret` はストレージモデルが構造的に異なります:
+
+- KvStore とは **別テーブル** の `PluginSecret` DynamoDB テーブルに保存。admin/editor Cognito ユーザーは AppSync 経由でこのテーブルに**直接アクセスできない** — すべての書き込みは `setPluginSecret` mutation を通じて `plugin-secret-handler` Lambda 経由で行われる。
+- 値は保存前に **AES-256-GCM 暗号化**される。admin ブラウザが plaintext を Lambda に TLS 経由で送信 → Lambda がバリデーション + `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`（CDK が `amplify/secrets/encryption-key.ts` から注入）から鍵を読み取り + 暗号化 → ciphertext のみを DDB に書き込む。平文は DynamoDB に保存されず、ブラウザにも返らない。
+- **脅威モデル（Phase 6a v2.2）**:
+
+  | 脅威 | 状態 |
+  |---|---|
+  | PluginSecret テーブルを閲覧する AWS Console オペレータ | ✓ 対策済み — ciphertext のみ、DDB に鍵なし |
+  | ソースリポジトリ / デプロイアーティファクトへのアクセス | ⚠ 対策なし — 鍵は `amplify/secrets/encryption-key.ts` に存在。リポジトリを private にし、アーティファクトアクセスを制限すること |
+  | 同一 Lambda 内の悪意ある trusted plugin | ✗ 対策なし — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` はプラグインコードから読める。真の分離 = per-plugin Lambda（privileged tier, ロードマップ） |
+  | S3 mirror 漏洩 | ✓ 対策済み — PluginSecret テーブルは mirror されない |
+
+- trusted-processor Lambda が `node:crypto` で復号する。`ctx.secret<T>(key)` は平文 string を返す（ciphertext ではない）。
+- S3 mirror 経路に絶対に流れない（mirror は KvStore のみを query する）。
+- 公開 render surface (`publicHead` など) からは読めない。
+- **field manifest 検証の範囲**: admin クライアントは UX フィードバック目的で `pattern` / `maxLength` / `required` を検証するが、Lambda 側は **汎用の 10,000 文字ハードキャップと安全文字サニタイザのみ**を強制する。admin/editor が AppSync mutation を直接呼ぶと field 単位の制約は迂回できる。設計上意図したもので、admin/editor は secret 設定を許可された信頼されたオペレータと位置づけている。manifest チェックは UX ガイダンスであり、セキュリティ境界ではない。
+
+### 要件
+
+`settings.secret` には 3 つの要件があります:
+
+1. `trust_level: 'trusted'` — untrusted Lambda には PluginSecret table への DDB read 権限がない。他の trust level で宣言すると `definePlugin()` 時に throw する。
+2. `'secretSettings'` を `capabilities` に含める — admin UI や将来の allow-list から capability を参照できるようにするため必須。省略すると console.warn（`'schema'` vs `publicBodyForPost` の不整合パターンと同じ）。
+3. **鍵の初回セットアップ** — プロジェクトルートで実行:
+   ```sh
+   npx create-ampless setup-encryption-key
+   ```
+   32 バイトのランダムな鍵を生成し、`amplify/secrets/encryption-key.ts` に書き込む。AWS 認証情報不要 — ローカルファイル操作のみ。
+
+   次に `amplify/backend.ts` でその定数を import し、`defineAmplessBackend({ pluginSecretEncryptionKey })` に渡す。その後デプロイ（またはサンドボックス再起動）して Lambda env var に注入する。
+
+   public リポジトリの場合は `--gitignore` を渡してバージョン管理から除外し、鍵を別途配布する。
+
+### Dual-write 整合性
+
+`setPluginSecret` と `clearPluginSecret` は各操作で **2 テーブル**に連続して書き込む: `PluginSecret`（ciphertext）と `PluginSecretIndicator`（存在タイムスタンプ）。2 回目の書き込みが失敗した場合、テーブルは以下の予測可能な状態になる:
+
+| 障害ポイント | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
+|---|---|---|---|---|
+| **set**: indicator PutItem 失敗 | ciphertext 存在 | 不在 | plaintext を返す ✓ | `false`（UI: 「未保存」） |
+| **clear**: indicator DeleteItem 失敗 | 不在 | stale（古いタイムスタンプ） | `undefined` ✓ | `true`（UI: 「保存済み」） |
+
+clear パスの失敗は「安全側」: secret は発火しなくなるが、UI は一時的に「保存済み」と表示する。set パスの失敗は軽微な UI 不整合: secret は機能するが、存在インジケータはリトライが成功するまで不在となる。
+
+### secret フィールドの宣言
+
+```ts
+import { definePlugin } from 'ampless'
+
+export default function webhookPlugin(opts?: { signingSecret?: string }) {
+  // constructor から渡された secret は closure-private な fallback として保持。
+  // manifest にも descriptor にも出さない。
+  const constructorSecret = opts?.signingSecret
+
+  return definePlugin({
+    name: 'webhook',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    capabilities: ['eventHooks', 'secretSettings'],
+    settings: {
+      secret: [
+        {
+          type: 'text',
+          key: 'signingSecret',
+          label: { en: 'Webhook signing secret', ja: 'Webhook 署名 secret' },
+          maxLength: 256,
+          required: false,
+          // `default` は型レベルで除外されている。closure-private fallback を使うこと。
+        },
+      ],
+    },
+    hooks: {
+      async 'content.published'(event, ctx) {
+        // ctx.secret() は PluginSecret DDB table から読む。
+        // admin が未保存なら undefined を返す。
+        const storedSecret = await ctx.secret<string>('signingSecret')
+
+        // closure-private fallback: admin が未保存の場合 constructor 引数を使う。
+        // これで既存サイトとの後方互換を維持できる。
+        const secret = storedSecret ?? constructorSecret
+        if (!secret) return
+
+        // ... secret で署名して POST
+      },
+    },
+  })
+}
+```
+
+### 重要: secret フィールドに `default` を書かない
+
+`PluginSecretField` 型は `Omit<PluginTextField, 'default'> | Omit<PluginTextareaField, 'default'>` として定義されており、**`default` プロパティは型レベルで除去**されています。追加しようとすると TypeScript がエラーを出します。
+
+理由: `default` は admin UI のフォーム props (ブラウザに送出される)、静的 manifest の cross-check、JS bundle など複数の経路で漏洩します。認証情報に使えない設計です。
+
+fallback 値がある場合は、プラグイン factory 関数の closure-private 変数として保持してください:
+
+```ts
+// ✓ 正解 — closure-private、manifest に出さない
+const constructorSecret = opts?.signingSecret
+
+// ✗ 誤り — TypeScript エラー、さらに browser にも漏れる
+settings: {
+  secret: [{
+    type: 'text',
+    key: 'signingSecret',
+    label: 'Secret',
+    default: opts?.signingSecret, // ← TS compile error
+  }],
+}
+```
+
+### secret の読み出し: `ctx.secret<T>(key)`
+
+`ctx.secret<T>(key)` は trusted hook handler 内でのみ利用できます (`processor-trusted.ts` が注入)。シグネチャ:
+
+```ts
+ctx.secret<T = string>(key: string): Promise<T | undefined>
+```
+
+- admin が未保存なら `undefined` を返す。
+- `T` は convenience cast (ctx.setting と同じ)。値は常に string として保存される。
+- 結果は per-invocation キャッシュされる。同 batch 内で同キーを 2 回呼んでも DDB 呼び出しと復号処理は 1 回ずつ。暗号化キーは Lambda env var から cold-start 時に decode される（DDB への余分な fetch は不要）。
+- キャッシュされる値は **復号済みの平文** — ciphertext ではない。2 回目の呼び出しで再復号は発生しない。
+- cache key は namespace 化される: `${instanceId ?? name}:${fieldKey}`。異なる plugin instance が同名フィールドを持っても混線しない。
+
+### admin UI
+
+`settings.secret` を宣言すると、admin plugin settings ページの public フィールドの下に **Secret settings** セクションが表示されます。各フィールド:
+
+- **未保存**: 通常テキスト入力 + Save ボタン。
+- **保存済み**: マスク表示 `••••••••` + Replace + Clear ボタン。値は絶対に取得・表示されない。
+- **編集中**: Replace クリック後 — 新値入力 + Save + Cancel。
+
+admin は再デプロイなしにいつでも secret をローテーションできます。保存後 ~5〜10 秒以内に次の trusted Lambda 実行から新値が使われます。
 
 ---
 

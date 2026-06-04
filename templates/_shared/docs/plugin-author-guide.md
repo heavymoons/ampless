@@ -540,8 +540,12 @@ a console warning** and never rendered.
   index numbers no one can map back to a plugin.
 - **Duplicate `id`**: the last occurrence wins. A dev warning prints
   which key was duplicated.
-- **CSP nonce**: not propagated in Phase 1. The `nonce` attr is
-  declared in the type for forward-compat but discarded today.
+- **CSP nonce**: `inlineScript.nonce` and `script.nonce` are accepted
+  by the type (`'auto'` is the sentinel for future runtime stamping;
+  any string is an explicit literal). Phase 1 reservation: the runtime
+  accepts the field but does not propagate it to the rendered element.
+  See [CSP nonce (Phase 1 reservation)](#csp-nonce-phase-1-reservation)
+  below.
 - **Strategy**: `afterInteractive` adds `async` to external scripts.
   `lazyOnload` adds `defer`. Explicit `async` / `defer` always
   wins. `beforeInteractive` is not supported.
@@ -782,10 +786,102 @@ perspective, see [`docs/scheduled-publishing.md`](https://github.com/heavymoons/
 
 ---
 
+### CSP nonce (Phase 1 reservation)
+
+Content Security Policy (CSP) is a near-mandatory requirement for production
+sites. To avoid breaking every plugin at once when nonce propagation lands,
+ampless reserves the API surface today (Phase 1 no-op) so plugins can opt in
+ahead of time.
+
+The 3-layer design:
+
+1. **`ctx.cspNonce?: string`** on `PluginPublicRenderContext` — type-reserved
+   on the interface; always `undefined` today. The runtime does not populate
+   this field yet; reads resolve to `undefined`. Middleware/SSR nonce threading
+   lands with the future CSP RFP.
+
+2. **`descriptor.nonce: 'auto' | string`** — accepted by the type on both
+   `inlineScript` and `script` descriptor variants. `'auto'` is the sentinel
+   for future runtime stamping; any other string is an explicit literal;
+   `undefined` emits no `nonce` attribute (default, backward-compatible).
+   Phase 1: the runtime accepts but does not propagate it. Declaring
+   `nonce: 'auto'` today is a forward-compatibility hint and does not change
+   the rendered HTML.
+
+3. **`'cspReady'` capability** — a name-only declarative badge. Declaring it
+   signals intent; future admin UI / sanity checks may surface it. No runtime
+   cross-check or enforcement exists in Phase 1.
+
+**How to be ready:**
+
+```ts
+// src/index.ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['publicHead', 'cspReady'],
+  publicHead: () => [{
+    type: 'inlineScript',
+    id: 'my-snippet',
+    body: '...',
+    nonce: 'auto',    // forward-compat hint; no effect in Phase 1
+  }],
+})
+```
+
+For standalone npm-published plugins, also update `package.json#amplessPlugin.capabilities`
+to match — the runtime cross-check warns on disagreement between the static
+manifest and the factory return value:
+
+```json
+{
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "my-plugin",
+    "trustLevel": "untrusted",
+    "capabilities": ["publicHead", "cspReady"]
+  }
+}
+```
+
+**What "cspReady" means:**
+
+- Site-level CSP compliance depends on middleware / response headers / other
+  inline content the runtime does not control.
+- Once the middleware-driven nonce threading PR lands, plugin-supplied scripts
+  that carry `nonce: 'auto'` will become candidates for runtime nonce stamping.
+- `'cspReady'` does **not** appear in `create-ampless plugin --capabilities`
+  output — it is a reserved capability and the scaffold excludes it to avoid
+  implying active enforcement.
+
+---
+
 ## 7. Async event hooks
 
 `hooks` runs inside the trust_level-matched processor Lambda when an
-event arrives via SQS. The runtime context (`ctx`) carries:
+event arrives via SQS.
+
+### Return value reservation
+
+`PluginEventHandler` returns `Promise<void | PluginHookResult>`. The
+runtime currently ignores the return value entirely — existing
+plugins returning `Promise<void>` keep working without migration.
+`PluginHookResult` is reserved for a future directive (likely first:
+`metrics?: Record<string, number>` for observability emission);
+declaring it today is a forward-compatibility hint. Note: rewrite
+or cancel directives are NOT enabled by this widening alone — they
+require additional `before:*` event support and payload extensions
+in separate PRs.
+
+`PluginHookResult` carries a private `__amplessPluginHookResult`
+marker so that the union does not silently accept unrelated promise
+types (`Promise<string>` / `Promise<number>` etc.) — plugin authors
+do not need to set this field.
+
+### Runtime context
+
+The runtime context (`ctx`) carries:
 
 ```ts
 interface PluginRuntimeContext {
@@ -989,14 +1085,15 @@ etc. — but completely wrong for a webhook signing secret.
 
 - Stored in the `PluginSecret` DynamoDB table (separate from KvStore).
   Admin/editor Cognito users have **no direct AppSync access** to this
-  table — all writes go through the `setPluginSecret` mutation backed
-  by the `plugin-secret-handler` Lambda.
+  table — all writes go through the `setPluginSecret` mutation, which
+  is backed by the `plugin-secret-handler` Lambda.
 - Values are **AES-256-GCM encrypted** before reaching DynamoDB.
   The admin browser sends the plaintext to the Lambda via AppSync
-  (TLS); the Lambda validates, reads the 32-byte encryption key from
-  `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by CDK from
-  `amplify/secrets/encryption-key.ts`), and writes only the ciphertext.
-  The plaintext never rests in DynamoDB and never flows back to the browser.
+  (TLS in transit); the Lambda validates it, reads the 32-byte
+  encryption key from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY`
+  (injected by CDK from `amplify/secrets/encryption-key.ts`), encrypts
+  the value, and writes only the ciphertext to DDB. The plaintext
+  never rests in DynamoDB and never flows back to the browser.
 - **Threat model (Phase 6a v2.2)**:
 
   | Threat | Status |
@@ -1007,19 +1104,19 @@ etc. — but completely wrong for a webhook signing secret.
   | S3 mirror leak | ✓ defeated — PluginSecret table never mirrored. |
 
 - The trusted-processor Lambda decrypts with `node:crypto` on read.
-  `ctx.secret<T>(key)` returns the plaintext string, never ciphertext.
+  `ctx.secret<T>(key)` returns the plaintext string, never the
+  ciphertext.
 - Never queried by the site-settings mirror path.
 - Never passed to any public-render surface
-  (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
-  `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
 - **Field-manifest validation scope**: the admin client validates
   `pattern` / `maxLength` / `required` for UX feedback, but the
-  Lambda only enforces a generic 10,000-character hard cap +
-  safe-character sanitizer. An admin/editor calling the AppSync
-  mutation directly can bypass field-level constraints — by design,
-  since admin/editor are trusted operators authorised to set
-  secrets. The manifest checks are UX guidance, not a security
-  boundary.
+  Lambda only enforces a generic 10,000-character hard cap + safe-
+  character sanitizer. An admin/editor calling the AppSync mutation
+  directly can bypass field-level constraints — by design, since
+  admin/editor are trusted operators authorised to set secrets.
+  The manifest checks are UX guidance, not a security boundary.
+  (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
+  `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
 
 ### Requirements
 
@@ -1035,25 +1132,33 @@ etc. — but completely wrong for a webhook signing secret.
    ```sh
    npx create-ampless setup-encryption-key
    ```
-   Generates a cryptographically random 32-byte key and writes it to
-   `amplify/secrets/encryption-key.ts`. No AWS credentials required.
-   Then import it in `amplify/backend.ts` and pass it to
+   This generates a cryptographically random 32-byte key and writes
+   it to `amplify/secrets/encryption-key.ts`. No AWS credentials
+   required — this is a local file operation only.
+
+   Then import the constant in `amplify/backend.ts` and pass it to
    `defineAmplessBackend({ pluginSecretEncryptionKey })`. Redeploy (or
-   restart the sandbox) to inject the key into Lambda env vars.
-   For public repos, add `--gitignore` to exclude from version control.
+   restart the sandbox) to inject the key into the Lambda env vars.
+
+   For public repos, pass `--gitignore` to exclude the key file from
+   version control and distribute the key separately.
 
 ### Dual-write integrity
 
-The `setPluginSecret` and `clearPluginSecret` operations each write to
-**two DynamoDB tables** in sequence. If the second write fails, the
-tables are left in a predictable state:
+The `setPluginSecret` and `clearPluginSecret` operations each write
+to **two DynamoDB tables** in sequence: `PluginSecret` (ciphertext)
+and `PluginSecretIndicator` (existence timestamp). If the second
+write fails, the tables are left in a predictable, documented state:
 
-| Failure | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
+| Failure point | `PluginSecret` | `PluginSecretIndicator` | `ctx.secret()` | `hasPluginSecret()` |
 |---|---|---|---|---|
 | **set**: indicator PutItem fails | ciphertext present | absent | returns plaintext ✓ | `false` (UI: "not saved") |
-| **clear**: indicator DeleteItem fails | absent | stale | `undefined` ✓ | `true` (UI: "saved") |
+| **clear**: indicator DeleteItem fails | absent | stale (old timestamp) | `undefined` ✓ | `true` (UI: "saved") |
 
-The clear-path failure is the "safe side": the secret stops firing.
+The clear-path failure is the "safe side": the secret stops firing even
+though the UI briefly shows it as saved. The set-path failure is a minor
+UI inaccuracy: the secret is functional but the existence indicator is
+absent until a retry succeeds.
 
 ### Declaring secret fields
 
@@ -1085,9 +1190,16 @@ export default function webhookPlugin(opts?: { signingSecret?: string }) {
     },
     hooks: {
       async 'content.published'(event, ctx) {
+        // ctx.secret() reads from PluginSecret DDB table.
+        // Returns undefined when no value has been saved by admin yet.
         const storedSecret = await ctx.secret<string>('signingSecret')
+
+        // Closure-private fallback: use the constructor argument when
+        // the admin has not saved a value yet. This preserves backward
+        // compatibility with sites that pass the secret at install time.
         const secret = storedSecret ?? constructorSecret
-        if (!secret) return
+        if (!secret) return // no secret → skip signing
+
         // ... use secret to sign and POST
       },
     },
@@ -1099,25 +1211,104 @@ export default function webhookPlugin(opts?: { signingSecret?: string }) {
 
 The type `PluginSecretField` is defined as `Omit<PluginTextField,
 'default'> | Omit<PluginTextareaField, 'default'>` — the `default`
-property is **removed at the type level**. Use a closure-private
-fallback variable instead; never put credentials in the manifest.
+property is **removed at the type level** and TypeScript will error
+if you try to add one.
+
+This is intentional: `default` values propagate into admin UI form
+props (visible in the browser), static manifests cross-checked by
+the runtime, and JS bundles. For a credential, these are all leak
+paths.
+
+If you have a fallback value (e.g. the constructor argument), keep
+it as a **closure-private variable** inside the plugin factory
+function — never in the manifest:
+
+```ts
+// ✓ correct — closure-private, never in the manifest
+const constructorSecret = opts?.signingSecret
+
+// ✗ wrong — TypeScript error, would also leak to browser
+settings: {
+  secret: [{
+    type: 'text',
+    key: 'signingSecret',
+    label: 'Secret',
+    default: opts?.signingSecret, // ← TS compile error
+  }],
+}
+```
 
 ### Reading secrets: `ctx.secret<T>(key)`
 
-`ctx.secret<T>(key)` is only available in trusted hook handlers.
-Returns `undefined` when no value has been saved by admin. Returns
-the **decrypted plaintext** — never the ciphertext blob.
-Results are per-invocation cached (plaintext, not ciphertext).
-The encryption key is decoded from the Lambda env var at cold-start
-(no extra DDB fetch).
-Cache keys are namespaced by `${instanceId ?? name}:${fieldKey}`.
+`ctx.secret<T>(key)` is only available in trusted hook handlers
+(injected by `processor-trusted.ts`). The signature is:
+
+```ts
+ctx.secret<T = string>(key: string): Promise<T | undefined>
+```
+
+- Returns `undefined` when no value has been saved by admin yet.
+- The generic `T` is a convenience cast (same as `ctx.setting<T>()`).
+  Values are always stored as strings; `T` defaults to `string`.
+- Results are per-invocation cached. Calling `ctx.secret('key')`
+  twice in the same hook batch costs one DDB round-trip (and one
+  decrypt). The encryption key is decoded from the Lambda env var
+  at cold-start (no extra DDB fetch).
+- Cache keys are namespaced: `${instanceId ?? name}:${fieldKey}`.
+  Two plugin instances both declaring `'signingSecret'` never get
+  each other's values.
+- The cached value is the **decrypted plaintext** — not the
+  ciphertext. There is no redundant decrypt on repeated calls.
 
 ### Admin UI
 
 When `settings.secret` is declared, the admin plugin settings page
 renders a **Secret settings** section below the public fields.
-Admins see `••••••••` for stored values and can Replace or Clear
-without deploying. Rotation takes effect within ~5–10 seconds.
+Each secret field shows:
+
+- **Unset**: a plain text input + Save button.
+- **Stored**: a masked placeholder `••••••••` + Replace + Clear
+  buttons. The actual value is never fetched or displayed.
+- **Editing**: after clicking Replace — new text input + Save + Cancel.
+
+Admins can rotate a secret at any time without redeploying. The
+change takes effect on the next trusted-Lambda invocation (within
+~5–10 seconds of saving).
+
+### Testing hooks that use `ctx.secret`
+
+Mock `ctx.secret` alongside the other context methods:
+
+```ts
+import { describe, it, expect, vi } from 'vitest'
+import webhookPlugin from './index.js'
+import type { TrustedPluginRuntimeContext } from 'ampless'
+
+function makeCtx(secrets: Record<string, string> = {}): TrustedPluginRuntimeContext {
+  return {
+    site: { name: 'Test', url: 'https://example.com' },
+    listPublishedPosts: vi.fn().mockResolvedValue([]),
+    writePublicAsset: vi.fn().mockResolvedValue(''),
+    secret: vi.fn().mockImplementation(async (key: string) => secrets[key]),
+  }
+}
+
+describe('webhookPlugin signing', () => {
+  it('uses admin-stored secret when available', async () => {
+    const plugin = webhookPlugin()
+    const ctx = makeCtx({ signingSecret: 'stored-secret' })
+    await plugin.hooks?.['content.published']?.({ type: 'content.published', payload: {} as never }, ctx)
+    // assert that the request was signed with 'stored-secret'
+  })
+
+  it('falls back to constructor secret when admin has not saved one', async () => {
+    const plugin = webhookPlugin({ signingSecret: 'fallback-secret' })
+    const ctx = makeCtx({}) // no stored secret
+    await plugin.hooks?.['content.published']?.({ type: 'content.published', payload: {} as never }, ctx)
+    // assert that the request was signed with 'fallback-secret'
+  })
+})
+```
 
 ---
 

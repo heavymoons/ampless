@@ -36,7 +36,10 @@ export interface AmplessPlugin {
   capabilities?: readonly PluginCapability[]
 
   // Event hooks — run in the trust_level-matched Lambda from SQS.
-  hooks?: { [K in EventType]?: (event, ctx) => Promise<void> }
+  // Return value is reserved: `Promise<void | PluginHookResult>`. The
+  // runtime ignores it today (plugins returning `Promise<void>` keep
+  // working); `PluginHookResult` is a forward-compat reservation.
+  hooks?: { [K in EventType]?: (event, ctx) => Promise<void | PluginHookResult> }
 
   // Per-post and site-level metadata — pure functions, called at request time.
   metadata?(post: Post, site): PluginMetadata
