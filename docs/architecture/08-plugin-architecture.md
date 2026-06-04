@@ -292,6 +292,10 @@ Notes:
   that declared an empty `uninstall` body today will receive invocation events
   automatically; adding the actual cleanup body then requires a re-publish.
 
+### Settings shape evolution (Phase 1 reservation)
+
+`PluginSettingsManifest.version?: number` is reserved. Today the runtime does not read it — settings shape changes are absorbed by the lenient `resolvePluginSettings` (field additions use `default`, removals become silent orphans, type changes fall through to `default` on validation failure). The reservation exists so a future migration PR may detect manifest-vs-storage version mismatch at resolve time; the exact migration mechanism that runs on mismatch is design territory for that future PR. Plugin authors who want to be on the future detection path can start declaring `version: 1` today.
+
 ### S3 Layout
 
 ```

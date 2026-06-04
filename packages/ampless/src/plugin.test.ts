@@ -5,6 +5,7 @@ import {
   type PluginEventHandler,
   type PluginHookResult,
   type PluginSecretField,
+  type PluginSettingsManifest,
   type PluginUninstallContext,
 } from './plugin.js'
 
@@ -149,6 +150,36 @@ afterEach(() => {
     uninstall: async (_ctx) => 'oops',
   }
   void _wrongReturn
+})()
+
+// ---------------------------------------------------------------------------
+// PluginSettingsManifest.version type-level tests
+// ---------------------------------------------------------------------------
+//
+// Verified by `tsc --noEmit` (= `pnpm -F ampless lint`), NOT by vitest.
+// Vitest only transpiles and does not surface `@ts-expect-error` failures.
+
+// Compile-time only block — never executed.
+;(() => {
+  // 1. `version` is optional — manifest without it is still assignable
+  //    to PluginSettingsManifest (regression guard).
+  const _noVersion: PluginSettingsManifest = {
+    public: [{ type: 'text', key: 'foo', label: 'Foo' }],
+  }
+  void _noVersion
+
+  // 2. Positive integer values are accepted (two representative samples).
+  const _v1: PluginSettingsManifest = { version: 1 }
+  void _v1
+  const _v42: PluginSettingsManifest = { version: 42 }
+  void _v42
+
+  // 3. String is NOT assignable — the type is fixed to `number`.
+  const _wrongType: PluginSettingsManifest = {
+    // @ts-expect-error — string is not assignable to number | undefined
+    version: 'v1',
+  }
+  void _wrongType
 })()
 
 // ---------------------------------------------------------------------------

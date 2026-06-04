@@ -213,7 +213,11 @@ interface AmplessPlugin {
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
   ogImage?: OgImageConfig
-  settings?: { public?: readonly PluginSettingField[] }
+  settings?: {
+    public?: readonly PluginSettingField[]
+    secret?: readonly PluginSecretField[]
+    version?: number  // Phase 1 reservation; runtime ignores
+  }
 }
 ```
 
@@ -1413,6 +1417,87 @@ runs in a trusted-Lambda IAM context. The SQS delivery is at-least-once, so
 your cleanup body may run more than once — design it to be safe to retry
 (e.g. `deleteObject` is idempotent on S3; a conditional `delete` on DDB is
 safe if the key is already gone).
+
+---
+
+## 9d. When you change settings shape (Phase 1 reservation)
+
+### What the lenient resolver does today
+
+`resolvePluginSettings` is intentionally lenient about manifest/storage
+drift. Here is what happens for each class of change:
+
+| Change | Behaviour today |
+|---|---|
+| **Field added** (new key in `public` / `secret`) | New field resolves via `manifest.default` — stored value is absent, so default takes over. |
+| **Field deleted** (key removed from manifest) | Orphan row remains in KvStore / PluginSecret. `resolvePluginSettings` silently skips keys that are not in the current manifest. |
+| **Field renamed** (`endpoint` → `url`) | Treated as a deletion + addition: old value is unreachable (orphan), new field resolves via `default`. |
+| **Type changed incompatibly** | New validator runs on the stored value. If it passes, the value is used. If it fails, falls through to `default` (or `undefined`). |
+
+No error or warning is produced in any of these cases. Plugin authors must
+inspect their stored values manually if they need to verify the migration.
+
+### The `version` reservation
+
+`PluginSettingsManifest.version?: number` is a **Phase 1 type
+reservation** — the runtime does NOT read it today. Declaring it has no
+effect on the lenient resolver above.
+
+The reservation exists so that a future migration PR may persist the
+active manifest version somewhere alongside stored values and compare it to
+`manifest.version` at resolve time to detect mismatch. The exact mismatch
+response (warn / skip / migrate in-place / trigger an admin-driven flow) is
+design territory for that future PR.
+
+**What declaring `version` today does NOT promise:**
+
+- It does NOT trigger any migration body.
+- It does NOT cause the runtime to re-validate or re-default stored values.
+- It does NOT reserve a `migrate` hook signature — that is a separate future
+  design.
+
+**What declaring `version` today does do:**
+
+- It positions the plugin to be picked up by the future migration detection
+  path, without requiring a re-publish just to add the `version` field once
+  that PR ships.
+- It communicates intent to future maintainers that this manifest has a
+  versioned shape.
+
+### Recommended pattern
+
+| Scenario | Recommendation |
+|---|---|
+| Additive change only (new optional field, default provided) | No `version` bump needed. Lenient resolver handles it. |
+| Non-additive change (rename, incompatible type change, semantic shift) | Bump `version` by 1. |
+| First time adding `version` to an existing manifest | Start at `version: 1`. |
+
+**Use positive integers, starting at 1.** Do NOT use `0`, negative numbers,
+or floats — the `number` type accepts them but the future migration PR may
+reserve special semantics for `0` / undefined (legacy / pre-v1 conflation).
+
+### Code example
+
+```ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['adminSettings'],
+  settings: {
+    version: 2,           // ← Phase 1 reservation. Today runtime ignores.
+    public: [
+      { type: 'url', key: 'webhookUrl', label: 'Webhook URL', required: true },
+    ],
+  },
+})
+```
+
+When a future migration PR ships, plugins that have already declared
+`version` will be on the detection path automatically. Plugins that want to
+provide an actual migration body will need to re-publish after that PR ships
+to add the body. Plugins that omit `version` entirely continue with the
+current lenient-resolver behaviour — no change.
 
 ---
 

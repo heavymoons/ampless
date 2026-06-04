@@ -185,7 +185,11 @@ interface AmplessPlugin {
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
   ogImage?: OgImageConfig
-  settings?: { public?: readonly PluginSettingField[] }
+  settings?: {
+    public?: readonly PluginSettingField[]
+    secret?: readonly PluginSecretField[]
+    version?: number  // Phase 1 reservation; runtime ignores
+  }
 }
 ```
 
@@ -1031,6 +1035,69 @@ definePlugin({
 ```
 
 **冪等性。** lifecycle-dispatch PR がリリースされると、`uninstall` フックは trusted Lambda の IAM コンテキストで実行されます。SQS 配送は at-least-once なので cleanup ボディが複数回実行される可能性があります。安全にリトライできるよう設計してください（S3 の `deleteObject` は冪等、DDB の conditional delete も key が消えていれば safe）。
+
+---
+
+## 9d. settings の形状を変えるとき（Phase 1 予約）
+
+### 今日の寛容な resolver の挙動
+
+`resolvePluginSettings` は manifest とストレージの差異に対して意図的に寛容です。各変更パターンでの挙動は以下のとおりです:
+
+| 変更 | 今日の挙動 |
+|---|---|
+| **フィールド追加**（`public` / `secret` に新しい key を追加） | 新フィールドは `manifest.default` から解決されます。ストレージに値がないため、default が使われます。 |
+| **フィールド削除**（manifest から key を削除） | KvStore / PluginSecret に orphan row が残ります。`resolvePluginSettings` は現在の manifest にない key を silently skip します。 |
+| **フィールド改名**（`endpoint` → `url`） | 削除 + 追加として扱われます。旧値は到達不能（orphan）になり、新フィールドは `default` から解決されます。 |
+| **型を非互換に変更** | 新しい validator がストレージの値に対して実行されます。通過すれば値が使われ、失敗すれば `default`（または `undefined`）にフォールバックします。 |
+
+これらのケースでエラーや警告は発生しません。migration が正しく行われたかを確認するには、プラグイン著者が手動でストレージの値を確認する必要があります。
+
+### `version` 予約について
+
+`PluginSettingsManifest.version?: number` は **Phase 1 型予約** です。runtime は今日このフィールドを読みません。宣言しても上記の寛容な resolver の挙動は変わりません。
+
+この予約は、将来の migration PR がストレージの値に manifest の version をどこかに保存し、resolve 時に `manifest.version` と比較してミスマッチを検出できるようにするためのものです。ミスマッチ時の応答（warn / skip / in-place migration / admin 主導フローなど）はその future PR の設計領域です。
+
+**`version` を宣言しても今日保証されないこと:**
+
+- migration ボディは実行されません。
+- ストレージの値の再検証・再 default も行われません。
+- `migrate` hook のシグネチャは予約されていません（それは別の future 設計）。
+
+**`version` を今日宣言することで得られるもの:**
+
+- その PR がリリースされた後に `version` フィールドを追加するためだけの再パブリッシュが不要になります（将来の migration 検出パスに最初から参加できます）。
+- manifest に versioned な形状であることを将来のメンテナーに伝えます。
+
+### 推奨パターン
+
+| シナリオ | 推奨 |
+|---|---|
+| 追加のみの変更（新しいオプションフィールド、default あり） | `version` の bump 不要。寛容な resolver が吸収します。 |
+| 非互換変更（改名、型変更、意味的変化） | `version` を 1 増やします。 |
+| 既存 manifest に初めて `version` を追加する | `version: 1` から始めます。 |
+
+**正の整数、1 始まりを使用してください。** `0`、負数、小数は使わないでください。`number` 型はそれらを受け入れますが、将来の migration PR が `0` / undefined に特別な意味（legacy / pre-v1 との混同を避けるため）を予約する可能性があります。
+
+### コード例
+
+```ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['adminSettings'],
+  settings: {
+    version: 2,           // ← Phase 1 reservation。今日の runtime は無視します。
+    public: [
+      { type: 'url', key: 'webhookUrl', label: 'Webhook URL', required: true },
+    ],
+  },
+})
+```
+
+将来の migration PR がリリースされると、すでに `version` を宣言しているプラグインは自動的に検出パスに乗ります。実際の migration ボディを提供したいプラグインは、その PR がリリースされてから再パブリッシュしてボディを追加する必要があります。`version` を省略したプラグインは引き続き現在の寛容な resolver の挙動のままで変化ありません。
 
 ---
 

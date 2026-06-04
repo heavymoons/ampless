@@ -266,6 +266,10 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 - **独自 DynamoDB テーブル。** プラグインが ampless スキーマ外に独自の DynamoDB テーブルを持つ場合（サイトローカル CDK construct 経由など）、そのテーブルの lifecycle 管理（アンインストール時の cleanup を含む）はプラグイン著者が完全に責任を持ちます。ampless は外部テーブルを把握しておらず、`uninstall` フック cleanup の IAM grant は上記 5 領域のみをカバーします。
 - **将来の lifecycle-dispatch PR。** その PR がリリースされると、trusted Lambda IAM ポリシーの cleanup grant がこれら 5 領域に限定されます。今日空の `uninstall` ボディを宣言したプラグインは自動的に呼び出しイベントを受け取ります。実際の cleanup ボディを追加するには再パブリッシュが必要です。
 
+### settings の形状変化（Phase 1 予約）
+
+`PluginSettingsManifest.version?: number` は予約済みです。現状 runtime はこのフィールドを読みません。settings の形状変化は寛容な `resolvePluginSettings` が吸収します（フィールド追加は `default` から解決、削除は silent orphan に、型変更は検証失敗時に `default` へフォールバック）。この予約は、将来の migration PR が resolve 時に「manifest の version vs ストレージの version」のミスマッチを検出できるようにするためのものです。ミスマッチ時の実際の migration メカニズムはその future PR の設計領域です。将来の検出パスに参加したいプラグイン著者は、今日から `version: 1` を宣言しておくことができます。
+
 ### S3 レイアウト
 
 ```
