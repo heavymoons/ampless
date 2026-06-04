@@ -727,20 +727,39 @@ export interface PluginSettingsManifest {
    * no-op).
    *
    * Plugin authors bump this integer when they change the shape of
-   * `public` or `secret` field arrays in a way that the lenient
-   * resolver cannot transparently absorb — i.e. when a field is
-   * renamed, when a field's `type` changes incompatibly, or when
+   * `public` or `secret` field arrays in a way that today's
+   * write/read paths cannot transparently absorb — i.e. when a field
+   * is renamed, when a field's `type` changes incompatibly, or when
    * a field's semantic meaning shifts (same key + same type but the
    * value should be re-interpreted).
    *
    * **Phase 1 scope**: the field is type-only. The runtime does NOT
    * read it today, does NOT persist it next to stored values, and
-   * does NOT trigger any migration. Today's lenient resolver
-   * continues to apply: field additions resolve via `default`, field
-   * deletions become orphan rows that `resolvePluginSettings`
-   * silently skips, and incompatible type changes fall through to
-   * `default` when the stored value fails validation. None of these
-   * paths produce a signal to the plugin author.
+   * does NOT trigger any migration. Today's behaviour around shape
+   * changes continues to apply, but it differs between `public` and
+   * `secret` because the two travel through entirely different
+   * write/read paths:
+   *
+   *   - `settings.public` goes through `resolvePluginSettings`
+   *     (`packages/ampless/src/plugin-settings.ts`), which iterates
+   *     `manifest.public` and falls back to `field.default` per
+   *     field. So for public fields, additions resolve via `default`,
+   *     deletions become orphan KvStore rows that the resolver
+   *     silently skips, and incompatible type changes fall through
+   *     to `default` when the stored value fails validation.
+   *   - `settings.secret` is never read by `resolvePluginSettings`.
+   *     The admin UI writes individual values through the
+   *     `setPluginSecret` AppSync mutation; trusted hooks read them
+   *     individually by key via `ctx.secret<T>(key)` which goes
+   *     directly to the `PluginSecret` DynamoDB table. There is no
+   *     `manifest.default` fallback for secrets (the type forbids
+   *     `default` on secret fields). Additions show up in the admin
+   *     UI when the manifest changes; removals leave the stored
+   *     ciphertext row orphaned (no resolver runs over it); renames
+   *     and type changes mean the old key's stored row is never
+   *     read again until an operator deletes it manually.
+   *
+   * None of these paths produce a signal to the plugin author.
    *
    * **Future migration PR**: may persist the active manifest
    * version somewhere alongside stored values and may compare it

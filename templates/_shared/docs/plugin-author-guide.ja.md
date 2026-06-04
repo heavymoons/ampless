@@ -1040,18 +1040,37 @@ definePlugin({
 
 ## 9d. settings の形状を変えるとき（Phase 1 予約）
 
-### 今日の寛容な resolver の挙動
+### 今日の挙動: `public` と `secret` は別の経路を辿る
 
-`resolvePluginSettings` は manifest とストレージの差異に対して意図的に寛容です。各変更パターンでの挙動は以下のとおりです:
+形状変更は今日の runtime で silently 吸収されますが、実際の挙動は `settings.public` と `settings.secret` で異なります。両者は完全に別の write/read パスを使っているためです。
 
-| 変更 | 今日の挙動 |
+#### `settings.public`（`resolvePluginSettings` の寛容な resolver）
+
+`resolvePluginSettings`（[packages/ampless/src/plugin-settings.ts](packages/ampless/src/plugin-settings.ts)）は `manifest.public` のみをイテレートし、field ごとに `field.default` にフォールバックします。resolver は `manifest.secret` を一切見ません。
+
+| 変更 | 今日の挙動（public フィールド） |
 |---|---|
-| **フィールド追加**（`public` / `secret` に新しい key を追加） | 新フィールドは `manifest.default` から解決されます。ストレージに値がないため、default が使われます。 |
-| **フィールド削除**（manifest から key を削除） | KvStore / PluginSecret に orphan row が残ります。`resolvePluginSettings` は現在の manifest にない key を silently skip します。 |
+| **フィールド追加** | 新フィールドは `manifest.default` から解決されます。ストレージに値がないため default が使われます。 |
+| **フィールド削除** | KvStore に orphan row が残ります。`resolvePluginSettings` は現在の manifest にない key を silently skip します。 |
 | **フィールド改名**（`endpoint` → `url`） | 削除 + 追加として扱われます。旧値は到達不能（orphan）になり、新フィールドは `default` から解決されます。 |
 | **型を非互換に変更** | 新しい validator がストレージの値に対して実行されます。通過すれば値が使われ、失敗すれば `default`（または `undefined`）にフォールバックします。 |
 
-これらのケースでエラーや警告は発生しません。migration が正しく行われたかを確認するには、プラグイン著者が手動でストレージの値を確認する必要があります。
+#### `settings.secret`（admin UI + `PluginSecret` + `ctx.secret()`、寛容な resolver なし）
+
+Secret フィールドは `resolvePluginSettings` から一切読まれません。別の経路を辿ります:
+
+- admin UI が `setPluginSecret` AppSync mutation 経由で値を 1 つずつ書き、`plugin-secret-handler` Lambda が暗号化して `PluginSecret` DynamoDB テーブルに格納
+- trusted hook が `ctx.secret<T>(key)` で key 単位で直接 `PluginSecret` から復号読み取り
+- `PluginSecretField` 型は `default` を持てない（型レベルで禁止）。manifest レベルのフォールバックは存在しない
+
+| 変更 | 今日の挙動（secret フィールド） |
+|---|---|
+| **フィールド追加** | admin UI に新フィールドが表示されます。admin が値を設定するまで `ctx.secret<T>(key)` は `undefined` を返します。 |
+| **フィールド削除** | admin UI から消えますが、`PluginSecret` 内の暗号化された row は orphan として残ります。resolver は走らないため、operator が手動で削除する必要があります。 |
+| **フィールド改名** | 旧 key の暗号化された row は orphan になります（resolver / cleanup なし）。新 key は未設定として表示され、admin が新 key に値を入れ直す必要があります。 |
+| **型を非互換に変更** | `validatePluginSettingValue` は write 時のみ実行されます。既存の暗号化値は read 時には影響を受けず、`ctx.secret<T>(key)` は最後に書かれた値を返します。新しい入力を admin が保存しようとすると新 validator で reject される、というだけです。 |
+
+これらのケースでエラーや警告は発生しません。形状変更後の挙動を確認するには、プラグイン著者が手動でストレージの値を確認する必要があります。
 
 ### `version` 予約について
 

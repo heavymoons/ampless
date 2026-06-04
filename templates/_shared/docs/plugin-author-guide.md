@@ -1422,20 +1422,48 @@ safe if the key is already gone).
 
 ## 9d. When you change settings shape (Phase 1 reservation)
 
-### What the lenient resolver does today
+### What happens today: `public` and `secret` travel through different paths
 
-`resolvePluginSettings` is intentionally lenient about manifest/storage
-drift. Here is what happens for each class of change:
+Shape changes are absorbed silently by today's runtime, but the actual
+behaviour differs between `settings.public` and `settings.secret` because
+they use entirely different write/read paths.
 
-| Change | Behaviour today |
+#### `settings.public` (lenient resolver via `resolvePluginSettings`)
+
+`resolvePluginSettings` ([packages/ampless/src/plugin-settings.ts](packages/ampless/src/plugin-settings.ts))
+iterates `manifest.public` and falls back to `field.default` per field. The
+resolver never looks at `manifest.secret`.
+
+| Change | Behaviour today (public fields) |
 |---|---|
-| **Field added** (new key in `public` / `secret`) | New field resolves via `manifest.default` — stored value is absent, so default takes over. |
-| **Field deleted** (key removed from manifest) | Orphan row remains in KvStore / PluginSecret. `resolvePluginSettings` silently skips keys that are not in the current manifest. |
-| **Field renamed** (`endpoint` → `url`) | Treated as a deletion + addition: old value is unreachable (orphan), new field resolves via `default`. |
+| **Field added** | New field resolves via `manifest.default` — stored value is absent, default takes over. |
+| **Field deleted** | Orphan row remains in KvStore. `resolvePluginSettings` silently skips keys that are not in the current manifest. |
+| **Field renamed** (`endpoint` → `url`) | Treated as deletion + addition: old value is unreachable (orphan), new field resolves via `default`. |
 | **Type changed incompatibly** | New validator runs on the stored value. If it passes, the value is used. If it fails, falls through to `default` (or `undefined`). |
 
+#### `settings.secret` (admin UI + `PluginSecret` + `ctx.secret()`, no lenient resolver)
+
+Secret fields are never read by `resolvePluginSettings`. They travel a
+separate path:
+
+- The admin UI writes individual values through the `setPluginSecret`
+  AppSync mutation, which the `plugin-secret-handler` Lambda encrypts and
+  stores in the `PluginSecret` DynamoDB table.
+- Trusted hooks read them individually by key via `ctx.secret<T>(key)`,
+  which goes directly to `PluginSecret` and decrypts.
+- The `PluginSecretField` type forbids `default` — there is no
+  manifest-level fallback for secret values.
+
+| Change | Behaviour today (secret fields) |
+|---|---|
+| **Field added** | New field appears in the admin UI. Until an admin sets a value, `ctx.secret<T>(key)` returns `undefined`. |
+| **Field deleted** | The field disappears from the admin UI, but the encrypted row in `PluginSecret` is orphaned. No resolver runs over it; an operator must delete it manually. |
+| **Field renamed** | Old key's encrypted row is orphaned (no resolver / cleanup). The new key shows up unset. Admin must re-enter the value under the new key. |
+| **Type changed incompatibly** | `validatePluginSettingValue` only runs at write time, so an existing stored ciphertext is unaffected on read; `ctx.secret<T>(key)` returns whatever was last written. A re-validate on admin save would reject incompatible new input. |
+
 No error or warning is produced in any of these cases. Plugin authors must
-inspect their stored values manually if they need to verify the migration.
+inspect their stored values manually if they need to verify behaviour
+after a shape change.
 
 ### The `version` reservation
 
