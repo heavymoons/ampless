@@ -151,7 +151,14 @@ trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins
 
 #### `privileged`
 
-予約。契約上 `trust_level: 'privileged'` は受け取れるが、現状 privileged 用の Lambda は用意されていない。想定される将来形：
+型として予約済み — 契約上 `trust_level: 'privileged'` は受け取れるが、現状 privileged 用の Lambda は用意されていない。現在のランタイム挙動：
+
+- **イベントフック (`hooks`)**：両 processor（`processor-trusted` と `processor-untrusted`）とも privileged プラグインをフィルタアウトし、フックは実行されない。このフェーズ以降、`definePlugin()` と両 processor は privileged プラグインが `hooks` または `'eventHooks'` capability を宣言している場合に `console.warn` を出力するため、サイレントドロップがコールドスタート・`next dev` 起動・SQS イベント到着時に可視化される。警告はイベントごとに 2 回（processor ごとに 1 回）出るのは設計通りであり、それ自体がフックが全ディスパッチパスでフィルタされているシグナルになる。
+- **同期サーフェス**（`publicHead` / `publicBodyEnd` / `metadata` / `publicBodyForPost` / `publicHtmlForPost`）：公開 Next.js プロセス内で動作し、**`trust_level` でゲートされない** — 同期サーフェスのみを実装した privileged プラグインは今日から警告なしで正常に動く。
+
+**現時点で `trust_level: 'privileged'` とイベントフックを宣言した場合、フックは実行されない。** 型として受け入れるのは将来の意図を宣言できるようにするためであり、警告が privileged Lambda が用意されるまでのシグナルとなる。
+
+想定される将来形（実需が出た時点で着手）：
 
 - privileged プラグイン 1 つにつき 1 Lambda。
 - プラグインが capability リストを宣言し、CDK がそれを IAM ポリシーに展開する。

@@ -250,3 +250,43 @@ describe('definePlugin — settings.secret capability mismatch warning', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 })
+
+describe('definePlugin — privileged trust_level hook visibility warning', () => {
+  it('warns when trust_level is "privileged" with hooks declared', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-privileged-plugin',
+      apiVersion: 1,
+      trust_level: 'privileged',
+      hooks: {
+        'content.published': async () => {},
+      },
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Hooks will not execute'))
+  })
+
+  it('warns when trust_level is "privileged" with capabilities: ["eventHooks"] but no hooks object', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-privileged-plugin',
+      apiVersion: 1,
+      trust_level: 'privileged',
+      capabilities: ['eventHooks'],
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Hooks will not execute'))
+  })
+
+  it('does NOT warn when trust_level is "privileged" with sync surfaces only (no hooks, no eventHooks capability)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-privileged-sync-plugin',
+      apiVersion: 1,
+      trust_level: 'privileged',
+      capabilities: ['publicHead'],
+      publicHead() {
+        return []
+      },
+    })
+    expect(warn).not.toHaveBeenCalled()
+  })
+})

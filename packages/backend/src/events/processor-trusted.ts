@@ -118,6 +118,13 @@ export function createProcessorTrustedHandler(
   // path separators or `..` would let a plugin escape its own prefix and
   // clobber a sibling. The pattern matches the same `PLUGIN_KEY_PATTERN`
   // (`/^[a-zA-Z0-9_-]+$/`) the docs and `ctx.setting` keys already use.
+  const privilegedHookedPlugins: AmplessPlugin[] = (opts.plugins ?? []).filter(
+    (p): p is AmplessPlugin =>
+      typeof p === 'object' &&
+      p.trust_level === 'privileged' &&
+      !!p.hooks &&
+      Object.keys(p.hooks).length > 0
+  )
   const trustedPlugins: AmplessPlugin[] = (opts.plugins ?? [])
     .filter(
       (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'trusted'
@@ -477,6 +484,16 @@ export function createProcessorTrustedHandler(
         } catch (err) {
           console.error('[trusted-processor] posttag-sync failed', err)
           throw err
+        }
+      }
+
+      for (const plugin of privilegedHookedPlugins) {
+        if (plugin.hooks?.[parsed.type]) {
+          console.warn(
+            `[trusted-processor] privileged plugin "${plugin.name}" declares ` +
+              `${parsed.type} hook but no privileged Lambda is provisioned yet — ` +
+              `hook will not execute. See docs/architecture/08-plugin-architecture.md.`
+          )
         }
       }
 

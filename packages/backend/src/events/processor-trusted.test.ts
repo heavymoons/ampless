@@ -880,3 +880,73 @@ describe('listPublished — scheduled-publish now-clamp', () => {
     expect(nowValue).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// privileged plugin hook visibility warning
+// ---------------------------------------------------------------------------
+
+describe('createProcessorTrustedHandler — privileged plugin hook visibility', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    pluginSecretRows.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('warns about privileged plugin hook and does not execute it, while trusted plugin hook runs normally', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let privilegedHookRan = false
+
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [
+        writerPlugin(), // trusted plugin — writes to S3
+        {
+          name: 'my-privileged-plugin',
+          apiVersion: 1,
+          trust_level: 'privileged',
+          hooks: {
+            'content.published': async () => {
+              privilegedHookRan = true
+            },
+          },
+        } as AmplessPlugin,
+      ],
+    })
+
+    await handler(event(), {} as never, vi.fn() as never)
+
+    // Privileged plugin gets a warning
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('my-privileged-plugin')
+    )
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('hook will not execute')
+    )
+    // Privileged plugin hook never ran
+    expect(privilegedHookRan).toBe(false)
+    // Trusted plugin still ran (S3 write happened)
+    expect(s3Commands.length).toBeGreaterThan(0)
+  })
+
+  it('does NOT warn when there are no privileged plugins', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [writerPlugin()], // trusted only
+    })
+
+    await handler(event(), {} as never, vi.fn() as never)
+
+    // No warning about privileged plugins
+    const privilegedWarns = (warn.mock.calls as Array<[string]>).filter(([msg]) =>
+      msg?.includes('privileged')
+    )
+    expect(privilegedWarns).toHaveLength(0)
+  })
+})

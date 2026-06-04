@@ -39,6 +39,13 @@ export function createProcessorUntrustedHandler(
   const untrustedPlugins: AmplessPlugin[] = (opts.plugins ?? []).filter(
     (p): p is AmplessPlugin => typeof p === 'object' && p.trust_level === 'untrusted'
   )
+  const privilegedHookedPlugins: AmplessPlugin[] = (opts.plugins ?? []).filter(
+    (p): p is AmplessPlugin =>
+      typeof p === 'object' &&
+      p.trust_level === 'privileged' &&
+      !!p.hooks &&
+      Object.keys(p.hooks).length > 0
+  )
 
   // Untrusted plugins get a runtime context with NO AWS-touching capabilities.
   // They can only read the event payload, run pure JS, and return.
@@ -55,7 +62,7 @@ export function createProcessorUntrustedHandler(
   }
 
   return async (event) => {
-    if (untrustedPlugins.length === 0) return
+    if (untrustedPlugins.length === 0 && privilegedHookedPlugins.length === 0) return
 
     for (const record of event.Records) {
       let parsed: AmplessEvent
@@ -64,6 +71,15 @@ export function createProcessorUntrustedHandler(
       } catch (err) {
         console.error('[untrusted-processor] bad message', record.body, err)
         continue
+      }
+      for (const plugin of privilegedHookedPlugins) {
+        if (plugin.hooks?.[parsed.type]) {
+          console.warn(
+            `[untrusted-processor] privileged plugin "${plugin.name}" declares ` +
+              `${parsed.type} hook but no privileged Lambda is provisioned yet — ` +
+              `hook will not execute. See docs/architecture/08-plugin-architecture.md.`
+          )
+        }
       }
       for (const plugin of untrustedPlugins) {
         const hook = plugin.hooks?.[parsed.type]
