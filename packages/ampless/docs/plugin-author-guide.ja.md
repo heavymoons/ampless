@@ -185,7 +185,11 @@ interface AmplessPlugin {
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
   ogImage?: OgImageConfig
-  settings?: { public?: readonly PluginSettingField[] }
+  settings?: {
+    public?: readonly PluginSettingField[]
+    secret?: readonly PluginSecretField[]
+    version?: number  // Phase 1 reservation; runtime ignores
+  }
 }
 ```
 
@@ -1031,6 +1035,88 @@ definePlugin({
 ```
 
 **冪等性。** lifecycle-dispatch PR がリリースされると、`uninstall` フックは trusted Lambda の IAM コンテキストで実行されます。SQS 配送は at-least-once なので cleanup ボディが複数回実行される可能性があります。安全にリトライできるよう設計してください（S3 の `deleteObject` は冪等、DDB の conditional delete も key が消えていれば safe）。
+
+---
+
+## 9d. settings の形状を変えるとき（Phase 1 予約）
+
+### 今日の挙動: `public` と `secret` は別の経路を辿る
+
+形状変更は今日の runtime で silently 吸収されますが、実際の挙動は `settings.public` と `settings.secret` で異なります。両者は完全に別の write/read パスを使っているためです。
+
+#### `settings.public`（`resolvePluginSettings` の寛容な resolver）
+
+`resolvePluginSettings`（[packages/ampless/src/plugin-settings.ts](packages/ampless/src/plugin-settings.ts)）は `manifest.public` のみをイテレートし、field ごとに `field.default` にフォールバックします。resolver は `manifest.secret` を一切見ません。
+
+| 変更 | 今日の挙動（public フィールド） |
+|---|---|
+| **フィールド追加** | 新フィールドは `manifest.default` から解決されます。ストレージに値がないため default が使われます。 |
+| **フィールド削除** | KvStore に orphan row が残ります。`resolvePluginSettings` は現在の manifest にない key を silently skip します。 |
+| **フィールド改名**（`endpoint` → `url`） | 削除 + 追加として扱われます。旧値は到達不能（orphan）になり、新フィールドは `default` から解決されます。 |
+| **型を非互換に変更** | 新しい validator がストレージの値に対して実行されます。通過すれば値が使われ、失敗すれば `default`（または `undefined`）にフォールバックします。 |
+
+#### `settings.secret`（admin UI + `PluginSecret` + `ctx.secret()`、寛容な resolver なし）
+
+Secret フィールドは `resolvePluginSettings` から一切読まれません。別の経路を辿ります:
+
+- admin UI が `setPluginSecret` AppSync mutation 経由で値を 1 つずつ書き、`plugin-secret-handler` Lambda が暗号化して `PluginSecret` DynamoDB テーブルに格納
+- trusted hook が `ctx.secret<T>(key)` で key 単位で直接 `PluginSecret` から復号読み取り
+- `PluginSecretField` 型は `default` を持てない（型レベルで禁止）。manifest レベルのフォールバックは存在しない
+
+| 変更 | 今日の挙動（secret フィールド） |
+|---|---|
+| **フィールド追加** | admin UI に新フィールドが表示されます。admin が値を設定するまで `ctx.secret<T>(key)` は `undefined` を返します。 |
+| **フィールド削除** | admin UI から消えますが、`PluginSecret` 内の暗号化された row は orphan として残ります。resolver は走らないため、operator が手動で削除する必要があります。 |
+| **フィールド改名** | 旧 key の暗号化された row は orphan になります（resolver / cleanup なし）。新 key は未設定として表示され、admin が新 key に値を入れ直す必要があります。 |
+| **型を非互換に変更** | `validatePluginSettingValue` は write 時のみ実行されます。既存の暗号化値は read 時には影響を受けず、`ctx.secret<T>(key)` は最後に書かれた値を返します。新しい入力を admin が保存しようとすると新 validator で reject される、というだけです。 |
+
+これらのケースでエラーや警告は発生しません。形状変更後の挙動を確認するには、プラグイン著者が手動でストレージの値を確認する必要があります。
+
+### `version` 予約について
+
+`PluginSettingsManifest.version?: number` は **Phase 1 型予約** です。runtime は今日このフィールドを読みません。宣言しても上記の寛容な resolver の挙動は変わりません。
+
+この予約は、将来の migration PR がストレージの値に manifest の version をどこかに保存し、resolve 時に `manifest.version` と比較してミスマッチを検出できるようにするためのものです。ミスマッチ時の応答（warn / skip / in-place migration / admin 主導フローなど）はその future PR の設計領域です。
+
+**`version` を宣言しても今日保証されないこと:**
+
+- migration ボディは実行されません。
+- ストレージの値の再検証・再 default も行われません。
+- `migrate` hook のシグネチャは予約されていません（それは別の future 設計）。
+
+**`version` を今日宣言することで得られるもの:**
+
+- その PR がリリースされた後に `version` フィールドを追加するためだけの再パブリッシュが不要になります（将来の migration 検出パスに最初から参加できます）。
+- manifest に versioned な形状であることを将来のメンテナーに伝えます。
+
+### 推奨パターン
+
+| シナリオ | 推奨 |
+|---|---|
+| 追加のみの変更（新しいオプションフィールド、default あり） | `version` の bump 不要。寛容な resolver が吸収します。 |
+| 非互換変更（改名、型変更、意味的変化） | `version` を 1 増やします。 |
+| 既存 manifest に初めて `version` を追加する | `version: 1` から始めます。 |
+
+**正の整数、1 始まりを使用してください。** `0`、負数、小数は使わないでください。`number` 型はそれらを受け入れますが、将来の migration PR が `0` / undefined に特別な意味（legacy / pre-v1 との混同を避けるため）を予約する可能性があります。
+
+### コード例
+
+```ts
+definePlugin({
+  name: 'my-plugin',
+  apiVersion: 1,
+  trust_level: 'untrusted',
+  capabilities: ['adminSettings'],
+  settings: {
+    version: 2,           // ← Phase 1 reservation。今日の runtime は無視します。
+    public: [
+      { type: 'url', key: 'webhookUrl', label: 'Webhook URL', required: true },
+    ],
+  },
+})
+```
+
+将来の migration PR がリリースされると、すでに `version` を宣言しているプラグインは自動的に検出パスに乗ります。実際の migration ボディを提供したいプラグインは、その PR がリリースされてから再パブリッシュしてボディを追加する必要があります。`version` を省略したプラグインは引き続き現在の寛容な resolver の挙動のままで変化ありません。
 
 ---
 

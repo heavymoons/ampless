@@ -722,6 +722,80 @@ export interface PluginSettingsManifest {
    * capability warns.
    */
   secret?: readonly PluginSecretField[]
+  /**
+   * Optional manifest shape version (Phase 1 reservation: runtime
+   * no-op).
+   *
+   * Plugin authors bump this integer when they change the shape of
+   * `public` or `secret` field arrays in a way that today's
+   * write/read paths cannot transparently absorb — i.e. when a field
+   * is renamed, when a field's `type` changes incompatibly, or when
+   * a field's semantic meaning shifts (same key + same type but the
+   * value should be re-interpreted).
+   *
+   * **Phase 1 scope**: the field is type-only. The runtime does NOT
+   * read it today, does NOT persist it next to stored values, and
+   * does NOT trigger any migration. Today's behaviour around shape
+   * changes continues to apply, but it differs between `public` and
+   * `secret` because the two travel through entirely different
+   * write/read paths:
+   *
+   *   - `settings.public` goes through `resolvePluginSettings`
+   *     (`packages/ampless/src/plugin-settings.ts`), which iterates
+   *     `manifest.public` and falls back to `field.default` per
+   *     field. So for public fields, additions resolve via `default`,
+   *     deletions become orphan KvStore rows that the resolver
+   *     silently skips, and incompatible type changes fall through
+   *     to `default` when the stored value fails validation.
+   *   - `settings.secret` is never read by `resolvePluginSettings`.
+   *     The admin UI writes individual values through the
+   *     `setPluginSecret` AppSync mutation; trusted hooks read them
+   *     individually by key via `ctx.secret<T>(key)` which goes
+   *     directly to the `PluginSecret` DynamoDB table. There is no
+   *     `manifest.default` fallback for secrets (the type forbids
+   *     `default` on secret fields). Additions show up in the admin
+   *     UI when the manifest changes; removals leave the stored
+   *     ciphertext row orphaned (no resolver runs over it); renames
+   *     and type changes mean the old key's stored row is never
+   *     read again until an operator deletes it manually.
+   *
+   * None of these paths produce a signal to the plugin author.
+   *
+   * **Future migration PR**: may persist the active manifest
+   * version somewhere alongside stored values and may compare it
+   * to `manifest.version` at resolve time to detect mismatch. The
+   * exact storage location, comparison timing, and mismatch
+   * response are all design territory for that future PR — this
+   * reservation fixes the field name and type on the manifest,
+   * nothing more.
+   *
+   * Important scope distinction: this reservation covers the
+   * `version` *field name and type* on `PluginSettingsManifest`
+   * only. The actual migration mechanism (a `migrate` hook, an
+   * admin-driven flow, batch resolve-time-rewrite, etc.) is a
+   * separate design that lands with its own PR. Declaring
+   * `version` today does NOT pre-wire a migration body — when the
+   * future migration PR ships, plugins that want to provide a
+   * migration body will need to re-publish to add it. Existing
+   * plugins that omit `version` are unaffected by this addition;
+   * plugins that want to participate in the future migration
+   * detection path can opt in today by declaring `version: 1`,
+   * instead of having to re-publish later just to add the
+   * version declaration once the migration PR ships. The
+   * migration body itself (and any future `migrate` hook
+   * signature) is NOT reserved by this PR.
+   *
+   * Recommended values: positive integer, start at 1. Declare
+   * `version: 1` when the manifest first gains a `version` field,
+   * then bump by 1 on each shape-breaking release. Do NOT use
+   * `0` / negative numbers / floats — the `number` type accepts
+   * them but the semantics for those values are reserved for the
+   * future migration PR (`0` may be conflated with "no version
+   * declared" / legacy / pre-v1). Skip the field entirely if you
+   * do not care about migration support (the default, current
+   * behaviour).
+   */
+  version?: number
 }
 
 export interface AmplessPlugin {
