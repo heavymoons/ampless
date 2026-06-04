@@ -239,9 +239,28 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 | `writePublicAsset(key, body, contentType)` | S3 `public/plugins/{instanceId ?? name}/{key}` | 公開サイトがフェッチする生成物：RSS、sitemap XML、JSON インデックス | `trusted` 限定。Phase 3 で capability、key validation、namespace 強制を runtime context 層で正式化。IAM grant は引き続き `public/plugins/*` のバケットワイルドカード |
 | `KvStore`（AppSync 経由で admin/editor が書く） | DynamoDB 行 `pk='pluginstate:{plugin}:...'`、TTL 任意 | プラグインがあとで読み直したい小さな状態（カウンタ、最終実行時刻） | 現行 |
 | admin 管理の public settings | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'`、 S3 `public/site-settings.json` にミラー | admin が `/admin/plugins` から編集する値。`publicHead` / `publicBodyEnd` の `ctx.setting<T>(key)` から同期読み出し可能。runtime は毎リクエスト `stored → manifest.default → undefined` の順で解決し、admin form 初期表示は `Admin.loadPluginPublicSettings(instanceId)` から取得する。`loadSiteSettings()` (コアサーフェスに限定) とは独立 | Implemented (Phase 2) |
-| admin 管理の secret settings | `PluginSecret` DDB テーブル（IAM 専用 AppSync 認証 — Cognito グループは直接アクセス不可）。`siteId` + `sk`（`plugins.<instanceId>.<fieldKey>`）で識別。`value` 列は **AES-256-GCM ciphertext**（base64; フォーマット: `IV[12] \|\| ciphertext \|\| authTag[16]`）。暗号化キーは `amplify/secrets/encryption-key.ts`（`npx create-ampless setup-encryption-key` で生成、`amplify/backend.ts` と同じ階層）に保存し、`defineAmplessBackend({ pluginSecretEncryptionKey })` 経由で CDK が Lambda env var `PLUGIN_SECRET_ENCRYPTION_KEY` に注入する — DDB には保存しない。**脅威モデル（Phase 6a v2.2）**: DDB テーブルを読める AWS Console オペレータが見るのは ciphertext のみ（✓ 対策済み）。ソースリポジトリやデプロイアーティファクトへのアクセスがあれば鍵を取得できる（⚠ 対策なし — リポジトリは private に保つか `--gitignore` で鍵を外部配布する）。同じ Lambda プロセス内で動く悪意ある trusted plugin は `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` を読める（✗ 対策なし — per-plugin Lambda 分離はロードマップ）。admin 書き込みパス: admin ブラウザ → `setPluginSecret` / `clearPluginSecret` AppSync mutation → plugin-secret-handler Lambda が検証・env var から鍵取得・暗号化・DDB PutItem → 平文は DDB に保存されずブラウザにも返らない。存在チェック: admin ブラウザは `PluginSecretIndicator`（admin/editor-accessible, `lastSetAt` のみ保持）を読む。hook 側読み取り: `ctx.secret<T>(key)`。初期設定: `npx create-ampless setup-encryption-key` で鍵ファイルを生成してからデプロイ（AWS 認証情報不要）。S3 mirror 経路には流れない。**Dual-write 整合性**: set/clear は 2 テーブルに連続して書く。2 回目の書き込みが失敗すると予測可能な状態が残る — set パス部分失敗は「secret は機能するが indicator なし（UI は「未保存」と誤表示）」; clear パス部分失敗は「indicator が stale だが secret は削除済（UI は「保存済み」と誤表示、secret は実際には発火しない）」。 | 実装済み (Phase 6a + Phase 6a v2.2)。`trust_level: 'trusted'` + `'secretSettings'` capability 必須。 |
+| admin 管理の secret settings | `PluginSecret` DDB テーブル（IAM 専用 AppSync 認証 — Cognito グループは直接アクセス不可）。`sk`（`plugins.<instanceId>.<fieldKey>`）で識別。`value` 列は **AES-256-GCM ciphertext**（base64; フォーマット: `IV[12] \|\| ciphertext \|\| authTag[16]`）。暗号化キーは `amplify/secrets/encryption-key.ts`（`npx create-ampless setup-encryption-key` で生成、`amplify/backend.ts` と同じ階層）に保存し、`defineAmplessBackend({ pluginSecretEncryptionKey })` 経由で CDK が Lambda env var `PLUGIN_SECRET_ENCRYPTION_KEY` に注入する — DDB には保存しない。**脅威モデル（Phase 6a v2.2）**: DDB テーブルを読める AWS Console オペレータが見るのは ciphertext のみ（✓ 対策済み）。ソースリポジトリやデプロイアーティファクトへのアクセスがあれば鍵を取得できる（⚠ 対策なし — リポジトリは private に保つか `--gitignore` で鍵を外部配布する）。同じ Lambda プロセス内で動く悪意ある trusted plugin は `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` を読める（✗ 対策なし — per-plugin Lambda 分離はロードマップ）。admin 書き込みパス: admin ブラウザ → `setPluginSecret` / `clearPluginSecret` AppSync mutation → plugin-secret-handler Lambda が検証・env var から鍵取得・暗号化・DDB PutItem → 平文は DDB に保存されずブラウザにも返らない。存在チェック: admin ブラウザは `PluginSecretIndicator`（admin/editor-accessible, `lastSetAt` のみ保持）を読む。hook 側読み取り: `ctx.secret<T>(key)`。初期設定: `npx create-ampless setup-encryption-key` で鍵ファイルを生成してからデプロイ（AWS 認証情報不要）。S3 mirror 経路には流れない。**Dual-write 整合性**: set/clear は 2 テーブルに連続して書く。2 回目の書き込みが失敗すると予測可能な状態が残る — set パス部分失敗は「secret は機能するが indicator なし（UI は「未保存」と誤表示）」; clear パス部分失敗は「indicator が stale だが secret は削除済（UI は「保存済み」と誤表示、secret は実際には発火しない）」。 | 実装済み (Phase 6a + Phase 6a v2.2)。`trust_level: 'trusted'` + `'secretSettings'` capability 必須。 |
 
 上記以外で `private/plugins/` という S3 プレフィックスも `ampless-plugin-data` テーブルも存在しない。プラグインが private 領域を必要とするケースは、将来 privileged 層が解決する。
+
+### プラグインが所有するデータ領域
+
+プラグインが状態を書き込む場合、以下の 5 領域のいずれかを使用しなければなりません。
+これら以外 — `Post`、`Page`、`Media`、`PostTag` DynamoDB テーブル、`public/site-settings.json` S3 ミラー、他プラグインの namespace — への書き込みは禁止です。現状 runtime が強制しているわけではなく、信頼（および将来の IAM 強化）によって担保されます。
+
+| 領域 | パス / 識別子 | アクセスレベル | Phase |
+|---|---|---|---|
+| KvStore（admin 設定） | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + `untrusted`（AppSync 経由） | Phase 2 |
+| KvStore（runtime 状態/キャッシュ） | DynamoDB `pk='pluginstate:<plugin>:...'`（TTL 任意） | `trusted` + `untrusted`（AppSync 経由） | 現行 |
+| PluginSecret | DynamoDB `PluginSecret` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` 限定（IAM 専用 AppSync 認証） | Phase 6a |
+| PluginSecretIndicator | DynamoDB `PluginSecretIndicator` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + admin/editor（indicator 読み取り） | Phase 6a |
+| S3 プラグイン成果物 | `public/plugins/{instanceId ?? name}/*` | `trusted` 限定（`writePublicAsset`） | Phase 3 |
+
+注記:
+
+- **cleanup は自動ではありません。** `cms.config.ts` からプラグインを外しても、これら 5 領域のデータは自動削除されません。孤立データはオペレータが手動で削除するまで残ります。`uninstall` lifecycle hook（`packages/ampless/src/plugin.ts` の `AmplessPlugin.uninstall` 参照）は、将来の lifecycle-dispatch PR で起動メカニズムを追加するために予約されています。その PR がリリースされるまで、cleanup はオペレータの責任です。
+- **独自 DynamoDB テーブル。** プラグインが ampless スキーマ外に独自の DynamoDB テーブルを持つ場合（サイトローカル CDK construct 経由など）、そのテーブルの lifecycle 管理（アンインストール時の cleanup を含む）はプラグイン著者が完全に責任を持ちます。ampless は外部テーブルを把握しておらず、`uninstall` フック cleanup の IAM grant は上記 5 領域のみをカバーします。
+- **将来の lifecycle-dispatch PR。** その PR がリリースされると、trusted Lambda IAM ポリシーの cleanup grant がこれら 5 領域に限定されます。今日空の `uninstall` ボディを宣言したプラグインは自動的に呼び出しイベントを受け取ります。実際の cleanup ボディを追加するには再パブリッシュが必要です。
 
 ### S3 レイアウト
 
