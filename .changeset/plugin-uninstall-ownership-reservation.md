@@ -31,9 +31,12 @@ Documentation:
   identifier is sk-only after the `siteId` removal; the old row
   still showed `siteId + sk`). A new "Plugin-owned data areas"
   section is added immediately after it, listing the **five**
-  stores plugins are allowed to write to: KvStore
-  `pk='siteconfig', sk='plugins.<instanceId>.<fieldKey>'`, KvStore
-  `pk='pluginstate:<plugin>:...'`, PluginSecret +
+  stores where plugin-owned data may live (the current write paths
+  differ by area — KvStore is written by admin/editor through
+  AppSync rather than by a plugin hook helper; PluginSecret +
+  PluginSecretIndicator + S3 plugin assets are written by the
+  trusted Lambda path): KvStore `pk='siteconfig', sk='plugins.<instanceId>.<fieldKey>'`,
+  KvStore `pk='pluginstate:<plugin>:...'`, PluginSecret +
   PluginSecretIndicator `sk='plugins.<instanceId>.<fieldKey>'`,
   and S3 `public/plugins/{instanceId ?? name}/*`. Everything else
   (Post / Page / Media / PostTag tables, site-settings.json

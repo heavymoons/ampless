@@ -1325,8 +1325,12 @@ describe('webhookPlugin signing', () => {
 
 ## 9b. Where your plugin's data lives
 
-ampless provides five storage areas that a plugin may write to. All other
-areas — the `Post`, `Page`, `Media`, and `PostTag` DynamoDB tables, the
+Plugin-owned data may live in the five storage areas listed below; the
+**current write paths differ by area** — some areas are written only by
+admin/editor through AppSync, others only by the trusted Lambda's hook
+context. Plugin hooks themselves do not have a write helper for every
+area today (see the Access level column). All other areas — the `Post`,
+`Page`, `Media`, and `PostTag` DynamoDB tables, the
 `public/site-settings.json` S3 mirror, and any other plugin's namespace —
 are off-limits. The runtime does not enforce this today; it is a contract
 enforced by trust (and future IAM hardening).

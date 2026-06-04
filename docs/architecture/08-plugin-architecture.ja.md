@@ -245,7 +245,7 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 
 ### プラグインが所有するデータ領域
 
-プラグインが状態を書き込む場合、以下の 5 領域のいずれかを使用しなければなりません。
+プラグインが所有するデータは以下の 5 領域に置かれる可能性があり、**現状の書き込み経路は領域ごとに異なります** — 一部は admin/editor が AppSync 経由で書き、一部は trusted Lambda の hook context から書く形です。プラグインの hook そのものに全領域への write helper があるわけではない点に注意（アクセスレベル列を参照）。
 これら以外 — `Post`、`Page`、`Media`、`PostTag` DynamoDB テーブル、`public/site-settings.json` S3 ミラー、他プラグインの namespace — への書き込みは禁止です。現状 runtime が強制しているわけではなく、信頼（および将来の IAM 強化）によって担保されます。
 
 | 領域 | パス / 識別子 | アクセスレベル | Phase |

@@ -247,10 +247,13 @@ There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If 
 
 ### Plugin-owned data areas
 
-When a plugin writes state, it must use one of the five areas listed below.
-Everything outside these five areas — the `Post`, `Page`, `Media`, and `PostTag`
-DynamoDB tables, the `public/site-settings.json` S3 mirror, and any other
-plugin's namespace — is off-limits. The runtime does not enforce this today;
+Plugin-owned data may live in the five areas listed below; the **current write paths
+differ by area** — some areas are written only by admin/editor through AppSync, some
+only by the trusted Lambda's hook context. Plugin hooks themselves do not have a
+write helper for every area today (see the Access level column). Everything outside
+these five areas — the `Post`, `Page`, `Media`, and `PostTag` DynamoDB tables, the
+`public/site-settings.json` S3 mirror, and any other plugin's namespace — is
+off-limits. The runtime does not enforce this today;
 it is a contract enforced by trust (and future IAM hardening).
 
 | Area | Path / identifier | Access level | Phase |
