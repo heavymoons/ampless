@@ -268,7 +268,12 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 
 ### settings の形状変化（Phase 1 予約）
 
-`PluginSettingsManifest.version?: number` は予約済みです。現状 runtime はこのフィールドを読みません。settings の形状変化は寛容な `resolvePluginSettings` が吸収します（フィールド追加は `default` から解決、削除は silent orphan に、型変更は検証失敗時に `default` へフォールバック）。この予約は、将来の migration PR が resolve 時に「manifest の version vs ストレージの version」のミスマッチを検出できるようにするためのものです。ミスマッチ時の実際の migration メカニズムはその future PR の設計領域です。将来の検出パスに参加したいプラグイン著者は、今日から `version: 1` を宣言しておくことができます。
+`PluginSettingsManifest.version?: number` は予約済みです。現状 runtime はこのフィールドを読みません。形状変化は silently 吸収されますが、実際の挙動は `public` と `secret` で異なります。両者は完全に別の write/read パスを使っているためです:
+
+- **`settings.public`** は `resolvePluginSettings`（[packages/ampless/src/plugin-settings.ts](../../packages/ampless/src/plugin-settings.ts)）から読まれます。`manifest.public` のみをイテレートし、field ごとに `field.default` にフォールバックします。フィールド追加は `default` から解決、削除は KvStore に orphan row として残り resolver が silently skip、型変更は検証失敗時に `default` へフォールバック。
+- **`settings.secret`** は `resolvePluginSettings` から一切読まれません。admin UI が `setPluginSecret` AppSync mutation 経由で値を 1 つずつ書き（`plugin-secret-handler` Lambda が暗号化して `PluginSecret` に格納）、trusted hook が `ctx.secret<T>(key)` で key 単位で直接 `PluginSecret` から復号読み取りします。`PluginSecretField` 型は `default` を持てません（型レベル禁止）。manifest レベルのフォールバックは存在しません。フィールド削除では暗号化された orphan row が残り、どの resolver も走らない（operator が手動で cleanup する領域）。改名では旧 key の ciphertext が orphan になり、admin が新 key で値を入れ直す必要があります。型変更は admin write 時の validation のみに影響し、既存の ciphertext は read 時には影響を受けません。
+
+この予約は、将来の migration PR が「manifest の version vs ストレージの version」のミスマッチを検出して反応できるようにするためのものです。version の保存先、比較タイミング、ミスマッチ時の挙動はすべてその future PR の設計領域であり、その PR は public 側の resolver パスと secret 側の direct-read パスの両方をカバーする必要があります。将来の検出パスに参加したいプラグイン著者は、今日から `version: 1` を宣言しておくことができます。
 
 ### S3 レイアウト
 

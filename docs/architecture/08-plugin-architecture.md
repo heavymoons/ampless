@@ -294,7 +294,12 @@ Notes:
 
 ### Settings shape evolution (Phase 1 reservation)
 
-`PluginSettingsManifest.version?: number` is reserved. Today the runtime does not read it — settings shape changes are absorbed by the lenient `resolvePluginSettings` (field additions use `default`, removals become silent orphans, type changes fall through to `default` on validation failure). The reservation exists so a future migration PR may detect manifest-vs-storage version mismatch at resolve time; the exact migration mechanism that runs on mismatch is design territory for that future PR. Plugin authors who want to be on the future detection path can start declaring `version: 1` today.
+`PluginSettingsManifest.version?: number` is reserved. Today the runtime does not read it; shape changes are absorbed silently, but the actual behaviour differs between `public` and `secret` fields because they travel through entirely different write/read paths:
+
+- **`settings.public`** is read by `resolvePluginSettings` ([packages/ampless/src/plugin-settings.ts](../../packages/ampless/src/plugin-settings.ts)), which iterates `manifest.public` and falls back to `field.default` per field. Field additions resolve via `default`, deletions become orphan KvStore rows that the resolver silently skips, type changes fall through to `default` on validation failure.
+- **`settings.secret`** is never read by `resolvePluginSettings`. Values are written individually through the `setPluginSecret` AppSync mutation (admin → `plugin-secret-handler` Lambda → encrypted into `PluginSecret`) and read individually by key via `ctx.secret<T>(key)` directly from `PluginSecret`. The `PluginSecretField` type forbids `default` — there is no manifest-level fallback. Field deletions leave an encrypted orphan row that no resolver walks over (operator-cleanup territory); renames orphan the old key's ciphertext and require the admin to re-enter the value under the new key; type changes only affect admin write-time validation, never the existing ciphertext on read.
+
+The reservation exists so a future migration PR may detect manifest-vs-storage version mismatch and react to it. The exact storage location for the version, the comparison timing, and the mismatch response are all design territory for that future PR — and that PR will need to cover both the public-side resolver path and the secret-side direct-read path. Plugin authors who want to be on the future detection path can start declaring `version: 1` today.
 
 ### S3 Layout
 

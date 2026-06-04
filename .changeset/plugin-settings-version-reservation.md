@@ -11,9 +11,21 @@ Type changes:
   field. The runtime does NOT read this today; declaring it is a
   forward-compatibility hint for when a future migration PR adds
   the version-comparison mechanism. Plugins that omit the field
-  continue with the current lenient-resolver behaviour (field
-  additions resolve via `default`, removals become orphan rows,
-  type changes fall through to `default` on validation failure).
+  see no change to today's behaviour, which differs by field
+  family:
+    - `settings.public` is absorbed by the lenient
+      `resolvePluginSettings` — field additions resolve via
+      `default`, deletions become orphan KvStore rows that the
+      resolver silently skips, type changes fall through to
+      `default` on validation failure.
+    - `settings.secret` is never read by `resolvePluginSettings`;
+      values flow through the `setPluginSecret` AppSync mutation
+      and are read individually via `ctx.secret<T>(key)`. The
+      `PluginSecretField` type forbids `default`, so there is no
+      manifest-level fallback. Field deletions leave encrypted
+      orphan rows in `PluginSecret` that no resolver walks over;
+      renames orphan the old key's ciphertext; type changes only
+      affect admin write-time validation.
   Recommended values: positive integer, start at 1. The future
   migration PR may reserve special semantics for `0` / undefined
   (legacy / pre-v1), so plugin authors should not use `0`.
