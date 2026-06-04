@@ -279,11 +279,20 @@ runtime がチェックする内容:
 
 3 階層、選択基準は **イベントフック (hooks) が何を必要とするか** で決まります (sync サーフェスは IAM に触れない):
 
-| 階層 | IAM | 用途 |
-|---|---|---|
-| `untrusted` | なし (SQS consume のみ) | head/body descriptor、webhook 配送、コンテンツ変換 |
-| `trusted` | 投稿読み出し、`public/plugins/<instanceId ?? name>/...` への書き込み | RSS フィード、sitemap、計算済み JSON インデックス |
-| `privileged` | 予約 | 将来: SES、secret、private S3 |
+| 階層 | IAM | 今日動くもの | 用途 |
+|---|---|---|---|
+| `untrusted` | なし (SQS consume のみ) | 同期サーフェス + イベントフック | head/body descriptor、webhook 配送、コンテンツ変換 |
+| `trusted` | 投稿読み出し、`public/plugins/<instanceId ?? name>/...` への書き込み | 同期サーフェス + イベントフック | RSS フィード、sitemap、計算済み JSON インデックス |
+| `privileged` | 予約 | 同期サーフェスのみ — イベントフックはサイレントフィルタ（警告ログあり） | 将来: SES、secret、private S3 |
+
+> **`privileged` プラグイン作者へ：** `trust_level: 'privileged'` とイベント
+> `hooks` を宣言した場合、**現時点でフックは実行されません**。両 processor が
+> privileged プラグインをフィルタアウトし、一致する SQS イベントごとに
+> `console.warn` を出力するため、サイレントドロップは可視化されます。
+> 同期サーフェス（`publicHead`、`publicBodyEnd`、`metadata`、`publicBodyForPost`、
+> `publicHtmlForPost`）は `trust_level` に関わらず正常に動き、警告も出ません。
+> privileged Lambda が用意された際、`'privileged'` を宣言済みのプラグインは
+> 自動的に新しい tier を使えるようになります — コードの変更は不要です。
 
 決め方の目安:
 
@@ -291,7 +300,7 @@ runtime がチェックする内容:
 - **hooks から投稿を読みたい (publish 時にフィードを再生成等)** → `trusted`
 - **`public/plugins/*` 以外への S3 PutObject や他の AWS API が必要** → 今はプラグインで ship せず、privileged 層を待つかプラグイン外で実装
 
-trust level がズレているプラグインは「権限不足で sliently fail」または「不要に強い権限を持つ」のどちらか。階層を切り替えて再デプロイすれば直ります。
+trust level がズレているプラグインは「権限不足でサイレントに fail」または「不要に強い権限を持つ」のどちらか。階層を切り替えて再デプロイすれば直ります。
 
 ---
 

@@ -1,6 +1,7 @@
 ---
 "ampless": minor
 "@ampless/backend": minor
+"create-ampless": patch
 ---
 
 Make `trust_level: 'privileged'` plugins visible (Phase 1 reservation).
