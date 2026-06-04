@@ -16,6 +16,13 @@
  * Format: `YYYY-MM-DDTHH:mm`
  *
  * Returns `''` for empty, undefined, or invalid input.
+ *
+ * Note: the field is minute precision (`datetime-local`), so a value
+ * the user actually edits is persisted at minute precision. To avoid
+ * a no-op / unrelated edit silently truncating an existing value's
+ * seconds/ms (which would also shift the public sort key), saving goes
+ * through `resolvePublishedAtForSave`, which preserves the existing
+ * value verbatim when the field was not touched.
  */
 export function isoToLocalInput(iso?: string): string {
   if (!iso) return ''
@@ -85,6 +92,56 @@ export function resolvePublishedAt({
   if (status === 'published') return existing ?? new Date().toISOString()
   // draft — preserve whatever was there
   return existing
+}
+
+// ---------------------------------------------------------------------------
+// resolvePublishedAtForSave
+// ---------------------------------------------------------------------------
+
+export interface ResolvePublishedAtForSaveOpts {
+  /** The status the post is being saved with. */
+  status: 'draft' | 'published'
+  /** Current `<input type="datetime-local">` value. */
+  currentInput: string
+  /**
+   * The field's initial value at mount, i.e. `isoToLocalInput(existing)`.
+   * Used to detect whether the user actually edited the field.
+   */
+  initialInput: string
+  /** The post's current persisted `publishedAt`, if any. */
+  existing?: string
+}
+
+/**
+ * Decide the `publishedAt` to persist from raw form state.
+ *
+ * The key property: when the user did NOT touch the field
+ * (`currentInput === initialInput`), the existing value is preserved
+ * **verbatim** — including any sub-minute precision. This keeps an
+ * unrelated edit (or a no-op save) from silently rewriting publishedAt
+ * (and shifting the public sort key / scheduled time).
+ *
+ * When the field WAS edited, the new value is used at the field's minute
+ * precision (an empty field falls back to the status default: stamp now
+ * for a first publish, preserve existing for draft).
+ */
+export function resolvePublishedAtForSave({
+  status,
+  currentInput,
+  initialInput,
+  existing,
+}: ResolvePublishedAtForSaveOpts): string | undefined {
+  const touched = currentInput !== initialInput
+  if (!touched) {
+    // Field untouched: keep the stored value exactly (or apply the
+    // first-publish default when there is nothing stored yet).
+    return resolvePublishedAt({ status, inputIso: undefined, existing })
+  }
+  return resolvePublishedAt({
+    status,
+    inputIso: localInputToIso(currentInput),
+    existing,
+  })
 }
 
 // ---------------------------------------------------------------------------

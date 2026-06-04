@@ -32,8 +32,7 @@ import {
 import { useT } from './i18n-provider.js'
 import {
   isoToLocalInput,
-  localInputToIso,
-  resolvePublishedAt,
+  resolvePublishedAtForSave,
   isFuture,
 } from '../lib/post-published-at.js'
 
@@ -111,6 +110,18 @@ export function PostForm({ post }: PostFormProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+
+  // The field's value at mount, used to detect whether the user edited
+  // publishedAt. When untouched, `resolvePublishedAtForSave` preserves the
+  // stored value verbatim so an unrelated edit never rewrites publishedAt
+  // (which would shift the public sort key) nor truncates its precision.
+  const initialPublishedAtInput = isoToLocalInput(post?.publishedAt)
+  const resolvedPublishedAt = resolvePublishedAtForSave({
+    status,
+    currentInput: publishedAtInput,
+    initialInput: initialPublishedAtInput,
+    existing: post?.publishedAt,
+  })
 
   // Pending bundle for static posts. Held in memory until save so the
   // user can cancel without leaving an orphan upload in S3. On save,
@@ -277,11 +288,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: resolvePublishedAt({
-            status,
-            inputIso: localInputToIso(publishedAtInput),
-            existing: post?.publishedAt,
-          }),
+          publishedAt: resolvedPublishedAt,
           tags,
           metadata,
         })
@@ -293,11 +300,7 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: resolvePublishedAt({
-            status,
-            inputIso: localInputToIso(publishedAtInput),
-            existing: undefined,
-          }),
+          publishedAt: resolvedPublishedAt,
           tags,
           metadata,
         })
@@ -330,14 +333,6 @@ export function PostForm({ post }: PostFormProps) {
       setSaving(false)
     }
   }
-
-  // Resolved publishedAt for both preview and save — computed once so
-  // both uses are consistent.
-  const resolvedPublishedAt = resolvePublishedAt({
-    status,
-    inputIso: localInputToIso(publishedAtInput),
-    existing: post?.publishedAt,
-  })
 
   // Build a Post-like object for preview-time rendering. Fields the
   // current form state owns; everything else falls back to either the
@@ -561,7 +556,7 @@ export function PostForm({ post }: PostFormProps) {
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         />
         <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
-        {status === 'published' && isFuture(localInputToIso(publishedAtInput)) && (
+        {status === 'published' && isFuture(resolvedPublishedAt) && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             {t('posts.form.scheduledNotice', { date: publishedAtInput })}
           </p>

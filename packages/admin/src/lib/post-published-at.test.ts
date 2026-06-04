@@ -17,6 +17,7 @@ import {
   isoToLocalInput,
   localInputToIso,
   resolvePublishedAt,
+  resolvePublishedAtForSave,
   isFuture,
 } from './post-published-at.js'
 
@@ -166,6 +167,98 @@ describe('resolvePublishedAt', () => {
       existing: undefined,
     })
     expect(result).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolvePublishedAtForSave
+// ---------------------------------------------------------------------------
+
+describe('resolvePublishedAtForSave', () => {
+  it('untouched field preserves the existing value VERBATIM (keeps sub-minute precision)', () => {
+    // The whole point: a no-op / unrelated edit must not truncate or shift
+    // publishedAt. currentInput === initialInput → return existing as-is.
+    const existing = '2026-06-04T09:00:30.123Z'
+    const result = resolvePublishedAtForSave({
+      status: 'published',
+      currentInput: '2026-06-04T09:00',
+      initialInput: '2026-06-04T09:00',
+      existing,
+    })
+    expect(result).toBe(existing)
+  })
+
+  it('untouched draft preserves existing verbatim too', () => {
+    const existing = '2026-06-04T09:00:30.123Z'
+    const result = resolvePublishedAtForSave({
+      status: 'draft',
+      currentInput: '2026-06-04T09:00',
+      initialInput: '2026-06-04T09:00',
+      existing,
+    })
+    expect(result).toBe(existing)
+  })
+
+  it('edited field uses the new value at minute precision', () => {
+    const result = resolvePublishedAtForSave({
+      status: 'published',
+      currentInput: '2026-06-04T09:05',
+      initialInput: '2026-06-04T09:00',
+      existing: '2026-06-04T09:00:30.123Z',
+    })
+    expect(result).toBeDefined()
+    expect(result!.endsWith('Z')).toBe(true)
+    // Round-trips back to the edited minute value (tz-independent check).
+    expect(isoToLocalInput(result)).toBe('2026-06-04T09:05')
+    // And it is NOT the old existing value.
+    expect(result).not.toBe('2026-06-04T09:00:30.123Z')
+  })
+
+  it('cleared field (touched to empty) falls back to existing for published', () => {
+    const existing = '2026-06-04T09:00:30.123Z'
+    const result = resolvePublishedAtForSave({
+      status: 'published',
+      currentInput: '',
+      initialInput: '2026-06-04T09:00',
+      existing,
+    })
+    expect(result).toBe(existing)
+  })
+
+  it('new published post with empty untouched field stamps now', () => {
+    const before = Date.now()
+    const result = resolvePublishedAtForSave({
+      status: 'published',
+      currentInput: '',
+      initialInput: '',
+      existing: undefined,
+    })
+    const after = Date.now()
+    expect(result).toBeDefined()
+    const ts = new Date(result!).getTime()
+    expect(ts).toBeGreaterThanOrEqual(before)
+    expect(ts).toBeLessThanOrEqual(after)
+  })
+
+  it('new draft post with empty untouched field stays undefined', () => {
+    const result = resolvePublishedAtForSave({
+      status: 'draft',
+      currentInput: '',
+      initialInput: '',
+      existing: undefined,
+    })
+    expect(result).toBeUndefined()
+  })
+
+  it('new post with an entered date uses it', () => {
+    const result = resolvePublishedAtForSave({
+      status: 'published',
+      currentInput: '2026-12-25T00:00',
+      initialInput: '',
+      existing: undefined,
+    })
+    expect(result).toBeDefined()
+    expect(isoToLocalInput(result)).toBe('2026-12-25T00:00')
   })
 })
 
