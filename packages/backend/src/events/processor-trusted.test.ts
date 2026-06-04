@@ -344,6 +344,73 @@ describe('createProcessorTrustedHandler writePublicAsset', () => {
 })
 
 // ---------------------------------------------------------------------------
+// PluginHookResult return value reservation (Phase 1 no-op)
+// ---------------------------------------------------------------------------
+
+describe('createProcessorTrustedHandler hook return value handling', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    pluginSecretRows.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('runtime ignores hook return value: PluginHookResult-returning hook produces the same side-effects as a void-returning hook', async () => {
+    // Both runs use the same plugin name/instanceId so the S3 key is
+    // identical — what we are isolating is the effect (or non-effect)
+    // of the return value alone.
+    const sharedName = 'hook-return-comparison'
+
+    // void-returning hook (baseline)
+    const voidHandler = createProcessorTrustedHandler({
+      site,
+      plugins: [
+        writerPlugin({
+          name: sharedName,
+          hooks: {
+            'content.published': async (_evt, ctx) => {
+              await ctx.writePublicAsset('feed.xml', 'ok', 'application/xml')
+            },
+          },
+        }),
+      ],
+    })
+    await voidHandler(event(), {} as never, vi.fn() as never)
+    const voidCommands = [...s3Commands]
+
+    // Reset commands and run the PluginHookResult-returning variant.
+    s3Commands.length = 0
+
+    const resultHandler = createProcessorTrustedHandler({
+      site,
+      plugins: [
+        writerPlugin({
+          name: sharedName,
+          hooks: {
+            'content.published': async (_evt, ctx) => {
+              await ctx.writePublicAsset('feed.xml', 'ok', 'application/xml')
+              // Phase 1: runtime accepts but ignores the return value.
+              return {}
+            },
+          },
+        }),
+      ],
+    })
+    await resultHandler(event(), {} as never, vi.fn() as never)
+
+    // Both hooks produced identical S3 side-effects — the return value
+    // does not alter behaviour today.
+    expect(s3Commands).toHaveLength(voidCommands.length)
+    expect(s3Commands[0]?.input.Key).toBe(voidCommands[0]?.input.Key)
+    expect(s3Commands[0]?.input.Body).toBe(voidCommands[0]?.input.Body)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // ctx.secret — PluginSecret DDB read
 // ---------------------------------------------------------------------------
 

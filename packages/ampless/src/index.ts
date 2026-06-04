@@ -52,6 +52,7 @@ export { validatePublicAssetKey } from './plugin-asset-key.js'
 export type {
   AmplessPlugin,
   PluginEventHandler,
+  PluginHookResult,
   PluginMetadata,
   PluginRuntimeContext,
   TrustedPluginRuntimeContext,

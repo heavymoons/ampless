@@ -333,10 +333,52 @@ export interface PluginMetadata {
   }
 }
 
+/**
+ * Hook return value reservation (Phase 1: type only, runtime no-op).
+ *
+ * Today's runtime (after-event SQS Lambdas) ignores the return value
+ * entirely. The type is widened so a future PR can land additive
+ * directives without breaking plugin authors who publish in the
+ * meantime. Likely first use case:
+ *
+ *   - `metrics?: Record<string, number>` — emit observability data
+ *     without touching CloudWatch SDK directly from the plugin.
+ *
+ * `cancel` / `post` rewrite-style directives are NOT enabled by this
+ * type alone — they would also require `before:*` events to be wired
+ * to plugins (currently reserved, see events.ts) and payload shapes
+ * to expose mutable bodies. This PR widens the return surface only;
+ * richer semantics need follow-on PRs.
+ *
+ * The `readonly __amplessPluginHookResult?: never` marker is a
+ * type-level nominal tag: it prevents `Promise<void | PluginHookResult>`
+ * from silently accepting unrelated promise types like
+ * `Promise<string>` or `Promise<number>`. Plugin authors do not need
+ * to set this field — it is optional and exists only to constrain
+ * what the union accepts.
+ */
+export interface PluginHookResult {
+  readonly __amplessPluginHookResult?: never
+}
+
+/**
+ * Async event hook handler.
+ *
+ * The return value is reserved (see `PluginHookResult`). Today's
+ * runtime ignores it — returning `undefined` (`Promise<void>`) is
+ * the canonical "no-op" and matches existing plugin code without
+ * migration. Plugins that explicitly return a `PluginHookResult`
+ * object type-check today but do not change runtime behaviour
+ * until the matching capability PR lands.
+ *
+ * Non-PluginHookResult promise types (`Promise<string>`,
+ * `Promise<number>`, etc.) are rejected at compile time by the
+ * `__amplessPluginHookResult` private marker on `PluginHookResult`.
+ */
 export type PluginEventHandler<T extends EventType = EventType> = (
   event: AmplessEvent<T>,
   ctx: PluginRuntimeContext
-) => Promise<void>
+) => Promise<void | PluginHookResult>
 
 /**
  * Runtime services injected into hook handlers by the Lambda processor.
