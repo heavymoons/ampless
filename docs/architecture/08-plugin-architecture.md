@@ -153,7 +153,14 @@ The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than p
 
 #### `privileged`
 
-Reserved. The contract accepts `trust_level: 'privileged'` but no privileged Lambda is provisioned yet. The intended shape:
+Type reserved — the contract accepts `trust_level: 'privileged'` today, but no privileged Lambda is provisioned yet. Current runtime behaviour:
+
+- **Event hooks (`hooks`)**: both event processors (`processor-trusted` and `processor-untrusted`) silently filter out privileged plugins — hooks never execute. As of this phase, `definePlugin()` and both processors emit a `console.warn` when a privileged plugin declares `hooks` or the `'eventHooks'` capability, so the silent drop is visible at cold start, `next dev` start, and on every matching SQS event. The warning fires twice per event by design (once per processor), which itself signals that the hook is being filtered by every dispatch path.
+- **Sync render surfaces** (`publicHead` / `publicBodyEnd` / `metadata` / `publicBodyForPost` / `publicHtmlForPost`): these run in the public Next.js process and are **not gated on `trust_level`** — privileged plugins that only implement sync surfaces work normally today with no warning.
+
+**If you declare `trust_level: 'privileged'` with event hooks today, your hooks WILL NOT EXECUTE.** The type accepts it so that plugins can declare future intent; the warning serves as the signal until the privileged Lambda is provisioned.
+
+The intended future shape once a real privileged plugin requires it:
 
 - One Lambda per privileged plugin.
 - Plugin declares a capability list; CDK assembles an IAM policy from that list.

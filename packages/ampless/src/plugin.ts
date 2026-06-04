@@ -872,5 +872,19 @@ export function definePlugin(p: AmplessPlugin): AmplessPlugin {
       )
     }
   }
+  if (p.trust_level === 'privileged') {
+    const hasHooks =
+      (p.hooks && Object.keys(p.hooks).length > 0) ||
+      (p.capabilities?.includes('eventHooks') ?? false)
+    if (hasHooks) {
+      console.warn(
+        `[ampless] Plugin "${p.name}" declares trust_level: 'privileged' with event hooks, ` +
+          `but no privileged Lambda is provisioned yet. Hooks will not execute. ` +
+          `Sync render surfaces (publicHead / metadata / publicBodyForPost / etc.) ` +
+          `work normally regardless of trust_level. See ` +
+          `docs/architecture/08-plugin-architecture.md#trust-levels for the future plan.`
+      )
+    }
+  }
   return p
 }

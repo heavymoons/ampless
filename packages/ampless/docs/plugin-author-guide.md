@@ -341,11 +341,22 @@ Three tiers, picked by what the plugin needs to do **inside
 event hooks** (the sync surfaces — metadata, head, body — don't
 touch IAM):
 
-| Tier | IAM | Used by |
-|---|---|---|
-| `untrusted` | none (SQS consume only) | head/body descriptors, webhook delivery, content transforms |
-| `trusted` | read posts, write `public/plugins/<instanceId ?? name>/...` | RSS feed, sitemap, computed JSON indexes |
-| `privileged` | reserved | future: SES, secrets, private S3 |
+| Tier | IAM | What runs today | Used by |
+|---|---|---|---|
+| `untrusted` | none (SQS consume only) | sync surfaces + event hooks | head/body descriptors, webhook delivery, content transforms |
+| `trusted` | read posts, write `public/plugins/<instanceId ?? name>/...` | sync surfaces + event hooks | RSS feed, sitemap, computed JSON indexes |
+| `privileged` | reserved | sync surfaces only — event hooks are silently filtered out (warning logged) | future: SES, secrets, private S3 |
+
+> **Warning for `privileged` plugin authors:** If you declare
+> `trust_level: 'privileged'` with event `hooks` today, **your hooks
+> WILL NOT EXECUTE**. Both event processors filter out privileged
+> plugins and emit a `console.warn` on every matching SQS event so
+> the drop is visible. Sync render surfaces (`publicHead`,
+> `publicBodyEnd`, `metadata`, `publicBodyForPost`, `publicHtmlForPost`)
+> work normally regardless of `trust_level` and emit no warning.
+> When the privileged Lambda provisioning PR lands, plugins that
+> already declared `'privileged'` will automatically pick up the new
+> tier — nothing needs to change in your code.
 
 Rule of thumb:
 
