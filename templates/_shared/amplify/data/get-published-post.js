@@ -8,6 +8,13 @@ import { util } from '@aws-appsync/utils'
 //
 // Drafts are dropped in the response handler. If draft + published
 // somehow share a slug we prefer the published row.
+//
+// Scheduled-publish: a `published` post is visible only when its
+// publishedAt is absent (= immediate) OR <= now (= already live).
+// When publishedAt is present and in the future the post is treated as
+// "not yet live" and is hidden from the public site. This check is
+// server-authoritative: the AppSync resolver enforces it on every read
+// without relying on any client-side filtering.
 export function request(ctx) {
   const slug = ctx.args.slug
   return {
@@ -25,6 +32,11 @@ export function request(ctx) {
 export function response(ctx) {
   if (ctx.error) util.error(ctx.error.message, ctx.error.type)
   const items = ctx.result.items ?? []
-  const published = items.find((i) => i.status === 'published')
+  const now = util.time.nowISO8601()
+  // Hide a published post only when publishedAt exists AND is in the future
+  // (scheduled). Missing publishedAt = immediate publish.
+  const published = items.find(
+    (i) => i.status === 'published' && (!i.publishedAt || i.publishedAt <= now)
+  )
   return published ?? null
 }

@@ -5,6 +5,7 @@ import {
 } from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
+import { normalizePublishedAt } from './published-at.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -79,8 +80,12 @@ export async function createPost(
   const postId =
     args.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const status = args.status ?? 'draft'
-  const publishedAt =
-    args.publishedAt ?? (status === 'published' ? new Date().toISOString() : undefined)
+  // Normalize an explicit publishedAt to canonical UTC Z form (required for
+  // lexical GSI sort + AppSync resolver `<= now` comparison). When none is
+  // provided, default to now for published posts; leave undefined for drafts.
+  const publishedAt = args.publishedAt !== undefined
+    ? normalizePublishedAt(args.publishedAt)
+    : (status === 'published' ? new Date().toISOString() : undefined)
 
   const data = await client.query<{
     createPost: Parameters<typeof toCorePost>[0]

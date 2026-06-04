@@ -717,6 +717,71 @@ nothing races against hydration.
 
 ---
 
+## 6a. Scheduled posts and content events
+
+ampless supports **scheduled publishing**: a post with `status:
+'published'` and a future `publishedAt` is hidden from all public
+reads until that time. Once `publishedAt` arrives, the post becomes
+visible within the site's natural cache window (≤ ~5 minutes by
+default) — there is no exact-time trigger.
+
+### Events fire at save time, not at `publishedAt`
+
+`content.published` (and `content.updated`) are emitted via DynamoDB
+Streams **when the post is saved**, not when `publishedAt` arrives.
+This means a plugin that reacts to `content.published` will run
+**before the post is publicly visible** when the post is future-dated.
+
+For trusted plugins that rebuild public assets from the current post
+list (RSS, sitemap, JSON indexes), this is harmless — `listPublishedPosts()`
+already filters out future-dated posts, so the regenerated asset
+simply omits the scheduled post until it goes live.
+
+For **outbound-notification plugins** (webhook, push notification,
+social post) the early fire matters: the notification will be
+delivered to subscribers while the post URL still returns 404 or
+redirects to the home page.
+
+### Recommended pattern: gate on `publishedAt`
+
+Check `event.payload.publishedAt` before dispatching. Skip or defer
+when the post is future-dated:
+
+```ts
+hooks: {
+  async 'content.published'(event, ctx) {
+    const { publishedAt } = event.payload
+
+    // Skip notification for future-scheduled posts. The event fires
+    // at save time, but the post won't be public until publishedAt.
+    if (publishedAt && new Date(publishedAt) > new Date()) {
+      return
+    }
+
+    // Post is live now — safe to notify.
+    await sendWebhook(event.payload, ctx)
+  },
+}
+```
+
+The `publishedAt` value in the event payload is a UTC ISO 8601 string
+(`...Z`). Parse it with `new Date()` or your preferred date library
+before comparing against `Date.now()`.
+
+### Future work
+
+Aligning event emission with the scheduled time — so `content.published`
+fires at `publishedAt` rather than at save time — is a planned
+enhancement. It requires a scheduler component (EventBridge Scheduler
+or a DynamoDB TTL-triggered Lambda) and is not yet in scope for the
+current release. Until then, the pattern above is the recommended
+guard for notification plugins.
+
+For a full description of `publishedAt` semantics from the operator's
+perspective, see [`docs/scheduled-publishing.md`](https://github.com/heavymoons/ampless/blob/main/docs/scheduled-publishing.md).
+
+---
+
 ## 7. Async event hooks
 
 `hooks` runs inside the trust_level-matched processor Lambda when an

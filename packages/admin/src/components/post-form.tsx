@@ -30,6 +30,12 @@ import {
   type ExtractedFile,
 } from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
+import {
+  isoToLocalInput,
+  localInputToIso,
+  resolvePublishedAt,
+  isFuture,
+} from '../lib/post-published-at.js'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -101,6 +107,7 @@ export function PostForm({ post }: PostFormProps) {
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
+  const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
@@ -270,8 +277,11 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt:
-            status === 'published' ? (post?.publishedAt ?? new Date().toISOString()) : undefined,
+          publishedAt: resolvePublishedAt({
+            status,
+            inputIso: localInputToIso(publishedAtInput),
+            existing: post?.publishedAt,
+          }),
           tags,
           metadata,
         })
@@ -283,7 +293,11 @@ export function PostForm({ post }: PostFormProps) {
           format,
           body: nextBody,
           status,
-          publishedAt: status === 'published' ? new Date().toISOString() : undefined,
+          publishedAt: resolvePublishedAt({
+            status,
+            inputIso: localInputToIso(publishedAtInput),
+            existing: undefined,
+          }),
           tags,
           metadata,
         })
@@ -317,6 +331,14 @@ export function PostForm({ post }: PostFormProps) {
     }
   }
 
+  // Resolved publishedAt for both preview and save — computed once so
+  // both uses are consistent.
+  const resolvedPublishedAt = resolvePublishedAt({
+    status,
+    inputIso: localInputToIso(publishedAtInput),
+    existing: post?.publishedAt,
+  })
+
   // Build a Post-like object for preview-time rendering. Fields the
   // current form state owns; everything else falls back to either the
   // existing post (on edit) or sensible defaults.
@@ -328,10 +350,7 @@ export function PostForm({ post }: PostFormProps) {
     format,
     body,
     status,
-    publishedAt:
-      status === 'published'
-        ? (post?.publishedAt ?? new Date().toISOString())
-        : undefined,
+    publishedAt: resolvedPublishedAt,
     tags: parseTags(tagsInput),
   }
 
@@ -530,6 +549,23 @@ export function PostForm({ post }: PostFormProps) {
           <option value="draft">{t('common.draft')}</option>
           <option value="published">{t('common.published')}</option>
         </select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="publishedAt">{t('posts.form.publishedAt')}</Label>
+        <input
+          id="publishedAt"
+          type="datetime-local"
+          value={publishedAtInput}
+          onChange={(e) => setPublishedAtInput(e.target.value)}
+          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+        />
+        <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
+        {status === 'published' && isFuture(localInputToIso(publishedAtInput)) && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            {t('posts.form.scheduledNotice', { date: publishedAtInput })}
+          </p>
+        )}
       </div>
 
       {format === 'html' && (

@@ -5,6 +5,8 @@ import {
 } from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
+import { normalizePublishedAt } from './published-at.js'
+import { getPost } from './get-post.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -80,9 +82,25 @@ export async function updatePost(
   if (args.format !== undefined) input.format = args.format
   if (args.body !== undefined) input.body = encodeAwsJson(args.body)
   if (args.status !== undefined) input.status = args.status
-  if (args.publishedAt !== undefined) input.publishedAt = args.publishedAt
+  // Normalize an explicit publishedAt to canonical UTC Z form so the GSI
+  // sort and AppSync `<= now` comparisons use fixed-width lexical ordering.
+  if (args.publishedAt !== undefined) {
+    input.publishedAt = normalizePublishedAt(args.publishedAt)
+  }
   if (args.tags !== undefined) input.tags = args.tags
   if (args.metadata !== undefined) input.metadata = encodeAwsJson(args.metadata)
+
+  // Read-then-fill: when transitioning to `published` without an explicit
+  // publishedAt, ensure the row always carries one (required for the GSI
+  // sort key and AppSync resolver visibility check). Fetch the existing row
+  // and fill now only if it has no publishedAt yet. Never overwrite an
+  // existing publishedAt (e.g. a scheduled future date the caller set earlier).
+  if (args.status === 'published' && args.publishedAt === undefined) {
+    const existing = await getPost(client, { postId: args.postId })
+    if (existing && !existing.publishedAt) {
+      input.publishedAt = new Date().toISOString()
+    }
+  }
 
   const data = await client.query<{
     updatePost: Parameters<typeof toCorePost>[0]

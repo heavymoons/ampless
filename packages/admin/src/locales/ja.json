@@ -94,6 +94,9 @@
         "noBundle": "保存前にバンドルを選択してください。",
         "previewHint": "Static バンドルは /<slug>/ から実 HTML として配信されます。保存後に公開 URL を開いて確認してください。"
       },
+      "publishedAt": "公開日時",
+      "publishedAtHint": "記事が公開される日時。空欄の場合は公開時の現在日時が使われます。未来の日時を設定すると予約公開になります。",
+      "scheduledNotice": "予約公開 — {date} まで非表示です。",
       "saveChanges": "変更を保存",
       "createPost": "記事を作成",
       "delete": "削除",

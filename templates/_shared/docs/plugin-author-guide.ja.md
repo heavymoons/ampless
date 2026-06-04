@@ -565,6 +565,49 @@ React 19 はさらに、クライアントコンポーネントのレンダー�
 
 ---
 
+## 6a. 予約投稿とコンテンツイベント
+
+ampless は**予約投稿**をサポートしています。`status: 'published'` かつ `publishedAt` が未来の投稿は、その時刻まで公開読み出しから隠されます。`publishedAt` を過ぎると、サイトの自然なキャッシュ有効期限（デフォルト ≤ ~5 分）の範囲内で公開されます — 秒単位の正確なトリガーはありません。
+
+### イベントは保存時に発火する（`publishedAt` のタイミングではない）
+
+`content.published`（および `content.updated`）は DynamoDB Streams 経由で**投稿が保存されたとき**に emit されます。`publishedAt` が到来したときではありません。つまり、`content.published` に反応するプラグインは、投稿が未来日時の場合、**その投稿が公開される前**に実行されます。
+
+現在の投稿一覧から公開アセットを再構築する trusted プラグイン（RSS、sitemap、JSON インデックスなど）にとってはこれは問題ありません — `listPublishedPosts()` が未来日時の投稿をすでに除外しているため、再生成されたアセットはその投稿が公開されるまでリストに含まれません。
+
+一方、**外部通知プラグイン**（webhook、プッシュ通知、SNS 投稿など）には影響があります。投稿の URL が 404 を返しているまたはホームページにリダイレクトされている間に通知が配信されてしまいます。
+
+### 推奨パターン: `publishedAt` でゲートする
+
+ディスパッチの前に `event.payload.publishedAt` を確認します。投稿が未来日時の場合はスキップまたは保留します:
+
+```ts
+hooks: {
+  async 'content.published'(event, ctx) {
+    const { publishedAt } = event.payload
+
+    // 予約投稿には通知を送らない。イベントは保存時に発火するが、
+    // 投稿が公開されるのは publishedAt になってから。
+    if (publishedAt && new Date(publishedAt) > new Date()) {
+      return
+    }
+
+    // 投稿は今すぐ公開状態 — 通知しても安全。
+    await sendWebhook(event.payload, ctx)
+  },
+}
+```
+
+イベントペイロード内の `publishedAt` は UTC ISO 8601 文字列（`...Z`）です。`Date.now()` と比較する前に `new Date()` またはお好みの日付ライブラリでパースしてください。
+
+### 今後の対応
+
+`content.published` の発火を保存時ではなく `publishedAt` のタイミングに合わせる機能 — EventBridge Scheduler または DynamoDB TTL トリガー Lambda によるスケジューラーコンポーネントが必要 — は計画中の機能強化です。現リリースのスコープには含まれていません。それまでの間は上記のパターンが通知プラグインにおける推奨ガードです。
+
+オペレーター視点からの `publishedAt` セマンティクスの全体像は [`docs/scheduled-publishing.md`](https://github.com/heavymoons/ampless/blob/main/docs/scheduled-publishing.ja.md) を参照してください。
+
+---
+
 ## 7. 非同期イベントフック
 
 `hooks` は SQS から到着したイベントを trust_level に対応する processor Lambda が受けて実行します。runtime context (`ctx`) の中身:
