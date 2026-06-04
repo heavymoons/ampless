@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   definePlugin,
+  type AmplessPlugin,
   type PluginEventHandler,
   type PluginHookResult,
   type PluginSecretField,
+  type PluginUninstallContext,
 } from './plugin.js'
 
 afterEach(() => {
@@ -93,6 +95,60 @@ afterEach(() => {
     // @ts-expect-error — number is not assignable to void | PluginHookResult
     42
   void _wrongNumberHook
+})()
+
+// ---------------------------------------------------------------------------
+// AmplessPlugin.uninstall / PluginUninstallContext type-level tests
+// ---------------------------------------------------------------------------
+//
+// Verified by `tsc --noEmit` (= `pnpm -F ampless lint`), NOT by vitest.
+// Vitest only transpiles and does not surface `@ts-expect-error` failures.
+// If a regression breaks the reservation, `pnpm lint` catches it;
+// `pnpm test` would silently pass.
+
+// Compile-time only block — never executed.
+;(() => {
+  // 1. `uninstall` is optional — a plugin without it is still assignable
+  //    to AmplessPlugin.
+  const _noUninstall: AmplessPlugin = {
+    name: 'no-uninstall',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+  }
+  void _noUninstall
+
+  // 2. `uninstall` with an empty async body is valid (recommended
+  //    Phase 1 forward-compat declaration).
+  const _emptyBody: AmplessPlugin = {
+    name: 'empty-uninstall',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    uninstall: async (_ctx) => {},
+  }
+  void _emptyBody
+
+  // 3. Explicitly typed ctx parameter is accepted and the type is
+  //    `PluginUninstallContext` (structural extends PluginRuntimeContext).
+  const _typedCtx: AmplessPlugin = {
+    name: 'typed-ctx-uninstall',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    uninstall: async (ctx: PluginUninstallContext) => {
+      void ctx.site
+    },
+  }
+  void _typedCtx
+
+  // 4. A function returning `Promise<string>` must NOT be assignable —
+  //    `uninstall` must return `Promise<void>`.
+  const _wrongReturn: AmplessPlugin = {
+    name: 'wrong-return-uninstall',
+    apiVersion: 1,
+    trust_level: 'trusted',
+    // @ts-expect-error — Promise<string> is not assignable to Promise<void>
+    uninstall: async (_ctx) => 'oops',
+  }
+  void _wrongReturn
 })()
 
 // ---------------------------------------------------------------------------

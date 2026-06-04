@@ -398,6 +398,32 @@ export interface PluginRuntimeContext {
 }
 
 /**
+ * Context passed to the `uninstall` lifecycle hook (Phase 1
+ * reservation: runtime no-op — see `AmplessPlugin.uninstall`).
+ *
+ * Phase 1: structurally identical to `PluginRuntimeContext`. The
+ * dedicated type exists so future cleanup helpers
+ * (`deletePublicAsset`, `deletePluginSetting`, `deletePluginSecret`)
+ * can be added here without exposing them to regular event hooks,
+ * which take `PluginRuntimeContext` and should not be able to
+ * delete state from arbitrary plugin areas.
+ *
+ * Phase 1 scope is limited to: (a) reserving the type name, (b)
+ * reserving the hook signature `(ctx: PluginUninstallContext) =>
+ * Promise<void>`. Cleanup helper methods are NOT included in
+ * Phase 1 — plugin authors writing `await ctx.deletePublicAsset(...)`
+ * today would hit a TS error. The actual cleanup body lands when
+ * the future lifecycle-dispatch PR adds the helper methods to this
+ * type (additive, no breaking change for plugins that declared an
+ * empty `uninstall` body in advance).
+ */
+export interface PluginUninstallContext extends PluginRuntimeContext {
+  // Phase 1: no additional fields. Future cleanup helpers
+  // (deletePublicAsset / deletePluginSetting / deletePluginSecret)
+  // land here when the lifecycle-dispatch PR ships.
+}
+
+/**
  * Extended runtime context for **trusted** hook handlers. Adds
  * `secret<T>(key)` — an async accessor that reads from the isolated
  * `PluginSecret` DynamoDB model (which admin / editor groups cannot
@@ -757,6 +783,52 @@ export interface AmplessPlugin {
   hooks?: {
     [K in EventType]?: PluginEventHandler<K>
   }
+  /**
+   * Lifecycle hook called when this plugin is removed from
+   * `cms.config.ts` (Phase 1 reservation: runtime no-op).
+   *
+   * Today the runtime does not detect plugin removal and does not
+   * invoke this hook — orphan data left behind by an uninstalled
+   * plugin must be cleaned up manually by the operator. A future
+   * lifecycle-dispatch PR will need to solve the underlying
+   * problem that a plugin that has been deleted from `cms.config.ts`
+   * no longer has a callable factory in memory — `Config.plugins`
+   * (see `packages/ampless/src/types.ts`) only carries currently-
+   * active plugin objects. Possible future approaches:
+   *
+   *   - Two-stage `cms.config.ts` flag — `{ plugin: myPlugin(), pendingRemoval: true }`
+   *     keeps the plugin loadable while the runtime calls `uninstall`,
+   *     then the operator removes the entry once cleanup succeeds.
+   *   - Explicit `npx ampless uninstall <name>` CLI command — keeps
+   *     the plugin imported during the call by reading the prior
+   *     `cms.config.ts` entry, fires `uninstall`, then mutates the
+   *     file.
+   *   - Persist prior manifest + `packageName` to DDB/disk so the
+   *     runtime can `await import(packageName)` to re-acquire the
+   *     factory — assumes the npm package is still installed.
+   *
+   * The exact mechanism is deferred to the lifecycle-dispatch PR.
+   * What this reservation locks in: when `uninstall` does fire,
+   * it runs in a trusted-Lambda IAM context with cleanup grants for
+   * the five plugin-owned data areas (see
+   * docs/architecture/08-plugin-architecture.md
+   * §"Plugin-owned data areas"). Idempotency is the plugin author's
+   * responsibility — the hook may be invoked more than once
+   * (SQS at-least-once or operator-retry).
+   *
+   * **Phase 1 reservation scope**: only the hook name and signature
+   * are reserved. The ctx does NOT yet carry cleanup helpers
+   * (`deletePublicAsset` / `deletePluginSetting` /
+   * `deletePluginSecret`) — writing `await ctx.deletePublicAsset(...)`
+   * today is a TS error. The recommended Phase 1 declaration is an
+   * **empty body** (`async (_ctx) => {}`); the actual cleanup body
+   * lands when the lifecycle-dispatch PR adds the helpers. Plugins
+   * that declared the empty-body uninstall today will pick up the
+   * cleanup invocation events without re-publishing for the signature
+   * change, but a re-publish is required to add the actual cleanup
+   * body.
+   */
+  uninstall?: (ctx: PluginUninstallContext) => Promise<void>
   /**
    * Per-post metadata generator. Pure function, called from Next.js
    * generateMetadata(). Must not have side effects.

@@ -973,6 +973,67 @@ admin は再デプロイなしにいつでも secret をローテーションで
 
 ---
 
+## 9b. プラグインのデータの保存場所
+
+プラグインが所有するデータは以下の 5 つのストレージ領域に置かれる可能性があり、**現状の書き込み経路は領域ごとに異なります**。3 つのファミリに分かれます:
+
+- **KvStore** — admin/editor が AppSync 経由で書き込みます。プラグインの hook には KvStore write helper は提供されていません。
+- **PluginSecret + PluginSecretIndicator** — `plugin-secret-handler` Lambda が書き込みます。admin/editor が `setPluginSecret` / `clearPluginSecret` AppSync mutation を呼ぶと、handler Lambda が DDB に書く流れです。trusted processor は `ctx.secret<T>()` で `PluginSecret` を読み取りますが、どちらの secret テーブルにも書き込みません。
+- **S3 `public/plugins/{instanceId ?? name}/*`** — trusted Lambda の hook context (`ctx.writePublicAsset(...)`) から書き込みます。プラグインの hook が直接書き込めるのはこの領域だけです。
+
+それ以外 — `Post`、`Page`、`Media`、`PostTag` DynamoDB テーブル、`public/site-settings.json` S3 ミラー、他プラグインの namespace — への書き込みは禁止です。現状 runtime が強制しているわけではなく、信頼（および将来の IAM 強化）によって担保されます。
+
+| 領域 | パス / 識別子 | アクセスレベル | Phase |
+|---|---|---|---|
+| KvStore（admin 設定） | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'` | admin/editor が AppSync 経由で書く（プラグインの hook context には KvStore write helper は現状提供されていない） | Phase 2 |
+| KvStore（runtime 状態/キャッシュ） | DynamoDB `pk='pluginstate:<plugin>:...'`（TTL 任意） | admin/editor が AppSync 経由で書く（プラグインの hook context には KvStore write helper は現状提供されていない） | 現行 |
+| PluginSecret | DynamoDB `PluginSecret` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` 限定（IAM 専用 AppSync 認証） | Phase 6a |
+| PluginSecretIndicator | DynamoDB `PluginSecretIndicator` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + admin/editor（indicator 読み取り） | Phase 6a |
+| S3 プラグイン成果物 | `public/plugins/{instanceId ?? name}/*` | `trusted` 限定（`writePublicAsset`） | Phase 3 |
+
+**cleanup は自動ではありません。** `cms.config.ts` からプラグインを外しても、5 領域のデータは自動削除されません。将来の lifecycle-dispatch PR が `uninstall` フックの起動メカニズムを追加するまで（§9c 参照）、オペレータによる手動削除が必要です。
+
+**独自 DynamoDB テーブル。** プラグインが ampless スキーマ外に独自の DynamoDB テーブルを持つ場合、lifecycle 管理（アンインストール時の cleanup を含む）はプラグイン著者の責任です。ampless は外部テーブルを把握しておらず、将来の `uninstall` cleanup grant は上記 5 領域のみをカバーします。
+
+詳細な設計根拠と IAM grant 設計については [`docs/architecture/08-plugin-architecture.ja.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md#プラグインが所有するデータ領域) を参照してください。
+
+---
+
+## 9c. `uninstall` フック（Phase 1 予約）
+
+`AmplessPlugin.uninstall` は **Phase 1 型予約** です — 現在 runtime はこれを呼び出しません。hook 名とシグネチャをプラグインコードが出回る前に確定し、将来の lifecycle-dispatch PR が名前・形を変更せずに起動を配線できるようにするのが目的です。
+
+**Phase 1 スコープ**: hook 名とシグネチャのみ予約。`ctx` には cleanup helper (`deletePublicAsset` / `deletePluginSetting` / `deletePluginSecret`) がまだありません — 今日 `await ctx.deletePublicAsset(...)` と書くと TypeScript エラーです。これらの helper が lifecycle-dispatch PR で追加される際は `PluginUninstallContext` への追加（additive）であり、空のボディを宣言済みのプラグインへの破壊変更はありません。
+
+**今日の推奨宣言** — 空のボディ:
+
+```ts
+// 例: S3 成果物と secret を書く trusted plugin
+definePlugin({
+  name: 'my-trusted-plugin',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['eventHooks', 'writePublicAsset', 'secretSettings'],
+  hooks: { 'content.published': async (_evt, ctx) => { /* ... */ } },
+  uninstall: async (_ctx) => {
+    // Phase 1 予約: runtime は今日このフックを呼び出しません。
+    // また `ctx` には cleanup helper
+    // (`deletePublicAsset` / `deletePluginSetting` /
+    // `deletePluginSecret`) がまだありません。
+    // 空ボディを宣言しておくのが forward-compat の推奨形です —
+    // 将来 lifecycle-dispatch PR がリリースされたとき、helper が
+    // `PluginUninstallContext` に追加され、そこで cleanup ボディを
+    // 実装します。今日の空宣言を再パブリッシュしなくても呼び出し
+    // イベントは受け取れますが、実際の cleanup ボディを追加するには
+    // 再パブリッシュが必要です。
+  },
+})
+```
+
+**冪等性。** lifecycle-dispatch PR がリリースされると、`uninstall` フックは trusted Lambda の IAM コンテキストで実行されます。SQS 配送は at-least-once なので cleanup ボディが複数回実行される可能性があります。安全にリトライできるよう設計してください（S3 の `deleteObject` は冪等、DDB の conditional delete も key が消えていれば safe）。
+
+---
+
 ## 10. ウォークスルー: GA4 を Phase 1 から Phase 2 に移行する
 
 Phase 1 の GA4 プラグインは measurement ID を constructor 引数で受けていました。Phase 2 では後方互換のためにその引数を残しつつ、値は `ctx.setting()` 経由で読みます。

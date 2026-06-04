@@ -1323,6 +1323,99 @@ describe('webhookPlugin signing', () => {
 
 ---
 
+## 9b. Where your plugin's data lives
+
+Plugin-owned data may live in the five storage areas listed below; the
+**current write paths differ by area** and fall into three families:
+
+- **KvStore** — admin/editor write through AppSync. Plugin hooks have no
+  KvStore write helper today.
+- **PluginSecret + PluginSecretIndicator** — written by the
+  `plugin-secret-handler` Lambda, which is invoked by admin/editor through
+  the `setPluginSecret` / `clearPluginSecret` AppSync mutations. The
+  trusted processor reads `PluginSecret` via `ctx.secret<T>()` but does
+  NOT write to either secret table.
+- **S3 `public/plugins/{instanceId ?? name}/*`** — written by the trusted
+  Lambda's hook context (`ctx.writePublicAsset(...)`). This is the only
+  area a plugin hook writes to directly today.
+
+All other areas — the `Post`, `Page`, `Media`, and `PostTag` DynamoDB
+tables, the `public/site-settings.json` S3 mirror, and any other plugin's
+namespace — are off-limits. The runtime does not enforce this today; it is
+a contract enforced by trust (and future IAM hardening).
+
+| Area | Path / identifier | Access level | Phase |
+|---|---|---|---|
+| KvStore (admin settings) | DynamoDB `pk='siteconfig'`, `sk='plugins.<instanceId>.<fieldKey>'` | admin/editor via AppSync; plugin hook write helper is not provided today | Phase 2 |
+| KvStore (runtime state/cache) | DynamoDB `pk='pluginstate:<plugin>:...'` with optional TTL | admin/editor via AppSync; plugin hook write helper is not provided today | Current |
+| PluginSecret | DynamoDB `PluginSecret` table, `sk='plugins.<instanceId>.<fieldKey>'` | `trusted` only (IAM-only AppSync auth) | Phase 6a |
+| PluginSecretIndicator | DynamoDB `PluginSecretIndicator` table, `sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + admin/editor (read indicator) | Phase 6a |
+| S3 plugin assets | `public/plugins/{instanceId ?? name}/*` | `trusted` only (`writePublicAsset`) | Phase 3 |
+
+**Cleanup is not automatic.** Removing a plugin from `cms.config.ts` leaves
+orphan data in all five areas. Manual operator cleanup is required until the
+future lifecycle-dispatch PR ships the invocation mechanism for the `uninstall`
+hook (see §9c below).
+
+**Custom DynamoDB tables.** If your plugin provisions its own DynamoDB table
+outside the ampless schema, lifecycle management (including cleanup on uninstall)
+is your responsibility. ampless has no visibility into external tables and the
+future `uninstall` cleanup grants cover only the five areas above.
+
+See [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#plugin-owned-data-areas)
+for the full rationale and the IAM grant design.
+
+---
+
+## 9c. `uninstall` hook (Phase 1 reservation)
+
+`AmplessPlugin.uninstall` is a **Phase 1 type reservation** — the runtime does
+not call it today. Its purpose is to lock in the hook name and signature before
+any plugin code ships, so the future lifecycle-dispatch PR can wire the
+invocation without renaming or reshaping anything.
+
+**Phase 1 scope**: only the hook name and signature are reserved. The `ctx`
+does **not** yet carry cleanup helpers (`deletePublicAsset` /
+`deletePluginSetting` / `deletePluginSecret`) — writing
+`await ctx.deletePublicAsset(...)` today is a TypeScript error. When those
+helpers land (in the lifecycle-dispatch PR), they are added to
+`PluginUninstallContext` additively, with no breaking change to plugins that
+declared an empty body in advance.
+
+**Recommended declaration today** — an empty body:
+
+```ts
+// Example: a trusted plugin that writes assets and stores secrets
+definePlugin({
+  name: 'my-trusted-plugin',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['eventHooks', 'writePublicAsset', 'secretSettings'],
+  hooks: { 'content.published': async (_evt, ctx) => { /* ... */ } },
+  uninstall: async (_ctx) => {
+    // Phase 1 reservation: the runtime does not invoke this hook
+    // today, AND `ctx` does not yet carry cleanup helpers
+    // (`deletePublicAsset` / `deletePluginSetting` /
+    // `deletePluginSecret`). Declaring an empty body is the
+    // recommended forward-compat shape — when the future
+    // lifecycle-dispatch PR ships, the helpers land on
+    // `PluginUninstallContext` additively, and you fill in the
+    // body THEN. Plugins that shipped the empty declaration
+    // today do not need to re-publish for the signature change,
+    // but a re-publish is required to add the actual cleanup
+    // body.
+  },
+})
+```
+
+**Idempotency.** When the lifecycle-dispatch PR ships, the `uninstall` hook
+runs in a trusted-Lambda IAM context. The SQS delivery is at-least-once, so
+your cleanup body may run more than once — design it to be safe to retry
+(e.g. `deleteObject` is idempotent on S3; a conditional `delete` on DDB is
+safe if the key is already gone).
+
+---
+
 ## 10. Walk-through: migrating GA4 from Phase 1 to Phase 2
 
 The Phase 1 GA4 plugin took the measurement ID through a

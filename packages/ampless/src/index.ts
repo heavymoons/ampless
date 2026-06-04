@@ -55,6 +55,7 @@ export type {
   PluginHookResult,
   PluginMetadata,
   PluginRuntimeContext,
+  PluginUninstallContext,
   TrustedPluginRuntimeContext,
   TrustLevel,
   OgImageConfig,
