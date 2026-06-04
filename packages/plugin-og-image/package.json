@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-og-image",
-  "version": "0.2.0-alpha.35",
+  "version": "0.2.0-alpha.36",
   "description": "Dynamic Open Graph image generation plugin for ampless",
   "license": "MIT",
   "type": "module",
