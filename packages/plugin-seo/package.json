@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-seo",
-  "version": "0.2.0-alpha.32",
+  "version": "0.2.0-alpha.33",
   "description": "SEO plugin for ampless",
   "license": "MIT",
   "type": "module",
