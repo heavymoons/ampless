@@ -184,23 +184,36 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
 
   // --- Auth: post-confirmation Lambda permissions ---
   //
-  // Scoped to the actual user pool ARN — defense-in-depth: even if this
-  // Lambda is compromised or has a handler bug, it cannot reach any other
-  // user pool in the same AWS account.
+  // IMPORTANT: this MUST stay an account/region userpool wildcard — do NOT
+  // scope it to the pool's own ARN (`backend.auth.resources.userPool
+  // .userPoolArn`). The post-confirmation Lambda is a Cognito User Pool
+  // trigger, so the pool already depends on the Lambda. Adding the pool
+  // ARN here introduces the reverse edge (Lambda role policy -> pool),
+  // which makes CloudFormation reject the auth nested stack with a
+  // circular dependency:
+  //   UserPool -> (trigger) Lambda -> Lambda role policy -> UserPool ARN
+  // #216 tightened this to `userPool.userPoolArn` for defense-in-depth and
+  // broke `main`'s deploy with exactly that cycle; this is the revert. The
+  // Lambda still only ever operates on a single pool at runtime (the
+  // trigger event carries `userPoolId`), so the wildcard widens the IAM
+  // grant on paper, not the actual behaviour.
   backend.postConfirmation.resources.lambda.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['cognito-idp:AdminAddUserToGroup', 'cognito-idp:ListUsersInGroup'],
-      resources: [backend.auth.resources.userPool.userPoolArn],
+      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
     })
   )
 
   // --- Auth: user-admin Lambda permissions ---
   //
-  // Backs the admin UI's user-management page. Scoped to the actual user
-  // pool ARN — even if the Lambda is compromised or reads a tampered
-  // AMPLESS_USER_POOL_ID env var, it cannot reach other user pools in
-  // the same AWS account.
+  // Backs the admin UI's user-management page. Kept on the same
+  // account/region userpool wildcard as the post-confirmation Lambda. This
+  // Lambda is NOT a pool trigger, so a pool-specific ARN would not by
+  // itself create a cycle — but we keep both policies symmetric so a future
+  // "tighten to userPool.userPoolArn" change can't silently reintroduce the
+  // circular dependency described above. The Lambda addresses one pool at
+  // runtime via the `AMPLESS_USER_POOL_ID` env var.
   backend.userAdmin.resources.lambda.addToRolePolicy(
     new PolicyStatement({
       effect: Effect.ALLOW,
@@ -210,7 +223,7 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
         'cognito-idp:AdminAddUserToGroup',
         'cognito-idp:AdminRemoveUserFromGroup',
       ],
-      resources: [backend.auth.resources.userPool.userPoolArn],
+      resources: ['arn:aws:cognito-idp:*:*:userpool/*'],
     })
   )
   backend.userAdmin.resources.lambda.addEnvironment(
