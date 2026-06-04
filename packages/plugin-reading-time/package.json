@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-reading-time",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "description": "Reading-time badge plugin for ampless — estimates read time from post content and injects a configurable label before or after the post body",
   "license": "MIT",
   "type": "module",
