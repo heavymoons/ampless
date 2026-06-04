@@ -8,9 +8,14 @@
 // Returns `null` for orphan / legacy assets whose Media row was never
 // written (or was deleted) — callers fall back to an Amplify SSR HEAD
 // in that case.
+//
+// The client is stateless: `generateServerClientUsingReqRes` run with
+// `nextServerContext: null` uses Amplify's `sharedInMemoryStorage`
+// guest-role path — no Cognito guest identityId Set-Cookie is written
+// on public route responses.
 
-import { cookies } from 'next/headers'
-import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
+import { generateServerClientUsingReqRes } from '@aws-amplify/adapter-nextjs/api'
+import { createServerRunner } from '@aws-amplify/adapter-nextjs'
 import { decodeAwsJson, type MediaMetadata } from 'ampless'
 import type { AmplessOutputs } from './outputs.js'
 
@@ -36,7 +41,10 @@ interface QueryResponse<T> {
 }
 
 interface PublicMediaQueries {
-  getMediaBySrc(args: { src: string }): Promise<QueryResponse<PublicMediaShape>>
+  getMediaBySrc(
+    contextSpec: unknown,
+    args: { src: string }
+  ): Promise<QueryResponse<PublicMediaShape>>
 }
 
 interface PublicMediaClient {
@@ -64,21 +72,28 @@ function decodeMediaMetadata(value: unknown): MediaMetadata | null {
 
 /**
  * Build the media-resolution API from a user-supplied outputs blob.
- * Same factory-once-reuse pattern as `createPostsApi`: the cookie-
- * aware server client is stable across requests; only the `cookies`
- * accessor is re-invoked per call.
+ * Uses a stateless Amplify server client: `generateServerClientUsingReqRes`
+ * run with `nextServerContext: null` — Amplify's `sharedInMemoryStorage`
+ * guest-role path — so public apiKey reads never read or write cookies.
+ * This prevents Cognito guest identityId Set-Cookie from being written
+ * on public route responses.
  */
 export function createMediaApi(outputs: AmplessOutputs): MediaApi {
-  const client = generateServerClientUsingCookies({
-    config: outputs as Parameters<typeof generateServerClientUsingCookies>[0]['config'],
-    cookies,
+  const { runWithAmplifyServerContext } = createServerRunner({
+    config: outputs as Parameters<typeof createServerRunner>[0]['config'],
+  })
+  const client = generateServerClientUsingReqRes({
+    config: outputs as Parameters<typeof generateServerClientUsingReqRes>[0]['config'],
     authMode: 'apiKey',
   }) as unknown as PublicMediaClient
 
   return {
     async getMediaBySrc(src: string): Promise<ResolvedMedia | null> {
       try {
-        const { data, errors } = await client.queries.getMediaBySrc({ src })
+        const { data, errors } = await runWithAmplifyServerContext({
+          nextServerContext: null,
+          operation: (contextSpec) => client.queries.getMediaBySrc(contextSpec, { src }),
+        })
         if (errors && errors.length > 0) {
           // AppSync returns `errors` instead of throwing — log them
           // explicitly so they don't silently drop us onto the HEAD

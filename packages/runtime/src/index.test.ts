@@ -9,8 +9,18 @@ vi.mock('next/headers', () => ({
   headers: async () => new Map(),
 }))
 
+vi.mock('@aws-amplify/adapter-nextjs', () => ({
+  createServerRunner: () => ({
+    runWithAmplifyServerContext: async ({
+      operation,
+    }: {
+      operation: (ctx: unknown) => unknown
+    }) => operation({}),
+  }),
+}))
+
 vi.mock('@aws-amplify/adapter-nextjs/api', () => ({
-  generateServerClientUsingCookies: () => ({
+  generateServerClientUsingReqRes: () => ({
     queries: {
       listPublishedPosts: async () => ({ data: { items: [], nextToken: null }, errors: null }),
       getPublishedPost: async () => ({ data: null, errors: null }),
