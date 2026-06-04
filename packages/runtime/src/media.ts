@@ -11,8 +11,11 @@
 //
 // The client is stateless: `generateServerClientUsingReqRes` run with
 // `nextServerContext: null` uses Amplify's `sharedInMemoryStorage`
-// guest-role path — no Cognito guest identityId Set-Cookie is written
-// on public route responses.
+// guest-role path, so this row lookup never reads or writes cookies.
+// Note this only covers the lookup — the `/api/media/...` response body
+// itself is streamed/presigned by the admin media-proxy under a
+// `{ cookies }` context, which can still emit a Cognito Set-Cookie
+// (separate follow-up).
 
 import { generateServerClientUsingReqRes } from '@aws-amplify/adapter-nextjs/api'
 import { createServerRunner } from '@aws-amplify/adapter-nextjs'
@@ -74,9 +77,10 @@ function decodeMediaMetadata(value: unknown): MediaMetadata | null {
  * Build the media-resolution API from a user-supplied outputs blob.
  * Uses a stateless Amplify server client: `generateServerClientUsingReqRes`
  * run with `nextServerContext: null` — Amplify's `sharedInMemoryStorage`
- * guest-role path — so public apiKey reads never read or write cookies.
- * This prevents Cognito guest identityId Set-Cookie from being written
- * on public route responses.
+ * guest-role path — so the `getMediaBySrc` row lookup never reads or
+ * writes cookies. (The `/api/media/...` byte response is streamed by the
+ * admin media-proxy under a `{ cookies }` context and is out of scope
+ * here — that path can still emit a Cognito Set-Cookie.)
  */
 export function createMediaApi(outputs: AmplessOutputs): MediaApi {
   const { runWithAmplifyServerContext } = createServerRunner({
