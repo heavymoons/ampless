@@ -1,6 +1,6 @@
 {
   "name": "@ampless/runtime",
-  "version": "1.0.0-alpha.40",
+  "version": "1.0.0-alpha.41",
   "description": "Public-side runtime for ampless: post fetching, theme dispatch, middleware, public route handlers",
   "license": "MIT",
   "type": "module",
