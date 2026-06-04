@@ -979,8 +979,8 @@ ampless はプラグインが書き込める 5 つのストレージ領域を提
 
 | 領域 | パス / 識別子 | アクセスレベル | Phase |
 |---|---|---|---|
-| KvStore（admin 設定） | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + `untrusted`（AppSync 経由） | Phase 2 |
-| KvStore（runtime 状態/キャッシュ） | DynamoDB `pk='pluginstate:<plugin>:...'`（TTL 任意） | `trusted` + `untrusted`（AppSync 経由） | 現行 |
+| KvStore（admin 設定） | DynamoDB `pk='siteconfig'`、`sk='plugins.<instanceId>.<fieldKey>'` | admin/editor が AppSync 経由で書く（プラグインの hook context には KvStore write helper は現状提供されていない） | Phase 2 |
+| KvStore（runtime 状態/キャッシュ） | DynamoDB `pk='pluginstate:<plugin>:...'`（TTL 任意） | admin/editor が AppSync 経由で書く（プラグインの hook context には KvStore write helper は現状提供されていない） | 現行 |
 | PluginSecret | DynamoDB `PluginSecret` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` 限定（IAM 専用 AppSync 認証） | Phase 6a |
 | PluginSecretIndicator | DynamoDB `PluginSecretIndicator` テーブル、`sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + admin/editor（indicator 読み取り） | Phase 6a |
 | S3 プラグイン成果物 | `public/plugins/{instanceId ?? name}/*` | `trusted` 限定（`writePublicAsset`） | Phase 3 |
