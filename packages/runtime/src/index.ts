@@ -134,8 +134,9 @@ export interface CreateAmplessOpts {
 }
 
 export interface Ampless {
-  // post fetching (server-side, uses generateServerClientUsingCookies
-  // with apiKey authMode)
+  // post fetching (server-side, stateless apiKey reads via
+  // generateServerClientUsingReqRes run with nextServerContext: null —
+  // no Cognito cookies written)
   listPublishedPosts(opts?: ListPostsOptions): Promise<ListPostsResult>
   getPublishedPost(slug: string): Promise<Post | null>
   listPostsByTag(tag: string, opts?: ListPostsByTagOptions): Promise<ListPostsResult>

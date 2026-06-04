@@ -7,9 +7,14 @@
 // (`a.handler.custom`) don't support `allow.guest()` — only apiKey /
 // userPool / lambda / group / owner. See RUNBOOK.md for the API key
 // rotation runbook.
+//
+// The client is stateless: `generateServerClientUsingReqRes` run with
+// `nextServerContext: null` uses Amplify's `sharedInMemoryStorage`
+// guest-role path — no Cognito guest identityId Set-Cookie is written
+// on public route responses (`/og/[slug]`, `/feed.xml`, etc.).
 
-import { cookies } from 'next/headers'
-import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/api'
+import { generateServerClientUsingReqRes } from '@aws-amplify/adapter-nextjs/api'
+import { createServerRunner } from '@aws-amplify/adapter-nextjs'
 import { decodeAwsJson, type Post, type PostMetadata } from 'ampless'
 import type { AmplessOutputs } from './outputs.js'
 
@@ -50,18 +55,18 @@ interface QueryResponse<T> {
 }
 
 interface PublicQueries {
-  listPublishedPosts(args: {
-    from?: string
-    to?: string
-    limit?: number
-    nextToken?: string
-  }): Promise<QueryResponse<PublicPostConnectionShape>>
-  getPublishedPost(args: { slug: string }): Promise<QueryResponse<PublicPostShape>>
-  listPostsByTag(args: {
-    tag: string
-    limit?: number
-    nextToken?: string
-  }): Promise<QueryResponse<PublicPostConnectionShape>>
+  listPublishedPosts(
+    contextSpec: unknown,
+    args: { from?: string; to?: string; limit?: number; nextToken?: string }
+  ): Promise<QueryResponse<PublicPostConnectionShape>>
+  getPublishedPost(
+    contextSpec: unknown,
+    args: { slug: string }
+  ): Promise<QueryResponse<PublicPostShape>>
+  listPostsByTag(
+    contextSpec: unknown,
+    args: { tag: string; limit?: number; nextToken?: string }
+  ): Promise<QueryResponse<PublicPostConnectionShape>>
 }
 
 interface PublicClient {
@@ -124,10 +129,15 @@ function toCorePost(p: PublicPostShape): Post {
 
 /**
  * Build the post-fetching API from a user-provided amplify_outputs
- * blob. The Amplify cookie-based server client is created once at
- * factory time — `generateServerClientUsingCookies` returns a stable
- * client whose `cookies` accessor is re-invoked per request, so a
- * factory-level client is safe across requests.
+ * blob. Uses a stateless Amplify server client: `generateServerClientUsingReqRes`
+ * run with `nextServerContext: null` — Amplify's `sharedInMemoryStorage`
+ * guest-role path — so public apiKey reads never read or write cookies.
+ * This prevents the runtime from writing a Cognito guest identityId
+ * Set-Cookie on public route responses (e.g. `/og/[slug]`, `/feed.xml`).
+ *
+ * authMode is 'apiKey' because Amplify Gen 2 custom handlers
+ * (`a.handler.custom`) don't support `allow.guest()` — only apiKey /
+ * userPool / lambda / group / owner.
  *
  * Internally we type the client structurally (just `client.queries`
  * with the three methods we use) so the runtime doesn't depend on
@@ -136,27 +146,31 @@ function toCorePost(p: PublicPostShape): Post {
  * their own thin wrapper that re-types this API.
  */
 export function createPostsApi(outputs: AmplessOutputs): PostsApi {
+  const { runWithAmplifyServerContext } = createServerRunner({
+    config: outputs as Parameters<typeof createServerRunner>[0]['config'],
+  })
   // The adapter's generic is variance-friendly; we ask for a Schema
   // shape it doesn't need to introspect (no models, no custom
   // operations declared) and immediately cast to our structural
   // PublicClient. At runtime the AppSync request shape is identical
   // — the generic only drives type narrowing, which we override here
   // because the runtime is schema-agnostic.
-  const client = generateServerClientUsingCookies({
-    // generateServerClientUsingCookies expects the resourcesConfig shape
-    // — the full amplify_outputs.json satisfies it at runtime.
-    config: outputs as Parameters<typeof generateServerClientUsingCookies>[0]['config'],
-    cookies,
+  const client = generateServerClientUsingReqRes({
+    config: outputs as Parameters<typeof generateServerClientUsingReqRes>[0]['config'],
     authMode: 'apiKey',
   }) as unknown as PublicClient
 
   return {
     async listPublishedPosts(opts: ListPostsOptions = {}): Promise<ListPostsResult> {
-      const { data, errors } = await client.queries.listPublishedPosts({
-        from: opts.from,
-        to: opts.to,
-        limit: opts.limit ?? 20,
-        nextToken: opts.nextToken,
+      const { data, errors } = await runWithAmplifyServerContext({
+        nextServerContext: null,
+        operation: (contextSpec) =>
+          client.queries.listPublishedPosts(contextSpec, {
+            from: opts.from,
+            to: opts.to,
+            limit: opts.limit ?? 20,
+            nextToken: opts.nextToken,
+          }),
       })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts')
       const items = (data?.items ?? [])
@@ -166,8 +180,9 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
     },
 
     async getPublishedPost(slug: string): Promise<Post | null> {
-      const { data, errors } = await client.queries.getPublishedPost({
-        slug,
+      const { data, errors } = await runWithAmplifyServerContext({
+        nextServerContext: null,
+        operation: (contextSpec) => client.queries.getPublishedPost(contextSpec, { slug }),
       })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to get post')
       return data ? toCorePost(data) : null
@@ -177,10 +192,14 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
       tag: string,
       opts: ListPostsByTagOptions = {}
     ): Promise<ListPostsResult> {
-      const { data, errors } = await client.queries.listPostsByTag({
-        tag,
-        limit: opts.limit ?? 20,
-        nextToken: opts.nextToken,
+      const { data, errors } = await runWithAmplifyServerContext({
+        nextServerContext: null,
+        operation: (contextSpec) =>
+          client.queries.listPostsByTag(contextSpec, {
+            tag,
+            limit: opts.limit ?? 20,
+            nextToken: opts.nextToken,
+          }),
       })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts by tag')
       const items = (data?.items ?? [])

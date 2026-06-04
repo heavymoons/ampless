@@ -1,22 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// `generateServerClientUsingCookies` builds an Amplify server client
-// that doesn't work outside a Next.js request — mock it with a
-// configurable queries surface so the resolver shape can be asserted
+// `generateServerClientUsingReqRes` and `createServerRunner` are Amplify
+// SSR plumbing that don't work outside a Next.js / Amplify request context.
+// Mock them here so the resolver shape and stateless context can be asserted
 // in isolation.
+
+const FAKE_CTX = { token: { value: 'ctx' } }
+
+const mockRunWithContext = vi.fn(
+  ({
+    operation,
+  }: {
+    nextServerContext: unknown
+    operation: (ctx: unknown) => unknown
+  }) => operation(FAKE_CTX)
+)
+
+vi.mock('@aws-amplify/adapter-nextjs', () => ({
+  createServerRunner: () => ({ runWithAmplifyServerContext: mockRunWithContext }),
+}))
 
 const mockGetMediaBySrc = vi.fn()
 
 vi.mock('@aws-amplify/adapter-nextjs/api', () => ({
-  generateServerClientUsingCookies: () => ({
+  generateServerClientUsingReqRes: () => ({
     queries: {
       getMediaBySrc: (...args: unknown[]) => mockGetMediaBySrc(...args),
     },
   }),
-}))
-
-vi.mock('next/headers', () => ({
-  cookies: () => ({ getAll: () => [] }),
 }))
 
 import { createMediaApi } from './media.js'
@@ -25,6 +36,15 @@ import type { AmplessOutputs } from './outputs.js'
 const FAKE_OUTPUTS = {} as unknown as AmplessOutputs
 
 beforeEach(() => {
+  mockRunWithContext.mockReset()
+  mockRunWithContext.mockImplementation(
+    ({
+      operation,
+    }: {
+      nextServerContext: unknown
+      operation: (ctx: unknown) => unknown
+    }) => operation(FAKE_CTX)
+  )
   mockGetMediaBySrc.mockReset()
 })
 
@@ -49,9 +69,12 @@ describe('createMediaApi — getMediaBySrc', () => {
       mimeType: 'image/jpeg',
       metadata: { etag: 'abc123' },
     })
-    expect(mockGetMediaBySrc).toHaveBeenCalledWith({
+    expect(mockGetMediaBySrc).toHaveBeenCalledWith(FAKE_CTX, {
       src: 'public/media/2026/05/photo.jpg',
     })
+    expect(mockRunWithContext).toHaveBeenCalledWith(
+      expect.objectContaining({ nextServerContext: null })
+    )
   })
 
   it('returns null when the query yields no data (orphan asset)', async () => {
