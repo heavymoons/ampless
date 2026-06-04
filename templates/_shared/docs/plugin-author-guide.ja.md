@@ -975,7 +975,13 @@ admin は再デプロイなしにいつでも secret をローテーションで
 
 ## 9b. プラグインのデータの保存場所
 
-プラグインが所有するデータは以下の 5 つのストレージ領域に置かれる可能性があり、**現状の書き込み経路は領域ごとに異なります** — 一部は admin/editor が AppSync 経由で書き、一部は trusted Lambda の hook context から書く形です。プラグインの hook そのものに全領域への write helper があるわけではない点に注意（アクセスレベル列を参照）。それ以外 — `Post`、`Page`、`Media`、`PostTag` DynamoDB テーブル、`public/site-settings.json` S3 ミラー、他プラグインの namespace — への書き込みは禁止です。現状 runtime が強制しているわけではなく、信頼（および将来の IAM 強化）によって担保されます。
+プラグインが所有するデータは以下の 5 つのストレージ領域に置かれる可能性があり、**現状の書き込み経路は領域ごとに異なります**。3 つのファミリに分かれます:
+
+- **KvStore** — admin/editor が AppSync 経由で書き込みます。プラグインの hook には KvStore write helper は提供されていません。
+- **PluginSecret + PluginSecretIndicator** — `plugin-secret-handler` Lambda が書き込みます。admin/editor が `setPluginSecret` / `clearPluginSecret` AppSync mutation を呼ぶと、handler Lambda が DDB に書く流れです。trusted processor は `ctx.secret<T>()` で `PluginSecret` を読み取りますが、どちらの secret テーブルにも書き込みません。
+- **S3 `public/plugins/{instanceId ?? name}/*`** — trusted Lambda の hook context (`ctx.writePublicAsset(...)`) から書き込みます。プラグインの hook が直接書き込めるのはこの領域だけです。
+
+それ以外 — `Post`、`Page`、`Media`、`PostTag` DynamoDB テーブル、`public/site-settings.json` S3 ミラー、他プラグインの namespace — への書き込みは禁止です。現状 runtime が強制しているわけではなく、信頼（および将来の IAM 強化）によって担保されます。
 
 | 領域 | パス / 識別子 | アクセスレベル | Phase |
 |---|---|---|---|

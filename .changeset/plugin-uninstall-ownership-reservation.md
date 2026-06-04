@@ -31,16 +31,27 @@ Documentation:
   identifier is sk-only after the `siteId` removal; the old row
   still showed `siteId + sk`). A new "Plugin-owned data areas"
   section is added immediately after it, listing the **five**
-  stores where plugin-owned data may live (the current write paths
-  differ by area — KvStore is written by admin/editor through
-  AppSync rather than by a plugin hook helper; PluginSecret +
-  PluginSecretIndicator + S3 plugin assets are written by the
-  trusted Lambda path): KvStore `pk='siteconfig', sk='plugins.<instanceId>.<fieldKey>'`,
-  KvStore `pk='pluginstate:<plugin>:...'`, PluginSecret +
-  PluginSecretIndicator `sk='plugins.<instanceId>.<fieldKey>'`,
-  and S3 `public/plugins/{instanceId ?? name}/*`. Everything else
-  (Post / Page / Media / PostTag tables, site-settings.json
-  mirror, other plugin namespaces) is explicitly off-limits.
+  stores where plugin-owned data may live. The current write paths
+  differ by area, in three distinct families:
+
+  - **KvStore** (`pk='siteconfig'` admin settings and
+    `pk='pluginstate:<plugin>:...'` runtime state/cache) is written
+    by admin/editor through AppSync. Plugin hooks have no KvStore
+    write helper today.
+  - **PluginSecret + PluginSecretIndicator** are written by the
+    `plugin-secret-handler` Lambda, which is invoked from the
+    admin browser via the `setPluginSecret` / `clearPluginSecret`
+    AppSync mutations. The trusted processor reads `PluginSecret`
+    via `ctx.secret<T>()` but does NOT write to either secret
+    table.
+  - **S3 `public/plugins/{instanceId ?? name}/*`** is written by
+    the trusted Lambda's hook context (`ctx.writePublicAsset(...)`)
+    — this is the only data area a plugin hook writes to directly
+    today.
+
+  Everything outside these five areas (Post / Page / Media /
+  PostTag tables, site-settings.json mirror, other plugin
+  namespaces) is explicitly off-limits.
 - Author guide en/ja in both source-of-truth and template
   locations updated to mirror the architecture doc, with a code
   example for the uninstall reservation pattern.

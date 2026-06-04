@@ -248,12 +248,21 @@ There is no `private/plugins/` S3 prefix and no `ampless-plugin-data` table. If 
 ### Plugin-owned data areas
 
 Plugin-owned data may live in the five areas listed below; the **current write paths
-differ by area** — some areas are written only by admin/editor through AppSync, some
-only by the trusted Lambda's hook context. Plugin hooks themselves do not have a
-write helper for every area today (see the Access level column). Everything outside
-these five areas — the `Post`, `Page`, `Media`, and `PostTag` DynamoDB tables, the
-`public/site-settings.json` S3 mirror, and any other plugin's namespace — is
-off-limits. The runtime does not enforce this today;
+differ by area** and fall into three families:
+
+- **KvStore** — admin/editor write through AppSync. Plugin hooks have no KvStore write
+  helper today.
+- **PluginSecret + PluginSecretIndicator** — written by the `plugin-secret-handler`
+  Lambda, which is invoked by admin/editor through the `setPluginSecret` /
+  `clearPluginSecret` AppSync mutations. The trusted processor reads `PluginSecret` via
+  `ctx.secret<T>()` but does NOT write to either secret table.
+- **S3 `public/plugins/{instanceId ?? name}/*`** — written by the trusted Lambda's hook
+  context (`ctx.writePublicAsset(...)`). This is the only area a plugin hook writes to
+  directly today.
+
+Everything outside these five areas — the `Post`, `Page`, `Media`, and `PostTag`
+DynamoDB tables, the `public/site-settings.json` S3 mirror, and any other plugin's
+namespace — is off-limits. The runtime does not enforce this today;
 it is a contract enforced by trust (and future IAM hardening).
 
 | Area | Path / identifier | Access level | Phase |
