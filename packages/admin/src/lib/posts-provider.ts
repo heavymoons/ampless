@@ -10,6 +10,9 @@ import {
   type PostsProvider,
   type ListOptions,
   type CreatePostInput,
+  type PostRevision,
+  type ListPostHistoryOptions,
+  type PostRevisionConnection,
 } from 'ampless'
 
 // Structural shape of the AppSync data client surface admin needs. The
@@ -38,6 +41,30 @@ interface DataPostRow {
   publishedAt?: string | null
   tags?: Array<string | null> | null
   metadata?: unknown
+  // DynamoDB auto-managed timestamp. Amplify Gen 2 populates it on every
+  // write and returns it on the row. We surface it so the editor's
+  // localStorage draft recovery can anchor a draft to the server version
+  // it was based on (`Post.updatedAt`) and detect a stale draft.
+  updatedAt?: string | null
+}
+
+// The PostHistory snapshot row as read back through AppSync. Written by
+// the event-dispatcher Lambda on each Post INSERT/MODIFY (see
+// packages/backend/src/events/dispatcher.ts `writePostHistory`). `body`
+// and `metadata` are AWSJSON scalars, same as the Post row.
+interface DataPostHistoryRow {
+  postHistoryId: string
+  postId: string
+  revisedAt: string
+  title?: string | null
+  slug?: string | null
+  excerpt?: string | null
+  format?: string | null
+  body?: unknown
+  status?: string | null
+  publishedAt?: string | null
+  tags?: Array<string | null> | null
+  metadata?: unknown
 }
 
 interface ModelResult<T> {
@@ -47,6 +74,15 @@ interface ModelResult<T> {
 
 interface ListResult<T> {
   data: T[]
+  errors?: Array<{ message?: string }> | null
+}
+
+// Connection result for the `byPost` GSI query. Amplify returns
+// `nextToken: string | null`; we normalise to `string | undefined` at
+// the provider boundary so the public connection type stays clean.
+interface ConnectionResult<T> {
+  data: T[]
+  nextToken?: string | null
   errors?: Array<{ message?: string }> | null
 }
 
@@ -61,9 +97,25 @@ interface PostModel {
   delete(args: { postId: string }): Promise<ModelResult<DataPostRow>>
 }
 
+// Read-only surface for the PostHistory `byPost` GSI. The generated
+// method name comes from the schema's `.queryField('listByPost')`
+// (packages/backend/src/data/index.ts) — admin/editor can read it
+// through AppSync but never write it.
+interface PostHistoryModel {
+  listByPost(
+    args: { postId: string },
+    options?: {
+      sortDirection?: 'ASC' | 'DESC'
+      limit?: number
+      nextToken?: string
+    }
+  ): Promise<ConnectionResult<DataPostHistoryRow>>
+}
+
 interface DataClient {
   models: {
     Post: PostModel
+    PostHistory: PostHistoryModel
   }
 }
 
@@ -91,6 +143,27 @@ function toCorePost(p: DataPostRow): Post {
     publishedAt: p.publishedAt ?? undefined,
     tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
     metadata: decodeMetadata(p.metadata),
+    updatedAt: p.updatedAt ?? undefined,
+  }
+}
+
+// Map a raw PostHistory row to the in-memory `PostRevision` snapshot
+// shape. `body` is decoded from AWSJSON to match `Post['body']` for the
+// declared format (same decode path as `toCorePost`).
+function toCoreRevision(r: DataPostHistoryRow): PostRevision {
+  return {
+    postHistoryId: r.postHistoryId,
+    postId: r.postId,
+    revisedAt: r.revisedAt,
+    title: r.title ?? undefined,
+    slug: r.slug ?? undefined,
+    excerpt: r.excerpt ?? undefined,
+    format: (r.format ?? undefined) as PostRevision['format'],
+    body: decodeAwsJson(r.body),
+    status: (r.status ?? undefined) as PostRevision['status'],
+    publishedAt: r.publishedAt ?? undefined,
+    tags: (r.tags ?? []).filter((t): t is string => typeof t === 'string'),
+    metadata: decodeMetadata(r.metadata),
   }
 }
 
@@ -173,6 +246,29 @@ export function installAdminPostsProvider(): void {
     async remove(postId) {
       const { errors } = await client.models.Post.delete({ postId })
       if (errors) throw new Error(errors[0]?.message ?? 'Failed to delete post')
+    },
+
+    async listPostHistory(
+      postId: string,
+      options?: ListPostHistoryOptions
+    ): Promise<PostRevisionConnection> {
+      const { data, nextToken, errors } = await client.models.PostHistory.listByPost(
+        { postId },
+        {
+          sortDirection: 'DESC',
+          limit: options?.limit,
+          nextToken: options?.nextToken,
+        }
+      )
+      if (errors) {
+        throw new Error(errors[0]?.message ?? 'Failed to list post history')
+      }
+      return {
+        items: (data ?? []).map(toCoreRevision),
+        // Amplify returns `string | null`; the public type is
+        // `string | undefined`.
+        nextToken: nextToken ?? undefined,
+      }
     },
   }
 

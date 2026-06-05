@@ -215,6 +215,12 @@ export interface Config {
    * field is absent.
    */
   cache?: CacheConfig
+  /**
+   * Post revision-history knobs. The event-dispatcher Lambda snapshots
+   * each post save into the `PostHistory` table; this controls how long
+   * those snapshots are retained.
+   */
+  history?: HistoryConfig
 }
 
 /**
@@ -239,6 +245,21 @@ export interface CacheConfig {
    * `s-maxage`. Default 3600 (1 hour).
    */
   deepTtlSeconds?: number
+}
+
+/**
+ * Post revision-history tunables, read by the event-dispatcher Lambda
+ * (via the template shell) when snapshotting each post save.
+ */
+export interface HistoryConfig {
+  /**
+   * Days to retain each post revision before DynamoDB TTL deletes it.
+   * Default 0 = keep forever (no `ttl` attribute is written). DynamoDB TTL
+   * deletes within ~48h after expiry, so effective retention is
+   * retentionDays + up to ~2 days. Changing this only affects revisions
+   * written afterward — existing rows keep their original expiry.
+   */
+  retentionDays?: number
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

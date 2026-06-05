@@ -7,16 +7,25 @@ export {
   createPost,
   updatePost,
   deletePost,
+  listPostHistory,
   setPostsProvider,
   hasPostsProvider,
 } from './core.js'
-export type { ListOptions, CreatePostInput, PostsProvider } from './core.js'
+export type {
+  ListOptions,
+  CreatePostInput,
+  PostsProvider,
+  PostRevision,
+  ListPostHistoryOptions,
+  PostRevisionConnection,
+} from './core.js'
 export type {
   Post,
   PostMetadata,
   StaticPostFileMeta,
   CacheStrategy,
   CacheConfig,
+  HistoryConfig,
   StaticPostBody,
   Page,
   Media,

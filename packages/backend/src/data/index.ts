@@ -399,6 +399,44 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.groups(['ampless-admin', 'ampless-editor']),
       ]),
 
+    // Per-post revision history (Phase A). Each Post INSERT/MODIFY on the
+    // DDB stream produces one snapshot row, written by the event-dispatcher
+    // Lambda via the DDB SDK under its own IAM role — admin/editor read it
+    // back through AppSync but never write it (same pattern as PluginSecret
+    // / PluginSecretIndicator).
+    PostHistory: a
+      .model({
+        // 冪等な決定的 ID: `${postId}#${revisedAt}`. Stream at-least-once 再配信で
+        // 同じ保存が二度届いても同一 ID で上書きされ重複しない。
+        postHistoryId: a.id().required(),
+        postId: a.id().required(),
+        // スナップショットした版の updatedAt(=保存時刻)。byPost のソートキー。
+        revisedAt: a.datetime().required(),
+        title: a.string(),
+        slug: a.string(),
+        excerpt: a.string(),
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
+        body: a.json(),
+        status: a.enum(['draft', 'published']),
+        publishedAt: a.datetime(),
+        tags: a.string().array(),
+        metadata: a.json(),
+        // Unix epoch 秒。retentionDays>0 のときだけ書く(0/未設定=無期限)。
+        ttl: a.integer(),
+      })
+      .identifier(['postHistoryId'])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .secondaryIndexes((index: any) => [
+        // .name() は DynamoDB 物理 index 名、.queryField() は client query method 名。
+        index('postId').sortKeys(['revisedAt']).queryField('listByPost').name('byPost'),
+      ])
+      // admin/editor は AppSync 経由で読み取りのみ。書き込みは dispatcher が
+      // DDB SDK + IAM で直接行い AppSync auth を経由しない(PluginSecret と同方式)。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .authorization((allow: any) => [
+        allow.groups(['ampless-admin', 'ampless-editor']).to(['read']),
+      ]),
+
     // Custom return type for public post reads. Decoupling from `Post` lets
     // AppSync skip the model-level (admin-only) auth check on fields.
     //

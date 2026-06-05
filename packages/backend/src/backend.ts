@@ -262,6 +262,17 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
 
   const mcpTokenTable = backend.data.resources.tables['McpToken']
 
+  // PostHistory (Phase A): per-post revision snapshots written by the
+  // event-dispatcher Lambda from the Post stream. The grant + env var are
+  // wired after dispatcherFn is declared below; here we just enable TTL so
+  // revisions expire when `cms.config.history.retentionDays > 0` sets the
+  // `ttl` attribute (rows written with retentionDays 0/unset carry no ttl
+  // and persist forever).
+  const postHistoryTable = backend.data.resources.tables['PostHistory']
+  const cfnPostHistoryTable =
+    backend.data.resources.cfnResources.amplifyDynamoDbTables['PostHistory']
+  cfnPostHistoryTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
+
   const eventsStack = backend.createStack('amplessEvents')
 
   // 2. Shared dead-letter queue.
@@ -304,6 +315,12 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   untrustedQueue.grantSendMessages(dispatcherFn)
   dispatcherFn.addEnvironment('TRUSTED_QUEUE_URL', trustedQueue.queueUrl)
   dispatcherFn.addEnvironment('UNTRUSTED_QUEUE_URL', untrustedQueue.queueUrl)
+  // PostHistory: the dispatcher writes one revision snapshot per Post
+  // INSERT/MODIFY directly via the DDB SDK (under its own IAM role,
+  // bypassing AppSync — same direct-write pattern as PluginSecret). Grant
+  // write access and pass the resolved physical table name through the env.
+  postHistoryTable.grantWriteData(dispatcherFn)
+  dispatcherFn.addEnvironment('AMPLESS_POST_HISTORY_TABLE', postHistoryTable.tableName)
 
   // 5. Trusted processor: SQS → plugin handlers, with read on posts + write
   //    on own S3 plugin paths.
