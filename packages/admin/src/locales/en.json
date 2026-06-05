@@ -101,6 +101,30 @@
       "createPost": "Create post",
       "delete": "Delete",
       "deleteConfirm": "Delete \"{title}\"?"
+    },
+    "history": {
+      "title": "Revision history",
+      "empty": "No revisions yet. A snapshot is recorded each time you save.",
+      "columnRevisedAt": "Revised",
+      "columnStatus": "Status",
+      "columnTitle": "Title",
+      "view": "View",
+      "restore": "Restore",
+      "restoreConfirm": "Load this revision into the editor? Your current unsaved changes will be replaced. Nothing is saved until you click Save.",
+      "viewing": "Viewing revision from {date}",
+      "loadMore": "Load more",
+      "staticCaveat": "This is a static (bundled) revision. Restoring brings back only the file manifest — the referenced files in S3 may have been overwritten by a later save, so the bundle may not render as it did then."
+    },
+    "draft": {
+      "recoverTitle": "Restore unsaved changes?",
+      "recoverBody": "An unsaved local draft from {when} was found in this browser. Restore it into the editor? Nothing is saved until you click Save.",
+      "staleTitle": "Unsaved draft may be out of date",
+      "staleBody": "The server version changed since this local draft was taken {when}. Your draft may be based on older content — restoring could overwrite newer edits.",
+      "restore": "Restore",
+      "restoreAnyway": "Restore anyway",
+      "discard": "Discard",
+      "restored": "Unsaved draft restored. Review and click Save to keep it.",
+      "staticUnsupported": "Drafts aren't auto-saved for static (bundled) posts."
     }
   },
   "media": {

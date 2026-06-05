@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Image as ImageIcon } from 'lucide-react'
 import {
@@ -10,6 +10,7 @@ import {
   formatDate,
   type Post,
   type PostMetadata,
+  type PostRevision,
   type StaticPostBody,
   type ContentFormat,
 } from 'ampless'
@@ -23,6 +24,7 @@ import {
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
+import { PostHistoryPanel } from './post-history-panel.js'
 import { StaticUploader } from './static-uploader.js'
 import {
   uploadBundle,
@@ -35,6 +37,17 @@ import {
   resolvePublishedAtForSave,
   isFuture,
 } from '../lib/post-published-at.js'
+import {
+  readDraft,
+  writeDraft,
+  clearDraft,
+  reconcileDraft,
+  NEW_POST_DRAFT_ID,
+  type PostDraft,
+  type LoadedPostState,
+  type DraftDecision,
+} from '../lib/post-draft.js'
+import { getAdminCmsConfig } from '../lib/admin-config-client.js'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -92,6 +105,26 @@ function isStaticBody(value: unknown): value is StaticPostBody {
   )
 }
 
+// Format a draft's `savedAt` epoch (date + time) in the project's
+// configured timezone/locale so it reads naturally in the recovery
+// banner. Falls back to a plain locale string if Intl chokes on the TZ.
+function formatDraftTime(epochMs: number, timezone: string, locale: string): string {
+  const d = new Date(epochMs)
+  if (Number.isNaN(d.getTime())) return ''
+  try {
+    return new Intl.DateTimeFormat(locale || undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: timezone,
+    }).format(d)
+  } catch {
+    return d.toLocaleString()
+  }
+}
+
 export function PostForm({ post }: PostFormProps) {
   const router = useRouter()
   const t = useT()
@@ -110,6 +143,46 @@ export function PostForm({ post }: PostFormProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+  // Remount key for the tiptap editor. `useEditor({ content })` reads
+  // `content` only at init, so restoring a revision's body into a tiptap
+  // post requires bumping this to force a fresh mount with the new
+  // content. Textarea-based formats (markdown / html) are controlled and
+  // update from `setBody` alone — they don't need the remount.
+  const [editorEpoch, setEditorEpoch] = useState(0)
+
+  // localStorage autosave / recovery state.
+  //
+  // `dirtyRef` is the genuine-user-edit gate. Simply OPENING a post must
+  // write no draft, but two things make a naive "watch state, save"
+  // approach fire on open: (a) TiptapEditor's onCreate calls onChange at
+  // mount, and (b) tiptap re-normalises stored JSON so getJSON() isn't
+  // byte-equal to the server `body`. So we only autosave when a real edit
+  // signal flips this flag: tiptap's onUserEdit (onUpdate only), the
+  // textarea onChange, the field inputs, and restoreRevision. A ref (not
+  // state) avoids re-running the autosave effect just to read the flag.
+  const dirtyRef = useRef(false)
+  function markDirty() {
+    dirtyRef.current = true
+  }
+  // The draft-recovery banner shown on mount when a usable draft exists.
+  // `null` means no prompt. `decision` distinguishes the same-base recover
+  // case from the moved-on stale case (different button labels + copy).
+  const [recovery, setRecovery] = useState<{
+    draft: PostDraft
+    decision: Exclude<DraftDecision, 'discard'>
+  } | null>(null)
+  // A transient "draft restored" hint after the user accepts recovery.
+  const [restoredHint, setRestoredHint] = useState(false)
+  // Stable post key for the draft (postId on edit, 'new' for a new post).
+  const draftId = post?.postId ?? NEW_POST_DRAFT_ID
+  // Static posts can't be autosaved (their bytes live in pendingBundle,
+  // not in localStorage). Surfaces a short note instead of a draft.
+  const isStaticFormat = format === 'static'
+  // Timezone / locale for rendering the draft timestamp in the recovery
+  // banner, matching how the revision-history panel formats times.
+  const cmsConfig = getAdminCmsConfig()
+  const draftTimezone = cmsConfig?.timezone ?? 'UTC'
+  const draftLocale = cmsConfig?.locale ?? 'en'
 
   // The field's value at mount, used to detect whether the user edited
   // publishedAt. When untouched, `resolvePublishedAtForSave` preserves the
@@ -161,9 +234,124 @@ export function PostForm({ post }: PostFormProps) {
     )
   }
 
+  // ── localStorage autosave / recovery ──────────────────────────────
+  //
+  // The server values this editor opened with — the base the draft is
+  // reconciled against. Derived from the immutable `post` prop, so it
+  // doesn't drift as the user edits.
+  const loadedState: LoadedPostState = {
+    title: post?.title ?? '',
+    slug: post?.slug ?? '',
+    excerpt: post?.excerpt ?? '',
+    format: post?.format ?? 'tiptap',
+    body: post?.body ?? EMPTY_TIPTAP_DOC,
+    status: post?.status ?? 'draft',
+    tags: (post?.tags ?? []).join(', '),
+    publishedAtInput: isoToLocalInput(post?.publishedAt),
+    noLayout: post?.metadata?.no_layout === true,
+    updatedAt: post?.updatedAt ?? null,
+  }
+
+  function buildCurrentDraft(): PostDraft {
+    return {
+      title,
+      slug,
+      excerpt,
+      format,
+      body,
+      status,
+      tags: tagsInput,
+      publishedAtInput,
+      noLayout,
+      baseUpdatedAt: post?.updatedAt ?? null,
+      savedAt: Date.now(),
+    }
+  }
+
+  // Pour a recovered draft into the form. Mirrors `restoreRevision` for
+  // the content fields, including the tiptap remount (the editor reads
+  // `content` only at init). Marks dirty so the recovered-but-unsaved
+  // state is re-captured as a draft.
+  function applyDraft(draft: PostDraft) {
+    setTitle(draft.title)
+    setSlug(draft.slug)
+    setExcerpt(draft.excerpt)
+    setFormat(draft.format)
+    setBody(draft.body)
+    setStatus(draft.status)
+    setTagsInput(draft.tags)
+    setPublishedAtInput(draft.publishedAtInput)
+    setNoLayout(draft.noLayout && draft.format === 'html')
+    setPendingBundle(null)
+    // Force the tiptap editor to remount with the restored body.
+    setEditorEpoch((e) => e + 1)
+    setView('edit')
+    markDirty()
+    setRestoredHint(true)
+  }
+
+  function acceptRecovery() {
+    if (!recovery) return
+    applyDraft(recovery.draft)
+    setRecovery(null)
+  }
+
+  function discardRecovery() {
+    clearDraft(draftId)
+    dirtyRef.current = false
+    setRecovery(null)
+  }
+
+  // On mount, decide whether to offer recovery of an unsaved draft. Runs
+  // once per post key. Static posts are skipped (their bytes can't be
+  // persisted). A draft that equals the loaded server content is silently
+  // dropped; a same-base differing draft prompts to recover; a draft taken
+  // against a now-outdated server version warns as stale.
+  useEffect(() => {
+    if (loadedState.format === 'static') return
+    const draft = readDraft(draftId)
+    if (!draft) return
+    // A persisted static draft shouldn't normally exist, but guard anyway.
+    if (draft.format === 'static') {
+      clearDraft(draftId)
+      return
+    }
+    const decision = reconcileDraft(draft, loadedState)
+    if (decision === 'discard') {
+      clearDraft(draftId)
+      return
+    }
+    setRecovery({ draft, decision })
+    // Mount-only: the loaded base never changes for this form instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Debounced autosave. Writes the live form state to localStorage ~1.2s
+  // after the last genuine edit. Only runs when `dirtyRef` is set (see
+  // markDirty callers), so merely opening a post writes nothing. Static
+  // posts are never autosaved.
+  useEffect(() => {
+    if (isStaticFormat) return
+    if (!dirtyRef.current) return
+    const handle = setTimeout(() => {
+      // Re-check the dirty gate at FIRE time, not just schedule time: an
+      // explicit save (which sets dirtyRef=false and clears the draft) can
+      // land during the 1.2s debounce window. Without this re-check a late
+      // timeout would re-create a stale draft right after a successful save
+      // cleared it.
+      if (!dirtyRef.current) return
+      writeDraft(draftId, buildCurrentDraft())
+    }, 1200)
+    return () => clearTimeout(handle)
+    // Re-arm on every tracked field change; the dirty gate decides whether
+    // a write actually happens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout])
+
   function insertMediaSnippet(url: string) {
     if (format === 'tiptap') return // tiptap handles images via its own MediaPicker
     const snippet = snippetFor(url, format)
+    markDirty() // inserting media into the body is a genuine edit
     const ta = bodyTextareaRef.current
     const current = typeof body === 'string' ? body : ''
     if (!ta) {
@@ -243,6 +431,43 @@ export function PostForm({ post }: PostFormProps) {
     // flag is redundant there. Clear it when leaving html format so the
     // checkbox-hidden state matches what gets persisted on save.
     if (next !== 'html') setNoLayout(false)
+    // A format switch is a genuine user action — capture it as a draft.
+    markDirty()
+  }
+
+  // Pour a selected revision's fields into the editor form. Does NOT
+  // save — the user reviews and clicks Save, which creates a fresh
+  // revision via the existing dispatcher path. Applies ONLY the content
+  // fields below; the full `metadata` blob is intentionally NOT restored
+  // (buildMetadata rebuilds from the live post.metadata and has no
+  // metadata state, so restoring the blob wouldn't apply and could
+  // clobber plugin / SEO data). The snapshot still STORES metadata; we
+  // just don't apply it on restore in v1. The one metadata key we honour
+  // is `no_layout`, and only for html revisions (matches buildMetadata's
+  // gating).
+  function restoreRevision(rev: PostRevision) {
+    const fmt = rev.format ?? 'markdown'
+    setTitle(rev.title ?? '')
+    setSlug(rev.slug ?? '')
+    setExcerpt(rev.excerpt ?? '')
+    setFormat(fmt)
+    setBody(rev.body)
+    setStatus(rev.status ?? 'draft')
+    setTagsInput((rev.tags ?? []).join(', '))
+    setPublishedAtInput(isoToLocalInput(rev.publishedAt))
+    setNoLayout(rev.metadata?.no_layout === true && fmt === 'html')
+    // A new bundle pick (for static) is irrelevant to a restore — clear
+    // any pending upload so it can't leak into the next save.
+    setPendingBundle(null)
+    // Force the tiptap editor to remount with the restored body (it only
+    // reads `content` at init). Harmless for textarea formats.
+    setEditorEpoch((e) => e + 1)
+    // Surface the editor (in case the user was on the preview tab) so the
+    // restored content is visible for review before saving.
+    setView('edit')
+    // A restored-but-unsaved revision is a real unsaved change — capture
+    // it as a draft so a crash before Save doesn't lose the restore.
+    markDirty()
   }
 
   async function save(e: React.FormEvent) {
@@ -285,13 +510,20 @@ export function PostForm({ post }: PostFormProps) {
           // metadata so the static delivery route can stream small
           // files back without a HEAD round-trip on first read.
           metadata = { ...(metadata ?? {}), files: result.filesMeta }
-        } else if (initialStaticBody) {
-          nextBody = initialStaticBody
-          // Edit without a new bundle: preserve any existing
-          // metadata.files map (already on `metadata` via
-          // buildMetadata's spread of post.metadata).
         } else {
-          throw new Error(t('posts.form.static.noBundle'))
+          // No new bundle picked. Prefer the current `body` if it is
+          // already a valid static manifest — this is the case after
+          // restoring a static revision (restoreRevision sets `body` to
+          // the revision's manifest, and the save branch must honour it
+          // instead of silently re-writing the current manifest). Else
+          // fall back to the originally-loaded manifest (edit-only
+          // metadata change — preserves metadata.files via buildMetadata's
+          // spread of post.metadata). If neither is a manifest there is
+          // nothing to reference (e.g. restoring a static revision onto a
+          // post that never had a bundle).
+          const fallbackManifest = isStaticBody(body) ? body : initialStaticBody
+          if (!fallbackManifest) throw new Error(t('posts.form.static.noBundle'))
+          nextBody = fallbackManifest
         }
       }
 
@@ -320,6 +552,12 @@ export function PostForm({ post }: PostFormProps) {
           metadata,
         })
       }
+      // Explicit save succeeded — the recovery draft is obsolete. Clear
+      // this post's key (and the shared 'new' key on first create, since
+      // a brand-new post autosaves under 'new' before it has a postId).
+      dirtyRef.current = false
+      clearDraft(draftId)
+      if (!isEdit) clearDraft(NEW_POST_DRAFT_ID)
       router.push('/admin/posts')
       router.refresh()
     } catch (err) {
@@ -448,6 +686,60 @@ export function PostForm({ post }: PostFormProps) {
       )}
 
       <div className={view === 'edit' ? 'space-y-6' : 'hidden'}>
+      {/* Draft recovery banner — offered on mount when a usable
+          localStorage draft exists for this post. The `stale` variant
+          warns that the server moved on under the draft and only offers
+          "Restore anyway" alongside Discard. */}
+      {recovery && (
+        <div
+          role="alert"
+          className={
+            recovery.decision === 'stale'
+              ? 'space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950'
+              : 'space-y-2 rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/5 p-4 text-sm'
+          }
+        >
+          <p className="font-medium">
+            {recovery.decision === 'stale'
+              ? t('posts.draft.staleTitle')
+              : t('posts.draft.recoverTitle')}
+          </p>
+          <p className="text-muted-foreground">
+            {recovery.decision === 'stale'
+              ? t('posts.draft.staleBody', {
+                  when: formatDraftTime(recovery.draft.savedAt, draftTimezone, draftLocale),
+                })
+              : t('posts.draft.recoverBody', {
+                  when: formatDraftTime(recovery.draft.savedAt, draftTimezone, draftLocale),
+                })}
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={acceptRecovery}>
+              {recovery.decision === 'stale'
+                ? t('posts.draft.restoreAnyway')
+                : t('posts.draft.restore')}
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={discardRecovery}>
+              {t('posts.draft.discard')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Transient confirmation after the user accepts recovery. */}
+      {restoredHint && !recovery && (
+        <p className="rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/5 px-3 py-2 text-xs text-muted-foreground">
+          {t('posts.draft.restored')}
+        </p>
+      )}
+
+      {/* Static posts can't be autosaved to localStorage. */}
+      {isStaticFormat && (
+        <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {t('posts.draft.staticUnsupported')}
+        </p>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="title">{t('posts.form.title')}</Label>
         <Input
@@ -457,6 +749,7 @@ export function PostForm({ post }: PostFormProps) {
           onChange={(e) => {
             setTitle(e.target.value)
             if (!isEdit && !slug) setSlug(slugify(e.target.value))
+            markDirty()
           }}
         />
       </div>
@@ -466,7 +759,10 @@ export function PostForm({ post }: PostFormProps) {
         <Input
           id="slug"
           value={slug}
-          onChange={(e) => setSlug(e.target.value)}
+          onChange={(e) => {
+            setSlug(e.target.value)
+            markDirty()
+          }}
           placeholder={slugify(title) || t('posts.form.slugPlaceholder')}
         />
       </div>
@@ -477,7 +773,10 @@ export function PostForm({ post }: PostFormProps) {
           id="excerpt"
           rows={2}
           value={excerpt}
-          onChange={(e) => setExcerpt(e.target.value)}
+          onChange={(e) => {
+            setExcerpt(e.target.value)
+            markDirty()
+          }}
         />
       </div>
 
@@ -517,7 +816,12 @@ export function PostForm({ post }: PostFormProps) {
           )}
         </div>
         {format === 'tiptap' ? (
-          <TiptapEditor initialContent={body} onChange={setBody} />
+          <TiptapEditor
+            key={editorEpoch}
+            initialContent={body}
+            onChange={setBody}
+            onUserEdit={markDirty}
+          />
         ) : format === 'static' ? (
           <StaticUploader
             initial={initialStaticBody}
@@ -531,7 +835,10 @@ export function PostForm({ post }: PostFormProps) {
             ref={bodyTextareaRef}
             rows={20}
             value={typeof body === 'string' ? body : ''}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              setBody(e.target.value)
+              markDirty()
+            }}
             className="font-mono text-xs"
           />
         )}
@@ -542,7 +849,10 @@ export function PostForm({ post }: PostFormProps) {
         <Input
           id="tags"
           value={tagsInput}
-          onChange={(e) => setTagsInput(e.target.value)}
+          onChange={(e) => {
+            setTagsInput(e.target.value)
+            markDirty()
+          }}
           placeholder={t('posts.form.tagsPlaceholder')}
         />
         <p className="text-xs text-muted-foreground">{t('posts.form.tagsHint')}</p>
@@ -553,7 +863,10 @@ export function PostForm({ post }: PostFormProps) {
         <select
           id="status"
           value={status}
-          onChange={(e) => setStatus(e.target.value as Post['status'])}
+          onChange={(e) => {
+            setStatus(e.target.value as Post['status'])
+            markDirty()
+          }}
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         >
           <option value="draft">{t('common.draft')}</option>
@@ -567,7 +880,10 @@ export function PostForm({ post }: PostFormProps) {
           id="publishedAt"
           type="datetime-local"
           value={publishedAtInput}
-          onChange={(e) => setPublishedAtInput(e.target.value)}
+          onChange={(e) => {
+            setPublishedAtInput(e.target.value)
+            markDirty()
+          }}
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         />
         <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
@@ -584,7 +900,10 @@ export function PostForm({ post }: PostFormProps) {
             <input
               type="checkbox"
               checked={noLayout}
-              onChange={(e) => setNoLayout(e.target.checked)}
+              onChange={(e) => {
+                setNoLayout(e.target.checked)
+                markDirty()
+              }}
               className="mt-1"
             />
             <span>
@@ -613,6 +932,13 @@ export function PostForm({ post }: PostFormProps) {
           </Button>
         )}
       </div>
+
+      {/* Revision history — only meaningful for an existing post (a new
+          post has no snapshots yet). Restoring pours a revision's fields
+          into the form above for review; the user saves manually. */}
+      {isEdit && post && (
+        <PostHistoryPanel postId={post.postId} onRestore={restoreRevision} />
+      )}
       </div>
     </form>
   )

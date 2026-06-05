@@ -41,6 +41,9 @@ export default defineConfig({
   // IANA timezone used for date rendering. Pin this so SSR and CSR
   // always produce the same string. Examples: 'Asia/Tokyo', 'America/New_York'.
   timezone: 'UTC',
+  // Post revision history. Every post save is snapshotted into the
+  // PostHistory table by the event-dispatcher Lambda.
+  // history: { retentionDays: 0 }, // 0 = keep every revision forever; e.g. 365 to expire after a year
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
   //

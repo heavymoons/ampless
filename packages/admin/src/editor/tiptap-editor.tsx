@@ -121,9 +121,18 @@ const EDITOR_STYLES = `
 interface TiptapEditorProps {
   initialContent?: unknown
   onChange?: (json: unknown) => void
+  /**
+   * Fired ONLY on a genuine user edit (tiptap `onUpdate`), never on
+   * `onCreate`. The parent uses this as a clean "the human typed
+   * something" signal to drive localStorage autosave — distinct from
+   * `onChange`, which also fires at mount (onCreate) to sync the parent's
+   * `body` with tiptap's normalised JSON. Driving autosave off `onChange`
+   * instead would write a phantom draft just from opening a post.
+   */
+  onUserEdit?: () => void
 }
 
-export function TiptapEditor({ initialContent, onChange }: TiptapEditorProps) {
+export function TiptapEditor({ initialContent, onChange, onUserEdit }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -160,6 +169,9 @@ export function TiptapEditor({ initialContent, onChange }: TiptapEditorProps) {
     },
     onUpdate: ({ editor }) => {
       onChange?.(editor.getJSON())
+      // Genuine user edit (typing, formatting, paste) — onCreate does NOT
+      // route through here, so this stays free of the mount-time phantom.
+      onUserEdit?.()
     },
   })
 

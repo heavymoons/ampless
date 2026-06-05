@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button, cn } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
+import { clearAllDrafts } from '../lib/post-draft.js'
 
 interface NavItem {
   href: string
@@ -162,6 +163,9 @@ export function Sidebar({
             size="sm"
             className="w-full justify-start gap-3"
             onClick={async () => {
+              // Clear per-browser recovery drafts so one user's unsaved
+              // edits don't linger for the next person on a shared machine.
+              clearAllDrafts()
               await signOut()
               window.location.href = '/login'
             }}

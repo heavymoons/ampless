@@ -83,6 +83,7 @@ describe('amplessSchemaModels', () => {
         'McpToken',
         'PluginSecret',
         'PluginSecretIndicator',
+        'PostHistory',
         'PublicPost',
         'PublicPostConnection',
         'PublicMedia',
