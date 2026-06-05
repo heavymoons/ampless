@@ -1340,4 +1340,4 @@ export default defineConfig({
 - ファーストパーティプラグインの bug → `heavymoons/ampless` にプラグインの package 名つきで issue
 - プラグインランタイム / admin form の bug → 同じレポ、ラベル `area:plugins`
 
-ampless レポは v1.0 RC まで非公開なので、上記のリンクは現時点では package tarball 内の `node_modules/ampless/docs/` をローカルで見るための参照です。public 化後は実 GitHub URL に解決されます。
+ampless レポは現在 alpha 期間中は非公開です。beta に進む (npm `beta` dist-tag、リポジトリ公開) と上記のリンクが GitHub URL に解決されます。現状でも同じ docs が package tarball 内の `node_modules/ampless/docs/` に同梱されているので、GitHub にアクセスせずローカルで読めます。

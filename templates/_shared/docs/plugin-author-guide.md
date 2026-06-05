@@ -1826,6 +1826,8 @@ PROTECTED), so the scaffolded code is safe across ampless upgrades.
 - Bugs in the plugin runtime / admin form → same repo, label
   `area:plugins`.
 
-The ampless repo stays private until v1.0 RC. Once it's public, the
-links above resolve to the actual GitHub URLs; today they live in
-the package tarball directly under `node_modules/ampless/docs/`.
+The ampless repo is currently private during the alpha stage; the
+GitHub URLs above start resolving once beta ships (npm `beta`
+dist-tag, repo flips public). Today the same docs also live in the
+package tarball directly under `node_modules/ampless/docs/`, so
+you can read them locally without browsing GitHub.

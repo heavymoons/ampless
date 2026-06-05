@@ -4,13 +4,14 @@
 
 ### Release Strategy
 
-ampless is developed **in private until it reaches v1.0 RC**.
+ampless follows a four-stage release path: **alpha → beta → RC → stable**.
 
-- Development decisions are guided by "can I run my own multiple sites on ampless?" (dogfooding first)
-- v1.0 RC is triggered by meeting **both**: **(a)** production-quality for the dogfood sites, and **(b)** an ampless-built introductory page is ready
-- At that point: make the GitHub repo public, `pnpm release` to npm publish, and launch the introductory page simultaneously
-- Until then: no investment in external-user README / Quick Start / marketing copy; focus on core features + documentation (design docs)
-- Internal version numbers continue to be bumped normally with changesets (versioning is continuous even while unpublished)
+- **alpha** (current): closed development, repo private, npm `alpha` dist-tag, dogfood-driven feature work. Decisions are guided by "can I run my own multiple sites on ampless?"
+- **beta**: repo goes **public**, npm `beta` dist-tag. Breaking changes are still possible (called out via changesets), but external users can install and external plugin authors can publish. The public-flip moment.
+- **RC**: feature-complete, no more breaking changes expected. Dogfood sites run on RC builds for the final-tuning period.
+- **stable** (v1.0): public launch. The ampless introduction page (built with ampless itself) ships simultaneously.
+
+v1.0 RC entry criteria (unchanged from the previous plan): (a) production-quality for the dogfood sites, and (b) the ampless-built introduction page is ready. Beta entry has its own internal blocker checklist tracked separately. Internal version numbers are bumped normally with changesets throughout all four stages.
 
 WordPress compatibility scope is **WXR data import only**; plugin / theme / Gutenberg block compatibility is explicitly out of scope.
 
@@ -64,25 +65,32 @@ If dogfood targets include existing WordPress sites, the priority of this item i
 
 ---
 
-### v1.0 RC (public release trigger)
+### Beta (public flip)
 
-**v1.0 scope criterion:** "Core + official plugins are sufficient to operate a site." The **extension surface** (plugin contract, trust_level, event infrastructure) is in place by v1.0, but the distribution mechanism / marketplace / dynamic plugin loading itself is not implemented in v1.0 (to avoid the WordPress dynamic where plugins are required just to get started).
+Beta is the public-release stage: the GitHub repo becomes browsable, packages publish under the npm `beta` dist-tag, and external users can install / external plugin authors can publish. Breaking changes are still possible (called out via changesets and dist-tag bumps); the contract becomes locked at RC.
 
-Completion criteria:
-- Multiple sites I want to operate are running on ampless
-- The ampless introduction page (product page) is built with ampless
-- There is a clear path to running a blog with just `npx create-ampless@latest` + official plugins
-
-At this point:
-- Make the GitHub repo public
-- `pnpm release` to npm publish all packages
-- Launch the introduction page simultaneously
+Beta entry criteria are tracked in an internal blocker checklist (separate from this public roadmap). At a high level: scrub of alpha-only language across README / CLAUDE.md / Roadmap (this scrub), CI provenance flip, dist-tag tooling switch (`pnpm changeset pre exit` → `pnpm changeset pre enter beta`), and curation of accumulated alpha-period changesets.
 
 ---
 
-### v1.0 Stable (post-release)
+### v1.0 RC (feature-complete phase)
 
-Core features still to be polished after the public release:
+**v1.0 scope criterion:** "Core + official plugins are sufficient to operate a site." The **extension surface** (plugin contract, trust_level, event infrastructure) is in place by v1.0; the distribution mechanism / marketplace / dynamic plugin loading is deferred to v2.0+.
+
+Completion criteria:
+- Multiple sites the maintainer wants to operate are running on ampless (dogfooded under load)
+- The ampless introduction page (product page) is buildable with ampless (ready to ship at v1.0 stable)
+- There is a clear path to running a blog with just `npx create-ampless@latest` + official plugins
+
+Note: the **public-flip** to GitHub-public + npm `beta` dist-tag happens at the start of beta (one stage earlier than this RC). The **simultaneous introduction-page launch** happens at v1.0 stable (one stage later). See "Release Strategy" above for the four-stage breakdown.
+
+---
+
+### v1.0 Stable
+
+The full public launch — the ampless introduction page (built with ampless) ships simultaneously with v1.0.
+
+Core features still to be polished after stable:
 
 - [ ] Admin UI completeness (user management, settings, media management UI)
 - [ ] Custom content types (full implementation of `defineSchema`)
