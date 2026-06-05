@@ -172,7 +172,7 @@ export default defineConfig({
 interface AmplessPlugin {
   name: string                      // パッケージ風の識別子。例: 'analytics-ga4'
   packageName?: string              // インストール時のクロスチェック用 npm パッケージ名
-  apiVersion: 1                     // 契約が変わるときだけ bump
+  apiVersion: 1                     // 現状唯一の有効値
   trust_level: 'untrusted' | 'trusted' | 'privileged'
   instanceId?: string               // 複数インストール時の namespace
   displayName?: LocalizedString     // admin UI ラベル
@@ -200,6 +200,12 @@ interface AmplessPlugin {
 ### `apiVersion: 1`
 
 今日は 1 のみ。将来の互換性破壊バージョンが出たらこの数字が bump され、runtime は未知の値を黙って bind せず拒否します。
+
+**現状唯一の有効値は `apiVersion: 1` です。** literal type は他の値を compile-time に拒否し、`package.json#amplessPlugin.apiVersion` が `definePlugin()` の戻り値と異なる場合、または runtime の `SUPPORTED_API_VERSION` を超える場合、runtime は hard-throw します。
+
+Phase 1 の compat-break reservation すべて（PR #220、#222、#230、#232、#234）は `apiVersion: 1` 内に収まります。これらをプラグインで declare するかどうかは契約バージョンに影響しません。
+
+将来 `apiVersion: 2` が導入される場合は、changeset とこのガイドおよび architecture doc のセクション更新を通じてアナウンスされます。それまでは、**`apiVersion: 1` でプラグインを publish し、唯一の有効値として扱ってください**。v2 bump の trigger となるもの（ならないもの）の全基準については、architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy) セクションを参照してください。
 
 ### `instanceId`
 
@@ -1218,7 +1224,7 @@ it('admin が空文字保存した場合は空配列', () => {
 
 - **パッケージ名**: `@your-scope/plugin-foo`。`@ampless/plugin-*` スコープは本モノレポから ship する公式プラグイン用に予約
 - **エントリ**: ESM のみ、default export (factory) + 設定インターフェイス (ユーザの `cms.config.ts` から型付きで引数を渡せるように) を export
-- **`apiVersion`**: 契約が変わるときだけ bump。既存フィールドの型が変わったら major、新フィールド追加なら minor (既存インストールは動き続ける)
+- **`apiVersion`**: 現状は `1` を declare してください — 唯一の有効値で、literal type が他の値を compile-time に reject します。`apiVersion` はプラグイン契約の **breaking-change marker** であって semver 風のチャンネルではありません。additive な追加 (optional field、reserved capability など) は `apiVersion: 1` 内に収まり、bump は不要です。詳細は architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy) を参照
 - **Dist-tag**: ampless 自体が alpha のうちは `@alpha`。`@latest` は ampless v1.0 まで予約
 
 参考実装:

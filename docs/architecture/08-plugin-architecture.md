@@ -339,13 +339,64 @@ The runtime checks for declaration-vs-implementation mismatches at startup and w
 | `publicHtmlForPost` declared but `publicHtmlForPost` not implemented | at startup |
 | `publicHtmlForPost` implemented but `publicHtmlForPost` not declared | at startup |
 
-### API Versioning
+### apiVersion bump policy
 
-Plugins declare `apiVersion: 1`. ampless rejects plugins whose version it does not understand. Today there is only one supported version, so the field is a forward-compat handle, not a load-bearing branch.
+#### The role of apiVersion
+
+`apiVersion` is the **load-bearing breaking-change marker** on the plugin contract. It signals "this plugin was built against a specific stable shape of the ampless plugin API". The runtime cross-checks both `package.json#amplessPlugin.apiVersion` and the value returned by `definePlugin()`'s factory, and **hard-throws on any mismatch** — including a manifest declaring a higher value than `SUPPORTED_API_VERSION`.
+
+#### Current state
+
+Today only `apiVersion: 1` is supported. The literal type `apiVersion: 1` on `AmplessPlugin` ([packages/ampless/src/plugin.ts](../../packages/ampless/src/plugin.ts)) accepts no other value at compile time, and `SUPPORTED_API_VERSION = 1 as const` ([packages/runtime/src/plugin-package-manifest.ts](../../packages/runtime/src/plugin-package-manifest.ts)) is the runtime gate.
 
 ```typescript
 export default seoPlugin({/* config */}) // resolves to { apiVersion: 1, name: 'seo', ... }
 ```
+
+#### Additive vs breaking (the line we draw)
+
+**Additive (stays within `apiVersion: 1`)**:
+
+- New optional fields on `AmplessPlugin` (e.g. `uninstall?`, `settings.version?`)
+- New reserved capability names (e.g. `cspReady`)
+- New optional fields on existing context types (e.g. `cspNonce?` on `PluginPublicRenderContext`)
+- New optional fields on existing descriptors (e.g. `nonce?` on inline / external script)
+- Hook return type widening that is covariant for existing implementations (e.g. `Promise<void>` → `Promise<void | PluginHookResult>`)
+- Adding new reserved trust levels to the union (e.g. `'privileged'` was already in the union but treated as silent-drop before #230 made it warn-visible)
+- Runtime behaviour changes that emit warnings without rejecting existing plugins (e.g. PR #230 privileged visibility)
+- Adding new docs / type reservations that existing plugins are not required to declare
+
+**Breaking (would require `apiVersion: 2`)**:
+
+- Removing or renaming any existing required field on `AmplessPlugin`
+- Adding a new required field on `AmplessPlugin` (vs optional)
+- Changing the call signature of an existing hook surface (e.g. event hooks, render surfaces, lifecycle hooks)
+- Changing the semantic meaning of an existing capability (vs adding a new one)
+- Removing or renaming a descriptor variant
+- Tightening trust_level semantics in a way that drops execution for previously-running plugins (vs the explicit-warn-then-drop visibility added in #230, which preserves the silent-drop behaviour and only adds a warning)
+- Changing `PluginSettingsManifest` field shape in a way that the lenient public resolver cannot absorb and the new `version` reservation alone cannot handle
+
+#### Phase 1–6a reservation status
+
+All five compat-break protection PRs (#220 CSP nonce, #222 PluginHookResult, #230 privileged visibility, #232 uninstall + ownership, #234 settings.version) land **within `apiVersion: 1`**. None of them required a contract version bump because each followed the additive criteria above. Plugins that declare `apiVersion: 1` today and ignore the new reservations continue to type-check and run unchanged.
+
+#### Beta-period policy
+
+During beta (npm dist-tag `beta`, repo public, external plugin authors actively publishing), **`apiVersion` is held at `1`**. Individual npm package versions (`ampless@1.0.0-beta.x`, `@ampless/runtime@1.0.0-beta.x`, etc.) bump freely via changesets, but the plugin **contract** version does not bump during beta. This guarantee is independent of the npm dist-tag transition and is what plugin authors can rely on for the duration of beta.
+
+#### Dual-version support (deferred)
+
+Whether a future runtime supporting `apiVersion: 2` will also continue to honour `apiVersion: 1` plugins (dual-version coexistence) or will hard-cut (only `2` accepted) is a design decision **for the v2 PR itself**. This document does not commit either way. Today's `SUPPORTED_API_VERSION` is a single `as const` value; supporting multiple would mean changing it to a range or set, which is a runtime change that ships with v2.
+
+#### Candidate triggers for a future `apiVersion: 2`
+
+The following list is **judgment material, not a committed roadmap**. Each item is a change that, **if pursued in its current shape**, would meet the breaking criteria above. None are scheduled, none are guaranteed, and the v2 PR (whenever it lands) decides which subset actually requires the contract bump:
+
+- **Privileged Lambda provisioning** — PR #230 added warning-only visibility for `trust_level: 'privileged'`. The actual provisioning of a privileged Lambda with its own IAM role, in a shape that changes hook execution semantics for plugins that already declared `'privileged'`, is a candidate for `apiVersion: 2`.
+- **Plugin lifecycle dispatch** — PR #232 reserved `AmplessPlugin.uninstall?` and `PluginUninstallContext`. The actual lifecycle-dispatch PR (calling `uninstall` from a runtime path, adding cleanup helpers to the context) is **additive** if it lands as designed (`uninstall?` is optional, helpers are on the dedicated context). But if the design needs to extend `PluginRuntimeContext` (used by event hooks) instead, that would be a breaking change.
+- **Settings shape migration mechanism** — PR #234 reserved `PluginSettingsManifest.version?`. A future `migrate` hook (or equivalent surface) is **additive** if it ships as a new optional field on `AmplessPlugin`. But if the migration mechanism requires changing how `resolvePluginSettings` returns values (e.g. exposing pre-migration values to plugin code), that would be breaking.
+- **CSP nonce stamping wired through middleware** — PR #220 reserved `ctx.cspNonce`, `descriptor.nonce: 'auto'`, and `'cspReady'` capability. The actual stamping landing additively (runtime starts reading `descriptor.nonce` when `ctx.cspNonce` is populated) does NOT need v2 — that's the whole point of the reservation. But if the stamping changes which scripts are rendered (e.g. always-strip-script-when-CSP-on), that would be breaking.
+- **Any change that tightens trust_level semantics** for an already-running plugin (vs adding a new tier with its own opt-in) is a v2 candidate.
 
 ### Plugin Manifest (npm-published plugins)
 
