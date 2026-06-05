@@ -321,6 +321,61 @@ runtime は起動時に宣言と実装の不一致を検出して（エラーで
 export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ... }
 ```
 
+### apiVersion bump policy
+
+#### apiVersion の役割
+
+`apiVersion` はプラグイン契約の **load-bearing breaking-change marker** です。「このプラグインは ampless plugin API の特定の安定した shape に対してビルドされた」ことを示します。runtime は `package.json#amplessPlugin.apiVersion` とファクトリが返す値の両方をクロスチェックし、`SUPPORTED_API_VERSION` を超える値を宣言したマニフェストも含め、**mismatch があれば hard-throw** します。
+
+#### 現状
+
+現在サポートされているのは `apiVersion: 1` のみです。`AmplessPlugin` の literal type `apiVersion: 1`（[packages/ampless/src/plugin.ts](../../packages/ampless/src/plugin.ts)）は compile-time に他の値を拒否し、`SUPPORTED_API_VERSION = 1 as const`（[packages/runtime/src/plugin-package-manifest.ts](../../packages/runtime/src/plugin-package-manifest.ts)）が runtime のゲートです。
+
+#### Additive vs breaking (境界線)
+
+**Additive（`apiVersion: 1` 内に収まる）**:
+
+- `AmplessPlugin` への新しい optional field 追加（例: `uninstall?`、`settings.version?`）
+- 新しい reserved capability 名の追加（例: `cspReady`）
+- 既存 context 型への新しい optional field 追加（例: `PluginPublicRenderContext` の `cspNonce?`）
+- 既存 descriptor への新しい optional field 追加（例: inline / external script の `nonce?`）
+- 既存実装に対して covariant な hook 戻り値型の widening（例: `Promise<void>` → `Promise<void | PluginHookResult>`）
+- union への新しい reserved trust level 追加（例: `'privileged'` は #230 以前から union に存在したが、silent-drop として扱われていた）
+- 既存プラグインを拒否せずに warning を出すだけの runtime 動作変更（例: PR #230 privileged visibility）
+- 既存プラグインが declare する必要のない新しい docs / type reservation の追加
+
+**Breaking（`apiVersion: 2` が必要になる）**:
+
+- `AmplessPlugin` 上の既存 required field の削除またはリネーム
+- `AmplessPlugin` への新しい required field 追加（optional ではなく）
+- 既存の hook surface の call signature 変更（例: event hooks、render surfaces、lifecycle hooks）
+- 既存 capability の semantic 意味の変更（新しいものを追加するのではなく）
+- descriptor variant の削除またはリネーム
+- すでに動いているプラグインの実行を落とす形での trust_level semantics の締め付け（#230 で追加された explicit-warn-then-drop visibility とは対照的で、それは silent-drop 動作を維持しつつ warning を追加するだけ）
+- lenient public resolver が吸収できず、かつ新しい `version` reservation だけでは対処できない形での `PluginSettingsManifest` field shape 変更
+
+#### Phase 1–6a reservation の状態
+
+5 件の compat-break protection PR（#220 CSP nonce、#222 PluginHookResult、#230 privileged visibility、#232 uninstall + ownership、#234 settings.version）はすべて **`apiVersion: 1` 内** に収まります。上記の additive 基準に従っているため、契約バージョンの bump は不要でした。現在 `apiVersion: 1` を宣言して新しい reservation を使わないプラグインは、型チェックを通過しそのまま動き続けます。
+
+#### Beta 期間のポリシー
+
+beta 期間中（npm dist-tag `beta`、リポジトリ公開、外部プラグイン作者が積極的に publish）は、**`apiVersion` は `1` に固定**されます。個別の npm パッケージバージョン（`ampless@1.0.0-beta.x`、`@ampless/runtime@1.0.0-beta.x` など）は changeset 経由で自由に bump されますが、プラグイン**契約**バージョンは beta 中に bump しません。この保証は npm dist-tag の切り替えとは独立しており、beta 期間中にプラグイン作者が頼れる約束です。
+
+#### Dual-version support（deferred）
+
+`apiVersion: 2` をサポートする将来の runtime が `apiVersion: 1` のプラグインも引き続き受け入れるか（dual-version 共存）、ハードカットするか（`2` のみ受け付け）は、**v2 PR 自身が決める**設計上の判断です。このドキュメントはどちらも約束しません。現在の `SUPPORTED_API_VERSION` は単一の `as const` 値であり、複数をサポートするには range または set への変更が必要で、それは v2 とともに ship する runtime 変更です。
+
+#### 将来の `apiVersion: 2` の候補 trigger
+
+以下のリストは **committed roadmap ではなく judgment material** です。各項目は、**現在の形で実施された場合**、上記の breaking 基準を満たす変更です。スケジュールはなく、保証もなく、v2 PR（いつ来るとしても）がどのサブセットが実際に契約 bump を必要とするかを決めます:
+
+- **Privileged Lambda プロビジョニング** — PR #230 は `trust_level: 'privileged'` に warning のみの visibility を追加しました。すでに `'privileged'` を宣言しているプラグインの hook 実行 semantics を変える形での、独自 IAM ロールを持つ privileged Lambda の実際のプロビジョニングは、`apiVersion: 2` の候補です。
+- **Plugin lifecycle dispatch** — PR #232 は `AmplessPlugin.uninstall?` と `PluginUninstallContext` を reserved しました。runtime path から `uninstall` を呼び出し context に cleanup helper を追加する実際の lifecycle-dispatch PR は、設計通り（`uninstall?` は optional、helper は専用 context 上）に landing すれば **additive** です。ただし設計上 event hook が使う `PluginRuntimeContext` を拡張する必要が出た場合は、breaking change になります。
+- **Settings shape migration mechanism** — PR #234 は `PluginSettingsManifest.version?` を reserved しました。将来の `migrate` hook（または同等の surface）は、`AmplessPlugin` への新しい optional field として ship すれば **additive** です。ただし migration mechanism が `resolvePluginSettings` の戻り値の変更を必要とする場合（例: migration 前の値を plugin コードに expose する）は breaking になります。
+- **CSP nonce stamping をミドルウェア経由で配線** — PR #220 は `ctx.cspNonce`、`descriptor.nonce: 'auto'`、`'cspReady'` capability を reserved しました。additive に landing する実際の stamping（`ctx.cspNonce` が populate されたときに runtime が `descriptor.nonce` を読み始める）は v2 不要です — それが reservation の要点です。ただし stamping がどのスクリプトをレンダリングするかを変える場合（例: CSP-on 時に常にスクリプトを除去）は breaking になります。
+- **すでに動いているプラグインの trust_level semantics を締め付けるあらゆる変更**（新しい tier を opt-in で追加するのではなく）は v2 候補です。
+
 ### プラグインマニフェスト（npm 公開プラグイン）
 
 サードパーティプラグインは通常の npm tarball として公開し、factory を default export する。「マニフェスト」は factory が返すランタイムオブジェクトそのもので、別に JSON マニフェストファイルは置かない。

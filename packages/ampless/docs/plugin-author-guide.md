@@ -200,7 +200,7 @@ That's it. Restart `npm run dev`, view source on any page, and the
 interface AmplessPlugin {
   name: string                      // package-like identifier, e.g. 'analytics-ga4'
   packageName?: string              // npm package name for install-time cross-check
-  apiVersion: 1                     // bump only when the contract changes
+  apiVersion: 1                     // the only valid value today
   trust_level: 'untrusted' | 'trusted' | 'privileged'
   instanceId?: string               // namespace for multi-instance installs
   displayName?: LocalizedString     // admin UI label
@@ -233,6 +233,23 @@ see "Naming rules" below.
 There's only one version today. Future breaking-change versions will
 bump this number; the runtime rejects unknown values rather than
 silently mis-binding.
+
+**Today only `apiVersion: 1` is valid.** The literal type accepts
+no other value, and the runtime hard-throws if `package.json#amplessPlugin.apiVersion`
+disagrees with what `definePlugin()` returns or exceeds the runtime's
+`SUPPORTED_API_VERSION`.
+
+All Phase 1 compat-break reservations (PRs #220, #222, #230, #232,
+#234) live within `apiVersion: 1` — declaring or not declaring them
+in your plugin does not affect the contract version.
+
+If a future `apiVersion: 2` is ever introduced, it will be announced
+through a changeset and a section update in this guide and the
+architecture doc. Until then, **publish your plugin with
+`apiVersion: 1` and treat it as the only valid value**. See the
+[apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy)
+section in the architecture doc for the full criteria around what
+would (and would not) trigger a v2 bump.
 
 ### `instanceId`
 
@@ -1641,9 +1658,14 @@ a normal npm package:
   monorepo.
 - **Entry**: ESM only, exports default (the factory) and the
   config interface (for typed args in user `cms.config.ts`).
-- **`apiVersion`**: bump only when the contract changes. Bump
-  major when an existing field's type changes; bump minor when you
-  add a new field (existing installs keep working).
+- **`apiVersion`**: declare `1` today — it is the only valid
+  value, and the literal type rejects others at compile time.
+  `apiVersion` is the breaking-change marker on the plugin
+  contract, not a semver-style channel: additive changes (new
+  optional fields, new reserved capabilities) stay within
+  `apiVersion: 1` and do NOT require a bump. See the [apiVersion
+  bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy)
+  in the architecture doc for the full criteria.
 - **Dist-tag**: `@alpha` while ampless itself is in alpha. The
   `@latest` tag stays reserved until ampless v1.0.
 

@@ -800,7 +800,13 @@ export interface PluginSettingsManifest {
 
 export interface AmplessPlugin {
   name: string
-  /** Plugin API version. Currently 1; future versions will be additive. */
+  /**
+   * Plugin API version. Currently `1` is the only supported value.
+   * `apiVersion` is the breaking-change marker on the plugin contract;
+   * additive changes (new optional fields, new reserved capabilities)
+   * stay within `apiVersion: 1`. See the apiVersion bump policy in
+   * `docs/architecture/08-plugin-architecture.md` for the full criteria.
+   */
   apiVersion: 1
   /**
    * Optional npm package name (e.g. `'@scope/ampless-plugin-foo'` or
