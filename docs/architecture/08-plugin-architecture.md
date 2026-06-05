@@ -339,14 +339,6 @@ The runtime checks for declaration-vs-implementation mismatches at startup and w
 | `publicHtmlForPost` declared but `publicHtmlForPost` not implemented | at startup |
 | `publicHtmlForPost` implemented but `publicHtmlForPost` not declared | at startup |
 
-### API Versioning
-
-Plugins declare `apiVersion: 1`. ampless rejects plugins whose version it does not understand. Today there is only one supported version, so the field is a forward-compat handle, not a load-bearing branch.
-
-```typescript
-export default seoPlugin({/* config */}) // resolves to { apiVersion: 1, name: 'seo', ... }
-```
-
 ### apiVersion bump policy
 
 #### The role of apiVersion
@@ -356,6 +348,10 @@ export default seoPlugin({/* config */}) // resolves to { apiVersion: 1, name: '
 #### Current state
 
 Today only `apiVersion: 1` is supported. The literal type `apiVersion: 1` on `AmplessPlugin` ([packages/ampless/src/plugin.ts](../../packages/ampless/src/plugin.ts)) accepts no other value at compile time, and `SUPPORTED_API_VERSION = 1 as const` ([packages/runtime/src/plugin-package-manifest.ts](../../packages/runtime/src/plugin-package-manifest.ts)) is the runtime gate.
+
+```typescript
+export default seoPlugin({/* config */}) // resolves to { apiVersion: 1, name: 'seo', ... }
+```
 
 #### Additive vs breaking (the line we draw)
 

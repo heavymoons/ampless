@@ -313,14 +313,6 @@ runtime は起動時に宣言と実装の不一致を検出して（エラーで
 | `publicHtmlForPost` 宣言済みだが `publicHtmlForPost` 未実装 | スタートアップ時 |
 | `publicHtmlForPost` 実装済みだが `publicHtmlForPost` 未宣言 | スタートアップ時 |
 
-### API バージョニング
-
-プラグインは `apiVersion: 1` を宣言する。ampless は理解できないバージョンを拒否する。現状は 1 のみがサポートされており、このフィールドは将来の forward-compat 用フックであって、現時点で分岐に使われてはいない。
-
-```typescript
-export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ... }
-```
-
 ### apiVersion bump policy
 
 #### apiVersion の役割
@@ -330,6 +322,10 @@ export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ..
 #### 現状
 
 現在サポートされているのは `apiVersion: 1` のみです。`AmplessPlugin` の literal type `apiVersion: 1`（[packages/ampless/src/plugin.ts](../../packages/ampless/src/plugin.ts)）は compile-time に他の値を拒否し、`SUPPORTED_API_VERSION = 1 as const`（[packages/runtime/src/plugin-package-manifest.ts](../../packages/runtime/src/plugin-package-manifest.ts)）が runtime のゲートです。
+
+```typescript
+export default seoPlugin({/* config */}) // → { apiVersion: 1, name: 'seo', ... }
+```
 
 #### Additive vs breaking (境界線)
 
