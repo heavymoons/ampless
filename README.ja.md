@@ -5,7 +5,7 @@
 
 **AWS Amplify 向けのサーバーレス CMS。**「AWS ネイティブ版 EmDash」。
 
-> **プレリリース / アルファ版。** 全パッケージは `alpha` npm dist-tag (`0.x-alpha.y` semver) で公開しています。v1.0 RC までは、マイナーバージョンでも破壊的変更が入る可能性があります。リポジトリは v1.0 RC まで非公開ですが、npm パッケージはインストール可能です（GitHub でソースは閲覧できません）。
+> **プレリリース / アルファ版。** 全パッケージは `alpha` npm dist-tag で公開しています。ampless は 4 段階のリリースパスを歩んでいます: **alpha**（クローズド、ドッグフード専用）→ **beta**（リポジトリ公開; npm `beta` dist-tag; 破壊的変更まだあり）→ **RC**（feature-complete、破壊的変更は予定なし）→ **stable**（v1.0）。現在は alpha 段階 — GitHub でソースは閲覧できませんが、npm パッケージはインストール可能です。
 
 ## ampless を選ぶ理由
 
@@ -58,7 +58,7 @@ npm run dev           # http://localhost:3000
 | [`@ampless/plugin-seo`](./packages/plugin-seo) | OGP / Twitter / canonical メタデータ + `sitemap.xml` |
 | [`@ampless/plugin-rss`](./packages/plugin-rss) | RSS 2.0 `/feed.xml` |
 | [`@ampless/plugin-webhook`](./packages/plugin-webhook) | 外部 URL への POST イベント通知（HMAC 署名付き） |
-| [`@ampless/mcp-server`](./packages/mcp-server) | Claude Desktop / Cursor / Claude Code 向け MCP サーバー |
+| [`@ampless/mcp-server`](./packages/mcp-server) | HTTP MCP transport 経由で接続する MCP tool registry (Claude Desktop / Cursor / Claude Code 等の MCP client から利用) |
 
 ## `cms.config.ts` でのプラグイン設定
 
@@ -125,15 +125,16 @@ ampless は `ampless-editor` を信頼済みプリンシパルとして扱いま
 
 ## ロードマップ
 
-ampless は将来的にオープンに開発される予定ですが、**リポジトリは v1.0 RC まで非公開**です。メンテナー自身の複数サイトで運用するのに十分な品質になり、プロジェクト自体のマーケティングページが ampless で構築された段階でパブリックリリースします。
+ampless の開発は 4 段階のリリースパスに従っています: **alpha → beta → RC → stable**。現在は alpha 段階 — リポジトリは非公開ですが、npm パッケージは `alpha` dist-tag で公開中です。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なしのフェーズ。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。
 
 | フェーズ | ハイライト |
 |---|---|
 | v0.1（完了 — 内部） | CLI、管理パネル、ブログテンプレート、Cognito、MCP サーバー、SEO / RSS / Webhook プラグイン |
 | v0.x（進行中） | テーマカスタマイズ、MCP HTTP トランスポート + アクセストークン、CloudFront キャッシュ戦略、AI プロバイダー抽象化、WXR インポート、モニタリング改善 |
-| v1.0 RC（パブリック化のトリガー） | コア + ファーストパーティプラグインで実際のサイトを運用できる状態、ampless 自身のマーケティングページが存在する |
-| v1.0 stable | 管理画面の改善、カスタムコンテンツタイプ、REST API、イジェクト |
-| v2.0+ | サードパーティプラグイン、マーケットプレイス、WASM サンドボックス |
+| **Beta（公開リリース）** | リポジトリを公開、npm `beta` dist-tag、破壊的変更はまだあり得る。外部プラグイン作者は npm にプラグインを publish 可能（`cms.config.ts` での静的読み込み）、外部ユーザはソース閲覧可で install 可能 |
+| v1.0 RC | feature-complete、破壊的変更は予定なし。ドッグフードサイトは RC ビルドで運用 |
+| v1.0 stable | 公開ローンチ — ampless 自身のマーケティングページ（ampless 製）も同時にローンチ |
+| v2.0+ | runtime-loaded サードパーティプラグイン（admin UI install、S3 + 動的ロード）、プラグインマーケットプレイス、WASM サンドボックス |
 
 詳細なリストは [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md) を参照してください。
 

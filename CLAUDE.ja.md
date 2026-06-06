@@ -118,4 +118,4 @@ pnpm changeset        # バージョニング用 changeset を作成
 
 ## ステータス
 
-private repo でクローズドアルファ開発中。`main` ブランチから changesets 経由で `alpha` dist-tag として npm に公開している。最初の公開リリースのターゲットは **v1.0 RC**: ampless で自前のドッグフードサイトを運用できる状態を目指す（マーケットプレイスは v1.0 の必須要件ではない）。
+ampless は 4 段階のリリースパスを歩んでいます: **alpha → beta → RC → stable**。現在は **alpha**: リポジトリは非公開で、`main` ブランチから changesets 経由で `alpha` dist-tag として npm に公開中。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なし。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。

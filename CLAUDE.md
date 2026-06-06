@@ -118,4 +118,4 @@ If a stale `.changeset/pre.json` slips through and the symptom shows up (Release
 
 ## Status
 
-Private repo in closed alpha development. Packages publish to npm under the `alpha` dist-tag from the `main` branch via changesets. The bar for the first public release is **v1.0 RC**: first-party dogfood sites running on ampless, no marketplace required.
+ampless follows a four-stage release path: **alpha → beta → RC → stable**. Currently in **alpha**: repo is private, packages publish to npm under the `alpha` dist-tag from `main` via changesets. **Beta** is the public-flip moment (repo public, npm `beta` dist-tag, breaking changes still possible). **RC** is feature-complete with no more breaking changes. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself).

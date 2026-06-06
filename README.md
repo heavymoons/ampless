@@ -5,7 +5,7 @@
 
 **Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
 
-> **Pre-release / alpha.** All packages publish under the `alpha` npm dist-tag (`0.x-alpha.y` semver). Breaking changes are possible in any minor version until v1.0 RC. The repo stays private until v1.0 RC — npm packages remain installable, but the source isn't browsable on GitHub yet.
+> **Pre-release / alpha.** All packages publish under the `alpha` npm dist-tag. ampless is on a four-stage release path: **alpha** (closed, dogfood-only) → **beta** (repo goes public; npm `beta` dist-tag; breaking changes still possible) → **RC** (feature-complete, breaking changes no longer expected) → **stable** (v1.0). Today's stage is alpha; the source isn't browsable on GitHub yet, but npm packages are installable.
 
 ## Why ampless
 
@@ -58,7 +58,7 @@ When you're ready to publish, the CLI's `--mount` mode wires the directory you'v
 | [`@ampless/plugin-seo`](./packages/plugin-seo) | OGP / Twitter / canonical metadata + `sitemap.xml` |
 | [`@ampless/plugin-rss`](./packages/plugin-rss) | RSS 2.0 `/feed.xml` |
 | [`@ampless/plugin-webhook`](./packages/plugin-webhook) | POST events to external URLs (HMAC-signed) |
-| [`@ampless/mcp-server`](./packages/mcp-server) | MCP tool registry (internal, used by `@ampless/backend` HTTP MCP handler) |
+| [`@ampless/mcp-server`](./packages/mcp-server) | MCP tool registry shared by the HTTP MCP transport (used by Claude Desktop, Cursor, Claude Code, and other MCP clients) |
 
 ## Plugins in `cms.config.ts`
 
@@ -126,15 +126,16 @@ ampless treats `ampless-editor` as a trusted principal — same shape as WordPre
 
 ## Roadmap
 
-ampless is being developed in the open eventually, but **the repo stays private until v1.0 RC**. Public release happens once it's good enough to run the maintainer's own multiple sites and the project's own marketing page is built with ampless itself.
+ampless development follows a four-stage release path: **alpha → beta → RC → stable**. Today's stage is alpha — the repo is private, but npm packages publish under the `alpha` dist-tag. **Beta** is the public-flip moment (repo goes public, npm `beta` dist-tag, breaking changes still possible). **RC** is the feature-complete, no-more-breaking-changes phase. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself).
 
 | Phase | Highlights |
 |---|---|
 | v0.1 (done — internal) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
 | v0.x (in progress) | Theme customization, MCP HTTP transport + access tokens, CloudFront cache strategy, AI provider abstraction, WXR import, monitoring polish |
-| v1.0 RC (public-flip trigger) | Core + first-party plugins are enough to run a real site; ampless's own marketing page exists |
-| v1.0 stable | Admin polish, custom content types, REST API, eject |
-| v2.0+ | Third-party plugins, marketplace, WASM sandbox |
+| **Beta (public release)** | Repo flips public, npm `beta` dist-tag, breaking changes still possible. External plugin authors can publish their plugins to npm (static `cms.config.ts` consumption); external users can install with full source visibility. |
+| v1.0 RC | Feature-complete; breaking changes no longer expected. Dogfood sites run on RC builds. |
+| v1.0 stable | Public launch — ampless introduction page (built with ampless) ships simultaneously. |
+| v2.0+ | Runtime-loaded third-party plugins (admin-UI install, S3 + dynamic loading), plugin marketplace, WASM sandbox |
 
 Full list in [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md).
 
