@@ -38,6 +38,14 @@ pnpm workspaces と Turborepo で管理されたモノリポです。
 3. `pnpm build` と `pnpm test` が通ることを確認する
 4. プルリクエストを開く
 
+## セキュリティ
+
+セキュリティ問題については public な issue を立て**ないで**ください。非公開の報告チャンネル (GitHub Security Advisories 推奨、メールもフォールバックとして使用可) については [SECURITY.md](./SECURITY.md) を参照してください。
+
+## 行動規範
+
+このプロジェクトは [Contributor Covenant 行動規範](./CODE_OF_CONDUCT.md) に準拠しています。参加することで、この規範を遵守することが期待されます。
+
 ## ライセンス
 
 コントリビューションを行うことで、あなたの貢献が MIT ライセンスの下でライセンスされることに同意したものとみなします。

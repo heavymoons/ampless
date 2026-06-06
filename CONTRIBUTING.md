@@ -38,6 +38,14 @@ This is a monorepo managed with pnpm workspaces and Turborepo.
 3. Make sure `pnpm build` and `pnpm test` pass
 4. Open a pull request
 
+## Security
+
+Please do **not** open public issues for security problems. See [SECURITY.md](./SECURITY.md) for private reporting channels (GitHub Security Advisories preferred, email fallback).
+
+## Code of Conduct
+
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
