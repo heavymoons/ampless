@@ -38,17 +38,17 @@
 
 ## 執行
 
-虐待的、嫌がらせ、またはその他の許容できない行動の事例は、執行を担当するコミュニティリーダー (ishikawa.naoto@heavymoons.net) に対して報告される場合があります。すべての苦情は迅速かつ公正にレビューおよび調査されます。
+虐待的、嫌がらせ、またはその他の許容できない行動の事例は、執行を担当するコミュニティリーダーに対してishikawa.naoto@heavymoons.netで報告される場合があります。すべての苦情は迅速かつ公正にレビューおよび調査されます。
 
 すべてのコミュニティリーダーは、問題の報告者のプライバシーとセキュリティを尊重する義務があります。
 
 ## 執行ガイドライン
 
-コミュニティリーダーは、この行動規範に違反していると見なした行動への帰結を判定する際に、これらのコミュニティガイドラインに従います:
+コミュニティリーダーは、この行動規範に違反していると見なした行動への帰結を判断する際に、これらのコミュニティガイドラインに従います:
 
 ### 1. 更生
 
-**コミュニティへの影響**: コミュニティで専門家にふさわしくない、または歓迎されないと思われる不適切な言葉の使用やその他の不適切な行動。
+**コミュニティへの影響**: コミュニティで専門家にふさわしくない、または歓迎されないと思われる不適切な言葉の使用やその他の不適切な行動をすること。
 
 **帰結**: コミュニティリーダーからの非公開の書面による警告。違反の理由を明確にし、行動が不適切だった理由を説明します。公の謝罪が要求される場合があります。
 
@@ -72,13 +72,14 @@
 
 ## 帰属
 
-この行動規範は、[Contributor Covenant][homepage]バージョン2.1を基に作成されています。
+この行動規範は、[https://www.contributor-covenant.org/version/2/1/code_of_conduct.html][v2.1]で利用可能な[Contributor Covenant][homepage] バージョン 2.1を基に作成されています。
 
-コミュニティへの影響ガイドラインは[Mozillaの行動規範実施ラダー][Mozilla CoC]に適合しています。
+コミュニティへの影響ガイドラインは[Mozilla's code of conduct enforcement ladder][Mozilla CoC]に適合しています。
 
-この行動規範に関するよくある質問への回答は、[https://www.contributor-covenant.org/faq][FAQ]のFAQをご覧ください。翻訳は[https://www.contributor-covenant.org/translations][translations]でご覧いただけます。
+この行動規範に関する一般的な質問への回答については、[https://www.contributor-covenant.org/faq][FAQ]のFAQを参照してください。翻訳は[https://www.contributor-covenant.org/translations][translations]で入手できます。
 
 [homepage]: https://www.contributor-covenant.org
+[v2.1]: https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
 [Mozilla CoC]: https://github.com/mozilla/diversity
 [FAQ]: https://www.contributor-covenant.org/faq
 [translations]: https://www.contributor-covenant.org/translations
