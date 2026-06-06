@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a bug in ampless core, runtime, admin, or a first-party plugin
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill in as much detail as you can — repro steps and environment info make triage dramatically faster.
+  - type: input
+    id: ampless-version
+    attributes:
+      label: ampless version
+      description: Output of `npm ls ampless` (or the `ampless` version in your `package.json`)
+      placeholder: "1.0.0-alpha.115"
+    validations:
+      required: true
+  - type: input
+    id: runtime-version
+    attributes:
+      label: "@ampless/runtime version"
+      placeholder: "1.0.0-alpha.69"
+    validations:
+      required: false
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`
+      placeholder: "v22.13.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - "amplify sandbox (npx ampx sandbox)"
+        - "amplify production (deployed)"
+        - "local (no Amplify)"
+        - "other (please describe in repro)"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps a maintainer can follow to reproduce. A public repo link or a code snippet is ideal.
+      placeholder: |
+        1. `npx create-ampless@alpha my-site`
+        2. `cd my-site && ...`
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happens instead. Include error messages verbatim.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces (optional)
+      render: shell

@@ -34,9 +34,17 @@ This is a monorepo managed with pnpm workspaces and Turborepo.
 ## Pull Requests
 
 1. Fork the repo and create a branch from `main`
-2. Run `pnpm changeset` to describe your changes for the changelog
+2. If your change touches a published package — anything under `packages/*`, or shipped docs in `templates/_shared/docs/` — run `pnpm changeset` to describe it. Pure repo-level changes (root `README.md`, CI config, `CLAUDE.md`, top-level `docs/`, etc.) don't need a changeset. See `.github/PULL_REQUEST_TEMPLATE.md` for the full rule.
 3. Make sure `pnpm build` and `pnpm test` pass
 4. Open a pull request
+
+## Security
+
+Please do **not** open public issues for security problems. See [SECURITY.md](./SECURITY.md) for private reporting channels (GitHub Security Advisories preferred, email fallback).
+
+## Code of Conduct
+
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
 ## License
 

@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new feature, capability, or API
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to propose a new feature or capability. For "how do I use ampless?" questions, please read the plugin author guide and the architecture docs first (links in the contact section of the issue picker).
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case / motivation
+      description: What problem does this solve? Why is it worth ampless's attention vs userland?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / desired API
+      description: A rough sketch of how this should work. Code samples welcome.
+    validations:
+      required: false
+  - type: checkboxes
+    id: dogfood
+    attributes:
+      label: Related to a dogfood-first scenario?
+      description: ampless prioritizes features needed by sites the maintainer operates. Mark this if your request matches such a scenario.
+      options:
+        - label: This unblocks or improves a dogfood-first scenario
+          required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: What other approaches did you consider? Why are they less suitable?
