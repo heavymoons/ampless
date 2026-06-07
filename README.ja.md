@@ -18,20 +18,13 @@
 
 ```bash
 npx create-ampless@alpha my-site
+cd my-site && npm install
+npm run sandbox       # AWS 開発リソースをプロビジョニング後、http://localhost:3000 を起動
 ```
 
-CLI が Next.js 16（App Router）プロジェクトを生成します。その後：
+> ampless が alpha の間は `@alpha` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。
 
-```bash
-cd my-site
-npm install
-npx ampx sandbox      # AWS 開発リソースをプロビジョニングし amplify_outputs.json を生成
-npm run dev           # http://localhost:3000
-```
-
-> `@alpha` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。
-
-`/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。
+`/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。2 人目以降はデフォルトでグループなしとなり、手動で昇格が必要です。**前提条件・プロビジョニングされるリソース・次のステップの詳細**: [docs/quickstart.ja.md](./docs/quickstart.ja.md)
 
 公開準備ができたら、CLI の `--mount` モードで「ローカルで作業中のディレクトリ」を GitHub repo + Amplify Hosting アプリに一括登録できます。下記 [公開](#公開) セクション参照。
 
