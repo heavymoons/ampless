@@ -4,8 +4,7 @@
 
 ## プロジェクト概要
 
-ampless は AWS Amplify 向けのサーバーレス CMS で、「AWS 版 EmDash」のポジションを目指す。
-設計詳細は ARCHITECTURE.ja.md を参照。
+ampless は AWS Amplify Gen 2 上に構築された**エンジニア向けのカスタマイズベース CMS**。エンジニアは TypeScript でテーマ・プラグイン・スキーマを自由にカスタマイズでき、非エンジニアは投稿・メディア・設定の管理に polished な admin UI を使う。詳しいポジショニングと trust framework のスコープは下の `## Positioning` セクションを、設計詳細は ARCHITECTURE.ja.md を参照。
 
 ## リポジトリ構成
 
@@ -115,6 +114,18 @@ pnpm changeset        # バージョニング用 changeset を作成
 - コアパッケージ: `ampless`
 - CLI: `create-ampless` (`npx create-ampless@latest` で起動)
 - プラグイン: `@ampless/plugin-*`
+
+## ポジショニング
+
+ampless は**エンジニア向けのカスタマイズベース CMS** です — 非エンジニアはデフォルトのままでも使えます。
+
+- **エンジニア（ビルダー）**: `cms.config.ts` を編集し、プラグインを npm インストールし、テーマをフォーク / 編集し、AWS にデプロイする
+- **オペレーター（非エンジニア）**: ポリッシュされた admin UI で投稿 / メディア / settings.public / シークレット入力を行う
+- **プラグインモデル**: プラグインはエンジニアが `cms.config.ts` で直接インポート + 設定する npm dep（Astro integration / Next.js plugin パターン）。サイトエンジニアが各 npm dep をインストール前に審査する
+- **trust framework のスコープ（`trust_level`、capabilities、IAM スコープ付き Lambda）**: v1 において**ファーストパーティプラグインの code organization**として実装済み — どの trust 階層の Lambda が各イベントフックを実行するか、各階層が保有する IAM 権限、狭い範囲の hard gate（例: `settings.secret` は `trust_level: 'trusted'` を要求）。ほとんどの capability 宣言は**不一致 warning・admin ラベル・将来の allow-list**をサポートしており、runtime の hard gate ではない。任意のサードパーティ未審査プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては設計されていない。サードパーティプラグインの安全性はエンジニアの責任（インストール前に審査する）
+- **マーケットプレイス / ランタイムサンドボックス**: 明示的に v1.0 の成果物では**ない**。サイトエンジニアが審査していないプラグインを安全に動かす必要がある場合（つまり本物のプラグインマーケットプレイス）のみ v2.0+ で探索する
+
+参照カテゴリ: **Statamic / Craft / Sanity / Wagtail / Strapi**（エンジニアカスタマイズ + 編集者向けポリッシュ admin）。WordPress ではない（admin ファースト / 非エンジニアによるプラグインインストールホスト）。
 
 ## ステータス
 

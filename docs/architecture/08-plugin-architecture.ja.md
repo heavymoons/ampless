@@ -4,9 +4,23 @@
 
 > **プラグインを書く人向け**: 本ページは設計仕様。実装手順は別ドキュメント [`packages/ampless/docs/plugin-author-guide.ja.md`](../../packages/ampless/docs/plugin-author-guide.ja.md) に集約しています(`ampless` の npm tarball にも同梱されるほか、scaffold したサイトリポジトリの `docs/plugin-author-guide.ja.md` にもコピーされます)。
 
+### Trust model（v1 スコープ）
+
+ampless はエンジニア向けのカスタマイズベース CMS です（[ポジショニング](./14-roadmap.ja.md#ポジショニング2026-06-07)）。プラグインはサイトエンジニアが `cms.config.ts` で直接インポート + 設定する npm dep（Astro integration / Next.js plugin パターン）であり、エンジニアがインストール前に各 dep を審査します。
+
+本節で説明する trust framework（`trust_level` union、IAM スコープ付きの trusted / untrusted Lambda、capability 宣言リスト、`secretSettings` の `trusted` 専用チェック）は v1 において**ファーストパーティプラグインの code organization**として実装されています。決定する内容:
+
+- 各イベントフックがどの trust 階層の Lambda で実行されるか（event-dispatcher → SQS-trusted または SQS-untrusted）
+- 各階層の Lambda が保有する IAM 権限（trusted はポストを読み、自分の S3 パスに書き込む; untrusted は権限なし）
+- runtime が trust 階層で hard-gate する機能（例: `settings.secret` を宣言するプラグインは `trust_level: 'trusted'` でないと `definePlugin()` 時に throw — シークレット読み取りに `PluginSecret` テーブルへの trusted Lambda の IAM 権限が必要なため）
+- runtime / admin が warning・UI ラベル・将来の allow-list に使う capability 宣言（capability 不一致は今日は soft warning; admin UI ラベルは capabilities から読み取る; 将来の `cms.config.ts` allow-list が capabilities に作用する可能性）
+- runtime が防御的に sanitize する出力パス（例: `publicHtmlForPost` の可視 HTML に対する厳格 allowlist — trust 階層を問わず同じ sanitize を適用、trust 階層のゲートではなく多層防御）
+
+エンジニアが審査していない任意のサードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。エンジニアが `cms.config.ts` に追加するプラグインは、エンジニアがインストールを選択したから信頼されるのであり、フレームワークが安全性を保証しているからではありません。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、v1.0 の成果物ではありません（[ロードマップ §v2.0+ exploration](./14-roadmap.ja.md#v20-以降探索のみ--コミットなし) を参照）。
+
 ### 設計方針
 
-ampless のプラグインは、自身の `trust_level` に対応するイベント処理 Lambda の中で動く。サンドボックスは **Lambda の IAM 実行ロール**であり、V8 isolate でも `vm.Script` ラッパーでもない。プロセス内 JS サンドボックスは存在しない。untrusted コードは IAM ロールが空の Lambda で走り、trusted コードは trusted 層に必要な権限だけが付いた Lambda で走る。
+ampless のプラグインは、自身の `trust_level` に対応するイベント処理 Lambda の中で動く。サンドボックスは **Lambda の IAM 実行ロール**であり、V8 isolate でも `vm.Script` ラッパーでもない。プロセス内 JS サンドボックスは存在しない。untrusted コードは IAM ロールが空の Lambda で走り、trusted コードは trusted 層に必要な権限だけが付いた Lambda で走る。この IAM 分離はファーストパーティ / エンジニア審査済みプラグイン向けのサイズ設計（将来のマーケットプレイスへの forward-compat、§Trust model (v1 scope) 参照）。ファーストパーティの `'untrusted'` プラグインが空の IAM ロールの範囲内で悪意ある振る舞い（例: CPU 消費、フック内での throw）をすることをそれ自体では防がない; エンジニアの審査が最終防衛線であり、フレームワークではない。
 
 V8 isolate サンドボックスのような細粒度 capability を捨てて、AWS ネイティブの分離を取った形。推論しやすく、ネイティブバイナリ依存もなく、`--no-node-snapshot` フラグもコンテナイメージ Lambda も不要。
 
@@ -27,9 +41,11 @@ export interface AmplessPlugin {
   // admin UI 用の表示名。
   displayName?: LocalizedString
 
-  // 宣言された capability リスト。runtime は宣言と実装の不一致で warning を出し、
-  // `cms.config.ts` の `allowCapabilities` が危険 capability
-  // (admin page / server route / secrets 等) のゲートになる。
+  // 宣言された capability リスト。runtime は宣言と実装の不一致で warning を出す。
+  // `cms.config.ts` の `allowCapabilities` は v2.0+ marketplace 検討用に
+  // 予約された future allow-list surface (admin page / server route / secrets 等)
+  // であり、現状の runtime では強制されない。本ドキュメント後半の
+  // `allowCapabilities` セクション参照。
   capabilities?: readonly PluginCapability[]
 
   // イベントフック — trust_level に対応する Lambda が SQS から受けて実行
@@ -78,7 +94,7 @@ plugins: [
 
 ### Capability モデル
 
-`capabilities` はプラグインが何をしたいかの宣言。runtime / admin がバリデーション、UI ラベル、危険機能のゲートに使う。
+`capabilities` はプラグインが何をしたいかの宣言。runtime / admin が capability / 機能不一致 warning、admin UI ラベル、将来の allow-list surface として使う（runtime は今日 `capabilities` 宣言で機能を hard-gate しない、限られた例外を除いて — 最も重要な例外として `settings.secret` を `trust_level !== 'trusted'` で宣言すると `definePlugin()` 時に throw する、下の capability テーブルの [`secretSettings`](#capability-モデル) 行を参照）。この宣言 surface はファーストパーティ / エンジニア審査済みプラグイン向けのサイズ設計（上記の [Trust model（v1 スコープ）](#trust-modelv1-スコープ) を参照）。
 
 実装済み capability:
 
@@ -87,7 +103,7 @@ plugins: [
 | `publicHead` | `<head>` への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `metadata` | 既存の `metadata()` / `siteMetadata()` 経路 | `untrusted` 以上 |
-| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（既存 `@ampless/plugin-webhook` が untrusted で hooks を使う実装と整合） |
+| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（trusted hooks は `@ampless/plugin-webhook` が署名付き外向き HTTP 配送に使っている） |
 | `writePublicAsset` | trusted hook context から、検証済み・namespace 付きの public asset を書く (Phase 3、実装済み) | `trusted` 以上 |
 
 Phase 2 で追加:
@@ -112,7 +128,7 @@ Phase 6a で追加:
 
 | capability | 意味 | 既定許可 trust_level |
 |---|---|---|
-| `secretSettings` | `settings.secret` フィールドを宣言し、`PluginSecret` DDB テーブル（IAM 専用; Cognito グループのアクセス不可）に暗号化して保存する。admin は `setPluginSecret` / `clearPluginSecret` AppSync mutation（plugin-secret-handler Lambda 経由）で書き込み、Lambda が AES-256-GCM 暗号化を行ってから DDB に書く。trusted Lambda のみが `ctx.secret<T>(key)` で復号読み取りできる。`trust_level: 'trusted'` 必須。 | `trusted` のみ — untrusted プラグインがこれを宣言すると `definePlugin()` 時に throw する。 |
+| `secretSettings` | `settings.secret` フィールドを 1 つ以上宣言する — admin 編集可能な値を `PluginSecret` DDB テーブル（IAM 専用アクセス; Cognito グループは直接読み取り不可）に暗号化して保存する。admin は `setPluginSecret` / `clearPluginSecret` AppSync mutation（plugin-secret-handler Lambda 経由）で書き込み、Lambda が AES-256-GCM 暗号化してから DDB に書く。trusted フックのみが `ctx.secret<T>(key)` で読み取れる。`definePlugin()` 時に 4 つの observable な挙動がある（[plugin.ts:1004-1019](../../packages/ampless/src/plugin.ts#L1004-L1019)）: (1) **`settings.secret` 非空 + `trust_level !== 'trusted'`** → `definePlugin()` が throw — シークレット読み取りに `PluginSecret` テーブルへの trusted Lambda の IAM 権限が必要; untrusted と privileged Lambda はそのテーブルへの IAM 読み取りアクセスを持たない。(2) **`settings.secret` 非空 + `capabilities` 宣言済み + `capabilities` に `'secretSettings'` が含まれない** → soft 不一致 warning — `'schema'` / `'publicHtmlForPost'` の既存 capability-mismatch パターンと同じ。(3) **`settings.secret` 非空 + `capabilities` 未定義**（`capabilities` 配列を持たない legacy プラグイン）→ warning なし — `capabilities` が `undefined` のとき不一致チェックをスキップ、後方互換のため。(4) **`capabilities: ['secretSettings']` 宣言だけで `settings.secret` フィールドなし** → no-op — warning も throw もなし。 | `trusted` のみ（`settings.secret` が非空のとき `definePlugin()` 時に hard gate; 上記 4 ケース参照）。 |
 
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
@@ -120,15 +136,13 @@ Phase 6a で追加:
 
 `cspReady` は CSP nonce 予約 (`inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` と同時 ship、Phase 1: 型のみ、runtime no-op) の declarative-badge 部分。今宣言しても runtime cross-check や warning は出ない。admin UI バッジ + render-time sanity check は middleware/SSR CSP nonce threading PR で landing する。
 
-「危険」カテゴリ (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) は、プラグインパッケージ側で宣言されていても `cms.config.ts` 側で明示許可しないと有効化されない:
+`allowCapabilities` は `cms.config.ts` runtime の**将来の allow-list surface として予約された**サーフェスです。runtime は今日 capability の allow-listing を強制しない; この項目は v2.0+ マーケットプレイス探索のための planned hook として文書化されており、サイトが untrusted サードパーティプラグインに対して capabilities を宣言的に許可 / 拒否したい場合を想定している。v1 ファーストパーティプラグインはこの surface 経由で何かに opt-in する必要はない。
 
 ```typescript
 plugins: [
   somePrivilegedPlugin({ ... }, { allowCapabilities: ['serverRoute', 'secretSettings'] }),
 ]
 ```
-
-これで「うっかり入れた npm パッケージが admin ルートを増やす」「secret を読む」を防ぐ。
 
 ### trust_level
 
@@ -137,15 +151,15 @@ plugins: [
 - **IAM**：SQS 受信のみ。データ系の AWS 権限はゼロ。
 - **ランタイムコンテキスト**：`listPublishedPosts()` と `writePublicAsset()` はいずれも throw する。
 - **できること**：純 JS と外向き HTTP（Lambda の egress は通る）。
-- **用途**：Webhook 配送、in-process のコンテンツ変換、OG 画像テンプレ描画（実際の描画は untrusted Lambda ではなく公開 Next.js プロセス内で行う）。
-- **ファーストパーティ例**：`@ampless/plugin-og-image`、`@ampless/plugin-webhook`。
+- **用途**：in-process のコンテンツ変換、OG 画像テンプレ描画（実際の描画は untrusted Lambda ではなく公開 Next.js プロセス内で行う）。
+- **ファーストパーティ例**：`@ampless/plugin-og-image`。（`@ampless/plugin-webhook` は Phase 6a 以前は untrusted だったが、現在は trusted。下の trusted 行を参照。）
 
 #### `trusted`
 
 - **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PluginSecret に対する `dynamodb:GetItem`（read-only; Phase 6a v2 — 書き込みは plugin-secret-handler Lambda 専用）、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
 - **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。`ctx.secret<T>(key)` は PluginSecret table から ciphertext を読み取り、`process.env.PLUGIN_SECRET_ENCRYPTION_KEY`（CDK が `amplify/secrets/encryption-key.ts` の値から注入）で AES-256-GCM 復号して plaintext を返す（invocation lifetime で plaintext をキャッシュ、複合キーで cross-plugin 衝突防止）。
 - **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持、admin でローテーション可能な signing secret を使った Webhook 配送。
-- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6b retrofit 後）。
+- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6a retrofit 後）。
 
 trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーを plugin instance でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。Phase 3 で `writePublicAsset` を正式化するときもこの分離方針を維持する: **IAM は processor 全体の prefix のみ強制、plugin instance 単位の prefix は runtime context 層で強制**。trusted processor は各 plugin に `instanceId ?? name` に bound された storage handle を渡し、書き込み前に key を検証する（絶対パス、`.` / `..` segment、backslash、制御文字、256 文字超を禁止）。また、`capabilities` を宣言している plugin が `writePublicAsset` を含めずに実際に `ctx.writePublicAsset()` を呼んだ場合は 1 回だけ warn する。`capabilities` 未宣言の旧 plugin は warn なしで動き続ける。プラグインごとに Lambda を分離して capability ベース IAM を発行する大規模再設計は[ロードマップ](./14-roadmap.md)に残るが、Phase 3 のドッグフードで runtime 層の強制が不十分と判明した場合のみ着手する。
 
@@ -158,13 +172,13 @@ trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins
 
 **現時点で `trust_level: 'privileged'` とイベントフックを宣言した場合、フックは実行されない。** 型として受け入れるのは将来の意図を宣言できるようにするためであり、警告が privileged Lambda が用意されるまでのシグナルとなる。
 
-想定される将来形（実需が出た時点で着手）：
+**v2.0+ 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合**: エンジニアが審査していないサードパーティプラグインを安全に動かすマーケットプレイスが必要になった場合にのみ、プラグインごとの Lambda + capabilities ベース動的 IAM として実装する。意図する形は将来の探索の参考として以下に記述する。コミット済みの v1.0 成果物ではない。v1 ファーストパーティプラグインは `trust_level: 'trusted'` を宣言し、trusted Lambda の現行 IAM スコープ内（Post / KvStore / PluginSecret / PostTag 読み取り + `public/plugins/*` S3 書き込み + 外向き HTTP — 本ドキュメント前半の IAM スコープ図を参照）で動くものに留める。このスコープ外の要件（SES、private S3 プレフィックス、AWS IAM プリンシパルが必要な外部 API 等）は v2.0+ privileged Lambda 探索の対象として下記に列挙されており、v1 `trusted` には収まらない。
+
+想定される将来形（マーケットプレイス探索の参考用のみ）：
 
 - privileged プラグイン 1 つにつき 1 Lambda。
 - プラグインが capability リストを宣言し、CDK がそれを IAM ポリシーに展開する。
 - 用途：メール送信（SES）、独自テーブルへのフォーム投稿保存、外部の有料 API 呼び出し、private S3 プレフィックスへのアクセス。
-
-trusted / untrusted の運用が固まり、実需が出た時点で着手する。
 
 ### プラグインがどこで動くか
 
@@ -496,7 +510,7 @@ Node.js 22 の cold start は 200〜400 ms 程度で、CMS ワークロードで
 
 ### 外向きネットワーク
 
-untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（untrusted）はこれに依存する。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
+untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（trusted、Phase 6a retrofit 済）はこれを外向き HTTP 配送に使う。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
 
 ### 採用しなかった案
 

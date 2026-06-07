@@ -33,7 +33,7 @@ A subsequent `git push` triggers Amplify Hosting's auto-build and deploys the up
 - Adding or removing a plugin requires redeploying the site.
 - Non-developer install (admin UI "click to install") is not possible in this model — installing is a code change.
 
-The trade-off is deliberate: ampless's target is dogfood-grade sites operated by their owner, where a CDK redeploy is acceptable and the alternative (loading arbitrary JS at runtime) is a much larger sandbox-design problem.
+The trade-off is deliberate: ampless's target is engineer-customized sites where plugin installation is a code/deploy step — the engineer audits the npm dep before installing, and a CDK redeploy is acceptable. The alternative (loading arbitrary JS at runtime from admin UI) is a much larger sandbox-design problem, deferred to v2.0+ exploration.
 
 ### First-party plugins
 

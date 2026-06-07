@@ -4,8 +4,7 @@
 
 ## Project Overview
 
-ampless is a serverless CMS for AWS Amplify — the "EmDash for AWS" position.
-See ARCHITECTURE.md for full design details.
+ampless is a **customization-based CMS for engineers** built on AWS Amplify Gen 2. Engineers customize freely in TypeScript (themes, plugins, schemas); non-engineers operate the polished admin UI for posts / media / settings. See the `## Positioning` section below for the full positioning and the trust-framework scope, and ARCHITECTURE.md for full design details.
 
 ## Repository Structure
 
@@ -115,6 +114,18 @@ If a stale `.changeset/pre.json` slips through and the symptom shows up (Release
 - Core package: `ampless`
 - CLI: `create-ampless` (invoked as `npx create-ampless@latest`)
 - Plugins: `@ampless/plugin-*`
+
+## Positioning
+
+ampless is a **customization-based CMS for engineers** — non-engineers can use the defaults out of the box.
+
+- **Engineer (builder)**: edits `cms.config.ts`, npm-installs plugins, forks / edits themes, deploys to AWS
+- **Operator (non-engineer)**: uses the polished admin UI for posts / media / settings.public / secret entry
+- **Plugin model**: plugins are npm deps that the engineer imports + configures directly (Astro integration / Next.js plugin pattern). The site engineer audits each npm dep before installing.
+- **Trust framework scope (`trust_level`, capabilities, IAM-scoped Lambdas)**: implemented in v1 as **first-party plugin organization** — which trust tier's Lambda runs each event hook, which IAM permissions each tier holds, narrow hard gates (e.g. `settings.secret` requires `trust_level: 'trusted'`). Most capability declarations support **mismatch warnings, admin labels, and future allow-lists**, not hard runtime gates. Not designed as a marketplace-grade automatic sandbox for arbitrary third-party untrusted plugins. Third-party plugin safety is the engineer's responsibility (audit before install).
+- **Marketplace / runtime sandbox**: explicitly **not** a v1.0 deliverable. v2.0+ exploration only if AmpLess later needs to safely run plugins the site engineer has not audited (i.e., a real plugin marketplace).
+
+Reference category: **Statamic / Craft / Sanity / Wagtail / Strapi** (engineer-customized + polished admin for editors). Not WordPress (admin-first / non-engineer-installable plugin host).
 
 ## Status
 

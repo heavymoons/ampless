@@ -15,6 +15,10 @@ v1.0 RC entry criteria (unchanged from the previous plan): (a) production-qualit
 
 WordPress compatibility scope is **WXR data import only**; plugin / theme / Gutenberg block compatibility is explicitly out of scope.
 
+### Positioning (2026-06-07)
+
+ampless is a customization-based CMS for engineers — non-engineers operate it with the polished admin. Plugins are npm dependencies that the site engineer imports + configures directly (Astro integration / Next.js plugin pattern); the engineer audits each dep before installing. The v1 trust framework (`trust_level`, capabilities, IAM-scoped Lambdas) is implemented as **first-party plugin organization** — which trust tier's Lambda runs each event hook, narrow hard gates such as `settings.secret` requiring `trust_level: 'trusted'`, and capability declarations supporting mismatch warnings + admin labels + future allow-lists. Not designed as a marketplace-grade automatic sandbox for arbitrary third-party untrusted plugins. Marketplace and runtime sandbox are deferred to v2.0+ exploration only, and only if AmpLess later needs to safely run plugins the engineer has not audited.
+
 ---
 
 ### v0.x (in progress — accumulated through dogfooding)
@@ -75,7 +79,7 @@ Beta entry criteria are tracked in an internal blocker checklist (separate from 
 
 ### v1.0 RC (feature-complete phase)
 
-**v1.0 scope criterion:** "Core + official plugins are sufficient to operate a site." The **extension surface** (plugin contract, trust_level, event infrastructure) is in place by v1.0; the distribution mechanism / marketplace / dynamic plugin loading is deferred to v2.0+.
+**v1.0 scope criterion:** "Core + official plugins are sufficient to operate a site." The **extension surface** (plugin contract, `trust_level`, event infrastructure including the trusted / untrusted SQS + Lambda split, capability declarations, settings storage) is in place by v1.0 as **first-party plugin organization** — engineers declare their plugins' trust tier and capabilities, runtime routes event hooks to the matching Lambda. Narrow hard gates fire at specific points (most notably `settings.secret` requires `trust_level: 'trusted'` because secret read needs the trusted Lambda's IAM permission to the `PluginSecret` table); most capability declarations support mismatch warnings + admin labels + future allow-lists rather than hard gates. This surface is sized for first-party / engineer-audited npm deps. A marketplace-grade automatic sandbox that lets arbitrary untrusted third-party plugins run safely is **not** a v1.0 deliverable; that work is deferred to v2.0+ exploration.
 
 Completion criteria:
 - Multiple sites the maintainer wants to operate are running on ampless (dogfooded under load)
@@ -100,14 +104,17 @@ Core features still to be polished after stable:
 
 ---
 
-### v2.0+ (extensions and future vision)
+### v2.0+ (exploration — not committed)
 
-Third-party extension ecosystem features. **Design room** is baked in by v1.0, but implementation is deferred to v2.0+:
+These items are **explored only if AmpLess later needs a plugin marketplace** (i.e., a path for safely running plugins the site engineer has not audited). They are NOT committed v2.0 deliverables; the v1.0 positioning (customization-based CMS for engineers; plugins are engineer-audited npm deps) does not require any of them.
 
-- [ ] Third-party plugins (S3 + runtime loading)
-- [ ] privileged plugin support (capabilities-based dynamic IAM)
+#### Marketplace-grade sandbox exploration (only if a real plugin marketplace is built)
+- [ ] Runtime-loaded third-party plugins (admin-UI install, S3 + dynamic loading)
+- [ ] `privileged` plugin support (capabilities-based dynamic IAM provisioning per plugin)
 - [ ] Plugin marketplace (API + Web UI)
-- [ ] quickjs-emscripten runtime sandbox
-- [ ] Git-free CMS updates from admin UI
+- [ ] WASM / quickjs-emscripten runtime sandbox
+
+#### General feature exploration (independent of trust)
+- [ ] Git-free CMS updates from admin UI (engineer-side convenience)
 - [ ] Multilingual content
 - [ ] E-commerce support
