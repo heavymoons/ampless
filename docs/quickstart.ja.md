@@ -56,7 +56,7 @@ ampless は AWS Amplify Gen 2 上で完結します — 外部サービスや別
 - **投稿を書く** — `/admin/posts/new` にログインします。エディターはデフォルトで tiptap を使用し、markdown / HTML / static フォーマットもサポートしています
 - **ファーストパーティプラグインをインストールする** — `cms.config.ts` に `seoPlugin()` / `rssPlugin()` / `webhookPlugin()` を追加します。各ケイパビリティについては[プラグイン作者ガイド](../packages/ampless/docs/plugin-author-guide.ja.md)を参照してください
 - **本番環境にデプロイする** — サンドボックスプロジェクトを Amplify Hosting にカスタムドメインで公開する準備ができたら、[README](../README.ja.md) の「公開」セクションを参照してください
-- **運用** — scaffold したプロジェクトにはユーザー昇格・パスワードリセット・バックアップ / リストア・イベント失敗調査をカバーする `RUNBOOK.md` が同梱されています
+- **運用** — scaffold したプロジェクトにはユーザー昇格・パスワードリセット・バックアップ / リストア・イベント失敗調査をカバーする `RUNBOOK.ja.md` が同梱されています (英語版は `RUNBOOK.md`)
 
 ## さらに詳しく
 
