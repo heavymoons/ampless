@@ -7,9 +7,23 @@
 > — the same file ships inside the `ampless` npm tarball and is
 > copied into every scaffolded project at `docs/plugin-author-guide.md`.
 
+### Trust model (v1 scope)
+
+ampless is a customization-based CMS for engineers ([Positioning](./14-roadmap.md#positioning-2026-06-07)). Plugins are npm dependencies that the site engineer imports + configures directly (Astro integration / Next.js plugin pattern); the engineer audits each dep before installing.
+
+The trust framework described in this section (the `trust_level` union, the IAM-scoped trusted / untrusted Lambdas, the capability declaration list, the `secretSettings` `trusted`-only check) is implemented in v1 as **first-party plugin organization**. It decides:
+
+- Which trust tier's Lambda each event hook runs in (event-dispatcher → SQS-trusted or SQS-untrusted)
+- Which IAM permissions each tier's Lambda holds (trusted reads posts + writes own S3 path; untrusted has none)
+- Which features the runtime hard-gates by trust tier (e.g. `settings.secret`-declaring plugins throw at `definePlugin()` time unless `trust_level: 'trusted'`, because secret read requires the trusted Lambda's IAM permission to the `PluginSecret` table)
+- Which capability declarations the runtime / admin uses for warnings, UI labels, and future allow-lists (capability mismatch is a soft warning today; admin UI labels read from capabilities; future `cms.config.ts` allow-lists may act on capabilities)
+- Which output paths the runtime defensively sanitizes (e.g. `publicHtmlForPost` strict allowlist for visible HTML — same sanitize across trust tiers, defense-in-depth not trust-tier gating)
+
+It is **not** designed as a marketplace-grade automatic sandbox that safely runs arbitrary third-party untrusted plugins the engineer has not audited. Plugins that the engineer adds to `cms.config.ts` are trusted because the engineer chose to install them, not because the framework guarantees their safety. A marketplace + runtime sandbox is a v2.0+ exploration item, not a v1.0 deliverable (see [roadmap §v2.0+ exploration](./14-roadmap.md#v20-exploration--not-committed)).
+
 ### Design Philosophy
 
-ampless plugins run inside the same Lambda that processes events for their `trust_level` — the sandbox is **the Lambda's IAM execution role**, not a V8 isolate or `vm.Script` wrapper. There is no in-process JS sandbox: untrusted code runs in a Lambda whose IAM role has been pruned to nothing, and trusted code runs in a Lambda whose IAM role lists exactly what trusted plugins are allowed to touch.
+ampless plugins run inside the same Lambda that processes events for their `trust_level` — the sandbox is **the Lambda's IAM execution role**, not a V8 isolate or `vm.Script` wrapper. There is no in-process JS sandbox: untrusted code runs in a Lambda whose IAM role has been pruned to nothing, and trusted code runs in a Lambda whose IAM role lists exactly what trusted plugins are allowed to touch. This IAM segregation is sized for first-party / engineer-audited plugins (forward-compat for an eventual marketplace, see §Trust model (v1 scope)). It does not by itself prevent a maliciously written first-party `'untrusted'` plugin from misbehaving in the ways its empty IAM role permits (e.g., consuming CPU, throwing in hooks); the engineer's audit is the last line of defense, not the framework.
 
 This trades the fine-grained capability surface of a V8-isolate sandbox for AWS-native isolation: simpler to reason about, no native-binary dependency, no `--no-node-snapshot` flag, no custom container image.
 
@@ -80,7 +94,7 @@ plugins: [
 
 ### Capability Model
 
-`capabilities` lists what the plugin wants to do. Runtime and admin use the list for validation, UI labels, and gating dangerous features.
+`capabilities` lists what the plugin wants to do. The runtime and admin use the list for: capability/feature-mismatch warnings, admin UI labels, and as a future allow-list surface (the runtime does not hard-gate features on `capabilities` declarations today, with limited exceptions — most notably `settings.secret` declared with `trust_level !== 'trusted'` throws at `definePlugin()` time, see the [`secretSettings`](#capability-model) row in the capability table below). This declaration surface is sized for first-party / engineer-audited plugins (see [Trust model (v1 scope)](#trust-model-v1-scope) above).
 
 Active capabilities (implemented):
 
@@ -114,7 +128,7 @@ Phase 6a additions:
 
 | capability | meaning | default-allowed trust_level |
 |---|---|---|
-| `secretSettings` | declares one or more `settings.secret` fields — admin-editable values stored encrypted in the `PluginSecret` DDB table (IAM-only access; no Cognito group can read directly). Admin writes via `setPluginSecret` / `clearPluginSecret` AppSync mutations backed by the plugin-secret-handler Lambda, which encrypts with AES-256-GCM before writing. Trusted hooks read via `ctx.secret<T>(key)`. Requires `trust_level: 'trusted'`. | `trusted` only — untrusted plugins that declare this capability throw at `definePlugin()` time. |
+| `secretSettings` | Declares one or more `settings.secret` fields — admin-editable values stored encrypted in the `PluginSecret` DDB table (IAM-only access; no Cognito group can read directly). Admin writes via `setPluginSecret` / `clearPluginSecret` AppSync mutations backed by the plugin-secret-handler Lambda, which encrypts with AES-256-GCM before writing. Trusted hooks read via `ctx.secret<T>(key)`. There are four observable behaviours at `definePlugin()` time ([plugin.ts:1004-1019](../../packages/ampless/src/plugin.ts#L1004-L1019)): (1) **`settings.secret` non-empty + `trust_level !== 'trusted'`** → `definePlugin()` throws — secret read requires the trusted Lambda's IAM permission to the `PluginSecret` table; untrusted and privileged Lambdas have no IAM read access to that table. (2) **`settings.secret` non-empty + `capabilities` declared + `'secretSettings'` missing from `capabilities`** → soft mismatch warning — matches the existing capability-mismatch pattern for `'schema'` / `'publicHtmlForPost'`. (3) **`settings.secret` non-empty + `capabilities` undefined** (legacy plugin without a `capabilities` array) → no warning — the mismatch check is skipped when `capabilities` is `undefined`, for backward compatibility. (4) **`capabilities: ['secretSettings']` declared with no `settings.secret` field** → no-op — neither warning nor throw. | `trusted` only (hard gate at `definePlugin()` time when `settings.secret` is non-empty; see the four cases above). |
 
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
@@ -122,15 +136,13 @@ Reserved capabilities (name only, implementations in later phases — see [docs/
 
 `cspReady` is the declarative-badge half of the CSP nonce reservation that shipped alongside `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` (Phase 1: types only, runtime no-op). Plugins can declare it today; the runtime does not cross-check or warn yet, and the planned admin-UI badge + render-time sanity check land with the middleware/SSR CSP nonce threading PR.
 
-Capabilities in the "dangerous" set (`adminPage` / `serverRoute` / `secretSettings` / `network` / `scheduler` / `storageWrite` / `privilegedSystem`) require explicit opt-in in `cms.config.ts` even when declared by the plugin package:
+`allowCapabilities` is a **reserved future allow-list surface** for the `cms.config.ts` runtime. The runtime does not enforce capability allow-listing today; this entry is documented as a planned hook for the v2.0+ marketplace exploration where a site might want to declaratively allow/deny capabilities for untrusted third-party plugins. v1 first-party plugins do not need to opt-in to anything via this surface.
 
 ```typescript
 plugins: [
   somePrivilegedPlugin({ ... }, { allowCapabilities: ['serverRoute', 'secretSettings'] }),
 ]
 ```
-
-This is what prevents a casually-installed npm package from silently adding admin routes or reading secrets.
 
 ### Trust Levels
 
@@ -160,13 +172,13 @@ Type reserved — the contract accepts `trust_level: 'privileged'` today, but no
 
 **If you declare `trust_level: 'privileged'` with event hooks today, your hooks WILL NOT EXECUTE.** The type accepts it so that plugins can declare future intent; the warning serves as the signal until the privileged Lambda is provisioned.
 
-The intended future shape once a real privileged plugin requires it:
+**v2.0+ exploration only — if AmpLess later needs a plugin marketplace**: this would land as per-plugin Lambda + capabilities-based dynamic IAM if and when a marketplace requires safely running third-party plugins the engineer has not audited. The intended shape is documented below as a reference for that future exploration, not a committed v1.0 deliverable. v1 first-party plugins that need elevated privileges (SES, external paid APIs, etc.) declare `trust_level: 'trusted'` and run in the trusted-tier Lambda.
+
+The intended future shape (for marketplace exploration reference only):
 
 - One Lambda per privileged plugin.
 - Plugin declares a capability list; CDK assembles an IAM policy from that list.
 - Use cases: sending email (SES), persisting form submissions to its own table, calling external paid APIs, accessing private S3 prefixes.
-
-This lands once the trusted/untrusted split has settled and a real privileged plugin requires it.
 
 ### How Plugins Run
 

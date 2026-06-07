@@ -15,6 +15,10 @@ v1.0 RC の進級条件（前計画から変更なし）: (a) ドッグフード
 
 WordPress 互換性は **WXR データインポートのみスコープに入れ**、プラグイン / テーマ / Gutenberg ブロックの互換は対象外。
 
+### ポジショニング（2026-06-07）
+
+ampless はエンジニア向けのカスタマイズベース CMS です — 非エンジニアはポリッシュされた admin で運用します。プラグインはサイトエンジニアが `cms.config.ts` で直接インポート + 設定する npm dep（Astro integration / Next.js plugin パターン）であり、エンジニアがインストール前に各 dep を審査します。v1 の trust framework（`trust_level`、capabilities、IAM スコープ付き Lambda）は**ファーストパーティプラグインの code organization**として実装されています — どの trust 階層の Lambda が各イベントフックを実行するか、`settings.secret` が `trust_level: 'trusted'` を要求するような narrow hard gate、そして capability 宣言による不一致 warning + admin ラベル + 将来の allow-list のサポート。任意のサードパーティ未審査プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては設計されていません。マーケットプレイスとランタイムサンドボックスは v2.0+ の探索にのみ先送りされており、エンジニアが審査していないプラグインを安全に動かす必要がある場合にのみ検討します。
+
 ---
 
 ### v0.x (進行中 — ドッグフードを通じて積み上げ)
@@ -75,7 +79,7 @@ Beta の進級条件は内部ブロッカーチェックリストで管理して
 
 ### v1.0 RC（feature-complete フェーズ）
 
-**v1.0 のスコープ基準:** 「コア + 公式プラグインだけでサイト運営が成立すること」。**拡張余地**（プラグイン契約、trust_level、イベント基盤）は v1.0 までに確保するが、配布機構 / マーケットプレイス / 動的プラグインロードは v2.0+ に先送り。
+**v1.0 のスコープ基準:** 「コア + 公式プラグインだけでサイト運営が成立すること」。**拡張余地**（プラグイン契約、`trust_level`、trusted / untrusted SQS + Lambda 分離・capability 宣言・設定ストレージを含むイベント基盤）は v1.0 において**ファーストパーティプラグインの code organization**として確保済み — エンジニアがプラグインの trust 階層と capabilities を宣言し、runtime がイベントフックを対応する Lambda にルーティングする。Narrow hard gate は特定箇所で発火する（最も重要な例として `settings.secret` は `trust_level: 'trusted'` を要求、シークレット読み取りに trusted Lambda の `PluginSecret` テーブルへの IAM 権限が必要なため）。ほとんどの capability 宣言は hard gate ではなく不一致 warning + admin ラベル + 将来の allow-list をサポートする。この surface はファーストパーティ / エンジニア審査済みの npm dep 向けのサイズ設計。任意の未審査サードパーティプラグインを安全に動かすための marketplace-grade automatic sandbox は v1.0 の成果物では**ない**; その作業は v2.0+ の探索に先送りされる。
 
 到達条件:
 - メンテナーが運用したい複数のサイトが ampless 上で動いている（本番負荷でドッグフード済み）
@@ -100,14 +104,17 @@ Beta の進級条件は内部ブロッカーチェックリストで管理して
 
 ---
 
-### v2.0 以降（拡張系・将来構想）
+### v2.0 以降（探索のみ — コミットなし）
 
-サードパーティ拡張のエコシステム機能はこちら。v1.0 までに **設計上の余地** は仕込んでおくが、実装は v2.0 以降:
+これらの項目は **ampless がプラグインマーケットプレイスを必要とする場合のみ探索する**（つまりサイトエンジニアが審査していないプラグインを安全に動かすための経路）。コミット済みの v2.0 成果物では**ない**。v1.0 のポジショニング（エンジニア向けカスタマイズベース CMS、プラグインはエンジニア審査済みの npm dep）はこれらを一切必要としない。
 
-- [ ] サードパーティプラグイン（S3 + ランタイムロード）
-- [ ] privileged プラグイン対応（capabilities ベース動的 IAM）
+#### Marketplace-grade sandbox の探索（本物のプラグインマーケットプレイスを構築する場合のみ）
+- [ ] ランタイムロードのサードパーティプラグイン（admin UI install、S3 + 動的ロード）
+- [ ] `privileged` プラグイン対応（プラグインごとの capabilities ベース動的 IAM プロビジョニング）
 - [ ] プラグインマーケットプレイス（API + Web UI）
-- [ ] quickjs-emscripten ランタイムサンドボックス
-- [ ] 管理画面からの Git 不要アップデート
+- [ ] WASM / quickjs-emscripten ランタイムサンドボックス
+
+#### 一般機能の探索（trust とは独立）
+- [ ] 管理画面からの Git 不要アップデート（エンジニア側の利便性）
 - [ ] マルチ言語コンテンツ
 - [ ] E コマース対応

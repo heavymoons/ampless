@@ -19,6 +19,8 @@ per-post body injection, the async event hooks, and admin-managed
 The design rationale is in [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md);
 this page is the hands-on companion.
 
+> **Positioning**: ampless is a customization-based CMS for engineers — plugins are **npm dependencies that the site engineer imports + configures in `cms.config.ts`**. The engineer audits each dep before installing, the way they would for any other npm library (Astro integration / Next.js plugin pattern). The trust framework described in this guide (`trust_level`, capabilities, IAM-scoped Lambdas) is implemented in v1 as **first-party plugin organization** — it decides which trust tier's Lambda runs each event hook, which IAM permissions each tier holds, and applies hard runtime gates only at narrowly-scoped points (most notably: `settings.secret` requires `trust_level: 'trusted'` because secret read needs the trusted Lambda's IAM permission). Most capability declarations are soft warnings + admin labels + future allow-list surfaces, not hard runtime gates. It is **not** designed as a marketplace-grade automatic sandbox that safely runs arbitrary untrusted third-party plugins. Marketplace + runtime sandbox is a v2.0+ exploration, not a v1 guarantee. See [`docs/architecture/08-plugin-architecture.md#trust-model-v1-scope`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) for the full trust model.
+
 ---
 
 ## 0. Theme vs Plugin Boundary
@@ -358,6 +360,8 @@ not a runtime block.
 
 ## 4. Picking a `trust_level`
 
+The trust tiers are implemented in v1 as **first-party plugin organization** — they decide which IAM-scoped Lambda runs your event hooks and which permissions that Lambda holds. This is a code organization surface for engineer-audited npm deps, not a marketplace-grade automatic sandbox for arbitrary third-party untrusted plugins (see the [Positioning note](#writing-an-ampless-plugin) above and the [full trust model](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope)).
+
 Three tiers, picked by what the plugin needs to do **inside
 event hooks** (the sync surfaces — metadata, head, body — don't
 touch IAM):
@@ -366,7 +370,7 @@ touch IAM):
 |---|---|---|---|
 | `untrusted` | none (SQS consume only) | sync surfaces + event hooks | head/body descriptors, webhook delivery, content transforms |
 | `trusted` | read posts, write `public/plugins/<instanceId ?? name>/...` | sync surfaces + event hooks | RSS feed, sitemap, computed JSON indexes |
-| `privileged` | reserved | sync surfaces only — event hooks are silently filtered out (warning logged) | future: SES, secrets, private S3 |
+| `privileged` | reserved (v2.0+ exploration only) | sync surfaces only — event hooks are silently filtered out (warning logged) | future marketplace exploration: SES, secrets, private S3 |
 
 > **Warning for `privileged` plugin authors:** If you declare
 > `trust_level: 'privileged'` with event `hooks` today, **your hooks
@@ -375,9 +379,10 @@ touch IAM):
 > the drop is visible. Sync render surfaces (`publicHead`,
 > `publicBodyEnd`, `metadata`, `publicBodyForPost`, `publicHtmlForPost`)
 > work normally regardless of `trust_level` and emit no warning.
-> When the privileged Lambda provisioning PR lands, plugins that
-> already declared `'privileged'` will automatically pick up the new
-> tier — nothing needs to change in your code.
+> `privileged` Lambda provisioning is a v2.0+ exploration item — if
+> AmpLess later builds a plugin marketplace, that PR will automatically
+> pick up plugins that already declared `'privileged'`.
+> v1 first-party plugins that need elevated privileges (SES, external APIs) should use `trust_level: 'trusted'`.
 
 Rule of thumb:
 
@@ -1150,16 +1155,18 @@ etc. — but completely wrong for a webhook signing secret.
   (`publicHead`, `publicBodyEnd`, `publicBodyForPost`,
   `publicHtmlForPost`) — those surfaces only see `ctx.setting()`.
 
-### Requirements
+### Requirements and `definePlugin()` behaviour
 
-`settings.secret` requires:
+`settings.secret` has four observable behaviours at `definePlugin()` time (this is the v1 first-party organization hard gate for secret access; see [plugin.ts:1004-1019](https://github.com/heavymoons/ampless/blob/main/packages/ampless/src/plugin.ts#L1004-L1019)):
 
-1. `trust_level: 'trusted'` — untrusted Lambdas have no DDB read
-   access to the PluginSecret table. `definePlugin()` throws if you
-   declare `settings.secret` with any other trust level.
-2. `'secretSettings'` in `capabilities` — required so admin UI and
-   future allow-lists can gate the capability. Omitting it produces
-   a console warning (same pattern as `'schema'` vs `publicBodyForPost`).
+1. **`settings.secret` non-empty + `trust_level !== 'trusted'`** → `definePlugin()` **throws**. Untrusted and privileged Lambdas have no IAM read access to the `PluginSecret` table; the trusted Lambda's IAM permission is required.
+2. **`settings.secret` non-empty + `capabilities` declared + `'secretSettings'` missing from `capabilities`** → **soft mismatch warning**. Matches the existing capability-mismatch pattern for `'schema'` / `'publicHtmlForPost'`.
+3. **`settings.secret` non-empty + `capabilities` undefined** (legacy plugin without a `capabilities` array) → **no warning**. The mismatch check is skipped when `capabilities` is `undefined`, for backward compatibility.
+4. **`capabilities: ['secretSettings']` declared with no `settings.secret` field** → **no-op**. Neither warning nor throw.
+
+To use `settings.secret`, you also need:
+1. `trust_level: 'trusted'` (requirement #1 above; `definePlugin()` throws otherwise).
+2. `'secretSettings'` in `capabilities` (omitting it when `capabilities` is defined produces a console warning).
 3. **One-time key setup** — run from your project root:
    ```sh
    npx create-ampless setup-encryption-key

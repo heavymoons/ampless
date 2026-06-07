@@ -13,6 +13,8 @@
 
 設計の経緯と背景は [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) に集約。本ページはその実装ハンドブック側です。
 
+> **ポジショニング**: ampless はエンジニア向けのカスタマイズベース CMS です — プラグインは**サイトエンジニアが `cms.config.ts` でインポート + 設定する npm dep** です。エンジニアは他の npm ライブラリと同様にインストール前に各 dep を審査します（Astro integration / Next.js plugin パターン）。このガイドで説明する trust framework（`trust_level`、capabilities、IAM スコープ付き Lambda）は v1 において**ファーストパーティプラグインの code organization**として実装されています — どの trust 階層の Lambda が各イベントフックを実行するか、各階層が保有する IAM 権限、そして狭い範囲のポイントでのみ runtime hard gate を適用する（最も重要: `settings.secret` は `trust_level: 'trusted'` を要求、シークレット読み取りに trusted Lambda の IAM 権限が必要なため）。ほとんどの capability 宣言は runtime の hard gate ではなく soft warning + admin ラベル + 将来の allow-list surface です。任意の未審査サードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索であり、v1 の保証ではありません。詳細な trust model は [`docs/architecture/08-plugin-architecture.md#trust-model-v1-scope`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) を参照してください。
+
 ---
 
 ## 0. テーマとプラグインの境界線
@@ -287,13 +289,15 @@ runtime がチェックする内容:
 
 ## 4. `trust_level` の選び方
 
+trust 階層は v1 において**ファーストパーティプラグインの code organization**として実装されています — イベントフックがどの IAM スコープ付き Lambda で実行されるか、その Lambda が保有する権限を決定します。これはエンジニアが審査した npm dep 向けの code organization surface であり、任意のサードパーティ未審査プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox ではありません（上記の[ポジショニング注記](#ampless-プラグインの書き方)と[詳細な trust model](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) を参照）。
+
 3 階層、選択基準は **イベントフック (hooks) が何を必要とするか** で決まります (sync サーフェスは IAM に触れない):
 
 | 階層 | IAM | 今日動くもの | 用途 |
 |---|---|---|---|
 | `untrusted` | なし (SQS consume のみ) | 同期サーフェス + イベントフック | head/body descriptor、webhook 配送、コンテンツ変換 |
 | `trusted` | 投稿読み出し、`public/plugins/<instanceId ?? name>/...` への書き込み | 同期サーフェス + イベントフック | RSS フィード、sitemap、計算済み JSON インデックス |
-| `privileged` | 予約 | 同期サーフェスのみ — イベントフックはサイレントフィルタ（警告ログあり） | 将来: SES、secret、private S3 |
+| `privileged` | 予約（v2.0+ 探索のみ） | 同期サーフェスのみ — イベントフックはサイレントフィルタ（警告ログあり） | 将来のマーケットプレイス探索: SES、secret、private S3 |
 
 > **`privileged` プラグイン作者へ：** `trust_level: 'privileged'` とイベント
 > `hooks` を宣言した場合、**現時点でフックは実行されません**。両 processor が
@@ -301,8 +305,10 @@ runtime がチェックする内容:
 > `console.warn` を出力するため、サイレントドロップは可視化されます。
 > 同期サーフェス（`publicHead`、`publicBodyEnd`、`metadata`、`publicBodyForPost`、
 > `publicHtmlForPost`）は `trust_level` に関わらず正常に動き、警告も出ません。
-> privileged Lambda が用意された際、`'privileged'` を宣言済みのプラグインは
-> 自動的に新しい tier を使えるようになります — コードの変更は不要です。
+> privileged Lambda プロビジョニングは v2.0+ の探索項目です — ampless が
+> プラグインマーケットプレイスを構築する場合、すでに `'privileged'` を宣言した
+> プラグインは自動的に新しい tier を使えるようになります。
+> 昇格した権限が必要な v1 ファーストパーティプラグイン（SES、外部 API 等）は `trust_level: 'trusted'` を使用してください。
 
 決め方の目安:
 
@@ -862,12 +868,18 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 - 公開 render surface (`publicHead` など) からは読めない。
 - **field manifest 検証の範囲**: admin クライアントは UX フィードバック目的で `pattern` / `maxLength` / `required` を検証するが、Lambda 側は **汎用の 10,000 文字ハードキャップと安全文字サニタイザのみ**を強制する。admin/editor が AppSync mutation を直接呼ぶと field 単位の制約は迂回できる。設計上意図したもので、admin/editor は secret 設定を許可された信頼されたオペレータと位置づけている。manifest チェックは UX ガイダンスであり、セキュリティ境界ではない。
 
-### 要件
+### 要件と `definePlugin()` の挙動
 
-`settings.secret` には 3 つの要件があります:
+`settings.secret` は `definePlugin()` 時に 4 つの observable な挙動を持ちます（これは v1 のファーストパーティ organization のシークレットアクセス hard gate; [plugin.ts:1004-1019](https://github.com/heavymoons/ampless/blob/main/packages/ampless/src/plugin.ts#L1004-L1019) 参照）:
 
-1. `trust_level: 'trusted'` — untrusted Lambda には PluginSecret table への DDB read 権限がない。他の trust level で宣言すると `definePlugin()` 時に throw する。
-2. `'secretSettings'` を `capabilities` に含める — admin UI や将来の allow-list から capability を参照できるようにするため必須。省略すると console.warn（`'schema'` vs `publicBodyForPost` の不整合パターンと同じ）。
+1. **`settings.secret` 非空 + `trust_level !== 'trusted'`** → `definePlugin()` が **throw**。untrusted と privileged Lambda は `PluginSecret` テーブルへの IAM read アクセスを持たない; trusted Lambda の IAM 権限が必要。
+2. **`settings.secret` 非空 + `capabilities` 宣言済み + `capabilities` に `'secretSettings'` が含まれない** → **soft 不一致 warning**。`'schema'` / `'publicHtmlForPost'` の既存 capability-mismatch パターンと同じ。
+3. **`settings.secret` 非空 + `capabilities` 未定義**（`capabilities` 配列を持たない legacy プラグイン）→ **warning なし**。`capabilities` が `undefined` のとき不一致チェックをスキップ、後方互換のため。
+4. **`capabilities: ['secretSettings']` 宣言だけで `settings.secret` フィールドなし** → **no-op**。warning も throw もなし。
+
+`settings.secret` を使うには以下も必要です:
+1. `trust_level: 'trusted'`（上記 #1 の要件; それ以外は `definePlugin()` が throw）。
+2. `capabilities` に `'secretSettings'` を含める（`capabilities` が定義されているとき省略すると console.warn）。
 3. **鍵の初回セットアップ** — プロジェクトルートで実行:
    ```sh
    npx create-ampless setup-encryption-key

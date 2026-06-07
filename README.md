@@ -3,16 +3,18 @@
 
 # ampless
 
-**Serverless CMS for AWS Amplify.** The "AWS-native EmDash."
+**A customization-based CMS for engineers — non-engineers can use the defaults out of the box.**
+
+Built on AWS Amplify Gen 2. Engineers customize freely (themes, plugins, schemas — all in TypeScript). Editors get a polished admin UI for posts and media. MCP-native, so Claude / Cursor can be your co-engineer.
 
 > **Pre-release / alpha.** All packages publish under the `alpha` npm dist-tag. ampless is on a four-stage release path: **alpha** (closed, dogfood-only) → **beta** (repo goes public; npm `beta` dist-tag; breaking changes still possible) → **RC** (feature-complete, breaking changes no longer expected) → **stable** (v1.0). Today's stage is alpha; the source isn't browsable on GitHub yet, but npm packages are installable.
 
 ## Why ampless
 
-- **AWS-native.** Runs entirely on Amplify Gen 2 — Cognito for auth, DynamoDB for content, S3 for media, Lambda for plugins, AppSync for queries. No extra moving parts.
-- **AI-first.** The MCP server lets Claude, Cursor, Claude Code and anything else that speaks MCP read and write your posts via HTTP transport with Bearer token authentication issued from the admin UI.
-- **Plugin-friendly.** Trust-level-segregated Lambdas (`untrusted` / `trusted`) execute event hooks without giving every plugin access to your data.
-- **TypeScript-first.** Everything from `cms.config.ts` to event handlers is typed end-to-end.
+- **Customization-based.** Themes, plugins, schemas — all in TypeScript. Fork a starter theme, add a plugin as an npm dep, edit React components freely.
+- **AI-native (MCP).** Claude / Cursor / Claude Code can drive your CMS — write posts, customize themes, add plugins through natural language.
+- **Built on AWS Amplify Gen 2.** Cognito for auth, DynamoDB for content, S3 for media, Lambda for plugins. Your own AWS account, your own data.
+- **Polished admin for editors.** Engineers configure, editors operate. Posts / media / settings stay simple for non-engineers.
 
 ## Quick start
 
@@ -119,16 +121,16 @@ ampless treats `ampless-editor` as a trusted principal — same shape as WordPre
 
 ## Roadmap
 
-ampless development follows a four-stage release path: **alpha → beta → RC → stable**. Today's stage is alpha — the repo is private, but npm packages publish under the `alpha` dist-tag. **Beta** is the public-flip moment (repo goes public, npm `beta` dist-tag, breaking changes still possible). **RC** is the feature-complete, no-more-breaking-changes phase. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself).
+ampless development follows a four-stage release path: **alpha → beta → RC → stable**. Today's stage is alpha — the repo is private, but npm packages publish under the `alpha` dist-tag. **Beta** is the public-flip moment (repo goes public, npm `beta` dist-tag, breaking changes still possible). **RC** is the feature-complete, no-more-breaking-changes phase. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself). ampless is positioned as a customization-based CMS for engineers; plugins are npm dependencies that the site engineer audits before installing. A marketplace + runtime sandbox for safely running unaudited third-party plugins is a v2.0+ exploration item, not a committed v2.0 deliverable.
 
 | Phase | Highlights |
 |---|---|
 | v0.1 (done — internal) | CLI, admin panel, blog template, Cognito, MCP server, SEO/RSS/Webhook plugins |
 | v0.x (in progress) | Theme customization, MCP HTTP transport + access tokens, CloudFront cache strategy, AI provider abstraction, WXR import, monitoring polish |
 | **Beta (public release)** | Repo flips public, npm `beta` dist-tag, breaking changes still possible. External plugin authors can publish their plugins to npm (static `cms.config.ts` consumption); external users can install with full source visibility. |
-| v1.0 RC | Feature-complete; breaking changes no longer expected. Dogfood sites run on RC builds. |
+| v1.0 RC | Feature-complete; breaking changes no longer expected. First-party sites running on RC builds. |
 | v1.0 stable | Public launch — ampless introduction page (built with ampless) ships simultaneously. |
-| v2.0+ | Runtime-loaded third-party plugins (admin-UI install, S3 + dynamic loading), plugin marketplace, WASM sandbox |
+| v2.0+ | Exploration only — if AmpLess later needs a plugin marketplace: runtime sandbox, dynamic IAM, distribution UI. Not a v1.0 commitment. |
 
 Full list in [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md).
 

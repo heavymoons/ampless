@@ -3,16 +3,18 @@
 
 # ampless
 
-**AWS Amplify 向けのサーバーレス CMS。**「AWS ネイティブ版 EmDash」。
+**エンジニアがカスタマイズするための CMS — 非エンジニアはデフォルトのままでも使える。**
+
+AWS Amplify Gen 2 上に構築。エンジニアはテーマ・プラグイン・スキーマを TypeScript で自由にカスタマイズ。編集者はポリッシュされた admin UI で投稿とメディアを管理。MCP ネイティブで Claude / Cursor がコエンジニアとして参加できる。
 
 > **プレリリース / アルファ版。** 全パッケージは `alpha` npm dist-tag で公開しています。ampless は 4 段階のリリースパスを歩んでいます: **alpha**（クローズド、ドッグフード専用）→ **beta**（リポジトリ公開; npm `beta` dist-tag; 破壊的変更まだあり）→ **RC**（feature-complete、破壊的変更は予定なし）→ **stable**（v1.0）。現在は alpha 段階 — GitHub でソースは閲覧できませんが、npm パッケージはインストール可能です。
 
 ## ampless を選ぶ理由
 
-- **AWS ネイティブ。** Amplify Gen 2 上で完結します — 認証は Cognito、コンテンツは DynamoDB、メディアは S3、プラグインは Lambda、クエリは AppSync。余計な可動部分は一切ありません。
-- **AI ファースト。** MCP サーバー（`@ampless/mcp-server`）を使えば、Claude Desktop・Cursor・Claude Code など MCP 対応のあらゆるツールから投稿を直接読み書きできます。
-- **プラグインフレンドリー。** トラストレベルで分離された Lambda（`untrusted` / `trusted`）がイベントフックを実行するため、全プラグインがデータにアクセスできる状態にはなりません。
-- **TypeScript ファースト。** `cms.config.ts` からイベントハンドラまで、すべてがエンドツーエンドで型付けされています。
+- **カスタマイズベース。** テーマ・プラグイン・スキーマはすべて TypeScript で。スターターテーマをフォークし、プラグインを npm dep として追加し、React コンポーネントを自由に編集できます。
+- **AI ネイティブ（MCP）。** Claude / Cursor / Claude Code が CMS を動かす — 自然言語で投稿執筆・テーマカスタマイズ・プラグイン追加が可能。
+- **AWS Amplify Gen 2 上に構築。** 認証は Cognito、コンテンツは DynamoDB、メディアは S3、プラグインは Lambda。自分の AWS アカウント、自分のデータ。
+- **編集者向けのポリッシュされた admin。** エンジニアが設定し、編集者が運用。投稿・メディア・設定を非エンジニアにも使いやすく。
 
 ## クイックスタート
 
@@ -118,16 +120,16 @@ ampless は `ampless-editor` を信頼済みプリンシパルとして扱いま
 
 ## ロードマップ
 
-ampless の開発は 4 段階のリリースパスに従っています: **alpha → beta → RC → stable**。現在は alpha 段階 — リポジトリは非公開ですが、npm パッケージは `alpha` dist-tag で公開中です。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なしのフェーズ。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。
+ampless の開発は 4 段階のリリースパスに従っています: **alpha → beta → RC → stable**。現在は alpha 段階 — リポジトリは非公開ですが、npm パッケージは `alpha` dist-tag で公開中です。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なしのフェーズ。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。ampless はエンジニア向けのカスタマイズベース CMS として位置づけられており、プラグインはサイトエンジニアが審査してインストールする npm dep です。未審査のサードパーティプラグインを安全に動かすためのマーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、コミット済みの v2.0 成果物ではありません。
 
 | フェーズ | ハイライト |
 |---|---|
 | v0.1（完了 — 内部） | CLI、管理パネル、ブログテンプレート、Cognito、MCP サーバー、SEO / RSS / Webhook プラグイン |
 | v0.x（進行中） | テーマカスタマイズ、MCP HTTP トランスポート + アクセストークン、CloudFront キャッシュ戦略、AI プロバイダー抽象化、WXR インポート、モニタリング改善 |
 | **Beta（公開リリース）** | リポジトリを公開、npm `beta` dist-tag、破壊的変更はまだあり得る。外部プラグイン作者は npm にプラグインを publish 可能（`cms.config.ts` での静的読み込み）、外部ユーザはソース閲覧可で install 可能 |
-| v1.0 RC | feature-complete、破壊的変更は予定なし。ドッグフードサイトは RC ビルドで運用 |
+| v1.0 RC | feature-complete、破壊的変更は予定なし。ファーストパーティサイトは RC ビルドで運用 |
 | v1.0 stable | 公開ローンチ — ampless 自身のマーケティングページ（ampless 製）も同時にローンチ |
-| v2.0+ | runtime-loaded サードパーティプラグイン（admin UI install、S3 + 動的ロード）、プラグインマーケットプレイス、WASM サンドボックス |
+| v2.0+ | 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合: ランタイムサンドボックス、動的 IAM、配布 UI。v1.0 のコミットではない |
 
 詳細なリストは [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md) を参照してください。
 
