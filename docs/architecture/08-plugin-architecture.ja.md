@@ -159,7 +159,7 @@ plugins: [
 - **IAM**：Post と GSI に対する `dynamodb:Query` / `Scan`、KvStore に対する `dynamodb:Read`、PluginSecret に対する `dynamodb:GetItem`（read-only; Phase 6a v2 — 書き込みは plugin-secret-handler Lambda 専用）、PostTag に対する `dynamodb:Write`、`public/plugins/*` に対する `s3:PutObject` / `DeleteObject`、加えて組み込みハンドラ用に `public/site-settings.json` への正確一致 grant。
 - **ランタイムコンテキスト**：`listPublishedPosts()` は `byStatus` GSI に Query 1 発。`writePublicAsset(key, body, contentType)` は `public/plugins/{instanceId ?? name}/{key}` への書き込み。`ctx.secret<T>(key)` は PluginSecret table から ciphertext を読み取り、`process.env.PLUGIN_SECRET_ENCRYPTION_KEY`（CDK が `amplify/secrets/encryption-key.ts` の値から注入）で AES-256-GCM 復号して plaintext を返す（invocation lifetime で plaintext をキャッシュ、複合キーで cross-plugin 衝突防止）。
 - **用途**：SEO メタデータ、RSS フィード生成、sitemap 再構築、独自インデックス維持、admin でローテーション可能な signing secret を使った Webhook 配送。
-- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6b retrofit 後）。
+- **ファーストパーティ例**：`@ampless/plugin-seo`、`@ampless/plugin-rss`、`@ampless/plugin-webhook`（Phase 6a retrofit 後）。
 
 trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins/*` でバケットワイルドカードなのは意図的：trusted プラグインはファーストパーティ限定なので互いの干渉は脅威モデル外、プラグインごとの enumeration は IAM インラインポリシーの 10 KiB 上限を約 50 プラグインで超える、そしてランタイムコンテキストがキーを plugin instance でネームスペース化しているため、コンテキストを介さない限り隣のプレフィックスには書けない。Phase 3 で `writePublicAsset` を正式化するときもこの分離方針を維持する: **IAM は processor 全体の prefix のみ強制、plugin instance 単位の prefix は runtime context 層で強制**。trusted processor は各 plugin に `instanceId ?? name` に bound された storage handle を渡し、書き込み前に key を検証する（絶対パス、`.` / `..` segment、backslash、制御文字、256 文字超を禁止）。また、`capabilities` を宣言している plugin が `writePublicAsset` を含めずに実際に `ctx.writePublicAsset()` を呼んだ場合は 1 回だけ warn する。`capabilities` 未宣言の旧 plugin は warn なしで動き続ける。プラグインごとに Lambda を分離して capability ベース IAM を発行する大規模再設計は[ロードマップ](./14-roadmap.md)に残るが、Phase 3 のドッグフードで runtime 層の強制が不十分と判明した場合のみ着手する。
 
@@ -510,7 +510,7 @@ Node.js 22 の cold start は 200〜400 ms 程度で、CMS ワークロードで
 
 ### 外向きネットワーク
 
-untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（trusted、Phase 6b retrofit 済）はこれを外向き HTTP 配送に使う。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
+untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（trusted、Phase 6a retrofit 済）はこれを外向き HTTP 配送に使う。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
 
 ### 採用しなかった案
 

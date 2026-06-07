@@ -161,7 +161,7 @@ plugins: [
 - **IAM**: `dynamodb:Query` / `Scan` on Post + GSIs, `dynamodb:Read` on KvStore, `dynamodb:GetItem` (read-only) on PluginSecret (Phase 6a v2; no write access — writes are exclusively via the plugin-secret-handler Lambda), `dynamodb:Write` on PostTag, `s3:PutObject` / `DeleteObject` under `public/plugins/*`, plus an exact-match grant on `public/site-settings.json` for the built-in site-settings handler.
 - **Runtime context**: `listPublishedPosts()` does one Query against the `byStatus` GSI; `writePublicAsset(key, body, contentType)` writes to `public/plugins/{instanceId ?? name}/{key}`; `ctx.secret<T>(key)` reads the AES-256-GCM ciphertext from the PluginSecret table, decrypts it with the key read from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by CDK from `amplify/secrets/encryption-key.ts`), and caches the plaintext for the invocation lifetime (per-invocation cache, compound cache key prevents cross-plugin collisions).
 - **Use cases**: SEO metadata, RSS feed generation, sitemap rebuild, custom index maintenance, webhook signing with admin-rotatable secrets.
-- **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`, `@ampless/plugin-webhook` (Phase 6b retrofit).
+- **First-party examples**: `@ampless/plugin-seo`, `@ampless/plugin-rss`, `@ampless/plugin-webhook` (Phase 6a retrofit).
 
 The trusted Lambda's S3 grant is bucket-wide on `public/plugins/*` rather than per-plugin. Rationale lives in `backend.ts`: trusted plugins are first-party-only (cross-plugin tampering isn't in the threat model), per-plugin enumeration breaks the IAM inline-policy size limit beyond ~50 plugins, and the runtime context namespaces keys by plugin instance so a plugin can't write to a sibling's prefix without bypassing it. The Phase 3 `writePublicAsset` formalisation keeps this split: **IAM enforces the processor-wide prefix; plugin-instance prefix enforcement stays at the runtime context layer**. The trusted processor hands each plugin a storage handle bound to `instanceId ?? name`, validates keys before writing (no absolute paths, `.` / `..` segments, backslashes, control characters, or keys over 256 characters), and warns once when a plugin declares capabilities but calls `writePublicAsset` without declaring that capability. Existing plugins with no `capabilities` field keep working without warnings. Plugin-per-Lambda with capability-based IAM is the bigger redesign on the [roadmap](./14-roadmap.md), only invoked if Phase 3 dogfood shows the runtime-layer enforcement is insufficient.
 
@@ -539,7 +539,7 @@ Cold start for these is ~200–400 ms on Node.js 22 — negligible for CMS workl
 
 ### External Network
 
-untrusted and trusted Lambdas both have internet egress by default. The webhook plugin (trusted, Phase 6b retrofit) relies on it for outbound HTTP delivery. Placing the Lambdas in a VPC private subnet to cut egress is an option but not the default — the leakage surface a plugin can reach is already only published content, so internet egress is not a meaningful exfiltration path against an honest operator.
+untrusted and trusted Lambdas both have internet egress by default. The webhook plugin (trusted, Phase 6a retrofit) relies on it for outbound HTTP delivery. Placing the Lambdas in a VPC private subnet to cut egress is an option but not the default — the leakage surface a plugin can reach is already only published content, so internet egress is not a meaningful exfiltration path against an honest operator.
 
 ### Not Adopted
 
