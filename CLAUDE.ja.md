@@ -4,8 +4,7 @@
 
 ## プロジェクト概要
 
-ampless は AWS Amplify 向けのサーバーレス CMS で、「AWS 版 EmDash」のポジションを目指す。
-設計詳細は ARCHITECTURE.ja.md を参照。
+ampless は AWS Amplify Gen 2 上に構築された**エンジニア向けのカスタマイズベース CMS**。エンジニアは TypeScript でテーマ・プラグイン・スキーマを自由にカスタマイズでき、非エンジニアは投稿・メディア・設定の管理に polished な admin UI を使う。詳しいポジショニングと trust framework のスコープは下の `## Positioning` セクションを、設計詳細は ARCHITECTURE.ja.md を参照。
 
 ## リポジトリ構成
 

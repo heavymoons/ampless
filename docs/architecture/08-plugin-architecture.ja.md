@@ -6,7 +6,7 @@
 
 ### Trust model（v1 スコープ）
 
-ampless はエンジニア向けのカスタマイズベース CMS です（[ポジショニング](./14-roadmap.md#ポジショニング2026-06-07)）。プラグインはサイトエンジニアが `cms.config.ts` で直接インポート + 設定する npm dep（Astro integration / Next.js plugin パターン）であり、エンジニアがインストール前に各 dep を審査します。
+ampless はエンジニア向けのカスタマイズベース CMS です（[ポジショニング](./14-roadmap.ja.md#ポジショニング2026-06-07)）。プラグインはサイトエンジニアが `cms.config.ts` で直接インポート + 設定する npm dep（Astro integration / Next.js plugin パターン）であり、エンジニアがインストール前に各 dep を審査します。
 
 本節で説明する trust framework（`trust_level` union、IAM スコープ付きの trusted / untrusted Lambda、capability 宣言リスト、`secretSettings` の `trusted` 専用チェック）は v1 において**ファーストパーティプラグインの code organization**として実装されています。決定する内容:
 
@@ -16,7 +16,7 @@ ampless はエンジニア向けのカスタマイズベース CMS です（[ポ
 - runtime / admin が warning・UI ラベル・将来の allow-list に使う capability 宣言（capability 不一致は今日は soft warning; admin UI ラベルは capabilities から読み取る; 将来の `cms.config.ts` allow-list が capabilities に作用する可能性）
 - runtime が防御的に sanitize する出力パス（例: `publicHtmlForPost` の可視 HTML に対する厳格 allowlist — trust 階層を問わず同じ sanitize を適用、trust 階層のゲートではなく多層防御）
 
-エンジニアが審査していない任意のサードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。エンジニアが `cms.config.ts` に追加するプラグインは、エンジニアがインストールを選択したから信頼されるのであり、フレームワークが安全性を保証しているからではありません。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、v1.0 の成果物ではありません（[ロードマップ §v2.0+ exploration](./14-roadmap.md#v20-以降探索のみ--コミットなし) を参照）。
+エンジニアが審査していない任意のサードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。エンジニアが `cms.config.ts` に追加するプラグインは、エンジニアがインストールを選択したから信頼されるのであり、フレームワークが安全性を保証しているからではありません。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、v1.0 の成果物ではありません（[ロードマップ §v2.0+ exploration](./14-roadmap.ja.md#v20-以降探索のみ--コミットなし) を参照）。
 
 ### 設計方針
 
@@ -172,7 +172,7 @@ trusted Lambda の S3 grant がプラグイン単位ではなく `public/plugins
 
 **現時点で `trust_level: 'privileged'` とイベントフックを宣言した場合、フックは実行されない。** 型として受け入れるのは将来の意図を宣言できるようにするためであり、警告が privileged Lambda が用意されるまでのシグナルとなる。
 
-**v2.0+ 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合**: エンジニアが審査していないサードパーティプラグインを安全に動かすマーケットプレイスが必要になった場合にのみ、プラグインごとの Lambda + capabilities ベース動的 IAM として実装する。意図する形は将来の探索の参考として以下に記述する。コミット済みの v1.0 成果物ではない。昇格した権限が必要な v1 ファーストパーティプラグイン（SES、外部有料 API 等）は `trust_level: 'trusted'` を宣言して trusted 階層の Lambda で動かす。
+**v2.0+ 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合**: エンジニアが審査していないサードパーティプラグインを安全に動かすマーケットプレイスが必要になった場合にのみ、プラグインごとの Lambda + capabilities ベース動的 IAM として実装する。意図する形は将来の探索の参考として以下に記述する。コミット済みの v1.0 成果物ではない。v1 ファーストパーティプラグインは `trust_level: 'trusted'` を宣言し、trusted Lambda の現行 IAM スコープ内（Post / KvStore / PluginSecret / PostTag 読み取り + `public/plugins/*` S3 書き込み + 外向き HTTP — 本ドキュメント前半の IAM スコープ図を参照）で動くものに留める。このスコープ外の要件（SES、private S3 プレフィックス、AWS IAM プリンシパルが必要な外部 API 等）は v2.0+ privileged Lambda 探索の対象として下記に列挙されており、v1 `trusted` には収まらない。
 
 想定される将来形（マーケットプレイス探索の参考用のみ）：
 

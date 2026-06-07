@@ -308,7 +308,7 @@ trust 階層は v1 において**ファーストパーティプラグインの c
 > privileged Lambda プロビジョニングは v2.0+ の探索項目です — ampless が
 > プラグインマーケットプレイスを構築する場合、すでに `'privileged'` を宣言した
 > プラグインは自動的に新しい tier を使えるようになります。
-> 昇格した権限が必要な v1 ファーストパーティプラグイン（SES、外部 API 等）は `trust_level: 'trusted'` を使用してください。
+> v1 ファーストパーティプラグインは trusted Lambda の現行 IAM スコープに収まる用途で `trust_level: 'trusted'` を使ってください。すなわち Post / KvStore / PluginSecret / PostTag の読み取り、`public/plugins/*` への S3 書き込み、外向き HTTP (AWS IAM 認証を必要としないもの) です。このスコープ外の要件 — SES、private S3 プレフィックス、自前の IAM プリンシパルを必要とする AWS API 呼び出し — は v2.0+ privileged Lambda 探索の対象で、v1 `trusted` には収まりません。
 
 決め方の目安:
 
@@ -1246,7 +1246,7 @@ it('admin が空文字保存した場合は空配列', () => {
 - [`packages/plugin-plausible`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-plausible) — `data-*` attrs 付きの単一 `<script>` descriptor、`required` な URL field（self-hosted Plausible 上書き対応）
 - [`packages/plugin-rss`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-rss) — trusted、非同期 hooks + `writePublicAsset`
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`
-- [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook + 外向き HTTP
+- [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — trusted hook + 外向き HTTP + `secretSettings` (admin 管理の signing secret、Phase 6a)
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` ルートレンダラ
 - [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability、投稿単位 Article JSON-LD。（Phase 4）
 

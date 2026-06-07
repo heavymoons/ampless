@@ -382,7 +382,7 @@ touch IAM):
 > `privileged` Lambda provisioning is a v2.0+ exploration item — if
 > AmpLess later builds a plugin marketplace, that PR will automatically
 > pick up plugins that already declared `'privileged'`.
-> v1 first-party plugins that need elevated privileges (SES, external APIs) should use `trust_level: 'trusted'`.
+> v1 first-party plugins should use `trust_level: 'trusted'` for capabilities that fit within the trusted Lambda's existing IAM scope: Post / KvStore / PluginSecret / PostTag read, `public/plugins/*` S3 write, and outbound HTTP (no AWS-IAM-authenticated calls). Requirements that fall outside that scope — SES, private S3 prefixes, calling AWS APIs that need an IAM principal of their own — are v2.0+ privileged-Lambda exploration material and don't fit into v1 `trusted`.
 
 Rule of thumb:
 
@@ -1683,7 +1683,7 @@ Worked examples to crib from:
 - [`packages/plugin-plausible`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-plausible) — single `<script>` descriptor with `data-*` attrs and a required URL field (self-hosted Plausible override).
 - [`packages/plugin-rss`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-rss) — trusted, async event hooks + `writePublicAsset`.
 - [`packages/plugin-seo`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-seo) — `metadata()` + `siteMetadata()`.
-- [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — untrusted hook with outbound HTTP.
+- [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — trusted hook with outbound HTTP + `secretSettings` (admin-managed signing secret, Phase 6a).
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` route renderer.
 - [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability; per-post Article JSON-LD. (Phase 4)
 

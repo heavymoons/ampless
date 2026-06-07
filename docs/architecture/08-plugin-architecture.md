@@ -174,7 +174,7 @@ Type reserved — the contract accepts `trust_level: 'privileged'` today, but no
 
 **If you declare `trust_level: 'privileged'` with event hooks today, your hooks WILL NOT EXECUTE.** The type accepts it so that plugins can declare future intent; the warning serves as the signal until the privileged Lambda is provisioned.
 
-**v2.0+ exploration only — if AmpLess later needs a plugin marketplace**: this would land as per-plugin Lambda + capabilities-based dynamic IAM if and when a marketplace requires safely running third-party plugins the engineer has not audited. The intended shape is documented below as a reference for that future exploration, not a committed v1.0 deliverable. v1 first-party plugins that need elevated privileges (SES, external paid APIs, etc.) declare `trust_level: 'trusted'` and run in the trusted-tier Lambda.
+**v2.0+ exploration only — if AmpLess later needs a plugin marketplace**: this would land as per-plugin Lambda + capabilities-based dynamic IAM if and when a marketplace requires safely running third-party plugins the engineer has not audited. The intended shape is documented below as a reference for that future exploration, not a committed v1.0 deliverable. v1 first-party plugins should declare `trust_level: 'trusted'` and stay within the trusted Lambda's existing IAM scope (Post / KvStore / PluginSecret / PostTag read + `public/plugins/*` S3 write + outbound HTTP — see the IAM scope diagram earlier in this document). Requirements outside that scope (SES, private S3 prefixes, calling external APIs that require an AWS IAM principal, etc.) are explicitly v2.0+ privileged-Lambda exploration material below; they do not fit into v1 `trusted`.
 
 The intended future shape (for marketplace exploration reference only):
 
