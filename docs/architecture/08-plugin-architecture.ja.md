@@ -41,9 +41,11 @@ export interface AmplessPlugin {
   // admin UI 用の表示名。
   displayName?: LocalizedString
 
-  // 宣言された capability リスト。runtime は宣言と実装の不一致で warning を出し、
-  // `cms.config.ts` の `allowCapabilities` が危険 capability
-  // (admin page / server route / secrets 等) のゲートになる。
+  // 宣言された capability リスト。runtime は宣言と実装の不一致で warning を出す。
+  // `cms.config.ts` の `allowCapabilities` は v2.0+ marketplace 検討用に
+  // 予約された future allow-list surface (admin page / server route / secrets 等)
+  // であり、現状の runtime では強制されない。本ドキュメント後半の
+  // `allowCapabilities` セクション参照。
   capabilities?: readonly PluginCapability[]
 
   // イベントフック — trust_level に対応する Lambda が SQS から受けて実行

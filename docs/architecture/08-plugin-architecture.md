@@ -45,8 +45,10 @@ export interface AmplessPlugin {
   displayName?: LocalizedString
 
   // Declared capability list. Runtime warns on declaration-vs-implementation
-  // mismatch; `cms.config.ts` `allowCapabilities` gates dangerous capabilities
-  // (admin pages / server routes / secrets / etc.).
+  // mismatch. `cms.config.ts` `allowCapabilities` is a reserved future
+  // allow-list surface for v2.0+ marketplace exploration (admin pages /
+  // server routes / secrets / etc.); not enforced at runtime today.
+  // See the `allowCapabilities` section later in this document.
   capabilities?: readonly PluginCapability[]
 
   // Event hooks — run in the trust_level-matched Lambda from SQS.
