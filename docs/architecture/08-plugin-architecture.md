@@ -105,7 +105,7 @@ Active capabilities (implemented):
 | `publicHead` | `<head>` descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `publicBody` | `<body>`-end descriptor injection (Phase 1, implemented) | `untrusted` and up |
 | `metadata` | existing `metadata()` / `siteMetadata()` surfaces | `untrusted` and up |
-| `eventHooks` | existing async event hooks (`hooks`) | `untrusted` and up (matches the existing `@ampless/plugin-webhook`, which runs in the untrusted Lambda) |
+| `eventHooks` | existing async event hooks (`hooks`) | `untrusted` and up (e.g. trusted hooks are how `@ampless/plugin-webhook` delivers signed outbound HTTP today) |
 | `writePublicAsset` | trusted hook context writes a validated, namespaced public asset (Phase 3, implemented) | `trusted` and up |
 
 Phase 2 additions:
@@ -153,8 +153,8 @@ plugins: [
 - **IAM**: SQS consume only. Zero data permissions.
 - **Runtime context**: `listPublishedPosts()` and `writePublicAsset()` both throw on call.
 - **Can do**: Pure JavaScript, outbound HTTP (the Lambda has internet egress).
-- **Use cases**: webhook delivery, in-process content transforms, OG-image template rendering (which runs in the public Next.js process, not the untrusted Lambda).
-- **First-party examples**: `@ampless/plugin-og-image`, `@ampless/plugin-webhook`.
+- **Use cases**: in-process content transforms, OG-image template rendering (which runs in the public Next.js process, not the untrusted Lambda).
+- **First-party examples**: `@ampless/plugin-og-image`. (`@ampless/plugin-webhook` was untrusted pre-Phase 6a and is now trusted; see the trusted row below.)
 
 #### `trusted`
 
@@ -539,7 +539,7 @@ Cold start for these is ~200–400 ms on Node.js 22 — negligible for CMS workl
 
 ### External Network
 
-untrusted and trusted Lambdas both have internet egress by default. The webhook plugin (untrusted) relies on it. Placing the Lambdas in a VPC private subnet to cut egress is an option but not the default — the leakage surface a plugin can reach is already only published content, so internet egress is not a meaningful exfiltration path against an honest operator.
+untrusted and trusted Lambdas both have internet egress by default. The webhook plugin (trusted, Phase 6b retrofit) relies on it for outbound HTTP delivery. Placing the Lambdas in a VPC private subnet to cut egress is an option but not the default — the leakage surface a plugin can reach is already only published content, so internet egress is not a meaningful exfiltration path against an honest operator.
 
 ### Not Adopted
 

@@ -103,7 +103,7 @@ plugins: [
 | `publicHead` | `<head>` への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `publicBody` | `<body>` 末尾への descriptor 注入 (Phase 1、実装済み) | `untrusted` 以上 |
 | `metadata` | 既存の `metadata()` / `siteMetadata()` 経路 | `untrusted` 以上 |
-| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（既存 `@ampless/plugin-webhook` が untrusted で hooks を使う実装と整合） |
+| `eventHooks` | 既存の async event hooks (`hooks`) | `untrusted` 以上（trusted hooks は `@ampless/plugin-webhook` が署名付き外向き HTTP 配送に使っている） |
 | `writePublicAsset` | trusted hook context から、検証済み・namespace 付きの public asset を書く (Phase 3、実装済み) | `trusted` 以上 |
 
 Phase 2 で追加:
@@ -151,8 +151,8 @@ plugins: [
 - **IAM**：SQS 受信のみ。データ系の AWS 権限はゼロ。
 - **ランタイムコンテキスト**：`listPublishedPosts()` と `writePublicAsset()` はいずれも throw する。
 - **できること**：純 JS と外向き HTTP（Lambda の egress は通る）。
-- **用途**：Webhook 配送、in-process のコンテンツ変換、OG 画像テンプレ描画（実際の描画は untrusted Lambda ではなく公開 Next.js プロセス内で行う）。
-- **ファーストパーティ例**：`@ampless/plugin-og-image`、`@ampless/plugin-webhook`。
+- **用途**：in-process のコンテンツ変換、OG 画像テンプレ描画（実際の描画は untrusted Lambda ではなく公開 Next.js プロセス内で行う）。
+- **ファーストパーティ例**：`@ampless/plugin-og-image`。（`@ampless/plugin-webhook` は Phase 6a 以前は untrusted だったが、現在は trusted。下の trusted 行を参照。）
 
 #### `trusted`
 
@@ -510,7 +510,7 @@ Node.js 22 の cold start は 200〜400 ms 程度で、CMS ワークロードで
 
 ### 外向きネットワーク
 
-untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（untrusted）はこれに依存する。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
+untrusted / trusted の両 Lambda ともデフォルトでインターネット egress を持つ。webhook プラグイン（trusted、Phase 6b retrofit 済）はこれを外向き HTTP 配送に使う。VPC private subnet に置いて egress を切る選択肢はあるが、デフォルトではしない — プラグインから到達できるリーク面はそもそも公開済みコンテンツに限られており、健全な運用者を想定すれば egress は意味のある exfil 経路にならない。
 
 ### 採用しなかった案
 
