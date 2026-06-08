@@ -103,4 +103,22 @@ describe('hasTweetIn', () => {
       }),
     ).toBe(true)
   })
+
+  it('returns false for a [caption](url) markdown link', () => {
+    expect(
+      hasTweetIn({
+        format: 'markdown',
+        body: '[watch this](https://x.com/jack/status/20)',
+      }),
+    ).toBe(false)
+  })
+
+  it('returns true for a bare tweet URL line', () => {
+    expect(
+      hasTweetIn({
+        format: 'markdown',
+        body: 'before\n\nhttps://x.com/jack/status/20\n\nafter',
+      }),
+    ).toBe(true)
+  })
 })

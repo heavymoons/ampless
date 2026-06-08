@@ -97,23 +97,50 @@ describe('contentFields markdown-url renderer', () => {
     expect(html).toContain('see')
   })
 
-  it('does NOT replace an [text](url) markdown link with non-URL text', () => {
+  it('does NOT replace a [caption](url) markdown link with embed', () => {
     const md = '[watch this](https://youtu.be/dQw4w9WgXcQ)'
     const html = renderWith([youtubePlugin], p('markdown', md))
-    // marked emits [text](url) inside a paragraph with a <a> child; our
-    // walker only intercepts when the trimmed paragraph contains a
-    // single link whose URL matches — and since href matches, the
-    // current walker MAY intercept. Document the actual behaviour: a
-    // single link is treated as a URL-only paragraph because the link
-    // token is the only token. So we accept either behaviour but the
-    // CONTENT should not break.
-    expect(html.length).toBeGreaterThan(0)
+    // caption-link is NOT embedded — the link renders as a normal
+    // markdown <a>. This keeps body rendering consistent with
+    // hasTweetUrlInMarkdown (which only detects bare URL lines).
+    expect(html).not.toContain('data-yt=')
+    expect(html).toContain('watch this')
+    expect(html).toContain('href="https://youtu.be/dQw4w9WgXcQ"')
+  })
+
+  it('does NOT replace a <url> autolink with embed', () => {
+    const md = '<https://youtu.be/dQw4w9WgXcQ>'
+    const html = renderWith([youtubePlugin], p('markdown', md))
+    expect(html).not.toContain('data-yt=')
+    // autolink renders as <a href="...">...</a>
+    expect(html).toContain('href="https://youtu.be/dQw4w9WgXcQ"')
+  })
+
+  it('embeds a bare URL paragraph on its own line', () => {
+    const md = 'https://youtu.be/dQw4w9WgXcQ'
+    const html = renderWith([youtubePlugin], p('markdown', md))
+    expect(html).toContain('data-yt=')
   })
 
   it('does NOT replace a URL inside a code block', () => {
     const md = '```\nhttps://youtu.be/dQw4w9WgXcQ\n```'
     const html = renderWith([youtubePlugin], p('markdown', md))
     expect(html).not.toContain('data-yt=')
+  })
+})
+
+describe('block-safe wrapper', () => {
+  it('wraps non-embed markdown in a <div> (not <span>)', () => {
+    const md = '# heading\n\nparagraph'
+    const html = renderWith([], p('markdown', md))
+    // The HTML wrapper around the marked output is a <div>, not a <span>.
+    expect(html).toMatch(/^<div[^>]*>.*<h1>heading<\/h1>.*<p>paragraph<\/p>.*<\/div>$/s)
+    expect(html).not.toMatch(/<span[^>]*><h1>/)
+  })
+
+  it('format=html body is wrapped in a <div>', () => {
+    const html = renderWith([], p('html', '<h1>title</h1>'))
+    expect(html).toMatch(/^<div[^>]*><h1>title<\/h1><\/div>$/)
   })
 })
 

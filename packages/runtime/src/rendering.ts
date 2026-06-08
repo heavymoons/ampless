@@ -223,6 +223,15 @@ function htmlPassthrough(html: string): ReactNode {
   return createElement('span', { dangerouslySetInnerHTML: { __html: html } })
 }
 
+// Block-safe wrapper for markdown walker non-embed batches, format='html',
+// and tiptap string-body fallback. Using <div> instead of <span> avoids
+// invalid block-inside-inline markup (e.g. <span><h1>...</h1></span>).
+function htmlPassthroughBlock(html: string, key?: string): ReactNode {
+  const props: Record<string, unknown> = { dangerouslySetInnerHTML: { __html: html } }
+  if (key !== undefined) props.key = key
+  return createElement('div', props)
+}
+
 function renderTiptapNode(
   node: TiptapNode,
   opts: RenderBodyOptions,
@@ -374,42 +383,51 @@ function tableCellProps(
  * Walk markdown via `marked.lexer` so the runtime can intercept
  * `paragraph` tokens whose entire content is a single URL matching one
  * of the registered `markdown-url` patterns. Everything else falls
- * through to `marked.parse` and is emitted via a
- * `dangerouslySetInnerHTML` span (preserving raw HTML token passthrough
- * exactly like the legacy sync path).
+ * through to `marked.parser` and is emitted via a block-safe
+ * `dangerouslySetInnerHTML` div (preserving raw HTML token passthrough
+ * exactly like the legacy sync path). Consecutive non-embed tokens are
+ * batched into a single `marked.parser` call and wrapped in one `<div>`
+ * to avoid per-token wrapper proliferation.
  */
 function renderMarkdownNode(md: string, opts: RenderBodyOptions): ReactNode {
   const tokens = marked.lexer(md, { gfm: true, breaks: false })
   const children: ReactNode[] = []
-  let i = 0
-  for (const token of tokens) {
+  let pending: Tokens.Generic[] = []
+  let chunk = 0
+
+  const flush = () => {
+    if (pending.length === 0) return
+    const html = marked.parser(pending, { gfm: true, breaks: false })
+    children.push(htmlPassthroughBlock(html, `md-html-${chunk++}`))
+    pending = []
+  }
+
+  tokens.forEach((token, i) => {
     const match = matchMarkdownUrlEmbed(token, opts)
     if (match) {
-      children.push(createElement(Fragment, { key: `md-${i}` }, match))
+      flush()
+      children.push(createElement(Fragment, { key: `md-embed-${i}` }, match))
     } else {
-      // Re-render this token via marked so behaviour is identical to
-      // the legacy path for everything we don't intercept.
-      const html = marked.parser([token], { gfm: true, breaks: false })
-      children.push(
-        createElement('span', {
-          key: `md-${i}`,
-          dangerouslySetInnerHTML: { __html: html },
-        }),
-      )
+      pending.push(token)
     }
-    i++
-  }
+  })
+  flush()
+
   return createElement(Fragment, null, ...children)
 }
 
 /**
  * Test whether a marked paragraph token is a single-line URL match for
- * one of the registered embed patterns. Accepts three shapes:
- *   1. `paragraph` whose entire content is one `text` token (bare URL)
+ * one of the registered embed patterns. Accepts two shapes:
+ *   1. `paragraph` whose entire content is one `text` token (bare URL —
+ *      defensive fallback for marked configs that emit plain-text URLs)
  *   2. `paragraph` whose entire content is one `link` token where
- *      `text` === `href` (autolink / `[url](url)`)
- *   3. `paragraph` whose entire content is one `link` token (the
- *      author wrote `[caption](url)` but caption is unused)
+ *      `raw === href` (= GFM bare URL paragraph, e.g. `https://youtu.be/…`
+ *      on its own line that marked@18 emits as a `link` token)
+ *
+ * Rejects `<https://…>` autolinks (`raw` includes `<>`) and
+ * `[caption](url)` links (`raw` includes `[]()`), keeping body rendering
+ * consistent with `hasTweetUrlInMarkdown` which keys on bare URL lines.
  */
 function matchMarkdownUrlEmbed(
   token: Tokens.Generic | Tokens.Paragraph,
@@ -454,20 +472,25 @@ function extractSingleUrl(para: Tokens.Paragraph): string | null {
   if (trimmed.length !== 1) return null
   const t = trimmed[0]!
   if (t.type === 'link') {
-    // autolink-like: `[https://x.com/...](https://x.com/...)` or bare
-    // `<https://...>`. Accept any link token whose href is itself a
-    // URL — the pattern decides if it actually matches an embed.
-    const href = (t as Tokens.Link).href
-    if (typeof href !== 'string') return null
-    return href.trim()
+    // marked@18 emits bare URL paragraphs as `link` tokens (GFM
+    // autolink). Accept ONLY when the raw source equals the href
+    // — that is the "bare URL on its own line" case. Reject
+    // `<https://...>` (raw has `<>`) and `[caption](url)` (raw has
+    // `[]()`) so the body intercept stays consistent with
+    // `hasTweetUrlInMarkdown`, which keys on `TWEET_URL.test(line.trim())`
+    // = bare URL line only.
+    const link = t as Tokens.Link
+    const href = (link.href ?? '').trim()
+    const raw = (link.raw ?? '').trim()
+    if (!href || raw !== href) return null
+    return href
   }
   if (t.type === 'text') {
-    // Bare URL in a paragraph: marked emits these as `text` tokens
-    // whose raw payload is the URL itself. The token's `text` is the
-    // same string.
+    // Defensive fallback: some marked configurations / older versions
+    // emit bare URLs as `text` tokens. Keep this branch so a tooling
+    // bump doesn't silently break embeds.
     const text = ((t as Tokens.Text).text ?? '').trim()
-    if (!text) return null
-    return text
+    return text || null
   }
   return null
 }
@@ -489,7 +512,7 @@ export function renderBody(post: Post, opts: RenderBodyOptions = {}): ReactNode 
   // ままレンダリングする (任意 HTML / script 可)。ファイル冒頭のコメント
   // および 04-access-layer-mcp.md を参照。
   if (post.format === 'html') {
-    return htmlPassthrough(String(post.body))
+    return htmlPassthroughBlock(String(post.body))
   }
   if (post.format === 'markdown') {
     return renderMarkdownNode(String(post.body), opts)
@@ -501,7 +524,7 @@ export function renderBody(post: Post, opts: RenderBodyOptions = {}): ReactNode 
       // format-switch sequence (markdown -> tiptap -> save without
       // editing). Treat string bodies as already-rendered HTML rather
       // than crashing into empty output.
-      return htmlPassthrough(post.body)
+      return htmlPassthroughBlock(post.body)
     }
     return renderTiptapNode(post.body as TiptapNode, opts, 'root')
   }

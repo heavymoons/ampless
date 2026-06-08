@@ -9,3 +9,11 @@ Migration:
 - Theme pages: change `dangerouslySetInnerHTML={{ __html: renderBody(post) }}` to `<div>{await ampless.renderBody(post)}</div>` and mark the enclosing page function `async`.
 - Post detail / home (featured) pages: also add `{await ampless.publicPostScriptsForPage([post])}` after the body so widget scripts (e.g. x.com `widgets.js`) load on the public page.
 - The raw route handler at `routes/raw.ts` switched internally from `renderBody` to `renderBodyHtmlString` — no template change needed.
+
+- Markdown body rendering only intercepts bare URL paragraphs for embeds —
+  `[caption](url)` markdown links and `<url>` autolinks render as normal
+  links (= consistent with the page-level script detector which keys on
+  bare URL lines)
+- Non-embed markdown content + `format: 'html'` bodies use a block-safe
+  `<div>` wrapper (was `<span>` in the initial PR draft, which was invalid
+  markup around h1/p/ul tokens)
