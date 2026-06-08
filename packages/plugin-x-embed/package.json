@@ -58,7 +58,7 @@
   ],
   "amplessPlugin": {
     "apiVersion": 1,
-    "name": "@ampless/plugin-x-embed",
+    "name": "x-embed",
     "trustLevel": "trusted",
     "capabilities": [
       "contentFields",

@@ -33,7 +33,7 @@ export default function youtubePlugin(
   opts: YoutubePluginOptions = {},
 ): AmplessPlugin {
   return definePlugin({
-    name: opts.name ?? '@ampless/plugin-youtube',
+    name: opts.name ?? 'youtube',
     apiVersion: 1,
     packageName: '@ampless/plugin-youtube',
     trust_level: 'trusted',
