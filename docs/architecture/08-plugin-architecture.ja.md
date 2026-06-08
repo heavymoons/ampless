@@ -281,6 +281,28 @@ handler はテンプレート側に置き、`@ampless/admin` には持ち込ま�
 
 `admin.getAmpless()` は resolved runtime に対する public accessor。他の `Admin` メソッドと同じ `resolveAmpless()` キャッシュを使うので、route handler と admin の他の部分は request あたり 1 instance を共有する。
 
+### エディタ拡張の auto-wiring (Phase 7 codegen)
+
+`app/(admin)/admin/_editor-bootstrap.tsx` は `update-ampless` によって**自動生成**される — ampless 管理対象の app パスであり、手動で編集してはならない。codegen は `packages/create-ampless/src/upgrade.ts` 内の `runUpgradeIn` のステップ 9 として、`npm install` 完了後に実行される。
+
+**仕組み:**
+
+1. `update-ampless` はプロジェクトの `package.json#dependencies`（`devDependencies` は除く）を読み、各 dep の `node_modules/<pkg>/package.json` を確認する。
+2. `amplessPlugin.editorExports` field が存在するパッケージが候補。値は `./` 始まり・`..` なし・絶対パスなし・query/fragment なしの相対 subpath であり、かつ `package.json#exports` に宣言されていなければならない。バリデーションに失敗した場合は warning を出してスキップする。
+3. 候補はパッケージ名で `localeCompare` ソートし、deterministic な出力を保証する。
+4. `AUTO-GENERATED` バナー付きのファイルを生成し、各プラグインの editor extension を `import { editorExtension as __<sanitised>_editor }` の形で import する。
+5. `installAdminEditorExtensions([...])` を収集済みの拡張一覧で呼ぶ。
+
+**プラグイン著者向け規約:**
+
+- `package.json#amplessPlugin` に `"editorExports": "./editor"` を宣言する。
+- `./editor` subpath から `editorExtension` を named export する（tiptap `Node` または `Extension`）。
+- `package.json#exports` に `"./editor"` を宣言する。
+
+**active source と完全無効化:**
+
+エディタ配線の active source は `package.json#dependencies`（= `node_modules`）であり、`cms.config.ts` ではない。plugin を `cms.config.ts` から外しても `package.json` に dep が残っていれば editor の paste rule は有効のまま。完全に無効化するには: `cms.config.ts` から削除 **かつ** `npm uninstall @ampless/plugin-...` を実行し、`npm run update-ampless` で再生成する。
+
 ### プラグインの状態保存
 
 プラグインは複数の仕組みで状態を保持する。どれも「プラグイン 1 つに DynamoDB テーブル 1 つ」ではない：

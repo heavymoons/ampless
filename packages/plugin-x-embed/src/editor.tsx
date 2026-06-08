@@ -113,3 +113,12 @@ export const AmplessTweetNode = Node.create({
 export const tweetEditor = {
   extension: AmplessTweetNode,
 }
+
+/**
+ * Canonical named export consumed by the codegen'd
+ * `_editor-bootstrap.tsx`. Plugins MUST export this symbol from
+ * their `./editor` module (= the subpath declared in
+ * `package.json#amplessPlugin.editorExports`) for the
+ * auto-wiring to find them.
+ */
+export const editorExtension = AmplessTweetNode
