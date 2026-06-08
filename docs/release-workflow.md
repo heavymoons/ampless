@@ -162,26 +162,19 @@ Before initiating the flip, confirm all of:
 
 - [ ] Public-flip docs are merged (README scrub, Community files,
       Positioning pivot — see git log around PR #240, #242, #243, #244)
-- [ ] **The first beta cut covers every public workspace package** —
-      either via individual queued changesets, or one `.changeset/*.md`
-      bumping all packages. This matters because `sync-dist-tag.mjs`
-      after the flip re-asserts the `beta` dist-tag for **every** public
-      workspace package against that package's local `package.json`
-      version. If a package didn't receive a beta-version bump in the
-      flip cut, its `package.json` still says `1.0.0-alpha.<N>`, and
-      `sync-dist-tag.mjs` would point that package's `beta` dist-tag at
-      an alpha-versioned tarball — confusing for consumers and
-      inconsistent with the rest of the workspace.
-
-      Alternative: harden `sync-dist-tag.mjs` to **only sync packages
-      whose `package.json` version's prerelease identifier matches
-      `pre.json.tag`** (e.g. skip a package still on `1.0.0-alpha.<N>`
-      when `pre.json.tag === "beta"`). This makes "partial beta cut"
-      safe. **The Prep PR's `sync-dist-tag.mjs` design includes this
-      guard** (see §2-B below — added because of this concern).
-      With the guard in place, this checklist item softens to "at least
-      one intentional beta changeset"; without the guard, all packages
-      must be bumped.
+- [ ] **At least one intentional beta changeset is queued for the first
+      beta cut** (e.g. a `.changeset/*.md` that bumps one or more
+      packages). `sync-dist-tag.mjs` includes a version-prerelease
+      integrity guard: after the flip it re-asserts the `beta`
+      dist-tag only on packages whose `package.json` version
+      prerelease identifier matches `pre.json.tag` (i.e. has been
+      bumped to `1.0.0-beta.<N>`). Packages still on `1.0.0-alpha.<N>`
+      are skipped with a warn log, not mistakenly tagged. So a
+      "partial beta cut" is safe — only the bumped packages move to
+      `beta`, the rest stay on their existing `alpha` tag until they
+      get bumped in a later cut. (Without the guard, the rule would
+      tighten to "every public package must be bumped"; the guard is
+      what lets this be a single-changeset operation.)
 - [ ] No queued `.changeset/*.md` you don't intend to ship in the first
       beta cut (run `pnpm changeset status` to inspect)
 - [ ] No open "Version Packages (alpha)" PR — merge or close it first

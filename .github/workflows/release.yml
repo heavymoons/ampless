@@ -58,10 +58,14 @@ jobs:
 
       # `changeset publish` (in pre-release mode for packages that have
       # never had a stable release) publishes to the `latest` dist tag
-      # only, leaving `alpha` frozen at whatever it was before pre-mode
-      # started. The sync script re-asserts `alpha = <current version>`
-      # for every public workspace package so `npx <pkg>@alpha` keeps
-      # resolving to the current pre-release.
+      # only, leaving the current pre-release dist-tag (`alpha` /
+      # `beta` / ...) frozen at whatever it was before pre-mode started.
+      # The sync script reads `.changeset/pre.json#tag` and re-asserts
+      # `<that tag> = <current version>` for matching public workspace
+      # packages (those whose `package.json` version prerelease
+      # identifier matches the current pre-release tag), so e.g.
+      # `npx <pkg>@alpha` (or `@beta`) keeps resolving to the current
+      # pre-release.
       #
       # Gated on `changesets/action`'s `published` output so the sync
       # only fires when this run actually published something. Every

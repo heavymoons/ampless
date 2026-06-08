@@ -159,21 +159,15 @@ alpha → beta 移行とは、ampless の npm dist-tag を `alpha` から `beta`
 
 - [ ] public-flip 向けドキュメントが merge 済み (README scrub、Community files、
       Positioning pivot — git log の PR #240、#242、#243、#244 周辺を参照)
-- [ ] **最初の beta cut がすべての public workspace package をカバーしている** —
-      個別の queued changeset か、全パッケージを bump する 1 つの `.changeset/*.md` で。
-      これが重要なのは、flip 後の `sync-dist-tag.mjs` が各パッケージの `package.json`
-      バージョンを元に **すべての** public workspace package に対して `beta` dist-tag を
-      再設定するから。beta バージョン bump を受けていないパッケージがあると、その
-      `package.json` は `1.0.0-alpha.<N>` のままで、`sync-dist-tag.mjs` がそのパッケージの
-      `beta` dist-tag を alpha 版 tarball に誤って向けてしまう — consumer にとって混乱を
-      招き、ワークスペース全体との整合性も壊れる。
-
-      代替案: `sync-dist-tag.mjs` を強化して、**`package.json` バージョンの prerelease 識別子が
-      `pre.json.tag` と一致するパッケージだけを sync する** (例: `pre.json.tag === "beta"` のとき
-      `1.0.0-alpha.<N>` のままのパッケージはスキップ)。これにより "partial beta cut" が安全になる。
-      **Prep PR の `sync-dist-tag.mjs` 設計にはこのガードが含まれている** (この懸念から追加)。
-      ガードがあれば、このチェックリスト項目は「少なくとも 1 つの意図的な beta changeset」に
-      軟化する。ガードなしの場合はすべてのパッケージを bump する必要がある。
+- [ ] **最初の beta cut のために少なくとも 1 つの意図的な beta changeset が queued されている**
+      (= 1 つ以上のパッケージを bump する `.changeset/*.md`)。`sync-dist-tag.mjs` には
+      バージョン-prerelease 整合ガードが組み込まれており、flip 後は `package.json` バージョンの
+      prerelease 識別子が `pre.json.tag` と一致するパッケージ (= `1.0.0-beta.<N>` に bump 済み) にのみ
+      `beta` dist-tag を再設定する。`1.0.0-alpha.<N>` のままのパッケージは warn ログ付きで skip され、
+      誤ってタグ付けされない。したがって "partial beta cut" は安全 — bump されたパッケージだけが
+      `beta` に移行し、それ以外は次の cut で bump されるまで既存の `alpha` タグのまま残る。
+      (ガードがなければ「すべての public パッケージを bump する」に厳格化される必要があったが、
+      ガードがあるおかげで単一 changeset 運用が可能になっている。)
 - [ ] 最初の beta cut に含めたくない queued `.changeset/*.md` がない (`pnpm changeset status` で確認)
 - [ ] 未 merge の "Version Packages (alpha)" PR がない — 先に merge か close する
 - [ ] dogfood サイト (例: ishinao.net) が最新の `@alpha` で正常稼働中。
