@@ -45,8 +45,9 @@ const AMPLESS_MANAGED_APP_PATHS: readonly string[] = [
  */
 const AMPLESS_RETIRED_PATHS: readonly string[] = [
   // Phase 7 preview pipeline migrated from a `'use server'` action to a
-  // Route Handler at `app/(admin)/admin/_preview/route.tsx`. The old
-  // action made Next.js 15+ refuse to compile the edit-post page
+  // Route Handler at `app/(admin)/admin/preview/route.tsx` (default
+  // endpoint: `/admin/preview`). The old action made Next.js 15+ refuse
+  // to compile the edit-post page
   // because the import graph traced `react-dom/server` from Client
   // Components through Server Action modules. Sites scaffolded before
   // this change pick the new endpoint up on their next `update-ampless`
