@@ -49,18 +49,38 @@ const AMPLESS_PACKAGES = new Set([
   'ampless',
   '@ampless/admin',
   '@ampless/backend',
-  '@ampless/runtime',
-  '@ampless/plugin-seo',
+  '@ampless/plugin-analytics-ga4',
+  '@ampless/plugin-cookie-consent',
+  '@ampless/plugin-gtm',
+  '@ampless/plugin-og-image',
+  '@ampless/plugin-plausible',
+  '@ampless/plugin-reading-time',
   '@ampless/plugin-rss',
   '@ampless/plugin-schema-jsonld',
+  '@ampless/plugin-seo',
   '@ampless/plugin-webhook',
-  '@ampless/plugin-og-image',
-  '@ampless/plugin-analytics-ga4',
-  '@ampless/plugin-gtm',
-  '@ampless/plugin-plausible',
-  '@ampless/plugin-cookie-consent',
-  '@ampless/plugin-reading-time',
+  '@ampless/plugin-x-embed',
+  '@ampless/plugin-youtube',
+  '@ampless/runtime',
 ])
+
+/**
+ * Non-`@ampless/*` packages whose version ampless effectively pins on
+ * behalf of the consumer. These are peer-dep requirements that
+ * `@ampless/admin` and the new plugin packages declare — keeping them
+ * in lockstep with `templates/_shared/package.json` avoids ERESOLVE
+ * peer-conflict errors when an existing site upgrades only its
+ * `@ampless/*` deps and forgets to bump tiptap manually.
+ *
+ * Matched by prefix so new `@tiptap/extension-*` packages that the
+ * admin starts using don't need to be enumerated here separately.
+ */
+const AMPLESS_MANAGED_TRANSITIVE_PREFIXES: readonly string[] = ['@tiptap/'] as const
+
+function isManagedDep(name: string): boolean {
+  if (AMPLESS_PACKAGES.has(name)) return true
+  return AMPLESS_MANAGED_TRANSITIVE_PREFIXES.some((p) => name.startsWith(p))
+}
 
 /**
  * `scripts` keys merged from the template into the project's
@@ -657,7 +677,7 @@ export async function runUpgradeIn(
     const projectDeps = (projectPkg[section] ?? {}) as Record<string, string>
 
     for (const [name, version] of Object.entries(templateDeps)) {
-      if (!AMPLESS_PACKAGES.has(name)) continue
+      if (!isManagedDep(name)) continue
       projectDeps[name] = version
     }
 

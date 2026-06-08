@@ -19,6 +19,12 @@ function makeProjectPkg(extra: Record<string, unknown> = {}): string {
       dependencies: {
         'ampless': '^0.1.0-alpha.0',
         '@ampless/admin': '^0.1.0-alpha.0',
+        '@tiptap/core': '^2.10.4',
+        '@tiptap/extension-image': '^2.10.4',
+        '@tiptap/extension-link': '^2.10.4',
+        '@tiptap/pm': '^2.10.4',
+        '@tiptap/react': '^2.10.4',
+        '@tiptap/starter-kit': '^2.10.4',
         'react': '^19.0.0',
         'my-own-dep': '^1.0.0',
       },
@@ -50,6 +56,12 @@ function makeTemplatePkg(): string {
         '@ampless/backend': '^0.2.0-alpha.2',
         '@ampless/runtime': '^0.2.0-alpha.3',
         '@ampless/plugin-seo': '^0.2.0-alpha.1',
+        '@tiptap/core': '^3.23.6',
+        '@tiptap/extension-image': '^3.23.6',
+        '@tiptap/extension-link': '^3.23.6',
+        '@tiptap/pm': '^3.23.6',
+        '@tiptap/react': '^3.23.6',
+        '@tiptap/starter-kit': '^3.23.6',
         'react': '^19.0.0',
       },
       devDependencies: {
@@ -444,6 +456,34 @@ describe('runUpgradeIn', () => {
 
     // update-ampless script set from template
     expect(merged.scripts['update-ampless']).toBe('npx create-ampless@latest upgrade')
+  })
+
+  // 7b. @tiptap/* managed-transitive deps: synced from template to project
+  it('syncs @tiptap/* deps from template (managed transitive)', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    const merged = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    // Was v2 in project, template is v3 → upgrade syncs all 6 tiptap deps to template version
+    expect(merged.dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(merged.dependencies['@tiptap/pm']).toBe('^3.23.6')
+    expect(merged.dependencies['@tiptap/starter-kit']).toBe('^3.23.6')
+    expect(merged.dependencies['@tiptap/react']).toBe('^3.23.6')
+    expect(merged.dependencies['@tiptap/extension-image']).toBe('^3.23.6')
+    expect(merged.dependencies['@tiptap/extension-link']).toBe('^3.23.6')
+  })
+
+  // 7c. project-only @tiptap/* dep is NOT touched by upgrade (sync is template→project only)
+  it('does not add @tiptap/* deps that exist only in the project (sanity)', async () => {
+    // Project has a tiptap extension the template doesn't ship with.
+    // Upgrade should leave it alone — sync only flows template → project,
+    // not project → "must be in template".
+    const projectPkgPath = join(projectDir, 'package.json')
+    const pkg = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
+    pkg.dependencies['@tiptap/extension-foo'] = '^2.0.0'
+    writeFileSync(projectPkgPath, JSON.stringify(pkg, null, 2))
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    const merged = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
+    expect(merged.dependencies['@tiptap/extension-foo']).toBe('^2.0.0')  // unchanged
   })
 
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it
