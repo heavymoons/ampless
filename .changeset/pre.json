@@ -110,6 +110,7 @@
     "phase6d-public-html-for-post",
     "plugin-apiversion-policy-docs",
     "plugin-hook-result-reservation",
+    "plugin-name-simple-identifier",
     "plugin-namespace-and-key-allowlist",
     "plugin-phase1-descriptor-injection",
     "plugin-phase2-admin-settings",
