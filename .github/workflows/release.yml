@@ -80,6 +80,6 @@ jobs:
         # restores auth deterministically.
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
-          node scripts/sync-alpha-dist-tag.mjs
+          node scripts/sync-dist-tag.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

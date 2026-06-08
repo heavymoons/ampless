@@ -23,7 +23,7 @@ If you only read one thing in this document, read [Pitfall: pre.json stale entry
 
 3. **Merge the Version Packages PR**
    - Bumps every affected package's `version` field.
-   - Consumes the `.md` files (deletes them, records the names in `.changeset/pre.json` under `changesets: []`).
+   - Consumes the `.md` files (records the names in `.changeset/pre.json` under `changesets: []`). During pre-mode, the consumed `.md` files remain on disk alongside their `pre.json#changesets` entries — cleanup happens after `pre exit` or manually. The `pre.json#changesets` array is the source of truth for "consumed"; the presence or absence of the `.md` file is a secondary signal only.
    - On merge, Release workflow re-runs and `changeset publish` ships the new versions to npm.
 
 You as a feature-PR author only do step 1. **Don't touch step 2 or step 3 locally.**
@@ -34,7 +34,7 @@ This repo is currently in [changesets pre-release mode](https://github.com/chang
 
 Pre mode changes two things you need to know about:
 
-1. **Consumed changeset names are remembered in `pre.json.changesets`.** This is so that exiting pre mode (`changeset pre exit`) can replay them into a final stable release entry. The names stay there even after the `.md` files are deleted.
+1. **Consumed changeset names are remembered in `pre.json.changesets`.** This is so that exiting pre mode (`changeset pre exit`) can replay them into a final stable release entry. The names stay there even after the `.md` files are deleted. In fact, during pre-mode the consumed `.md` files typically remain on disk alongside their `pre.json#changesets` entries — that is the normal "consumed" state. Cleanup (deleting the `.md` files) happens after `pre exit` or manually; `pre.json#changesets` is the authoritative source of truth.
 
 2. **changesets/action treats names in `pre.json.changesets` as "already consumed".** Even if the corresponding `.md` file exists on disk, the action's pending-changeset detection excludes it. So a stale `pre.json.changesets` entry alongside the `.md` file → action says "No changesets found" → no Version Packages PR is opened.
 
@@ -45,6 +45,8 @@ Pre mode changes two things you need to know about:
 **Cause**: `.changeset/pre.json`'s `changesets` array already contains the name of the changeset you just added. The Release workflow treats your `.md` as consumed and skips it.
 
 **Why does it happen?** The most likely culprit is running `pnpm changeset version` (or `pnpm version-packages`) **locally during PR work**. That command processes any new `.md` in `.changeset/` and appends its name to `pre.json.changesets`. If you then commit `pre.json` along with your code changes and the `.md`, both the entry and the file land on main together — which is the broken state.
+
+**Note**: this pitfall is distinct from the legitimate ✗/✓ state (`.md` absent, `pre.json#changesets` entry present) that results from manually cleaning up consumed `.md` files. That cleanup is deliberate and harmless — see the Mental model section below. The pitfall described here is about a `.md` that has *not yet been consumed* (no corresponding version bump published) getting a spurious `pre.json#changesets` entry that causes the action to skip it.
 
 A second possible cause: running tools or scripts (or an AI agent) that invoke `changeset version` as a side effect.
 
@@ -136,10 +138,246 @@ If you forget #1, the Release workflow crashes loudly; #2–#6 fail silently and
 
 ## Mental model
 
-- `.changeset/*.md` (other than `pre.json` / `config.json` / `README.md`) = pending bumps not yet applied.
-- `.changeset/pre.json.changesets` = bumps that have already been applied (in pre mode).
-- A name should be in **exactly one** of those two places, never both, never neither (if you intended to bump that package).
-- Feature-PR authors only ever add `.md` files. CI handles everything else.
+The four states a changeset name can be in during pre-mode:
+
+| `.md` exists | `pre.json#changesets` entry | Meaning |
+|---|---|---|
+| ✓ | ✗ | **queued** — not yet consumed; will be picked up in the next Version Packages cycle |
+| ✓ | ✓ | **consumed** — the natural pre-mode state; `.md` stays on disk alongside the `pre.json` entry until cleanup |
+| ✗ | ✓ | **consumed-and-cleaned-up** — legitimate post-curation state; `.md` was manually deleted after consumption |
+| ✗ | ✗ | **unknown** — name is not tracked anywhere; likely indicates a typo or a removed-before-consumed entry |
+
+The `pre.json#changesets` array is the authoritative source of truth for consumed status. Feature-PR authors only ever create `.md` files (adding to the "queued" state). CI handles everything else — consuming, bumping, and publishing.
+
+## Flipping from alpha to beta pre-release
+
+The alpha → beta transition is when ampless flips the npm dist-tag from
+`alpha` to `beta`, makes the GitHub repo public, and starts accepting
+external installs (see [release strategy](./architecture/14-roadmap.md)).
+This is a **single, irreversible operational moment**. Plan it carefully.
+
+### Pre-flight checklist
+
+Before initiating the flip, confirm all of:
+
+- [ ] Public-flip docs are merged (README scrub, Community files,
+      Positioning pivot — see git log around PR #240, #242, #243, #244)
+- [ ] **The first beta cut covers every public workspace package** —
+      either via individual queued changesets, or one `.changeset/*.md`
+      bumping all packages. This matters because `sync-dist-tag.mjs`
+      after the flip re-asserts the `beta` dist-tag for **every** public
+      workspace package against that package's local `package.json`
+      version. If a package didn't receive a beta-version bump in the
+      flip cut, its `package.json` still says `1.0.0-alpha.<N>`, and
+      `sync-dist-tag.mjs` would point that package's `beta` dist-tag at
+      an alpha-versioned tarball — confusing for consumers and
+      inconsistent with the rest of the workspace.
+
+      Alternative: harden `sync-dist-tag.mjs` to **only sync packages
+      whose `package.json` version's prerelease identifier matches
+      `pre.json.tag`** (e.g. skip a package still on `1.0.0-alpha.<N>`
+      when `pre.json.tag === "beta"`). This makes "partial beta cut"
+      safe. **The Prep PR's `sync-dist-tag.mjs` design includes this
+      guard** (see §2-B below — added because of this concern).
+      With the guard in place, this checklist item softens to "at least
+      one intentional beta changeset"; without the guard, all packages
+      must be bumped.
+- [ ] No queued `.changeset/*.md` you don't intend to ship in the first
+      beta cut (run `pnpm changeset status` to inspect)
+- [ ] No open "Version Packages (alpha)" PR — merge or close it first
+- [ ] Dogfood site (e.g. ishinao.net) is healthy on the latest published
+      `@alpha`; the rollback path back to a known-good `@alpha` tarball
+      is mentally walked
+- [ ] You (the maintainer) have the ~30 min uninterrupted to do the
+      flip + monitor the publish workflow
+
+### Why this is a CI-only operation
+
+`pnpm changeset pre exit` and `pnpm changeset pre enter beta` rewrite
+`.changeset/pre.json`. Running these locally during a feature PR (or any
+non-coordinated context) silently drops bumps — see
+[Pitfall: pre.json stale entry](#pitfall-prejson-stale-entry) above and
+CLAUDE.md `## Changeset Policy` for the historical incidents (#135, #139).
+
+The flip therefore runs as a coordinated operation on `main`, not as a
+local edit on a feature branch.
+
+### Two open questions to resolve at flip time (NOT in this Prep PR)
+
+#### A. exit/enter sequencing — avoid stray `1.0.0` publish
+
+The naive sequence is `pre exit && pre enter beta`. Beware: if anything
+runs `pnpm changeset version` between those two commands (for example,
+the `changesets/action` GitHub Action firing on a `main` push), it will
+strip the pre-suffix in-flight and produce a real `1.0.0` release
+PR. We do **not** want that intermediate `1.0.0` publish to land on
+npm.
+
+Candidate shapes (each needs validation in a fork before the real flip):
+
+1. **Atomic operational workflow** (sketch): add a one-shot
+   `workflow_dispatch` workflow that runs all of the following in a
+   single job, so `changesets/action` can't fire a stray `version`
+   mid-sequence. **Use the existing `package.json` script aliases**
+   (`version-packages` / `release`) rather than direct
+   `changeset version` / `changeset publish` calls — the existing
+   aliases wrap `scripts/sync-template-versions.mjs` and `turbo run
+   build` respectively, and bypassing them would publish without the
+   template-version-sync and the pre-publish build:
+   1. `pnpm changeset pre exit` (modifies `.changeset/pre.json`)
+   2. `pnpm changeset pre enter beta` (modifies `.changeset/pre.json`)
+   3. **`pnpm version-packages`** — the existing alias is
+      `changeset version && node scripts/sync-template-versions.mjs &&
+      changeset version` ([package.json:14](../package.json#L14));
+      runs `version` once to bump packages from changesets, runs the
+      template-version sync to update `templates/_shared/package.json`
+      pinned versions, then runs `version` again to absorb any
+      auto-sync changeset the previous step emitted. Using this alias
+      preserves the existing template-pin invariant.
+   4. **`git add -A && git commit -m "<message matching the chosen release.yml guard>" && git push origin HEAD:main`**
+      (GitHub Actions checkout typically leaves a detached HEAD; the
+      explicit `HEAD:main` refspec disambiguates the push target)
+      (e.g. `"chore: flip alpha → beta [skip ci]"` if the chosen
+      suppression is `[skip ci]` in the commit message; or
+      `"chore: flip alpha → beta"` if the chosen suppression is an
+      `if:` guard on `release.yml`'s `head_commit.message` matching the
+      same phrase). Without this commit/push step, the workflow leaves
+      npm ahead of the repo state (= the next normal `changesets/action`
+      run sees stale local state and either re-opens a stale VP PR or
+      silently double-bumps). Use a deploy key / PAT with
+      `contents: write` permission. The commit-message phrase and the
+      `release.yml` guard **must be authored as one consistent pair**
+      to actually suppress the double-trigger.
+   5. **`pnpm release`** — the existing alias is `turbo run build &&
+      changeset publish` ([package.json:16](../package.json#L16));
+      runs the full workspace build (necessary because `changeset
+      publish` only publishes the existing built artifacts, it does
+      not build), then publishes the beta-version tarballs to npm.
+      **Note**: in pre mode, "only-pre packages" — those that have
+      not yet had a non-pre release — get `npm publish --tag latest`
+      by default rather than the pre-mode tag (`alpha` / `beta`).
+      This is exactly why `sync-dist-tag.mjs` exists: to re-assert
+      the correct pre-mode tag after publish. Step 6 below handles
+      this.
+   6. `node scripts/sync-dist-tag.mjs` re-asserts the `beta` dist-tag
+      across **matching public workspace packages** (the renamed script
+      reads `pre.json.tag`, which is now `"beta"`, and skips packages
+      whose `package.json` version prerelease identifier does not match
+      — so a still-on-alpha package would be skipped with a warn log,
+      not mistakenly tagged).
+   7. **Push the git tags that `pnpm changeset publish` created**.
+      Changesets' CLI creates one `<pkg-name>@<version>` tag per
+      published package locally (using the full npm name including
+      scope — e.g. `ampless@1.0.0-beta.<N>`,
+      `@ampless/runtime@1.0.0-beta.<N>`, `create-ampless@1.0.0-beta.<N>`)
+      but **does NOT push them to the remote**. Without this step,
+      GitHub Releases stay missing for the beta cut, and any
+      downstream tooling that watches `git tag` events (e.g.
+      release-notes generators) sees nothing. Use one of:
+      - `git push origin --follow-tags HEAD:main` (single command,
+        pushes the branch and reachable annotated tags at the same
+        time; matches the detached-HEAD shape from step 4)
+      - or push per-tag explicitly:
+        `git push origin <pkg-name>@<version>` for each created tag.
+      If you do not want per-package tags at all, you need to pass
+      `--no-git-tag` to `changeset publish` directly. The `pnpm release`
+      alias used in step 5 (= `turbo run build && changeset publish`,
+      [package.json:16](../package.json#L16)) does **not** forward extra
+      arguments to `changeset publish` (pnpm-script alias arg-forwarding
+      is fiddly and not used here), so the precise replacement command is:
+
+      ```sh
+      pnpm build && pnpm changeset publish --no-git-tag
+      ```
+
+      (= run `pnpm release` but with the publish step replaced by the
+      no-tag variant.) Document the choice in the flip PR if taken.
+      The default behaviour is to create the tags, so steps 7's push is
+      needed unless the no-tag variant is explicit.
+
+   Suppressing double-trigger of the normal `release.yml`: either
+   include `[skip ci]` in the commit message, or guard `release.yml`
+   with `if: !contains(github.event.head_commit.message, 'flip alpha → beta')`,
+   or temporarily disable `release.yml` for the duration of the manual
+   dispatch (less elegant). The Prep PR does not pick one; the flip PR
+   will.
+2. **Direct `pre.json` edit**: change `pre.json.tag` from `"alpha"` to
+   `"beta"` in a 1-line PR. Stays inside pre-mode the whole time
+   (avoiding the exit/enter pitfall entirely). Changesets does not
+   officially document this technique; works in practice because the
+   counter logic only looks at `tag`, but it's unofficial.
+
+#### B. The pre-counter is not reset by `pre enter beta`
+
+Both shapes above inherit the alpha pre-counter. If today's `ampless`
+`@alpha` is at `1.0.0-alpha.N`, after a beta cut without counter reset,
+the first beta publish would be roughly `1.0.0-beta.N+1` (next integer
+in the same counter), **not** `1.0.0-beta.0`. Different packages have
+different counters (`create-ampless` runs notably higher than `ampless`
+because of template auto-sync); each one continues independently from
+its own latest alpha `N`.
+
+This is technically semver-valid: pre-release identifiers compare
+lexicographically per dotted segment, and the integer continuity is a
+pure cosmetic concern — the same package never publishes the same
+`-beta.N` twice. But CHANGELOG.md will skip from the last
+`alpha.<some-N>` straight to `beta.<N+1>`, which may confuse readers.
+
+Options (decide at flip time):
+
+- **Accept the continuity** (recommended unless cosmetics matter):
+  publish `1.0.0-beta.<N+1>` (where `N` is the package's latest alpha
+  counter), document the jump in CHANGELOG; release
+  notes can spell out the alpha → beta transition explicitly.
+- **Reset the counter to 0**: requires custom tooling (edit
+  `pre.json.changesets` array to drop the alpha entries, or hand-bump
+  every package's `version` in `package.json` from `1.0.0-alpha.N`
+  to `1.0.0-beta.0` before `pre enter beta` runs). Both are
+  manual + error-prone. Worth doing only if the cosmetics strongly
+  matter.
+
+The Prep PR (this one) does not commit to either A or B; refine both
+when the flip PR is authored, ideally after testing in a throwaway
+fork.
+
+### What also changes at the flip
+
+- `.github/workflows/release.yml`: uncomment `NPM_CONFIG_PROVENANCE`
+  (provenance requires a public repo)
+- Repo visibility: GitHub Settings → flip to Public (after Settings →
+  Security → Private vulnerability reporting → Enable)
+- `README.md` + `.ja.md`: install commands using `@alpha` may stay or
+  flip to `@beta` (engineer's call — `@alpha` last-published tarball
+  remains pinned by `sync-dist-tag.mjs` after `pre exit`)
+- `CLAUDE.md`: `## Status` section may want a 1-line update reflecting
+  current stage (alpha → beta)
+- `docs/architecture/14-roadmap.md`: no change required (the four-stage
+  path framing is stage-agnostic)
+- `.changeset/pre.json#tag`: `"alpha"` → `"beta"`. **The exact mechanism
+  depends on the chosen flip shape from §A above**: for the atomic
+  workflow shape, this happens implicitly via `pre exit && pre enter
+  beta` inside the same workflow run; for the direct-edit shape, this
+  is a 1-line PR that just edits `pre.json#tag` (no `pre exit` / `pre
+  enter` involved). Either way the edit pairs with the rest of the flip
+  — it is NOT a free-standing change.
+
+### What does NOT change at the flip
+
+- `scripts/sync-dist-tag.mjs`: reads `pre.json.tag` so it auto-detects
+  the new tag once `pre.json.tag` flips
+- `scripts/sync-template-versions.mjs`: unchanged
+- `.changeset/config.json`: `access: "public"` already
+
+### Rollback story
+
+If the beta cut publishes something broken, the existing alpha tarballs
+remain installable via `npm i ampless@1.0.0-alpha.<some-N>` (any of the
+already-published alpha versions). Rolling the dist-tag back to a
+known-good alpha is `npm dist-tag add
+ampless@1.0.0-alpha.<known-good-version> alpha`. No data loss; npm
+publishes are immutable. Find the last known-healthy version by checking
+`npm view ampless versions --json | tail -20` and cross-referencing the
+production dogfood deploy logs.
 
 ## When in doubt
 
