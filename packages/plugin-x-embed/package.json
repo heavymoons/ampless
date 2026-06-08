@@ -67,6 +67,7 @@
     "displayName": {
       "en": "x.com (Twitter) embeds",
       "ja": "x.com (Twitter) 埋め込み"
-    }
+    },
+    "editorExports": "./editor"
   }
 }

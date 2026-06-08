@@ -65,6 +65,7 @@
     "displayName": {
       "en": "YouTube embeds",
       "ja": "YouTube 埋め込み"
-    }
+    },
+    "editorExports": "./editor"
   }
 }

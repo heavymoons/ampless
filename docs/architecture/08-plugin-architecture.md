@@ -283,6 +283,41 @@ The handler lives template-side, not in `@ampless/admin`. Reasons:
 
 `admin.getAmpless()` is the public accessor for the resolved runtime. It uses the same `resolveAmpless()` cache that the other `Admin` methods use, so the route handler and the rest of the admin share one instance per request.
 
+### Editor extension auto-wiring (Phase 7 codegen)
+
+`app/(admin)/admin/_editor-bootstrap.tsx` is **auto-generated** by `update-ampless` — it
+is an ampless-managed app path and must not be edited by hand. The
+codegen runs inside `packages/create-ampless/src/upgrade.ts` as step 9 of
+`runUpgradeIn`, after `npm install` completes.
+
+**How it works:**
+
+1. `update-ampless` reads the project's `package.json#dependencies` (not
+   `devDependencies`) and walks `node_modules/<pkg>/package.json` for each dep.
+2. Any package whose `amplessPlugin.editorExports` field is present is a candidate.
+   The value must be a `./-prefixed` relative subpath without `..`, absolute paths,
+   or query/fragment characters, and it must be declared in `package.json#exports`.
+   Candidates that fail validation emit a warning and are skipped.
+3. Candidates are sorted by package name (`localeCompare`) for deterministic output.
+4. The file is written with an `AUTO-GENERATED` banner and imports each plugin's
+   editor extension as `import { editorExtension as __<sanitised>_editor }`.
+5. `installAdminEditorExtensions([...])` is called with the collected extensions.
+
+**Plugin author convention:**
+
+- Declare `"editorExports": "./editor"` in `package.json#amplessPlugin`.
+- Export `editorExtension` as a named symbol (tiptap `Node` or `Extension`) from
+  the `./editor` subpath.
+- Declare `"./editor"` in `package.json#exports`.
+
+**Active source and full disable:**
+
+The active source for editor wiring is `package.json#dependencies` (= `node_modules`),
+not `cms.config.ts`. Removing a plugin from `cms.config.ts` but keeping it in
+`package.json` leaves the editor paste rule active. To fully disable: remove from
+`cms.config.ts` **and** `npm uninstall @ampless/plugin-...`, then
+`npm run update-ampless`.
+
 ### Plugin State Storage
 
 Plugins persist state through several mechanisms — none of them is a dedicated per-plugin DynamoDB table:

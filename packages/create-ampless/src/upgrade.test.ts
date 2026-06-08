@@ -596,6 +596,127 @@ export {}
   })
 })
 
+describe('runUpgradeIn — editor bootstrap codegen', () => {
+  let projectDir: string
+  let templateDir: string
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+  })
+
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  // Helper to seed a fake plugin package in node_modules
+  function seedFakePlugin(
+    dir: string,
+    pkgName: string,
+    opts: {
+      editorExports?: string
+      exportsHasEditor?: boolean
+      amplessPlugin?: boolean
+    } = {}
+  ): void {
+    const pkgDir = join(dir, 'node_modules', pkgName)
+    mkdirSync(pkgDir, { recursive: true })
+    const exportsField: Record<string, unknown> = {
+      '.': { import: './dist/index.js' },
+    }
+    if (opts.exportsHasEditor !== false && opts.editorExports) {
+      exportsField[opts.editorExports] = { import: './dist/editor.js' }
+    }
+    const pkgJson: Record<string, unknown> = {
+      name: pkgName,
+      version: '1.0.0',
+      exports: exportsField,
+    }
+    if (opts.amplessPlugin !== false) {
+      pkgJson['amplessPlugin'] = {
+        apiVersion: 1,
+        name: pkgName.replace(/^@[^/]+\/plugin-/, ''),
+        trustLevel: 'trusted',
+        ...(opts.editorExports ? { editorExports: opts.editorExports } : {}),
+      }
+    }
+    writeFileSync(join(pkgDir, 'package.json'), JSON.stringify(pkgJson, null, 2))
+  }
+
+  // EC-1: Codegen with 2 plugins — both are wired, order is deterministic
+  it('generates _editor-bootstrap.tsx with 2 plugins wired in localeCompare order', async () => {
+    // Add plugin deps to project package.json
+    const pkgPath = join(projectDir, 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+    pkg.dependencies['@ampless/plugin-youtube'] = '1.0.0-alpha.3'
+    pkg.dependencies['@ampless/plugin-x-embed'] = '1.0.0-alpha.3'
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2))
+
+    // Seed fake node_modules
+    seedFakePlugin(projectDir, '@ampless/plugin-youtube', { editorExports: './editor' })
+    seedFakePlugin(projectDir, '@ampless/plugin-x-embed', { editorExports: './editor' })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    const bootstrapPath = join(projectDir, 'app', '(admin)', 'admin', '_editor-bootstrap.tsx')
+    expect(existsSync(bootstrapPath)).toBe(true)
+    const content = readFileSync(bootstrapPath, 'utf-8')
+
+    // Must contain AUTO-GENERATED banner
+    expect(content).toContain('AUTO-GENERATED')
+    // Must import both plugins' editorExtension
+    expect(content).toContain("from '@ampless/plugin-x-embed/editor'")
+    expect(content).toContain("from '@ampless/plugin-youtube/editor'")
+    // localeCompare order: x-embed < youtube
+    const xIdx = content.indexOf('@ampless/plugin-x-embed/editor')
+    const ytIdx = content.indexOf('@ampless/plugin-youtube/editor')
+    expect(xIdx).toBeLessThan(ytIdx)
+    // installAdminEditorExtensions called with both identifiers
+    expect(content).toContain('installAdminEditorExtensions([')
+    expect(content).toContain('__ampless_plugin_x_embed_editor')
+    expect(content).toContain('__ampless_plugin_youtube_editor')
+    // Result reports the count
+    expect(result.editorExtensionsWired).toBe(2)
+  })
+
+  // EC-2: Codegen with 0 plugins — empty inline install, no Placeholder comment
+  it('generates _editor-bootstrap.tsx with empty install when no plugins have editorExports', async () => {
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    const bootstrapPath = join(projectDir, 'app', '(admin)', 'admin', '_editor-bootstrap.tsx')
+    expect(existsSync(bootstrapPath)).toBe(true)
+    const content = readFileSync(bootstrapPath, 'utf-8')
+
+    // Must contain AUTO-GENERATED banner
+    expect(content).toContain('AUTO-GENERATED')
+    // Inline (not multiline) empty install
+    expect(content).toContain('installAdminEditorExtensions([])')
+    // Placeholder comment from template must NOT be present
+    expect(content).not.toContain('Placeholder for fresh scaffolds')
+    // Result reports 0
+    expect(result.editorExtensionsWired).toBe(0)
+  })
+
+  // EC-3: Codegen skips non-ampless packages (react, next etc.)
+  it('does not wire packages that have no amplessPlugin.editorExports', async () => {
+    // Add regular (non-ampless) packages to node_modules
+    seedFakePlugin(projectDir, 'react', { amplessPlugin: false, editorExports: undefined })
+    seedFakePlugin(projectDir, 'next', { amplessPlugin: false, editorExports: undefined })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    const bootstrapPath = join(projectDir, 'app', '(admin)', 'admin', '_editor-bootstrap.tsx')
+    const content = readFileSync(bootstrapPath, 'utf-8')
+
+    // Non-ampless packages must NOT appear as import sources
+    expect(content).not.toContain("from 'react'")
+    expect(content).not.toContain("from 'next'")
+    expect(content).toContain('installAdminEditorExtensions([])')
+    expect(result.editorExtensionsWired).toBe(0)
+  })
+})
+
 describe('runUpgradeIn — obsolete file cleanup', () => {
   let projectDir: string
   let templateDir: string

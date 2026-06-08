@@ -685,6 +685,16 @@ export interface PluginPackageManifest {
   description?: LocalizedString
   /** Optional docs / repo URL. */
   homepage?: string
+  /**
+   * Subpath (relative to the plugin's package.json) of the editor
+   * module to auto-wire. `update-ampless` reads this to regenerate
+   * `app/(admin)/admin/_editor-bootstrap.tsx`. Absent = no editor
+   * extension (= plugin doesn't ship a tiptap Node).
+   *
+   * The referenced module must export `editorExtension` as a named
+   * symbol of type tiptap Extension.
+   */
+  editorExports?: string
 }
 
 /**
