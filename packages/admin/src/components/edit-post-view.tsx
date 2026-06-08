@@ -6,7 +6,16 @@ import { getPostById, type Post } from 'ampless'
 import { PostForm } from './post-form.js'
 import { useT } from './i18n-provider.js'
 
-export function EditPostPage({ params }: { params: Promise<{ postId: string }> }) {
+interface EditPostPageProps {
+  params: Promise<{ postId: string }>
+  /**
+   * Phase 7: server action threaded from `createEditPostPage` factory
+   * down into `<PostForm>` for iframe-based preview rendering.
+   */
+  renderPreviewAction?: (draft: Post) => Promise<string>
+}
+
+export function EditPostPage({ params, renderPreviewAction }: EditPostPageProps) {
   const t = useT()
   const { postId } = use(params)
   const [post, setPost] = useState<Post | null>(null)
@@ -29,7 +38,9 @@ export function EditPostPage({ params }: { params: Promise<{ postId: string }> }
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8">
       <h1 className="mb-6 text-2xl font-bold md:mb-8 md:text-3xl">{t('posts.form.editTitle')}</h1>
-      {post && <PostForm post={post} />}
+      {post && (
+        <PostForm post={post} renderPreviewAction={renderPreviewAction} />
+      )}
     </div>
   )
 }

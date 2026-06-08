@@ -20,6 +20,10 @@
     "./components": {
       "import": "./dist/components/index.js",
       "types": "./dist/components/index.d.ts"
+    },
+    "./editor": {
+      "import": "./dist/editor.js",
+      "types": "./dist/editor.d.ts"
     }
   },
   "files": [

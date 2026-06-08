@@ -43,8 +43,13 @@ import {
   type PublicPostBodyDescriptor,
   type PublicPostHtmlDescriptor,
   type PublicPostHtmlPosition,
+  type PublicPostScriptDescriptor,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+import {
+  buildContentFieldRegistry,
+  type ContentFieldRegistry,
+} from './rendering.js'
 import {
   loadPackageManifest,
   SUPPORTED_API_VERSION,
@@ -85,6 +90,33 @@ export interface PluginHeadApi {
    * templates. Themes never call `dangerouslySetInnerHTML` themselves.
    */
   renderHtmlForPost(post: Post): Promise<PublicHtmlForPostResult>
+  /**
+   * Page-level scripts aggregated across all installed plugins'
+   * `publicPostScript(post, ctx)` (Phase 7 `publicPostScript`
+   * capability). Themes invoke this via
+   * `ampless.publicPostScriptsForPage(posts)` after rendering post
+   * body / featured body. Descriptors are deduped by stable `id` so a
+   * widget script (e.g. x.com `widgets.js`) emits at most once per
+   * page regardless of how many embeds appear.
+   */
+  renderPostScriptsForPage(posts: readonly Post[]): Promise<ReactNode>
+  /**
+   * In-body content renderer registry (Phase 7 `contentFields`
+   * capability). Built once at `createPluginHead` construction time so
+   * duplicate `nodeType` / `pattern.source` registrations throw eagerly
+   * (config error). Threaded into `rendering.ts:renderBody()` via
+   * `Ampless.renderBody`. Returns `null` when no plugin registered any
+   * `contentFields`.
+   */
+  readonly contentFieldsRegistry: ContentFieldRegistry
+  /**
+   * Resolve the per-plugin `PluginPublicRenderContext` snapshot used by
+   * `contentFields` renderers. Same `settings()` binding the public
+   * surfaces (`publicHead` / `publicBodyEnd`) use. Async because it
+   * reads the S3 site-settings cache once per request via
+   * `pluginSettings.loadAll()`.
+   */
+  contextForPlugins(): Promise<(plugin: AmplessPlugin) => PluginPublicRenderContext>
 }
 
 /**
@@ -987,6 +1019,43 @@ export function createPluginHead(
     }
   }
 
+  // Phase 7: contentFields registry built eagerly so duplicate
+  // nodeType / pattern.source registrations across plugins throw at
+  // config / startup time, not on the first render that walks the
+  // conflicting node.
+  const contentFieldsRegistry = buildContentFieldRegistry(validPlugins)
+
+  // Phase 7 capability mismatch warnings — emitted once at startup,
+  // alongside the existing publicHead/publicBody/schema/publicHtmlForPost
+  // checks.
+  for (const plugin of validPlugins) {
+    const caps = plugin.capabilities
+    if (!caps) continue
+    const label = plugin.instanceId
+      ? `${plugin.name}#${plugin.instanceId}`
+      : plugin.name
+    if (caps.includes('contentFields') && !plugin.contentFields) {
+      warn(
+        `${label}: declares capability "contentFields" but no \`contentFields\` array. Drop the capability or add the renderers.`,
+      )
+    }
+    if (plugin.contentFields && !caps.includes('contentFields')) {
+      warn(
+        `${label}: implements \`contentFields\` but "contentFields" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`,
+      )
+    }
+    if (caps.includes('publicPostScript') && !plugin.publicPostScript) {
+      warn(
+        `${label}: declares capability "publicPostScript" but no \`publicPostScript\` implementation. Drop the capability or add the function.`,
+      )
+    }
+    if (plugin.publicPostScript && !caps.includes('publicPostScript')) {
+      warn(
+        `${label}: implements \`publicPostScript\` but "publicPostScript" is not in declared capabilities. Add it so admin UI / capability gates see the surface.`,
+      )
+    }
+  }
+
   return {
     async renderHead(): Promise<ReactNode> {
       const snapshot = await pluginSettings.loadAll()
@@ -1016,5 +1085,101 @@ export function createPluginHead(
       const snapshot = await pluginSettings.loadAll()
       return collectHtmlForPost(validPlugins, cmsConfig.site, snapshot, post)
     },
+    async renderPostScriptsForPage(posts: readonly Post[]): Promise<ReactNode> {
+      const snapshot = await pluginSettings.loadAll()
+      return collectPostScriptsForPage(validPlugins, cmsConfig.site, snapshot, posts)
+    },
+    contentFieldsRegistry,
+    async contextForPlugins() {
+      const snapshot = await pluginSettings.loadAll()
+      return (plugin: AmplessPlugin) =>
+        makeCtx(plugin, cmsConfig.site, snapshot)
+    },
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — publicPostScript: page-level script dedupe + ReactNode emit
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect `publicPostScript` descriptors across every plugin × post on
+ * the page, drop unsafe / malformed entries with dev warnings, dedupe
+ * by stable `id`, and return a `<Fragment>` of `<script>` elements
+ * suitable for embedding in the theme.
+ *
+ * Behaviour rules (locked-in by spec):
+ *
+ *   - `id` must be a non-empty string (dropped + warned otherwise).
+ *   - `src` must pass `isSafeUrl` (http/https only; same allowlist as
+ *     `publicHead` script descriptors).
+ *   - Multiple posts × multiple plugins emitting the same `id`
+ *     collapse to a single tag (last one wins on attribute overrides
+ *     — first-arrival's id is the dedupe key).
+ *   - Plugin callbacks that throw are skipped with a dev warning, not
+ *     allowed to crash the whole page.
+ *   - Default attributes: `async` (truthy) when neither `async` nor
+ *     `defer` is supplied — matches the `publicHead` `script`
+ *     descriptor default.
+ */
+function collectPostScriptsForPage(
+  plugins: readonly AmplessPlugin[],
+  site: Config['site'],
+  snapshot: PluginSettingsSnapshot,
+  posts: readonly Post[],
+): ReactNode {
+  const seen = new Set<string>()
+  const elements: ReactElement[] = []
+  for (const post of posts) {
+    for (const plugin of plugins) {
+      const factory = plugin.publicPostScript
+      if (!factory) continue
+      const ctx = makeCtx(plugin, site, snapshot)
+      const label = `plugin "${plugin.instanceId ?? plugin.name}"`
+      let descriptors: readonly PublicPostScriptDescriptor[]
+      try {
+        descriptors = factory.call(plugin, post, ctx) ?? []
+      } catch (err) {
+        warn(
+          `${label}: threw inside publicPostScript callback: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        )
+        continue
+      }
+      for (let i = 0; i < descriptors.length; i++) {
+        const d = descriptors[i]
+        if (!d || typeof d !== 'object') {
+          warn(`${label}: publicPostScript descriptor #${i} dropped — not an object.`)
+          continue
+        }
+        if (typeof d.id !== 'string' || d.id.length === 0) {
+          warn(
+            `${label}: publicPostScript descriptor #${i} dropped — "id" must be a non-empty string.`,
+          )
+          continue
+        }
+        if (typeof d.src !== 'string' || !isSafeUrl(d.src)) {
+          warn(
+            `${label}: publicPostScript descriptor "${d.id}" dropped — unsafe / missing src.`,
+          )
+          continue
+        }
+        if (seen.has(d.id)) continue
+        seen.add(d.id)
+        const props: Record<string, unknown> = { key: d.id, src: d.src }
+        const hasAsync = typeof d.async === 'boolean'
+        const hasDefer = typeof d.defer === 'boolean'
+        if (hasAsync) props.async = d.async
+        if (hasDefer) props.defer = d.defer
+        if (!hasAsync && !hasDefer) {
+          props.async = true
+          props.defer = true
+        }
+        elements.push(createElement('script', props))
+      }
+    }
+  }
+  if (elements.length === 0) return null
+  return createElement(Fragment, null, ...elements)
 }

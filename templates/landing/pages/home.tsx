@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { renderBody } from '@ampless/runtime'
 import { ampless } from '@/lib/ampless'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
@@ -63,13 +62,14 @@ export default async function LandingHome(_: ThemeRouteContext) {
           <section className="mx-auto max-w-3xl px-6 py-16">
             <article>
               <h2 className="text-3xl font-bold tracking-tight">{featured.title}</h2>
-              <div
-                className="prose prose-neutral dark:prose-invert mt-6 max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
-              />
+              <div className="prose prose-neutral dark:prose-invert mt-6 max-w-none">
+                {await ampless.renderBody(featured)}
+              </div>
             </article>
           </section>
         )}
+
+        {featured && (await ampless.publicPostScriptsForPage([featured]))}
 
         {posts.length > 0 && (
           <section className="mx-auto max-w-5xl px-6 py-16">

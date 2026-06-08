@@ -15,7 +15,6 @@ import {
   type ContentFormat,
 } from 'ampless'
 import {
-  renderBody,
   tiptapToHtml,
   tiptapToMarkdown,
   markdownToHtml,
@@ -53,6 +52,19 @@ type PostFormView = 'edit' | 'preview'
 
 interface PostFormProps {
   post?: Post
+  /**
+   * Phase 7: server action that renders the draft post into a complete
+   * HTML string (body + page-level scripts). Templates wire this from
+   * `_actions/render-preview.ts` and thread it down via the
+   * `createEditPostPage` / `createNewPostPage` factory options. The
+   * resulting HTML is shown in an `<iframe srcDoc>` (sandbox =
+   * `allow-scripts` only) so YouTube iframes / x.com `widgets.js` can
+   * hydrate without crossing the admin's same-origin boundary.
+   *
+   * When omitted, the preview pane shows a fallback message explaining
+   * how to wire the prop. Alpha 7 onwards templates always pass it.
+   */
+  renderPreviewAction?: (draft: Post) => Promise<string>
 }
 
 const EMPTY_TIPTAP_DOC = { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -125,7 +137,7 @@ function formatDraftTime(epochMs: number, timezone: string, locale: string): str
   }
 }
 
-export function PostForm({ post }: PostFormProps) {
+export function PostForm({ post, renderPreviewAction }: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
@@ -143,6 +155,10 @@ export function PostForm({ post }: PostFormProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<PostFormView>('edit')
+  // Phase 7: preview HTML rendered by the template's server action.
+  // Empty string until the first action call resolves; the iframe
+  // re-renders whenever `previewPost` changes (debounced 250ms).
+  const [previewHtml, setPreviewHtml] = useState('')
   // Remount key for the tiptap editor. `useEditor({ content })` reads
   // `content` only at init, so restoring a revision's body into a tiptap
   // post requires bumping this to force a fresh mount with the new
@@ -602,6 +618,49 @@ export function PostForm({ post }: PostFormProps) {
     tags: parseTags(tagsInput),
   }
 
+  // Phase 7: when the preview tab is active and a `renderPreviewAction`
+  // is wired, debounce-call it (250ms) on every change to the draft
+  // and stash the resulting HTML for the iframe srcDoc. Aborting the
+  // pending fetch on unmount / dependency change avoids stale writes
+  // overwriting a more-recent render.
+  useEffect(() => {
+    if (view !== 'preview' || !renderPreviewAction) return
+    if (format === 'static') return
+    const ctrl = new AbortController()
+    const tid = window.setTimeout(() => {
+      renderPreviewAction(previewPost)
+        .then((html) => {
+          if (!ctrl.signal.aborted) setPreviewHtml(html)
+        })
+        .catch((err) => {
+          if (!ctrl.signal.aborted) {
+            // eslint-disable-next-line no-console
+            console.error('[ampless admin] renderPreviewAction failed:', err)
+          }
+        })
+    }, 250)
+    return () => {
+      ctrl.abort()
+      window.clearTimeout(tid)
+    }
+    // We intentionally serialise `previewPost` shallowly via its
+    // contributing primitives so the effect re-runs on every change
+    // worth re-previewing. `previewPost` itself is a new object each
+    // render so it can't be used in the deps directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    view,
+    renderPreviewAction,
+    format,
+    title,
+    slug,
+    excerpt,
+    body,
+    status,
+    resolvedPublishedAt,
+    tagsInput,
+  ])
+
   return (
     <form onSubmit={save} className="space-y-6">
       {/* Tab strip — keep both views mounted (visibility-only toggle)
@@ -663,11 +722,26 @@ export function PostForm({ post }: PostFormProps) {
             <p className="text-sm text-muted-foreground">
               {t('posts.form.static.previewHint')}
             </p>
-          ) : (
-            <div
-              className="prose prose-neutral dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: renderBody(previewPost) }}
+          ) : renderPreviewAction ? (
+            // Phase 7: preview is rendered via the template's
+            // `'use server'` action so `ampless.renderBody` (now async
+            // ReactNode) + `ampless.publicPostScriptsForPage([draft])`
+            // can run server-side. The result is injected into an
+            // iframe with sandbox=`allow-scripts` only (no
+            // `allow-same-origin`) so 3rd-party widget scripts
+            // (YouTube iframes, x.com widgets.js) can hydrate without
+            // crossing the admin's same-origin boundary.
+            <iframe
+              title="post-preview"
+              srcDoc={previewHtml}
+              sandbox="allow-scripts"
+              className="prose prose-neutral dark:prose-invert max-w-none min-h-[400px] w-full rounded-md border"
             />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Preview unavailable: pass <code>renderPreviewAction</code> prop from
+              the template&apos;s server action.
+            </p>
           )}
           {previewPost.tags && previewPost.tags.length > 0 && (
             <div className="flex flex-wrap gap-2 border-t pt-4 text-sm">
@@ -937,7 +1011,11 @@ export function PostForm({ post }: PostFormProps) {
           post has no snapshots yet). Restoring pours a revision's fields
           into the form above for review; the user saves manually. */}
       {isEdit && post && (
-        <PostHistoryPanel postId={post.postId} onRestore={restoreRevision} />
+        <PostHistoryPanel
+          postId={post.postId}
+          onRestore={restoreRevision}
+          renderPreviewAction={renderPreviewAction}
+        />
       )}
       </div>
     </form>

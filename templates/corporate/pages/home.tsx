@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { renderBody } from '@ampless/runtime'
 import { ampless } from '@/lib/ampless'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
@@ -70,13 +69,14 @@ export default async function CorporateHome(_: ThemeRouteContext) {
                   {formatDate(featured.publishedAt, settings.dateFormat, settings.timezone)}
                 </time>
               )}
-              <div
-                className="prose prose-neutral dark:prose-invert mt-6 max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
-              />
+              <div className="prose prose-neutral dark:prose-invert mt-6 max-w-none">
+                {await ampless.renderBody(featured)}
+              </div>
             </article>
           </section>
         )}
+
+        {featured && (await ampless.publicPostScriptsForPage([featured]))}
 
         {posts.length > 0 && (
           <section className="mx-auto max-w-4xl px-6 py-16">

@@ -130,9 +130,16 @@ Phase 6a で追加:
 |---|---|---|
 | `secretSettings` | `settings.secret` フィールドを 1 つ以上宣言する — admin 編集可能な値を `PluginSecret` DDB テーブル（IAM 専用アクセス; Cognito グループは直接読み取り不可）に暗号化して保存する。admin は `setPluginSecret` / `clearPluginSecret` AppSync mutation（plugin-secret-handler Lambda 経由）で書き込み、Lambda が AES-256-GCM 暗号化してから DDB に書く。trusted フックのみが `ctx.secret<T>(key)` で読み取れる。`definePlugin()` 時に 4 つの observable な挙動がある（[plugin.ts:1004-1019](../../packages/ampless/src/plugin.ts#L1004-L1019)）: (1) **`settings.secret` 非空 + `trust_level !== 'trusted'`** → `definePlugin()` が throw — シークレット読み取りに `PluginSecret` テーブルへの trusted Lambda の IAM 権限が必要; untrusted と privileged Lambda はそのテーブルへの IAM 読み取りアクセスを持たない。(2) **`settings.secret` 非空 + `capabilities` 宣言済み + `capabilities` に `'secretSettings'` が含まれない** → soft 不一致 warning — `'schema'` / `'publicHtmlForPost'` の既存 capability-mismatch パターンと同じ。(3) **`settings.secret` 非空 + `capabilities` 未定義**（`capabilities` 配列を持たない legacy プラグイン）→ warning なし — `capabilities` が `undefined` のとき不一致チェックをスキップ、後方互換のため。(4) **`capabilities: ['secretSettings']` 宣言だけで `settings.secret` フィールドなし** → no-op — warning も throw もなし。 | `trusted` のみ（`settings.secret` が非空のとき `definePlugin()` 時に hard gate; 上記 4 ケース参照）。 |
 
+Phase 7 で追加:
+
+| capability | 意味 | デフォルト許可 trust_level |
+|---|---|---|
+| `contentFields` | `contentFields` 配列 — tiptap ノード型 (`kind: 'tiptap'`) と markdown 単独行 URL pattern (`kind: 'markdown-url'`) のプラグイン renderer。`ampless.renderBody(post)` (Phase 7 で `Promise<ReactNode>` 化、alpha breaking) に thread される。同 `nodeType` / `pattern.source` の重複登録は `createPluginHead` 時に throw。 | `untrusted` 以上 |
+| `publicPostScript` | `publicPostScript(post, ctx)` — ページ上の全 post を横断して集約され、安定 `id` で dedupe され、`ampless.publicPostScriptsForPage(posts)` 経由で出力される page-level `<script>` descriptor。`@ampless/plugin-x-embed` が x.com `widgets.js` を必要なページで 1 回だけ注入するのに利用する。 | `untrusted` 以上 |
+
 予約済み capability（名前のみ、実装は後続フェーズ — [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md) 参照）:
 
-`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`。
+`adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`。
 
 `cspReady` は CSP nonce 予約 (`inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` と同時 ship、Phase 1: 型のみ、runtime no-op) の declarative-badge 部分。今宣言しても runtime cross-check や warning は出ない。admin UI バッジ + render-time sanity check は middleware/SSR CSP nonce threading PR で landing する。
 
@@ -242,6 +249,36 @@ hook は sync (`readonly PublicPostHtmlDescriptor[]`) で、`publicBodyForPost` 
 | `publicHead` | `undefined`（デフォルト JS、後方互換）または `'application/ld+json'` を許可 |
 | `publicBodyEnd` | `publicHead` と同じ |
 | `publicBodyForPost` | `'application/ld+json'` **必須**。他の `scriptType`（または省略）は console warning 付きで drop。投稿単位の任意インライン JS は意図的に閉じており、その必要が出た場合は別の explicit capability で開く設計 |
+
+### `contentFields` + `publicPostScript` (Phase 7)
+
+`contentFields` は、投稿本文の一部の fragment をプラグインが提供する `ReactNode` で差し替える仕組み。2 種類の `kind`:
+
+- **`tiptap`** — `nodeType` (string) でキー付け。該当ノード型に対する runtime デフォルトの switch-case 描画を差し替える。
+- **`markdown-url`** — anchored な `RegExp` (`^...$`) でキー付け。段落の全体（trim 後）が単独 URL（autolink / bare URL / `[text](url)`）のものにマッチする。
+
+renderer は server-side で `ampless.renderBody(post)` 内で実行され、`publicHead` / `publicBodyEnd` と同じ `PluginPublicRenderContext` (`ctx.setting<T>(key)` 等) を受け取る。プラグイン間の同 `nodeType` / `pattern.source` 重複登録は `createPluginHead` 時に throw（config error）。
+
+`publicPostScript(post, ctx)` は安定 `id` で dedupe される page-level `<script>` descriptor を返す。テーマは投稿本文を出した後に `{await ampless.publicPostScriptsForPage(posts)}` を呼び、widget script（例: x.com `widgets.js`）が必要なページで 1 回だけ読み込まれるようにする。CSP の強制はサイトエンジニアの責任（`next.config.ts` / middleware）— runtime は非 http(s) `src` を drop するがホスト allowlist は強制しない。
+
+### Server-render fetch admin preview (Phase 7)
+
+`ampless.renderBody(post)` は Phase 7 で `Promise<ReactNode>` を返すようになった（`contentFields` renderer を server-side で動かすため）。これにより `<PostForm>` 内での client-side `renderBody` 呼び出しは不可能になった — admin は inline で `renderBody` を呼べない。
+
+Phase 7 の preview アーキテクチャ:
+
+1. テンプレートは `templates/_shared/app/(admin)/admin/_actions/render-preview.tsx` に `'use server'` action を置く。中で `await admin.getAmpless()` → `renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)` を呼んで HTML 文字列を返す。
+2. page factory が `opts.renderPreviewAction` field で action を受け取る (`createEditPostPage(admin, { renderPreviewAction })` / `createNewPostPage(admin, { renderPreviewAction })`)。
+3. factory は action を `EditPostPage` / `NewPostPage` view component 経由で `<PostForm renderPreviewAction={...} />` / `<PostHistoryPanel renderPreviewAction={...} />` に thread する。
+4. `<PostForm>` は draft 変更を 250ms debounce して action を呼び、結果を `<iframe srcDoc>` (`sandbox="allow-scripts"` のみ — `allow-same-origin` なし) に流す。
+
+action はテンプレート側に置き、`@ampless/admin` には持ち込まない。理由:
+
+- action は template の `lib/admin.ts` (`admin.getAmpless()`) に依存するので、admin パッケージ内に置くと依存関係が逆転する。
+- admin パッケージの tsup directive-entry 戦略 ([packages/admin/tsup.config.ts](../../packages/admin/tsup.config.ts)) に新規 `'use server'` entry を増やす必要がなくなる。
+- trust 境界は他の template-side action (`_actions/theme-actions.ts` 等) と同じ。
+
+`admin.getAmpless()` は resolved runtime に対する public accessor。他の `Admin` メソッドと同じ `resolveAmpless()` キャッシュを使うので、action と admin の他の部分は request あたり 1 instance を共有する。
 
 ### プラグインの状態保存
 

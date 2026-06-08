@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { listPostHistory, type Post, type PostRevision } from 'ampless'
-import { renderBody } from '@ampless/runtime'
 import { Button } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
 import { getAdminCmsConfig } from '../lib/admin-config-client.js'
@@ -14,6 +13,14 @@ interface PostHistoryPanelProps {
    * (PostForm) reviews and saves manually — restore never auto-saves.
    */
   onRestore: (revision: PostRevision) => void
+  /**
+   * Phase 7: server action that renders a selected revision into a
+   * complete HTML string for the preview iframe. Same prop the
+   * <PostForm> preview uses; template factories thread it down so
+   * revision previews benefit from the same server-side rendering
+   * pipeline (contentFields renderers + page-level scripts).
+   */
+  renderPreviewAction?: (draft: Post) => Promise<string>
 }
 
 // How many revisions to fetch per page. History is unbounded by default,
@@ -63,7 +70,11 @@ function revisionAsPost(rev: PostRevision): Post {
   }
 }
 
-export function PostHistoryPanel({ postId, onRestore }: PostHistoryPanelProps) {
+export function PostHistoryPanel({
+  postId,
+  onRestore,
+  renderPreviewAction,
+}: PostHistoryPanelProps) {
   const t = useT()
   const config = getAdminCmsConfig()
   const timezone = config?.timezone ?? 'UTC'
@@ -76,6 +87,25 @@ export function PostHistoryPanel({ postId, onRestore }: PostHistoryPanelProps) {
   const [revisions, setRevisions] = useState<PostRevision[]>([])
   const [nextToken, setNextToken] = useState<string | undefined>(undefined)
   const [selected, setSelected] = useState<PostRevision | null>(null)
+  // Phase 7: preview HTML rendered server-side via the template's
+  // action. Re-fetched whenever the user picks a different revision.
+  const [previewHtml, setPreviewHtml] = useState('')
+
+  useEffect(() => {
+    if (!selected || !renderPreviewAction || selected.format === 'static') return
+    const ctrl = new AbortController()
+    renderPreviewAction(revisionAsPost(selected))
+      .then((html) => {
+        if (!ctrl.signal.aborted) setPreviewHtml(html)
+      })
+      .catch((err) => {
+        if (!ctrl.signal.aborted) {
+          // eslint-disable-next-line no-console
+          console.error('[ampless admin] revision preview action failed:', err)
+        }
+      })
+    return () => ctrl.abort()
+  }, [selected, renderPreviewAction])
 
   const loadPage = useCallback(
     async (token?: string) => {
@@ -234,11 +264,18 @@ export function PostHistoryPanel({ postId, onRestore }: PostHistoryPanelProps) {
                 <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400">
                   {t('posts.history.staticCaveat')}
                 </p>
-              ) : (
-                <div
-                  className="prose prose-neutral dark:prose-invert max-w-none text-sm"
-                  dangerouslySetInnerHTML={{ __html: renderBody(revisionAsPost(selected)) }}
+              ) : renderPreviewAction ? (
+                <iframe
+                  title="revision-preview"
+                  srcDoc={previewHtml}
+                  sandbox="allow-scripts"
+                  className="prose prose-neutral dark:prose-invert max-w-none min-h-[300px] w-full rounded-md border text-sm"
                 />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Preview unavailable: pass <code>renderPreviewAction</code> prop from
+                  the template&apos;s server action.
+                </p>
               )}
             </div>
           )}

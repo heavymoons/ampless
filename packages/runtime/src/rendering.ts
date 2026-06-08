@@ -1,5 +1,17 @@
-import type { Post } from 'ampless'
-import { marked } from 'marked'
+import {
+  Fragment,
+  createElement,
+  type ReactNode,
+} from 'react'
+import { marked, type Tokens } from 'marked'
+import type {
+  AmplessPlugin,
+  ContentFieldRenderer,
+  MarkdownEmbedMatch,
+  PluginPublicRenderContext,
+  Post,
+  TiptapRenderNode,
+} from 'ampless'
 
 // NOTE: editor は信頼された主体として扱う設計のため、本ファイルでは
 // 投稿本文に含まれる HTML / JavaScript を**意図的にサニタイズしない**。
@@ -34,7 +46,9 @@ function textAlignStyle(attrs: Record<string, unknown> | undefined): string {
   return ''
 }
 
-function renderTiptap(node: TiptapNode): string {
+// ---- HTML-string tiptap renderer (used by legacy sync path + format converters) ----
+
+function renderTiptapString(node: TiptapNode): string {
   if (node.type === 'text') {
     let html = escape(node.text ?? '')
     for (const mark of node.marks ?? []) {
@@ -52,7 +66,7 @@ function renderTiptap(node: TiptapNode): string {
     return html
   }
 
-  const children = (node.content ?? []).map(renderTiptap).join('')
+  const children = (node.content ?? []).map(renderTiptapString).join('')
 
   switch (node.type) {
     case 'doc':
@@ -121,27 +135,415 @@ function tableCellAttrs(attrs: Record<string, unknown> | undefined): string {
   return out
 }
 
-function renderMarkdown(md: string): string {
+function renderMarkdownString(md: string): string {
   // marked: parse は async: false で同期実行できるが、型は
   // `string | Promise<string>` を返すため as string でキャストする。
   // sanitize オプションは marked から廃止済み。出力は信頼境界として扱う既存方針を維持。
   return marked.parse(md, { gfm: true, breaks: false, async: false }) as string
 }
 
-export function renderBody(post: Post): string {
+// ---- Phase 7: contentFields registry ----
+
+/**
+ * Registry of `contentFields` renderers, plus a per-plugin context
+ * resolver. Built once per request from `cms.config.plugins` by
+ * `createPluginHead.contentFieldsRegistry` and threaded through every
+ * `renderBody(post, { contentFields, ctxForPlugin })` call.
+ *
+ * The map values capture the original plugin so the runtime can rebind
+ * `this` and resolve the right `PluginPublicRenderContext` for each
+ * renderer at call time.
+ */
+export interface ContentFieldRegistry {
+  tiptap: ReadonlyMap<string, { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> }>
+  markdownUrl: ReadonlyArray<{
+    plugin: AmplessPlugin
+    renderer: Extract<ContentFieldRenderer, { kind: 'markdown-url' }>
+  }>
+}
+
+/**
+ * Build a `ContentFieldRegistry` from a list of plugins. Eagerly errors
+ * on duplicate `nodeType` / `pattern.source` registration across
+ * plugins so the misuse surfaces at config time, not at the first
+ * render that happens to walk the conflicting node.
+ */
+export function buildContentFieldRegistry(
+  plugins: readonly AmplessPlugin[],
+): ContentFieldRegistry {
+  const tiptap = new Map<
+    string,
+    { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> }
+  >()
+  const seenMarkdownPatterns = new Set<string>()
+  const markdownUrl: Array<{
+    plugin: AmplessPlugin
+    renderer: Extract<ContentFieldRenderer, { kind: 'markdown-url' }>
+  }> = []
+  for (const plugin of plugins) {
+    const fields = plugin.contentFields
+    if (!fields) continue
+    for (const field of fields) {
+      if (field.kind === 'tiptap') {
+        if (tiptap.has(field.nodeType)) {
+          throw new Error(
+            `[ampless contentFields] duplicate tiptap nodeType "${field.nodeType}" — already registered by another plugin. Each nodeType may be claimed by at most one plugin.`,
+          )
+        }
+        tiptap.set(field.nodeType, { plugin, renderer: field })
+      } else if (field.kind === 'markdown-url') {
+        const key = field.pattern.source
+        if (seenMarkdownPatterns.has(key)) {
+          throw new Error(
+            `[ampless contentFields] duplicate markdown-url pattern "${key}" — already registered by another plugin. Each pattern may be claimed by at most one plugin.`,
+          )
+        }
+        seenMarkdownPatterns.add(key)
+        markdownUrl.push({ plugin, renderer: field })
+      }
+    }
+  }
+  return { tiptap, markdownUrl }
+}
+
+export interface RenderBodyOptions {
+  contentFields?: ContentFieldRegistry
+  /**
+   * Resolver invoked with the matched plugin to obtain the
+   * `PluginPublicRenderContext` for the renderer call. Wired by
+   * `createAmpless` so plugin renderers see the same `setting()`-bound
+   * ctx as `publicHead` / `publicBodyEnd`.
+   */
+  ctxForPlugin?: (plugin: AmplessPlugin) => PluginPublicRenderContext
+}
+
+// ---- Phase 7: ReactNode tiptap walker (delegates to renderer registry) ----
+
+function htmlPassthrough(html: string): ReactNode {
+  return createElement('span', { dangerouslySetInnerHTML: { __html: html } })
+}
+
+// Block-safe wrapper for markdown walker non-embed batches, format='html',
+// and tiptap string-body fallback. Using <div> instead of <span> avoids
+// invalid block-inside-inline markup (e.g. <span><h1>...</h1></span>).
+function htmlPassthroughBlock(html: string, key?: string): ReactNode {
+  const props: Record<string, unknown> = { dangerouslySetInnerHTML: { __html: html } }
+  if (key !== undefined) props.key = key
+  return createElement('div', props)
+}
+
+function renderTiptapNode(
+  node: TiptapNode,
+  opts: RenderBodyOptions,
+  key: string,
+): ReactNode {
+  // Hook into the registry first — a registered nodeType replaces the
+  // default switch entirely (no children walked by the runtime; the
+  // plugin renderer owns the subtree).
+  const reg = opts.contentFields?.tiptap.get(node.type)
+  if (reg) {
+    const ctx = opts.ctxForPlugin?.(reg.plugin)
+    if (!ctx) {
+      // Defensive: registry says renderer is here but ctx resolver
+      // missing — drop the embed silently rather than throwing.
+      return null
+    }
+    try {
+      const out = reg.renderer.render(node as TiptapRenderNode, ctx)
+      return createElement(Fragment, { key }, out)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ampless renderBody] plugin "${reg.plugin.instanceId ?? reg.plugin.name}" threw inside contentFields tiptap renderer for nodeType "${node.type}": ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return null
+    }
+  }
+
+  // Text nodes — delegate to the string path then wrap in a
+  // dangerouslySetInnerHTML span so the existing mark output (with
+  // escaping) is preserved verbatim.
+  if (node.type === 'text') {
+    return htmlPassthrough(renderTiptapString(node))
+  }
+
+  // Recurse into children producing ReactNode list, threading keys.
+  const childNodes = node.content ?? []
+  const children: ReactNode[] = childNodes.map((c, i) =>
+    renderTiptapNode(c, opts, `${key}.${i}`),
+  )
+
+  switch (node.type) {
+    case 'doc':
+      return createElement(Fragment, { key }, ...children)
+    case 'paragraph': {
+      const align = textAlignStyleProp(node.attrs)
+      return createElement('p', { key, ...align }, ...children)
+    }
+    case 'heading': {
+      const level = Number(node.attrs?.level ?? 1)
+      const tag = `h${level}` as 'h1'
+      const align = textAlignStyleProp(node.attrs)
+      return createElement(tag, { key, ...align }, ...children)
+    }
+    case 'bulletList':
+      return createElement('ul', { key }, ...children)
+    case 'orderedList':
+      return createElement('ol', { key }, ...children)
+    case 'listItem':
+      return createElement('li', { key }, ...children)
+    case 'codeBlock': {
+      const codeProps: Record<string, unknown> = {}
+      if (node.attrs?.language) {
+        codeProps.className = `language-${String(node.attrs.language)}`
+      }
+      return createElement(
+        'pre',
+        { key },
+        createElement('code', codeProps, ...children),
+      )
+    }
+    case 'blockquote':
+      return createElement('blockquote', { key }, ...children)
+    case 'hardBreak':
+      return createElement('br', { key })
+    case 'horizontalRule':
+      return createElement('hr', { key })
+    case 'image': {
+      const src = String(node.attrs?.src ?? '')
+      const alt = String(node.attrs?.alt ?? '')
+      const title = node.attrs?.title ? String(node.attrs.title) : undefined
+      const display = node.attrs?.display ? String(node.attrs.display) : undefined
+      const props: Record<string, unknown> = {
+        key,
+        src,
+        alt,
+        loading: 'lazy',
+      }
+      if (title) props.title = title
+      if (display) props['data-display'] = display
+      return createElement('img', props)
+    }
+    case 'table':
+      return createElement(
+        'table',
+        { key, className: 'tiptap-table' },
+        createElement('tbody', null, ...children),
+      )
+    case 'tableRow':
+      return createElement('tr', { key }, ...children)
+    case 'tableHeader':
+      return createElement('th', { key, ...tableCellProps(node.attrs) }, ...children)
+    case 'tableCell':
+      return createElement('td', { key, ...tableCellProps(node.attrs) }, ...children)
+    case 'taskList':
+      return createElement('ul', { key, 'data-type': 'taskList' }, ...children)
+    case 'taskItem': {
+      const checked = node.attrs?.checked === true ? 'true' : 'false'
+      return createElement(
+        'li',
+        { key, 'data-type': 'taskItem', 'data-checked': checked },
+        ...children,
+      )
+    }
+    default:
+      return createElement(Fragment, { key }, ...children)
+  }
+}
+
+function textAlignStyleProp(
+  attrs: Record<string, unknown> | undefined,
+): { style?: { textAlign: string } } {
+  const v = attrs?.textAlign
+  if (v === 'left' || v === 'center' || v === 'right' || v === 'justify') {
+    return { style: { textAlign: v } }
+  }
+  return {}
+}
+
+function tableCellProps(
+  attrs: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const colspan = Number(attrs?.colspan ?? 1)
+  if (colspan > 1) out.colSpan = colspan
+  const rowspan = Number(attrs?.rowspan ?? 1)
+  if (rowspan > 1) out.rowSpan = rowspan
+  const colwidth = attrs?.colwidth
+  if (Array.isArray(colwidth) && colwidth.length > 0) {
+    const w = Number(colwidth[0])
+    if (Number.isFinite(w) && w > 0) out.style = { width: `${w}px` }
+  }
+  return out
+}
+
+// ---- Phase 7: markdown walker (marked.lexer-based) ----
+
+/**
+ * Walk markdown via `marked.lexer` so the runtime can intercept
+ * `paragraph` tokens whose entire content is a single URL matching one
+ * of the registered `markdown-url` patterns. Everything else falls
+ * through to `marked.parser` and is emitted via a block-safe
+ * `dangerouslySetInnerHTML` div (preserving raw HTML token passthrough
+ * exactly like the legacy sync path). Consecutive non-embed tokens are
+ * batched into a single `marked.parser` call and wrapped in one `<div>`
+ * to avoid per-token wrapper proliferation.
+ */
+function renderMarkdownNode(md: string, opts: RenderBodyOptions): ReactNode {
+  const tokens = marked.lexer(md, { gfm: true, breaks: false })
+  const children: ReactNode[] = []
+  let pending: Tokens.Generic[] = []
+  let chunk = 0
+
+  const flush = () => {
+    if (pending.length === 0) return
+    const html = marked.parser(pending, { gfm: true, breaks: false })
+    children.push(htmlPassthroughBlock(html, `md-html-${chunk++}`))
+    pending = []
+  }
+
+  tokens.forEach((token, i) => {
+    const match = matchMarkdownUrlEmbed(token, opts)
+    if (match) {
+      flush()
+      children.push(createElement(Fragment, { key: `md-embed-${i}` }, match))
+    } else {
+      pending.push(token)
+    }
+  })
+  flush()
+
+  return createElement(Fragment, null, ...children)
+}
+
+/**
+ * Test whether a marked paragraph token is a single-line URL match for
+ * one of the registered embed patterns. Accepts two shapes:
+ *   1. `paragraph` whose entire content is one `text` token (bare URL —
+ *      defensive fallback for marked configs that emit plain-text URLs)
+ *   2. `paragraph` whose entire content is one `link` token where
+ *      `raw === href` (= GFM bare URL paragraph, e.g. `https://youtu.be/…`
+ *      on its own line that marked@18 emits as a `link` token)
+ *
+ * Rejects `<https://…>` autolinks (`raw` includes `<>`) and
+ * `[caption](url)` links (`raw` includes `[]()`), keeping body rendering
+ * consistent with `hasTweetUrlInMarkdown` which keys on bare URL lines.
+ */
+function matchMarkdownUrlEmbed(
+  token: Tokens.Generic | Tokens.Paragraph,
+  opts: RenderBodyOptions,
+): ReactNode | null {
+  if (!opts.contentFields || opts.contentFields.markdownUrl.length === 0) {
+    return null
+  }
+  if (token.type !== 'paragraph') return null
+  const para = token as Tokens.Paragraph
+  // Extract a single URL candidate from the paragraph if it has one,
+  // bail otherwise.
+  const url = extractSingleUrl(para)
+  if (!url) return null
+  for (const entry of opts.contentFields.markdownUrl) {
+    const m = url.match(entry.renderer.pattern)
+    if (!m) continue
+    const ctx = opts.ctxForPlugin?.(entry.plugin)
+    if (!ctx) return null
+    try {
+      return entry.renderer.render({ match: m, raw: url }, ctx)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ampless renderBody] plugin "${entry.plugin.instanceId ?? entry.plugin.name}" threw inside contentFields markdown-url renderer for pattern "${entry.renderer.pattern.source}": ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return null
+    }
+  }
+  return null
+}
+
+function extractSingleUrl(para: Tokens.Paragraph): string | null {
+  const tokens = (para.tokens ?? []) as Array<Tokens.Generic>
+  if (tokens.length === 0) return null
+
+  // Allow leading/trailing whitespace text tokens.
+  const trimmed = tokens.filter((t) => {
+    if (t.type === 'text') return (t.raw ?? '').trim().length > 0
+    return true
+  })
+  if (trimmed.length !== 1) return null
+  const t = trimmed[0]!
+  if (t.type === 'link') {
+    // marked@18 emits bare URL paragraphs as `link` tokens (GFM
+    // autolink). Accept ONLY when the raw source equals the href
+    // — that is the "bare URL on its own line" case. Reject
+    // `<https://...>` (raw has `<>`) and `[caption](url)` (raw has
+    // `[]()`) so the body intercept stays consistent with
+    // `hasTweetUrlInMarkdown`, which keys on `TWEET_URL.test(line.trim())`
+    // = bare URL line only.
+    const link = t as Tokens.Link
+    const href = (link.href ?? '').trim()
+    const raw = (link.raw ?? '').trim()
+    if (!href || raw !== href) return null
+    return href
+  }
+  if (t.type === 'text') {
+    // Defensive fallback: some marked configurations / older versions
+    // emit bare URLs as `text` tokens. Keep this branch so a tooling
+    // bump doesn't silently break embeds.
+    const text = ((t as Tokens.Text).text ?? '').trim()
+    return text || null
+  }
+  return null
+}
+
+// ---- Public entry points ----
+
+/**
+ * Async + ReactNode-shaped post body renderer. The runtime threads its
+ * `contentFields` registry + per-plugin ctx resolver in via `opts`; a
+ * raw direct caller (tests etc.) can omit `opts` to fall back to the
+ * default embed-free behaviour.
+ *
+ * Themes should call this through `ampless.renderBody(post)` (which
+ * supplies both opts) rather than calling this low-level function
+ * directly.
+ */
+export function renderBody(post: Post, opts: RenderBodyOptions = {}): ReactNode {
   // 仕様: editor は信頼された主体。`'html'` フォーマットは body をその
   // ままレンダリングする (任意 HTML / script 可)。ファイル冒頭のコメント
   // および 04-access-layer-mcp.md を参照。
-  if (post.format === 'html') return String(post.body)
-  if (post.format === 'markdown') return renderMarkdown(String(post.body))
+  if (post.format === 'html') {
+    return htmlPassthroughBlock(String(post.body))
+  }
+  if (post.format === 'markdown') {
+    return renderMarkdownNode(String(post.body), opts)
+  }
   if (post.format === 'tiptap') {
-    // Defensive: a tiptap-formatted post may have its body persisted
-    // as a raw HTML string if the admin saved straight after a
-    // format-switch sequence (markdown -> tiptap -> save without
-    // editing). Treat string bodies as already-rendered HTML rather
-    // than crashing into empty output.
+    if (typeof post.body === 'string') {
+      // Defensive: a tiptap-formatted post may have its body persisted
+      // as a raw HTML string if the admin saved straight after a
+      // format-switch sequence (markdown -> tiptap -> save without
+      // editing). Treat string bodies as already-rendered HTML rather
+      // than crashing into empty output.
+      return htmlPassthroughBlock(post.body)
+    }
+    return renderTiptapNode(post.body as TiptapNode, opts, 'root')
+  }
+  return null
+}
+
+/**
+ * Sync string-shaped renderer used by `routes/raw.ts` and by format
+ * converters that need a `string` output. Skips the `contentFields`
+ * registry entirely — the raw route serves `format: 'html'` posts
+ * directly, and the format converters operate on tiptap / markdown
+ * source that doesn't expand embed shortcuts.
+ */
+export function renderBodyHtmlString(post: Post): string {
+  if (post.format === 'html') return String(post.body)
+  if (post.format === 'markdown') return renderMarkdownString(String(post.body))
+  if (post.format === 'tiptap') {
     if (typeof post.body === 'string') return post.body
-    return renderTiptap(post.body as TiptapNode)
+    return renderTiptapString(post.body as TiptapNode)
   }
   return ''
 }
@@ -165,16 +567,16 @@ export function renderBody(post: Post): string {
  */
 export function tiptapToHtml(doc: unknown): string {
   if (typeof doc === 'string') return doc
-  return renderTiptap(doc as TiptapNode)
+  return renderTiptapString(doc as TiptapNode)
 }
 
 /** Convert markdown to HTML using marked + GFM. */
 export function markdownToHtml(md: string): string {
-  return renderMarkdown(md)
+  return renderMarkdownString(md)
 }
 
 /**
- * Walk a tiptap doc and emit Markdown. Mirrors `renderTiptap` in
+ * Walk a tiptap doc and emit Markdown. Mirrors `renderTiptapString` in
  * shape but produces markdown syntax. Loses anything markdown can't
  * express (data attributes, image display modes, custom marks).
  *

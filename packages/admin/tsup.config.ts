@@ -210,6 +210,13 @@ export default defineConfig({
     'src/pages/index.ts',
     'src/api/index.ts',
     'src/components/index.ts',
+    // Phase 7: editor extension installer subpath. Exposes the
+    // module-scoped registry used by first-party embed plugins
+    // (`@ampless/plugin-youtube/editor`, `@ampless/plugin-x-embed/editor`)
+    // to hand tiptap Node extensions to the admin's <TiptapEditor>.
+    // The barrel `src/editor.ts` re-exports from the implementation
+    // file under `src/editor/admin-editor-extensions.ts`.
+    'src/editor.ts',
     // Split the Server Action module into its own entry so it ends
     // up in a file marked `'use server'` (via the preserveDirectives
     // plugin), rather than getting bundled into the shared

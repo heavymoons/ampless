@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatDate, type ThemeRouteContext } from 'ampless'
-import { renderBody } from '@ampless/runtime'
 import { ampless } from '@/lib/ampless'
 import { admin } from '@/lib/admin'
 import { LightboxBinder } from '@/components/lightbox-content'
@@ -80,10 +79,13 @@ export default async function DadsPost({ params }: PostCtx) {
             id="post-body"
             className="prose prose-neutral dark:prose-invert max-w-none [&_a]:text-[var(--primary)] [&_a]:underline-offset-4 [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
             style={proseStyle}
-            dangerouslySetInnerHTML={{ __html: renderBody(post) }}
-          />
+          >
+            {await ampless.renderBody(post)}
+          </div>
 
           {html.afterContent}
+
+          {await ampless.publicPostScriptsForPage([post])}
 
           <TagList tags={post.tags} className="mt-10 border-t pt-6" />
         </article>

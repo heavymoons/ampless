@@ -15,6 +15,7 @@ import { Highlight } from '@tiptap/extension-highlight'
 import { TextAlign } from '@tiptap/extension-text-align'
 import { Toolbar } from './toolbar.js'
 import { ImageBubbleMenu } from './image-bubble-menu.js'
+import { getAdminEditorExtensions } from './admin-editor-extensions.js'
 
 // Extend the Image extension with a per-image `display` attribute
 // ("inline" | "lightbox" | null). null means "fall back to cms.config".
@@ -133,6 +134,12 @@ interface TiptapEditorProps {
 }
 
 export function TiptapEditor({ initialContent, onChange, onUserEdit }: TiptapEditorProps) {
+  // Phase 7: spread `installAdminEditorExtensions(...)`-registered
+  // extensions onto the built-in list so first-party embed plugins
+  // (`@ampless/plugin-youtube/editor`, `@ampless/plugin-x-embed/editor`)
+  // can contribute Node extensions without forking <TiptapEditor>.
+  // Templates register them once in `_editor-bootstrap.tsx`.
+  const installed = getAdminEditorExtensions()
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -147,6 +154,8 @@ export function TiptapEditor({ initialContent, onChange, onUserEdit }: TiptapEdi
       Underline,
       Highlight.configure({ multicolor: false }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(installed as readonly any[]),
     ],
     content: initialContent ?? { type: 'doc', content: [{ type: 'paragraph' }] },
     immediatelyRender: false,
