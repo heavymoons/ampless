@@ -69,7 +69,7 @@ jobs:
       # opens/updates the Version Packages PR) skips this step — keeps
       # the workflow quiet on non-release pushes and avoids touching
       # the npm dist-tag from runs that haven't bumped any version.
-      - name: Sync alpha dist-tag
+      - name: Sync dist-tag
         if: steps.changesets.outputs.published == 'true'
         # Re-write ~/.npmrc explicitly. After `changesets/action` runs,
         # the .npmrc written by `setup-node` (which references
