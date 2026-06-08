@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-x-embed",
-  "version": "0.1.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "x.com (Twitter) embed plugin for ampless — renders tweet URLs inline as blockquotes hydrated by widgets.js",
   "license": "MIT",
   "type": "module",
@@ -60,7 +60,10 @@
     "apiVersion": 1,
     "name": "@ampless/plugin-x-embed",
     "trustLevel": "trusted",
-    "capabilities": ["contentFields", "publicPostScript"],
+    "capabilities": [
+      "contentFields",
+      "publicPostScript"
+    ],
     "displayName": {
       "en": "x.com (Twitter) embeds",
       "ja": "x.com (Twitter) 埋め込み"
