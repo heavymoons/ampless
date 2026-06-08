@@ -17,7 +17,9 @@
     "@ampless/plugin-plausible": "0.1.0",
     "@ampless/plugin-schema-jsonld": "0.1.0",
     "@ampless/plugin-cookie-consent": "0.1.0-alpha.0",
-    "@ampless/plugin-reading-time": "0.1.0-alpha.0"
+    "@ampless/plugin-reading-time": "0.1.0-alpha.0",
+    "@ampless/plugin-x-embed": "0.1.0-alpha.0",
+    "@ampless/plugin-youtube": "0.1.0-alpha.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -32,6 +34,7 @@
     "amplify-stack-circular-dep",
     "at-latest-and-alpha-dist-tag-sync",
     "auth-storage-config-helpers",
+    "auto-sync-create-ampless-1780902548279",
     "awsjson-shared-utils",
     "blog-post-footer-tags",
     "body-always-json-encode",
@@ -55,6 +58,12 @@
     "docs-bilingual-readmes",
     "document-cli-mount-deploy",
     "drop-multi-site",
+    "embed-admin-editor-installer",
+    "embed-ampless-capability",
+    "embed-create-ampless-scaffold",
+    "embed-plugin-x-embed-initial",
+    "embed-plugin-youtube-initial",
+    "embed-runtime-renderbody-async",
     "fix-amplessSchemaAuthorization-return-type",
     "fix-auth-circular-dependency",
     "fix-iam-auth-placeholder-group",
