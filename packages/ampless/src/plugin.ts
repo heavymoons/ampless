@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { AmplessEvent, EventType } from './events.js'
 import type { Post, Config } from './types.js'
 import type { LocalizedString } from './theme.js'
@@ -42,8 +43,10 @@ export type PluginCapability =
   | 'publicHtmlForPost'
   // Phase 6a active
   | 'secretSettings'
-  // Reserved (name-only; later phases)
+  // Phase 7 active (embed plugin extension)
   | 'contentFields'
+  | 'publicPostScript'
+  // Reserved (name-only; later phases)
   | 'adminPage'
   | 'serverRoute'
   | 'network'
@@ -798,6 +801,99 @@ export interface PluginSettingsManifest {
   version?: number
 }
 
+// --- Embed plugin extension (Phase 7) ----------------------------
+//
+// `contentFields` lets plugins inject custom renderers for tiptap nodes
+// (e.g. `amplessYoutube`) and markdown single-line URL patterns
+// (e.g. https://youtu.be/XXX). The runtime walks post bodies during
+// `Ampless.renderBody(post)` and, when a node/URL matches a registered
+// renderer, calls the plugin's `render(node|match, ctx)` to obtain a
+// ReactNode for that fragment instead of the default HTML output.
+//
+// `publicPostScript` is the page-level companion: when a post embeds a
+// widget that needs a third-party script (e.g. x.com's widgets.js to
+// hydrate `<blockquote class="twitter-tweet">`), the plugin returns
+// descriptors keyed by stable `id` and the runtime emits them once per
+// page via `ampless.publicPostScriptsForPage([posts])` — themes call
+// that helper after rendering the post body / featured body.
+
+/**
+ * Minimal tiptap node shape passed to a `contentFields` `tiptap` renderer.
+ * Mirrors the structural fields plugins typically read (`type`, `attrs`,
+ * `content`, `marks`, `text`) without coupling to a specific tiptap
+ * version. Plugins should treat unknown fields conservatively.
+ */
+export interface TiptapRenderNode {
+  type: string
+  attrs?: Record<string, unknown>
+  content?: readonly TiptapRenderNode[]
+  marks?: readonly { type: string; attrs?: Record<string, unknown> }[]
+  text?: string
+}
+
+/**
+ * Match object passed to a `contentFields` `markdown-url` renderer. The
+ * runtime walks the markdown body via `marked.lexer`, tests the trimmed
+ * single-line URL of each `paragraph` token against the registered
+ * pattern, and on match calls `render({ match, raw }, ctx)` so the
+ * plugin can extract capture groups (e.g. the YouTube video id) and
+ * return a ReactNode for that paragraph.
+ */
+export interface MarkdownEmbedMatch {
+  match: RegExpMatchArray
+  raw: string
+}
+
+/**
+ * Renderer registered via `AmplessPlugin.contentFields`. Two variants:
+ *
+ * - `tiptap`: keyed by `nodeType` (e.g. `'amplessYoutube'`). The runtime
+ *   walks tiptap docs and, when the walker encounters a node whose
+ *   `type` matches `nodeType`, calls `render(node, ctx)` to produce a
+ *   ReactNode in place of the default switch-based HTML emission.
+ *
+ * - `markdown-url`: keyed by a fully-anchored `RegExp` (the pattern
+ *   should use `^...$`). The runtime tokenizes markdown via
+ *   `marked.lexer`, looks for `paragraph` tokens whose entire content
+ *   is a single URL (autolink / bare URL / `[text](url)` with matching
+ *   text), tests the URL against `pattern`, and on match calls
+ *   `render({ match, raw }, ctx)` for that paragraph.
+ *
+ * Each `nodeType` / `pattern.source` may be registered by at most one
+ * plugin — duplicate registration throws at `createPluginHead` time.
+ */
+export type ContentFieldRenderer =
+  | {
+      kind: 'tiptap'
+      nodeType: string
+      render(node: TiptapRenderNode, ctx: PluginPublicRenderContext): ReactNode
+    }
+  | {
+      kind: 'markdown-url'
+      pattern: RegExp
+      render(m: MarkdownEmbedMatch, ctx: PluginPublicRenderContext): ReactNode
+    }
+
+/**
+ * Descriptor returned by `AmplessPlugin.publicPostScript(post, ctx)`.
+ * The runtime aggregates descriptors across every post passed to
+ * `ampless.publicPostScriptsForPage(posts)` and emits each unique `id`
+ * once as `<script src={src} async defer />`.
+ *
+ * `id` must be a stable, plugin-defined identifier (e.g.
+ * `'amplessTweet:widgets'`). Multiple posts on the same page that all
+ * need the same script collapse into a single tag.
+ *
+ * `src` must be an absolute `http://` or `https://` URL — relative
+ * paths and other schemes are dropped with a warning.
+ */
+export interface PublicPostScriptDescriptor {
+  id: string
+  src: string
+  async?: boolean
+  defer?: boolean
+}
+
 export interface AmplessPlugin {
   name: string
   /**
@@ -985,6 +1081,43 @@ export interface AmplessPlugin {
     post: Post,
     ctx: PluginPublicRenderContext,
   ): readonly PublicPostHtmlDescriptor[]
+  /**
+   * In-body content renderers (Phase 7 `contentFields` capability).
+   * Plugins register tiptap node renderers (keyed by `nodeType`) and/or
+   * markdown URL renderers (keyed by `RegExp`) here. The runtime walks
+   * post bodies during `ampless.renderBody(post)` and, on match, calls
+   * the renderer to obtain a `ReactNode` for that fragment in place of
+   * the default HTML output.
+   *
+   * Duplicate `nodeType` / `pattern.source` across plugins throws at
+   * `createPluginHead` construction time (eager config-time error). v1
+   * does not support multi-instance plugins registering the same
+   * renderer twice.
+   *
+   * Plugins implementing this should declare the `'contentFields'`
+   * capability.
+   */
+  contentFields?: readonly ContentFieldRenderer[]
+  /**
+   * Page-level script descriptors (Phase 7 `publicPostScript`
+   * capability). Themes call `ampless.publicPostScriptsForPage(posts)`
+   * after rendering post body / featured body; the runtime invokes
+   * `publicPostScript(post, ctx)` for each plugin × post pair, collects
+   * the descriptors, dedupes by `id`, and emits each unique entry as
+   * `<script src={src} async defer />`.
+   *
+   * Primary use case: x.com (Twitter) `widgets.js` to hydrate
+   * `<blockquote class="twitter-tweet">` blocks emitted by
+   * `contentFields`. YouTube embeds don't need this (the iframe loads
+   * its own script).
+   *
+   * Plugins implementing this should declare the `'publicPostScript'`
+   * capability.
+   */
+  publicPostScript?(
+    post: Post,
+    ctx: PluginPublicRenderContext,
+  ): readonly PublicPostScriptDescriptor[]
   /**
    * Dynamic OG image renderer. The dispatcher route (e.g.
    * `app/og/[slug]/route.ts`) reads this and feeds the element into

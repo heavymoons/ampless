@@ -108,6 +108,19 @@ export interface Admin {
    */
   getMediaBySrc(src: string): Promise<ResolvedMedia | null>
 
+  /**
+   * Async accessor for the underlying `Ampless` runtime instance.
+   * Resolves the thunk form (the canonical scaffold shape) and caches
+   * the result, so multiple callers within one request share the same
+   * instance. Throws when `createAdmin` was called without the
+   * `ampless` option — same error as the other passthroughs.
+   *
+   * Template-side server actions (e.g. `_actions/render-preview.ts`)
+   * use this to obtain the runtime without depending on the
+   * thunk/eager dual form of `admin.ampless`.
+   */
+  getAmpless(): Promise<Ampless>
+
   // shape for handing to page / API factories
   readonly outputs: AmplessOutputs
   readonly cmsConfig: Config
@@ -192,6 +205,8 @@ export function createAdmin(opts: CreateAdminOpts): Admin {
 
     publicMediaUrl: media.publicMediaUrl,
     getMediaBySrc: async (src) => (await resolveAmpless()).getMediaBySrc(src),
+
+    getAmpless: () => resolveAmpless(),
 
     outputs,
     cmsConfig,

@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { formatDate, parseLinkList, type ThemeRouteContext } from 'ampless'
-import { renderBody } from '@ampless/runtime'
 import { ampless } from '@/lib/ampless'
 import { admin } from '@/lib/admin'
 import { TagList } from '@/components/tag-list'
@@ -59,12 +58,13 @@ export default async function BlogHome(_: ThemeRouteContext) {
                 </time>
               )}
             </Link>
-            <div
-              className="prose prose-neutral dark:prose-invert mt-4 max-w-none"
-              dangerouslySetInnerHTML={{ __html: renderBody(featured) }}
-            />
+            <div className="prose prose-neutral dark:prose-invert mt-4 max-w-none">
+              {await ampless.renderBody(featured)}
+            </div>
           </article>
         )}
+
+        {featured && (await ampless.publicPostScriptsForPage([featured]))}
 
         {posts.length === 0 ? (
           !featured && <p className="text-gray-500">{admin.t('public.noPosts')}</p>

@@ -546,7 +546,7 @@ export default function readingTimePlugin() {
 ```tsx
 {postBody}            {/* publicBodyForPost — JSON-LD */}
 {html.beforeContent}  {/* publicHtmlForPost — beforeContent スロット */}
-<div className="prose" dangerouslySetInnerHTML={{ __html: renderBody(post) }} />
+<div className="prose">{await ampless.renderBody(post)}</div>
 {html.afterContent}   {/* publicHtmlForPost — afterContent スロット */}
 ```
 
@@ -681,6 +681,166 @@ npm 公開のスタンドアロンプラグインの場合は、`package.json#am
 - サイト全体の CSP 適合は middleware / レスポンスヘッダー / runtime が制御しない他の inline コンテンツにも依存します。
 - middleware-driven nonce threading PR が landing した後は、`nonce: 'auto'` を持つ plugin-supplied script が runtime nonce スタンプの候補になります。
 - `'cspReady'` は `create-ampless plugin --capabilities` には表示されません — reserved capability であり、scaffold はアクティブな enforcement を示唆しないよう除外しています。
+
+---
+
+## 6b. 投稿本文の差し替え: `contentFields` (Phase 7)
+
+`contentFields` capability は、投稿本文の一部（tiptap ノード、または markdown の単独行 URL）を、プラグインが管理する React サブツリーで差し替える機能。`@ampless/plugin-youtube` / `@ampless/plugin-x-embed` が `https://youtu.be/...` URL を iframe プレーヤーに、`https://x.com/<handle>/status/...` URL を tweet blockquote に展開するために使う。
+
+### 形
+
+```ts
+import { definePlugin, type ContentFieldRenderer } from 'ampless'
+
+definePlugin({
+  // ...
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'amplessYoutube',
+      render: (node, ctx) => <YouTubeEmbed videoId={String(node.attrs?.videoId)} />,
+    },
+    {
+      kind: 'markdown-url',
+      pattern: /^https:\/\/youtu\.be\/([\w-]{11})$/,
+      render: ({ match }, ctx) => <YouTubeEmbed videoId={match[1]!} />,
+    },
+  ],
+})
+```
+
+各 renderer は `ampless.renderBody(post)` 内で本文を歩く runtime から server-side で呼び出される。戻り値は `ReactNode`。`PluginPublicRenderContext` (`ctx`) は `publicHead` / `publicBodyEnd` と同じものなので、`ctx.setting<T>(key)` も同じように使える。
+
+### 2 種類の kind
+
+- **`tiptap`** — `nodeType` (例: `'amplessYoutube'`) でキー付け。runtime の tiptap walker が `type` 一致のノードを見つけたら renderer を呼ぶ。デフォルトの switch-case レンダリングはバイパスされ、プラグインがサブツリー全体を所有する。
+- **`markdown-url`** — anchored な `RegExp` (`^...$`) でキー付け。runtime は `marked.lexer` で markdown をトークン化し、内容全体が単独 URL の paragraph トークン (autolink / bare URL / `[text](url)`) のみについて pattern を試す。最初にマッチしたものが勝ち。capture group は `match[1]`, `match[2]`, ... でアクセス可能。
+
+### 命名と一意性
+
+- first-party プラグインは `ampless...` の camelCase プレフィックス（`amplessYoutube`, `amplessTweet` 等）を使い、コミュニティ製の `nodeType` と衝突しないようにしている。
+- runtime は同じ `nodeType` / `pattern.source` の重複登録を起動時に throw で拒否する。先勝ち。v1 は multi-instance 非対応。
+
+### markdown URL pattern のルール
+
+- **必ず `^...$` で anchor する**。anchor なしだと段落内の URL が誤マッチし、周辺テキストが壊れる。
+- runtime はマッチ前に前後の whitespace を trim するので、pattern 側で `\s*` を書く必要はない。
+- 段落の唯一のトークンが `[caption](url)` の markdown link なら受理する。`[caption with link](url)` のように前後にテキストが混在するケースは対象外（正しい挙動: prose は本文に残すべきで、video embed にすべきではない）。
+
+---
+
+## 6c. ページレベルスクリプト: `publicPostScript` (Phase 7)
+
+`publicPostScript` capability は、ページ上の投稿が必要とする `<script>` タグをプラグインから出力するためのもの。runtime は安定 `id` で dedupe するので、同一ページ内の複数 embed は 1 つの script タグに集約される。`@ampless/plugin-x-embed` がページに tweet embed がある場合のみ `https://platform.twitter.com/widgets.js` を 1 度だけ注入するのに使われている。
+
+### 形
+
+```ts
+definePlugin({
+  capabilities: ['contentFields', 'publicPostScript'],
+  publicPostScript(post, ctx) {
+    if (!hasTweetIn(post)) return []
+    return [
+      {
+        id: 'amplessTweet:widgets',
+        src: 'https://platform.twitter.com/widgets.js',
+        async: true,
+      },
+    ]
+  },
+})
+```
+
+### テーマからの呼び出し
+
+テーマは投稿本文の出力後に `{await ampless.publicPostScriptsForPage(posts)}` を呼ぶ。first-party テーマは post 詳細ページ / home ページ (featured 表示時) で自動的に呼び出す:
+
+```tsx
+<div>{await ampless.renderBody(post)}</div>
+{await ampless.publicPostScriptsForPage([post])}
+```
+
+runtime は:
+
+1. プラグイン × post 組ごとに `publicPostScript(post, ctx)` を呼ぶ。
+2. `id` が空 / 非 string、`src` が http(s) でない、descriptor がオブジェクトでない、等を drop。
+3. `id` で dedupe（先勝ち）。
+4. `<Fragment>` で `<script src={src} async defer />` を出力。
+
+### CSP の扱い
+
+runtime は `src` のホスト allowlist を強制しない。CSP はサイト側エンジニアの責任（`next.config.ts` / middleware で `script-src` に script ホスト（例: `platform.twitter.com`）を追加）。各プラグインの README に書いてある。
+
+---
+
+## 6d. Admin エディタ拡張の配線 (Phase 7)
+
+admin エディタに tiptap Node 拡張を提供するプラグインは、別途 `./editor` subpath の client-side エントリを出荷する。テンプレート側で `_editor-bootstrap.tsx` から配線する:
+
+```tsx
+// templates/_shared/app/(admin)/admin/_editor-bootstrap.tsx
+'use client'
+import { installAdminEditorExtensions } from '@ampless/admin/editor'
+import { youtubeEditor } from '@ampless/plugin-youtube/editor'
+import { tweetEditor } from '@ampless/plugin-x-embed/editor'
+
+export function EditorBootstrap({ children }: { children: React.ReactNode }) {
+  installAdminEditorExtensions([
+    youtubeEditor.extension,
+    tweetEditor.extension,
+  ])
+  return <>{children}</>
+}
+```
+
+その上で layout に渡す:
+
+```tsx
+// templates/_shared/app/(admin)/admin/layout.tsx
+import { createAdminLayout } from '@ampless/admin/pages'
+import { EditorBootstrap } from './_editor-bootstrap'
+export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
+```
+
+`installAdminEditorExtensions` は idempotent で、render 時に client component 内で呼ばれる。admin の `<TiptapEditor>` は毎回 render 時に登録済みリストを built-in extensions の末尾に spread する。
+
+### エディタプレビューのパイプライン
+
+admin の edit / new post フォームは preview ペインを `<iframe sandbox="allow-scripts">` で表示する。`srcDoc` はテンプレート側 server action が返す HTML:
+
+```tsx
+// templates/_shared/app/(admin)/admin/_actions/render-preview.tsx
+'use server'
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { Post } from 'ampless'
+import { admin } from '@/lib/admin'
+
+export async function renderPreviewHtml(draft: Post): Promise<string> {
+  const ampless = await admin.getAmpless()
+  const node = (
+    <>
+      {await ampless.renderBody(draft)}
+      {await ampless.publicPostScriptsForPage([draft])}
+    </>
+  )
+  return renderToStaticMarkup(node)
+}
+```
+
+page factory は `renderPreviewAction` オプションでこの action を thread する:
+
+```tsx
+// templates/_shared/app/(admin)/admin/posts/[postId]/page.tsx
+import { admin } from '@/lib/admin'
+import { createEditPostPage } from '@ampless/admin/pages'
+import { renderPreviewHtml } from '../../_actions/render-preview'
+
+export default createEditPostPage(admin, { renderPreviewAction: renderPreviewHtml })
+```
+
+iframe の `sandbox="allow-scripts"` は `allow-same-origin` を含まないので、preview の中身は opaque origin で動作する → widget script は admin の DOM に触れない。トレードオフ: widget が自身の origin の storage にアクセスできない場合に正しく動かない可能性がある。Phase 7 時点の dogfood では YouTube iframe / x.com widgets.js とも opaque origin で動作することを確認済み。将来 non-opaque origin が必要な widget が出てきた場合、escape hatch は別 subdomain の preview route + 適切な CSP — sandbox flag を緩めるのは取らない。
 
 ---
 

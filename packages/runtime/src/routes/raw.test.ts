@@ -13,7 +13,11 @@ function makeAmpless({ post, body = '<!doctype html>X' }: MockAmplessOpts): Ampl
   return {
     outputs: {},
     getPublishedPost: vi.fn(async () => post),
-    renderBody: vi.fn(() => body),
+    // The raw route handler calls `renderBodyHtmlString` (sync string
+    // path) — never `renderBody`. Mock both so the test doubles
+    // continue to type-match the `Ampless` interface.
+    renderBody: vi.fn(async () => body),
+    renderBodyHtmlString: vi.fn(() => body),
   } as unknown as Ampless
 }
 

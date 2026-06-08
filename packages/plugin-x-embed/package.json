@@ -1,0 +1,69 @@
+{
+  "name": "@ampless/plugin-x-embed",
+  "version": "0.1.0-alpha.0",
+  "description": "x.com (Twitter) embed plugin for ampless — renders tweet URLs inline as blockquotes hydrated by widgets.js",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./editor": {
+      "import": "./dist/editor.js",
+      "types": "./dist/editor.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-x-embed"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-x-embed#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "peerDependencies": {
+    "@tiptap/core": "^3",
+    "ampless": "workspace:*",
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@tiptap/core": "^3.23.6",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "twitter",
+    "x.com",
+    "embed",
+    "cms"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "@ampless/plugin-x-embed",
+    "trustLevel": "trusted",
+    "capabilities": ["contentFields", "publicPostScript"],
+    "displayName": {
+      "en": "x.com (Twitter) embeds",
+      "ja": "x.com (Twitter) 埋め込み"
+    }
+  }
+}

@@ -61,7 +61,7 @@ import {
   type EffectiveThemeConfig,
   renderThemeCss,
 } from './theme-config.js'
-import { renderBody } from './rendering.js'
+import { renderBody, renderBodyHtmlString } from './rendering.js'
 
 export type {
   AmplessOutputs,
@@ -112,10 +112,16 @@ export {
 } from './theme-config.js'
 export {
   renderBody,
+  renderBodyHtmlString,
   tiptapToHtml,
   markdownToHtml,
   tiptapToMarkdown,
   htmlToMarkdown,
+  buildContentFieldRegistry,
+} from './rendering.js'
+export type {
+  ContentFieldRegistry,
+  RenderBodyOptions,
 } from './rendering.js'
 export {
   streamS3Object,
@@ -196,8 +202,42 @@ export interface Ampless {
    */
   publicHtmlForPost(post: Post): Promise<PublicHtmlForPostResult>
 
+  /**
+   * Page-level scripts aggregated across all installed plugins'
+   * `publicPostScript(post, ctx)` (Phase 7 `publicPostScript`
+   * capability). Themes render this in the post / home layout
+   * (typically just after the post body) so widgets like x.com's
+   * `widgets.js` load once per page even when several embedded posts
+   * appear. Descriptors are deduped by stable `id` so multiple posts
+   * needing the same script collapse into a single tag.
+   */
+  publicPostScriptsForPage(posts: readonly Post[]): Promise<ReactNode>
+
   // rendering
-  renderBody(post: Post): string
+  /**
+   * Render a post body into a `ReactNode`. Async because admin-managed
+   * `settings.public` values feed into `contentFields` renderers via
+   * the same S3 site-settings cache the public head/body surfaces use;
+   * fetched once per request (Next.js fetch dedup on the
+   * `site-settings` cache tag). Themes call this directly in their
+   * post / home layouts:
+   *
+   *     <div>{await ampless.renderBody(post)}</div>
+   *
+   * Phase 7 alpha breaking: this signature replaced the prior sync
+   * `string` return shape. The sync string flavour is still available
+   * via `renderBodyHtmlString` for routes (raw HTML response) that
+   * cannot await — but those callsites bypass the `contentFields`
+   * registry on purpose.
+   */
+  renderBody(post: Post): Promise<ReactNode>
+  /**
+   * Sync string-shaped renderer used by the raw route handler. Skips
+   * the `contentFields` registry — the raw route serves
+   * `format: 'html', metadata.no_layout: true` posts whose bodies are
+   * complete HTML documents that don't expand embed shortcuts.
+   */
+  renderBodyHtmlString(post: Post): string
   renderThemeCss(cssVars: Record<string, string>): string
 
   // storage
@@ -259,8 +299,16 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     publicBodyEnd: () => pluginHead.renderBodyEnd(),
     publicBodyForPost: (post) => pluginHead.renderBodyForPost(post),
     publicHtmlForPost: (post) => pluginHead.renderHtmlForPost(post),
+    publicPostScriptsForPage: (posts) => pluginHead.renderPostScriptsForPage(posts),
 
-    renderBody: (post) => renderBody(post),
+    renderBody: async (post) => {
+      const ctxForPlugin = await pluginHead.contextForPlugins()
+      return renderBody(post, {
+        contentFields: pluginHead.contentFieldsRegistry,
+        ctxForPlugin,
+      })
+    },
+    renderBodyHtmlString: (post) => renderBodyHtmlString(post),
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),
 
     publicAssetUrl: (key) => storage.publicAssetUrl(key),

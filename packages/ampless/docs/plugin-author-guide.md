@@ -678,7 +678,7 @@ the slots:
 ```tsx
 {postBody}            {/* publicBodyForPost — JSON-LD */}
 {html.beforeContent}  {/* publicHtmlForPost — beforeContent slot */}
-<div className="prose" dangerouslySetInnerHTML={{ __html: renderBody(post) }} />
+<div className="prose">{await ampless.renderBody(post)}</div>
 {html.afterContent}   {/* publicHtmlForPost — afterContent slot */}
 ```
 
@@ -891,6 +891,218 @@ manifest and the factory return value:
 - `'cspReady'` does **not** appear in `create-ampless plugin --capabilities`
   output — it is a reserved capability and the scaffold excludes it to avoid
   implying active enforcement.
+
+---
+
+## 6b. In-body content renderers: `contentFields` (Phase 7)
+
+The `contentFields` capability lets a plugin replace specific fragments
+of a post body — tiptap nodes or single-line markdown URLs — with a
+React subtree it controls. Used by the first-party `@ampless/plugin-youtube`
+and `@ampless/plugin-x-embed` packages to expand `https://youtu.be/...`
+URLs into iframe players and `https://x.com/<handle>/status/...` URLs
+into tweet blockquotes.
+
+### Shape
+
+```ts
+import { definePlugin, type ContentFieldRenderer } from 'ampless'
+
+definePlugin({
+  // ...
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'amplessYoutube',
+      render: (node, ctx) => <YouTubeEmbed videoId={String(node.attrs?.videoId)} />,
+    },
+    {
+      kind: 'markdown-url',
+      pattern: /^https:\/\/youtu\.be\/([\w-]{11})$/,
+      render: ({ match }, ctx) => <YouTubeEmbed videoId={match[1]!} />,
+    },
+  ],
+})
+```
+
+Each renderer is called server-side by the runtime when it walks a post
+body during `ampless.renderBody(post)`. The return value must be a
+`ReactNode`. The plugin's `PluginPublicRenderContext` (`ctx`) is the
+same context handed to `publicHead` / `publicBodyEnd`, so `ctx.setting<T>(key)`
+works exactly the same way.
+
+### The two kinds
+
+- **`tiptap`** — keyed by `nodeType` (a string, e.g. `'amplessYoutube'`).
+  The runtime's tiptap walker calls the renderer whenever it encounters
+  a node whose `type` matches `nodeType`. Default switch-case rendering
+  is bypassed; the plugin owns the subtree.
+- **`markdown-url`** — keyed by an anchored `RegExp` (`^...$`). The
+  runtime tokenizes markdown with `marked.lexer` and, for any
+  `paragraph` token whose entire content is a single URL (autolink,
+  bare URL, or `[text](url)` markdown link), tests the URL against
+  each registered pattern. The first match wins; capture groups are
+  exposed via `match[1]`, `match[2]`, etc.
+
+### Naming and uniqueness
+
+- First-party plugins use the `ampless...` camelCase prefix
+  (`amplessYoutube`, `amplessTweet`) so the namespace stays clear of
+  community-contributed `nodeType`s.
+- The runtime rejects duplicate `nodeType` / `pattern.source` at
+  startup with a thrown error. The first plugin to register a given key
+  wins; the second one fails fast. Multi-instance v1 is not supported.
+
+### Markdown URL pattern rules
+
+- **Always anchor with `^...$`** so the pattern only matches paragraphs
+  whose entire content is a single URL. A pattern without anchors would
+  match URLs embedded mid-paragraph and break the surrounding text.
+- The runtime trims leading/trailing whitespace before matching, so
+  patterns don't need to account for `\s*` around the URL.
+- Inline `[caption](url)` markdown links are accepted when the link is
+  the paragraph's only token. `[caption with link](url)` mixed with
+  surrounding text is NOT matched (correct behaviour: the prose
+  belongs in the post, not a video embed).
+
+---
+
+## 6c. Page-level scripts: `publicPostScript` (Phase 7)
+
+The `publicPostScript` capability lets a plugin emit a `<script>` tag
+that any post on the page needs. The runtime dedupes by stable `id`
+so multiple embeds in one or several posts collapse to one script tag.
+Used by `@ampless/plugin-x-embed` to inject
+`https://platform.twitter.com/widgets.js` once per page that has any
+tweet embed.
+
+### Shape
+
+```ts
+definePlugin({
+  capabilities: ['contentFields', 'publicPostScript'],
+  publicPostScript(post, ctx) {
+    if (!hasTweetIn(post)) return []
+    return [
+      {
+        id: 'amplessTweet:widgets',
+        src: 'https://platform.twitter.com/widgets.js',
+        async: true,
+      },
+    ]
+  },
+})
+```
+
+### Theme integration
+
+Themes call `{await ampless.publicPostScriptsForPage(posts)}` after
+rendering each post body. First-party themes do this automatically in
+their post detail page and home page (when a featured post is shown):
+
+```tsx
+<div>{await ampless.renderBody(post)}</div>
+{await ampless.publicPostScriptsForPage([post])}
+```
+
+The runtime:
+
+1. Calls `publicPostScript(post, ctx)` for each plugin × post pair.
+2. Drops descriptors with empty/non-string `id`, with `src` that fails
+   the http(s) allowlist, or that aren't objects.
+3. Dedupes by `id` (first arrival wins).
+4. Emits a `<Fragment>` of `<script src={src} async defer />` elements.
+
+### CSP considerations
+
+The runtime does **not** enforce a host allowlist on `src`. CSP is the
+site engineer's responsibility — add the script host (e.g.
+`platform.twitter.com`) to `script-src` in `next.config.ts` /
+middleware. This is documented in each plugin's README.
+
+---
+
+## 6d. Admin editor extension wiring (Phase 7)
+
+Plugins that contribute tiptap Node extensions to the admin editor
+ship a separate client-side entry under the `./editor` subpath. The
+template wires it up in `_editor-bootstrap.tsx`:
+
+```tsx
+// templates/_shared/app/(admin)/admin/_editor-bootstrap.tsx
+'use client'
+import { installAdminEditorExtensions } from '@ampless/admin/editor'
+import { youtubeEditor } from '@ampless/plugin-youtube/editor'
+import { tweetEditor } from '@ampless/plugin-x-embed/editor'
+
+export function EditorBootstrap({ children }: { children: React.ReactNode }) {
+  installAdminEditorExtensions([
+    youtubeEditor.extension,
+    tweetEditor.extension,
+  ])
+  return <>{children}</>
+}
+```
+
+Then thread it into the layout:
+
+```tsx
+// templates/_shared/app/(admin)/admin/layout.tsx
+import { createAdminLayout } from '@ampless/admin/pages'
+import { EditorBootstrap } from './_editor-bootstrap'
+export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
+```
+
+`installAdminEditorExtensions` is idempotent and runs at render time
+inside a client component. The admin's `<TiptapEditor>` spreads the
+registered list onto its built-in extensions on every render.
+
+### Editor preview pipeline
+
+The admin's edit / new post forms render the preview pane in an
+`<iframe sandbox="allow-scripts">` whose `srcDoc` is the HTML returned
+by the template's server action:
+
+```tsx
+// templates/_shared/app/(admin)/admin/_actions/render-preview.tsx
+'use server'
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { Post } from 'ampless'
+import { admin } from '@/lib/admin'
+
+export async function renderPreviewHtml(draft: Post): Promise<string> {
+  const ampless = await admin.getAmpless()
+  const node = (
+    <>
+      {await ampless.renderBody(draft)}
+      {await ampless.publicPostScriptsForPage([draft])}
+    </>
+  )
+  return renderToStaticMarkup(node)
+}
+```
+
+Page factories thread the action down via the `renderPreviewAction`
+option:
+
+```tsx
+// templates/_shared/app/(admin)/admin/posts/[postId]/page.tsx
+import { admin } from '@/lib/admin'
+import { createEditPostPage } from '@ampless/admin/pages'
+import { renderPreviewHtml } from '../../_actions/render-preview'
+
+export default createEditPostPage(admin, { renderPreviewAction: renderPreviewHtml })
+```
+
+The iframe's `sandbox="allow-scripts"` (without `allow-same-origin`)
+keeps preview content in an opaque origin so widget scripts cannot
+reach the admin's DOM. The trade-off is that some widgets may misbehave
+when they can't access their own origin's storage; the YouTube iframe
+embed and x.com widgets.js both work under these constraints in
+dogfood as of Phase 7. If a future widget needs a non-opaque preview
+origin, the escape hatch is a separate preview route on a different
+subdomain with appropriate CSP — not relaxing the sandbox flag.
 
 ---
 

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { Post } from 'ampless'
 import {
   renderBody,
+  renderBodyHtmlString,
   markdownToHtml,
   htmlToMarkdown,
   tiptapToHtml,
@@ -20,14 +22,22 @@ function p(format: Post['format'], body: unknown): Post {
   }
 }
 
-describe('renderBody', () => {
-  it('passes html bodies through unchanged', () => {
-    expect(renderBody(p('html', '<p>hi</p>'))).toBe('<p>hi</p>')
+// Helper: render a Post body to its static-markup string. Used to
+// assert structural HTML output of the async-ReactNode `renderBody`
+// from a sync test body.
+function renderToHtml(post: Post): string {
+  return renderToStaticMarkup(renderBody(post) as React.ReactElement)
+}
+
+describe('renderBody (ReactNode)', () => {
+  it('passes html bodies through as raw HTML', () => {
+    expect(renderToHtml(p('html', '<p>hi</p>'))).toContain('<p>hi</p>')
   })
 
   it('renders markdown headers + paragraphs', () => {
-    expect(renderBody(p('markdown', '# Hello\n\nworld'))).toContain('<h1>Hello</h1>')
-    expect(renderBody(p('markdown', '# Hello\n\nworld'))).toContain('<p>world</p>')
+    const html = renderToHtml(p('markdown', '# Hello\n\nworld'))
+    expect(html).toContain('<h1>Hello</h1>')
+    expect(html).toContain('<p>world</p>')
   })
 
   it('renders a tiptap doc to HTML', () => {
@@ -35,11 +45,34 @@ describe('renderBody', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }],
     }
-    expect(renderBody(p('tiptap', doc))).toBe('<p>hi</p>')
+    expect(renderToHtml(p('tiptap', doc))).toContain('<p>')
+    expect(renderToHtml(p('tiptap', doc))).toContain('hi')
   })
 
   it('renders a string tiptap body defensively (format-switch save path)', () => {
-    expect(renderBody(p('tiptap', '<p>hi</p>'))).toBe('<p>hi</p>')
+    expect(renderToHtml(p('tiptap', '<p>hi</p>'))).toContain('<p>hi</p>')
+  })
+})
+
+describe('renderBodyHtmlString (sync compat)', () => {
+  it('returns html bodies unchanged', () => {
+    expect(renderBodyHtmlString(p('html', '<p>hi</p>'))).toBe('<p>hi</p>')
+  })
+
+  it('returns marked-style HTML for markdown', () => {
+    expect(renderBodyHtmlString(p('markdown', '# Hello'))).toContain('<h1>Hello</h1>')
+  })
+
+  it('returns tiptap-rendered HTML for tiptap docs', () => {
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }],
+    }
+    expect(renderBodyHtmlString(p('tiptap', doc))).toBe('<p>hi</p>')
+  })
+
+  it('returns string tiptap body unchanged (format-switch save path)', () => {
+    expect(renderBodyHtmlString(p('tiptap', '<p>hi</p>'))).toBe('<p>hi</p>')
   })
 })
 

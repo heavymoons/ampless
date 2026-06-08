@@ -42,7 +42,8 @@ function makeAmpless({ post }: MockAmplessOpts): Ampless {
   return {
     outputs: {},
     getPublishedPost: vi.fn(async () => post),
-    renderBody: vi.fn(() => ''),
+    renderBody: vi.fn(async () => null),
+    renderBodyHtmlString: vi.fn(() => ''),
   } as unknown as Ampless
 }
 

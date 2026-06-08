@@ -132,9 +132,16 @@ Phase 6a additions:
 |---|---|---|
 | `secretSettings` | Declares one or more `settings.secret` fields — admin-editable values stored encrypted in the `PluginSecret` DDB table (IAM-only access; no Cognito group can read directly). Admin writes via `setPluginSecret` / `clearPluginSecret` AppSync mutations backed by the plugin-secret-handler Lambda, which encrypts with AES-256-GCM before writing. Trusted hooks read via `ctx.secret<T>(key)`. There are four observable behaviours at `definePlugin()` time ([plugin.ts:1004-1019](../../packages/ampless/src/plugin.ts#L1004-L1019)): (1) **`settings.secret` non-empty + `trust_level !== 'trusted'`** → `definePlugin()` throws — secret read requires the trusted Lambda's IAM permission to the `PluginSecret` table; untrusted and privileged Lambdas have no IAM read access to that table. (2) **`settings.secret` non-empty + `capabilities` declared + `'secretSettings'` missing from `capabilities`** → soft mismatch warning — matches the existing capability-mismatch pattern for `'schema'` / `'publicHtmlForPost'`. (3) **`settings.secret` non-empty + `capabilities` undefined** (legacy plugin without a `capabilities` array) → no warning — the mismatch check is skipped when `capabilities` is `undefined`, for backward compatibility. (4) **`capabilities: ['secretSettings']` declared with no `settings.secret` field** → no-op — neither warning nor throw. | `trusted` only (hard gate at `definePlugin()` time when `settings.secret` is non-empty; see the four cases above). |
 
+Phase 7 additions:
+
+| capability | meaning | default-allowed trust_level |
+|---|---|---|
+| `contentFields` | `contentFields` array — plugin renderers for tiptap node types (`kind: 'tiptap'`) and single-line markdown URL patterns (`kind: 'markdown-url'`). Threaded into `ampless.renderBody(post)` which now returns `Promise<ReactNode>` (alpha breaking; see migration notes). Duplicate `nodeType` / `pattern.source` registration across plugins throws eagerly at `createPluginHead` time. | `untrusted` and up |
+| `publicPostScript` | `publicPostScript(post, ctx)` — page-level `<script>` descriptors aggregated across all posts on the page, deduped by stable `id`, emitted via `ampless.publicPostScriptsForPage(posts)`. Used by `@ampless/plugin-x-embed` to inject x.com `widgets.js` once per page that needs it. | `untrusted` and up |
+
 Reserved capabilities (name only, implementations in later phases — see [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)):
 
-`contentFields` · `adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`.
+`adminPage` · `serverRoute` · `network` · `scheduler` · `storageWrite` · `privilegedSystem` · `cspReady`.
 
 `cspReady` is the declarative-badge half of the CSP nonce reservation that shipped alongside `inlineScript.nonce: 'auto'` / `script.nonce: 'auto'` / `PluginPublicRenderContext.cspNonce` (Phase 1: types only, runtime no-op). Plugins can declare it today; the runtime does not cross-check or warn yet, and the planned admin-UI badge + render-time sanity check land with the middleware/SSR CSP nonce threading PR.
 
@@ -244,6 +251,36 @@ Explicitly rejected: `<img>` · `<iframe>` · `<video>` · `<audio>` · `<object
 | `publicHead` | `undefined` (default JS, backward-compatible) or `'application/ld+json'` allowed |
 | `publicBodyEnd` | same as `publicHead` |
 | `publicBodyForPost` | `'application/ld+json'` **required**. Descriptors with any other `scriptType` (or without one) are dropped with a console warning. Per-post arbitrary inline JS is intentionally not exposed; when that need arises it will require a new explicit capability. |
+
+### `contentFields` + `publicPostScript` (Phase 7)
+
+`contentFields` lets a plugin intercept fragments of a post body and emit a `ReactNode` for them. Two `kind`s:
+
+- **`tiptap`** — keyed by `nodeType` (string). Replaces the runtime's default `switch`-case rendering for that node type.
+- **`markdown-url`** — keyed by an anchored `RegExp` (`^...$`). Matches paragraphs whose entire trimmed content is a single URL (autolink / bare URL / `[text](url)`).
+
+Renderers run server-side during `ampless.renderBody(post)` and receive the same `PluginPublicRenderContext` (`ctx.setting<T>(key)` etc.) as `publicHead` / `publicBodyEnd`. Duplicate `nodeType` / `pattern.source` across plugins throws eagerly at `createPluginHead` time (config error).
+
+`publicPostScript(post, ctx)` returns page-level `<script>` descriptors deduped by stable `id`. Themes call `{await ampless.publicPostScriptsForPage(posts)}` after rendering post bodies so widget scripts (e.g. x.com `widgets.js`) load exactly once per page that needs them. CSP enforcement is left to the site engineer (`next.config.ts` / middleware) — the runtime drops descriptors with non-http(s) `src` but does not enforce a host allowlist.
+
+### Server-render fetch admin preview (Phase 7)
+
+`ampless.renderBody(post)` now returns `Promise<ReactNode>` so `contentFields` renderers can run server-side. That makes the previous client-side preview rendering in `<PostForm>` impossible — the admin no longer can inline-call `renderBody`.
+
+The Phase 7 preview architecture:
+
+1. Templates expose a `'use server'` action at `templates/_shared/app/(admin)/admin/_actions/render-preview.tsx` that calls `await admin.getAmpless()`, then `renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)`, and returns the HTML string.
+2. Page factories accept the action via an `opts.renderPreviewAction` field (`createEditPostPage(admin, { renderPreviewAction })` / `createNewPostPage(admin, { renderPreviewAction })`).
+3. The factories thread the action through `EditPostPage` / `NewPostPage` view components to `<PostForm renderPreviewAction={...} />` and `<PostHistoryPanel renderPreviewAction={...} />`.
+4. `<PostForm>` debounces draft changes (250ms), calls the action, and stuffs the result into an `<iframe srcDoc>` (`sandbox="allow-scripts"` only — no `allow-same-origin`).
+
+The action lives template-side, not in `@ampless/admin`. Reasons:
+
+- The action depends on the template's `lib/admin.ts` (via `admin.getAmpless()`) — putting it inside the admin package would invert that dependency.
+- The admin package's tsup directive-entry strategy ([packages/admin/tsup.config.ts](../../packages/admin/tsup.config.ts)) does not need a new `'use server'` entry.
+- The trust boundary is identical to other template-side actions (`_actions/theme-actions.ts` etc.).
+
+`admin.getAmpless()` is the public accessor for the resolved runtime. It uses the same `resolveAmpless()` cache that the other `Admin` methods use, so the action and the rest of the admin share one instance per request.
 
 ### Plugin State Storage
 

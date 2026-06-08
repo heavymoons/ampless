@@ -1,0 +1,68 @@
+{
+  "name": "@ampless/plugin-youtube",
+  "version": "0.1.0-alpha.0",
+  "description": "YouTube embed plugin for ampless — renders youtube.com / youtu.be URLs inline as iframes in tiptap + markdown posts",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./editor": {
+      "import": "./dist/editor.js",
+      "types": "./dist/editor.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-youtube"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-youtube#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "peerDependencies": {
+    "@tiptap/core": "^3",
+    "ampless": "workspace:*",
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@tiptap/core": "^3.23.6",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "youtube",
+    "embed",
+    "cms"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "@ampless/plugin-youtube",
+    "trustLevel": "trusted",
+    "capabilities": ["contentFields"],
+    "displayName": {
+      "en": "YouTube embeds",
+      "ja": "YouTube 埋め込み"
+    }
+  }
+}

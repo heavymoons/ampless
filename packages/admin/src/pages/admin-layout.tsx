@@ -29,6 +29,22 @@ function sanitizeCmsConfigForClient(config: Config): Config {
 }
 
 /**
+ * Options for `createAdminLayout`.
+ */
+export interface CreateAdminLayoutOptions {
+  /**
+   * Phase 7 slot for first-party embed plugins. Templates pass a
+   * client-component wrapper that calls
+   * `installAdminEditorExtensions([...])` at the top of its render and
+   * returns `<>{children}</>`. The layout wraps every admin route
+   * inside it so the registration runs once before <TiptapEditor>
+   * mounts. When omitted, children render directly (built-in editor
+   * extensions only).
+   */
+  editorBootstrap?: React.ComponentType<{ children: React.ReactNode }>
+}
+
+/**
  * Build the admin layout component. Wraps every admin route with:
  *
  * - An auth gate (`redirect('/login')` if the visitor isn't in the
@@ -37,25 +53,35 @@ function sanitizeCmsConfigForClient(config: Config): Config {
  * - An i18n provider hydrated from the resolved locale dict.
  * - A client-side `AdminProviders` shell that configures the Amplify
  *   SDK and installs the admin's posts / kv providers once on mount.
+ * - An optional `editorBootstrap` slot (Phase 7) so templates can wire
+ *   first-party embed plugins' tiptap extensions into <TiptapEditor>.
  */
-export function createAdminLayout(admin: Admin) {
+export function createAdminLayout(
+  admin: Admin,
+  opts: CreateAdminLayoutOptions = {},
+) {
+  const EditorBootstrap = opts.editorBootstrap
   async function AdminLayout({ children }: { children: React.ReactNode }) {
     const session = await admin.getServerSession()
     if (!admin.isEditor(session)) {
       redirect('/login')
     }
 
+    const inner = (
+      <I18nProvider locale={admin.locale} dict={admin.dict}>
+        <div className="flex min-h-screen flex-col md:flex-row">
+          <Sidebar
+            email={session!.email}
+            isAdmin={admin.isAdmin(session)}
+          />
+          <main className="min-w-0 flex-1">{children}</main>
+        </div>
+      </I18nProvider>
+    )
+
     return (
       <AdminProviders outputs={admin.outputs} cmsConfig={sanitizeCmsConfigForClient(admin.cmsConfig)}>
-        <I18nProvider locale={admin.locale} dict={admin.dict}>
-          <div className="flex min-h-screen flex-col md:flex-row">
-            <Sidebar
-              email={session!.email}
-              isAdmin={admin.isAdmin(session)}
-            />
-            <main className="min-w-0 flex-1">{children}</main>
-          </div>
-        </I18nProvider>
+        {EditorBootstrap ? <EditorBootstrap>{inner}</EditorBootstrap> : inner}
       </AdminProviders>
     )
   }

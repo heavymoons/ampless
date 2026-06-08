@@ -39,7 +39,7 @@ export function createRawRouteHandler(ampless: Ampless): RawRouteHandler {
     if (post.format !== 'html' || post.metadata?.no_layout !== true) {
       return new Response('Not Found', { status: 404 })
     }
-    return new Response(ampless.renderBody(post), {
+    return new Response(ampless.renderBodyHtmlString(post), {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',

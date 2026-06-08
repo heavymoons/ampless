@@ -92,6 +92,10 @@ export type {
   PluginJsonField,
   PluginRepeatableSubField,
   PluginRepeatableField,
+  ContentFieldRenderer,
+  TiptapRenderNode,
+  MarkdownEmbedMatch,
+  PublicPostScriptDescriptor,
 } from './plugin.js'
 export {
   PLUGIN_KEY_PATTERN,
