@@ -26,7 +26,7 @@ export default function xEmbedPlugin(
   opts: XEmbedPluginOptions = {},
 ): AmplessPlugin {
   return definePlugin({
-    name: opts.name ?? '@ampless/plugin-x-embed',
+    name: opts.name ?? 'x-embed',
     apiVersion: 1,
     packageName: '@ampless/plugin-x-embed',
     trust_level: 'trusted',
