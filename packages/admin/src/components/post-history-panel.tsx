@@ -14,13 +14,14 @@ interface PostHistoryPanelProps {
    */
   onRestore: (revision: PostRevision) => void
   /**
-   * Phase 7: server action that renders a selected revision into a
-   * complete HTML string for the preview iframe. Same prop the
-   * <PostForm> preview uses; template factories thread it down so
+   * Phase 7: endpoint that the panel POSTs a selected revision to for
+   * server-rendered preview HTML. Defaults to `/admin/preview`, the
+   * Route Handler shipped by the template scaffold. Same prop the
+   * `<PostForm>` preview uses; template factories thread it down so
    * revision previews benefit from the same server-side rendering
    * pipeline (contentFields renderers + page-level scripts).
    */
-  renderPreviewAction?: (draft: Post) => Promise<string>
+  previewEndpoint?: string
 }
 
 // How many revisions to fetch per page. History is unbounded by default,
@@ -73,7 +74,7 @@ function revisionAsPost(rev: PostRevision): Post {
 export function PostHistoryPanel({
   postId,
   onRestore,
-  renderPreviewAction,
+  previewEndpoint = '/admin/preview',
 }: PostHistoryPanelProps) {
   const t = useT()
   const config = getAdminCmsConfig()
@@ -88,24 +89,47 @@ export function PostHistoryPanel({
   const [nextToken, setNextToken] = useState<string | undefined>(undefined)
   const [selected, setSelected] = useState<PostRevision | null>(null)
   // Phase 7: preview HTML rendered server-side via the template's
-  // action. Re-fetched whenever the user picks a different revision.
+  // `/admin/preview` Route Handler. Re-fetched whenever the user
+  // picks a different revision.
   const [previewHtml, setPreviewHtml] = useState('')
 
+  // A revision is uniquely identified by its `postHistoryId`; using it
+  // as the primitive dep keeps the effect from re-firing on shallow
+  // re-renders that don't actually change the selection. The `format`
+  // primitive guards against accidentally previewing a static
+  // revision (which has no renderable body — see `format === 'static'`
+  // skip below).
+  const selectedHistoryId = selected?.postHistoryId
+  const selectedFormat = selected?.format
   useEffect(() => {
-    if (!selected || !renderPreviewAction || selected.format === 'static') return
+    if (!selected) return
+    if (selected.format === 'static') return
     const ctrl = new AbortController()
-    renderPreviewAction(revisionAsPost(selected))
+    fetch(previewEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(revisionAsPost(selected)),
+      signal: ctrl.signal,
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`preview ${r.status}`)
+        return r.text()
+      })
       .then((html) => {
         if (!ctrl.signal.aborted) setPreviewHtml(html)
       })
       .catch((err) => {
-        if (!ctrl.signal.aborted) {
-          // eslint-disable-next-line no-console
-          console.error('[ampless admin] revision preview action failed:', err)
-        }
+        if (ctrl.signal.aborted) return
+        // eslint-disable-next-line no-console
+        console.error('[ampless admin] revision preview fetch failed:', err)
       })
     return () => ctrl.abort()
-  }, [selected, renderPreviewAction])
+    // `selected` itself is a new reference when the user clicks a
+    // different row; we depend on its identifying primitives to keep
+    // the deps array shallow per the same convention as <PostForm>'s
+    // preview effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHistoryId, selectedFormat, previewEndpoint])
 
   const loadPage = useCallback(
     async (token?: string) => {
@@ -264,18 +288,13 @@ export function PostHistoryPanel({
                 <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400">
                   {t('posts.history.staticCaveat')}
                 </p>
-              ) : renderPreviewAction ? (
+              ) : (
                 <iframe
                   title="revision-preview"
                   srcDoc={previewHtml}
                   sandbox="allow-scripts"
                   className="prose prose-neutral dark:prose-invert max-w-none min-h-[300px] w-full rounded-md border text-sm"
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Preview unavailable: pass <code>renderPreviewAction</code> prop from
-                  the template&apos;s server action.
-                </p>
               )}
             </div>
           )}

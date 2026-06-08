@@ -269,18 +269,19 @@ Renderers run server-side during `ampless.renderBody(post)` and receive the same
 
 The Phase 7 preview architecture:
 
-1. Templates expose a `'use server'` action at `templates/_shared/app/(admin)/admin/_actions/render-preview.tsx` that calls `await admin.getAmpless()`, then `renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)`, and returns the HTML string.
-2. Page factories accept the action via an `opts.renderPreviewAction` field (`createEditPostPage(admin, { renderPreviewAction })` / `createNewPostPage(admin, { renderPreviewAction })`).
-3. The factories thread the action through `EditPostPage` / `NewPostPage` view components to `<PostForm renderPreviewAction={...} />` and `<PostHistoryPanel renderPreviewAction={...} />`.
-4. `<PostForm>` debounces draft changes (250ms), calls the action, and stuffs the result into an `<iframe srcDoc>` (`sandbox="allow-scripts"` only — no `allow-same-origin`).
+1. Templates expose a **Route Handler** at `templates/_shared/app/(admin)/admin/preview/route.tsx`. The `POST` handler authenticates the request via `admin.getServerSession()` + `admin.isEditor()` (returns 403 for anonymous / reader access), then calls `await admin.getAmpless()`, dynamically `import('react-dom/server')`, and `renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)`, returning the HTML string as `text/html; charset=utf-8` with `Cache-Control: no-store`. (The dynamic import is necessary on Next.js 16's Turbopack — see the rationale below.)
+2. Page factories accept the URL via an `opts.previewEndpoint?: string` field (default `'/admin/preview'`): `createEditPostPage(admin)` / `createNewPostPage(admin)` work out of the box; `createEditPostPage(admin, { previewEndpoint: '/cms/admin/preview' })` covers Next.js `basePath` setups or non-default admin mount paths.
+3. The factories thread the endpoint through `EditPostPage` / `NewPostPage` view components to `<PostForm previewEndpoint={...} />` and `<PostHistoryPanel previewEndpoint={...} />`.
+4. `<PostForm>` debounces draft changes (250ms), `fetch(previewEndpoint, { method: 'POST', body: JSON.stringify(draft) })`, and stuffs the response text into an `<iframe srcDoc>` (`sandbox="allow-scripts"` only — no `allow-same-origin`).
 
-The action lives template-side, not in `@ampless/admin`. Reasons:
+Why a Route Handler rather than a Server Action: Next.js 15+ traces the import graph from Client Components through Server Action modules during build, so reaching `react-dom/server` from any module that participates in that graph trips the "You're importing a component that imports react-dom/server" check and the edit-post page fails to compile. A Route Handler decouples the rendering from that graph entirely — the form fetches a plain HTTP endpoint and the bundler never walks from `<PostForm>` into the handler. The same boundary also makes the auth check explicit (the handler has direct request context) rather than relying solely on the `(admin)` route-group middleware. The `react-dom/server` import inside the handler is itself dynamic (`await import('react-dom/server')`) because Next.js 16's Turbopack flags any top-level static import of `react-dom/server` reached from the app router build — Route Handlers included — and deferring the resolution to request time keeps it outside the build-time import-graph walker while still loading the standard Node.js subpath at runtime.
 
-- The action depends on the template's `lib/admin.ts` (via `admin.getAmpless()`) — putting it inside the admin package would invert that dependency.
-- The admin package's tsup directive-entry strategy ([packages/admin/tsup.config.ts](../../packages/admin/tsup.config.ts)) does not need a new `'use server'` entry.
-- The trust boundary is identical to other template-side actions (`_actions/theme-actions.ts` etc.).
+The handler lives template-side, not in `@ampless/admin`. Reasons:
 
-`admin.getAmpless()` is the public accessor for the resolved runtime. It uses the same `resolveAmpless()` cache that the other `Admin` methods use, so the action and the rest of the admin share one instance per request.
+- The handler depends on the template's `lib/admin.ts` (via `admin.getAmpless()`) — putting it inside the admin package would invert that dependency.
+- The trust boundary is identical to other template-side admin endpoints.
+
+`admin.getAmpless()` is the public accessor for the resolved runtime. It uses the same `resolveAmpless()` cache that the other `Admin` methods use, so the route handler and the rest of the admin share one instance per request.
 
 ### Plugin State Storage
 

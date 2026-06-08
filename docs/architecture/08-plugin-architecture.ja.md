@@ -267,18 +267,19 @@ renderer は server-side で `ampless.renderBody(post)` 内で実行され、`pu
 
 Phase 7 の preview アーキテクチャ:
 
-1. テンプレートは `templates/_shared/app/(admin)/admin/_actions/render-preview.tsx` に `'use server'` action を置く。中で `await admin.getAmpless()` → `renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)` を呼んで HTML 文字列を返す。
-2. page factory が `opts.renderPreviewAction` field で action を受け取る (`createEditPostPage(admin, { renderPreviewAction })` / `createNewPostPage(admin, { renderPreviewAction })`)。
-3. factory は action を `EditPostPage` / `NewPostPage` view component 経由で `<PostForm renderPreviewAction={...} />` / `<PostHistoryPanel renderPreviewAction={...} />` に thread する。
-4. `<PostForm>` は draft 変更を 250ms debounce して action を呼び、結果を `<iframe srcDoc>` (`sandbox="allow-scripts"` のみ — `allow-same-origin` なし) に流す。
+1. テンプレートは `templates/_shared/app/(admin)/admin/preview/route.tsx` に **Route Handler** を置く。`POST` ハンドラは最初に `admin.getServerSession()` + `admin.isEditor()` で認証チェックする（anonymous / reader は 403）。その上で `await admin.getAmpless()`、`await import('react-dom/server')`（dynamic import）、`renderToStaticMarkup(<>{await ampless.renderBody(draft)}{await ampless.publicPostScriptsForPage([draft])}</>)` を呼んで HTML 文字列を `text/html; charset=utf-8` + `Cache-Control: no-store` で返す。（dynamic import が必要な理由は次段落参照。）
+2. page factory は URL を `opts.previewEndpoint?: string` field で受け取る（default `'/admin/preview'`）: `createEditPostPage(admin)` / `createNewPostPage(admin)` で素のまま動く。Next.js `basePath` や非デフォルトマウントパスの場合は `createEditPostPage(admin, { previewEndpoint: '/cms/admin/preview' })` のように override する。
+3. factory は endpoint を `EditPostPage` / `NewPostPage` view component 経由で `<PostForm previewEndpoint={...} />` / `<PostHistoryPanel previewEndpoint={...} />` に thread する。
+4. `<PostForm>` は draft 変更を 250ms debounce して `fetch(previewEndpoint, { method: 'POST', body: JSON.stringify(draft) })` を呼び、レスポンス本文を `<iframe srcDoc>` (`sandbox="allow-scripts"` のみ — `allow-same-origin` なし) に流す。
 
-action はテンプレート側に置き、`@ampless/admin` には持ち込まない。理由:
+Server Action ではなく Route Handler を採用した理由: Next.js 15+ は build 時に Client Component から Server Action モジュールを介して import graph を辿るため、その経路上で `react-dom/server` に到達した時点で「You're importing a component that imports react-dom/server」チェックが発火し、edit-post page の compile が失敗する。Route Handler に切り出すことで rendering を import graph から完全に切り離せる — `<PostForm>` は plain な HTTP endpoint を fetch するだけで、bundler は form から handler 側へ踏み込まない。さらに同じ境界のおかげで（`(admin)` route-group middleware に頼らず）handler 自身で request context を直接見て auth check を明示的に書ける。handler 内の `react-dom/server` import 自体は dynamic (`await import('react-dom/server')`) にしている — Next.js 16 の Turbopack が Route Handler を含む app router build 経路で reach できる top-level の `react-dom/server` static import を一律で flag するため、request 時に解決することで build-time import-graph walker から外しつつ、runtime では同じ Node.js subpath からロードする。
 
-- action は template の `lib/admin.ts` (`admin.getAmpless()`) に依存するので、admin パッケージ内に置くと依存関係が逆転する。
-- admin パッケージの tsup directive-entry 戦略 ([packages/admin/tsup.config.ts](../../packages/admin/tsup.config.ts)) に新規 `'use server'` entry を増やす必要がなくなる。
-- trust 境界は他の template-side action (`_actions/theme-actions.ts` 等) と同じ。
+handler はテンプレート側に置き、`@ampless/admin` には持ち込まない。理由:
 
-`admin.getAmpless()` は resolved runtime に対する public accessor。他の `Admin` メソッドと同じ `resolveAmpless()` キャッシュを使うので、action と admin の他の部分は request あたり 1 instance を共有する。
+- handler は template の `lib/admin.ts` (`admin.getAmpless()`) に依存するので、admin パッケージ内に置くと依存関係が逆転する。
+- trust 境界は他の template-side admin endpoint と同じ。
+
+`admin.getAmpless()` は resolved runtime に対する public accessor。他の `Admin` メソッドと同じ `resolveAmpless()` キャッシュを使うので、route handler と admin の他の部分は request あたり 1 instance を共有する。
 
 ### プラグインの状態保存
 

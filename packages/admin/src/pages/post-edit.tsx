@@ -1,19 +1,17 @@
-import type { Post } from 'ampless'
 import { EditPostPage } from '../components/edit-post-view.js'
 
 /**
  * Options for `createEditPostPage`.
  *
- * `renderPreviewAction` is the Phase 7 hook — templates pass a
- * `'use server'` action that renders a draft post into a complete
- * HTML string (body + page-level scripts). The factory wraps the
- * client-side `EditPostPage` so the action threads down to
- * `<PostForm renderPreviewAction={...} />` and `<PostHistoryPanel
- * renderPreviewAction={...} />`. Without it the preview pane shows a
- * fallback message asking the engineer to wire the prop.
+ * `previewEndpoint` lets the template override the URL that
+ * `<PostForm>` / `<PostHistoryPanel>` POST the draft to for preview
+ * HTML. Defaults to `/admin/preview`, the Route Handler shipped by
+ * the scaffold at `app/(admin)/admin/preview/route.tsx`. Override
+ * when the admin route group is mounted at a non-default path (e.g.
+ * Next.js `basePath` or a custom prefix).
  */
 export interface CreateEditPostPageOptions {
-  renderPreviewAction?: (draft: Post) => Promise<string>
+  previewEndpoint?: string
 }
 
 /**
@@ -24,20 +22,18 @@ export interface CreateEditPostPageOptions {
  *
  * The first argument is intentionally ignored — the factory existed
  * before there was anything to hand it, and we kept the signature
- * stable through Phase 7 so existing templates don't need to remove
- * the `admin` arg. The `opts.renderPreviewAction` is the only piece
- * the factory actually consumes today.
+ * stable so existing templates don't need to remove the `admin` arg.
+ * The `opts.previewEndpoint` is the only piece the factory actually
+ * consumes today.
  */
 export function createEditPostPage(
   _admin: unknown,
   opts: CreateEditPostPageOptions = {},
 ) {
-  const { renderPreviewAction } = opts
+  const { previewEndpoint } = opts
   return function EditPostPageWrapper(props: {
     params: Promise<{ postId: string }>
   }) {
-    return (
-      <EditPostPage {...props} renderPreviewAction={renderPreviewAction} />
-    )
+    return <EditPostPage {...props} previewEndpoint={previewEndpoint} />
   }
 }
