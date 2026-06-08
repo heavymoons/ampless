@@ -43,7 +43,18 @@ const AMPLESS_MANAGED_APP_PATHS: readonly string[] = [
  * 個別ファイル。アップグレード時に存在すれば無条件で削除されます。
  * 追加するファイルは「ampless が完全に所有していた」ものに限定すること。
  */
-const AMPLESS_RETIRED_PATHS: readonly string[] = [] as const
+const AMPLESS_RETIRED_PATHS: readonly string[] = [
+  // Phase 7 preview pipeline migrated from a `'use server'` action to a
+  // Route Handler at `app/(admin)/admin/preview/route.tsx` (default
+  // endpoint: `/admin/preview`). The old action made Next.js 15+ refuse
+  // to compile the edit-post page
+  // because the import graph traced `react-dom/server` from Client
+  // Components through Server Action modules. Sites scaffolded before
+  // this change pick the new endpoint up on their next `update-ampless`
+  // — the new route file is seeded as part of the normal template
+  // sync, and the old action file is retired by this entry.
+  'app/(admin)/admin/_actions/render-preview.tsx',
+] as const
 
 const AMPLESS_PACKAGES = new Set([
   'ampless',

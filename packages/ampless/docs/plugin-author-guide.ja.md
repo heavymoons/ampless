@@ -808,16 +808,24 @@ export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
 
 ### エディタプレビューのパイプライン
 
-admin の edit / new post フォームは preview ペインを `<iframe sandbox="allow-scripts">` で表示する。`srcDoc` はテンプレート側 server action が返す HTML:
+admin の edit / new post フォームは preview ペインを `<iframe sandbox="allow-scripts">` で表示する。`srcDoc` はテンプレート側 preview Route Handler が返す HTML。テンプレート scaffold は handler を `app/(admin)/admin/preview/route.tsx` に同梱する:
 
 ```tsx
-// templates/_shared/app/(admin)/admin/_actions/render-preview.tsx
-'use server'
-import { renderToStaticMarkup } from 'react-dom/server'
+// templates/_shared/app/(admin)/admin/preview/route.tsx
 import type { Post } from 'ampless'
 import { admin } from '@/lib/admin'
 
-export async function renderPreviewHtml(draft: Post): Promise<string> {
+export async function POST(req: Request): Promise<Response> {
+  const session = await admin.getServerSession()
+  if (!admin.isEditor(session)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  let draft: Post
+  try {
+    draft = (await req.json()) as Post
+  } catch {
+    return new Response('Bad Request', { status: 400 })
+  }
   const ampless = await admin.getAmpless()
   const node = (
     <>
@@ -825,20 +833,34 @@ export async function renderPreviewHtml(draft: Post): Promise<string> {
       {await ampless.publicPostScriptsForPage([draft])}
     </>
   )
-  return renderToStaticMarkup(node)
+  // dynamic import: 下の「Server Action ではなく Route Handler を採用した理由」参照。
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  return new Response(renderToStaticMarkup(node), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
 }
 ```
 
-page factory は `renderPreviewAction` オプションでこの action を thread する:
+`<PostForm>` / `<PostHistoryPanel>` は素のままで `/admin/preview` に draft を POST する — call site で追加の wiring は不要:
 
 ```tsx
 // templates/_shared/app/(admin)/admin/posts/[postId]/page.tsx
 import { admin } from '@/lib/admin'
 import { createEditPostPage } from '@ampless/admin/pages'
-import { renderPreviewHtml } from '../../_actions/render-preview'
 
-export default createEditPostPage(admin, { renderPreviewAction: renderPreviewHtml })
+export default createEditPostPage(admin)
 ```
+
+admin が非デフォルトパス（Next.js `basePath` やカスタム prefix）にマウントされている場合は、page factory の `previewEndpoint` option で endpoint を上書きできる:
+
+```tsx
+export default createEditPostPage(admin, { previewEndpoint: '/cms/admin/preview' })
+```
+
+Server Action ではなく Route Handler を採用した理由: `'use server'` モジュール内部で `react-dom/server` 由来の rendering を行うと、Next.js 15+ が edit-post page の compile に失敗する。build 時に Client Component から Server Action モジュール経由で import graph を辿るため、その経路上で `react-dom/server` に到達した時点で「You're importing a component that imports react-dom/server」チェックが発火する。Route Handler に切り出すことで rendering を import graph から完全に切り離せる — `<PostForm>` は plain な HTTP endpoint を fetch するだけで、bundler は form から handler 側へ踏み込まない。さらに handler 自身が `admin.isEditor()` を明示的にチェックすることで、将来 `(admin)` route-group gate が誤設定された場合の安全側のフェールセーフになる。`react-dom/server` の import 自体を dynamic にしているのは Next.js 16 の Turbopack が、Route Handler を含む app router build 経路で reach できる top-level の `react-dom/server` static import を一律で flag するため。request 時に解決することで build-time import-graph walker から外しつつ、runtime では同じ Node.js subpath からロードする。
 
 iframe の `sandbox="allow-scripts"` は `allow-same-origin` を含まないので、preview の中身は opaque origin で動作する → widget script は admin の DOM に触れない。トレードオフ: widget が自身の origin の storage にアクセスできない場合に正しく動かない可能性がある。Phase 7 時点の dogfood では YouTube iframe / x.com widgets.js とも opaque origin で動作することを確認済み。将来 non-opaque origin が必要な widget が出てきた場合、escape hatch は別 subdomain の preview route + 適切な CSP — sandbox flag を緩めるのは取らない。
 

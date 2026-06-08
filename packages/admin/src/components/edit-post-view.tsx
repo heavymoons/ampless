@@ -9,13 +9,14 @@ import { useT } from './i18n-provider.js'
 interface EditPostPageProps {
   params: Promise<{ postId: string }>
   /**
-   * Phase 7: server action threaded from `createEditPostPage` factory
-   * down into `<PostForm>` for iframe-based preview rendering.
+   * Endpoint that `<PostForm>` / `<PostHistoryPanel>` POST the draft to
+   * for preview HTML. Threaded down from `createEditPostPage`. Defaults
+   * to `/admin/preview` inside `<PostForm>` when omitted.
    */
-  renderPreviewAction?: (draft: Post) => Promise<string>
+  previewEndpoint?: string
 }
 
-export function EditPostPage({ params, renderPreviewAction }: EditPostPageProps) {
+export function EditPostPage({ params, previewEndpoint }: EditPostPageProps) {
   const t = useT()
   const { postId } = use(params)
   const [post, setPost] = useState<Post | null>(null)
@@ -38,9 +39,7 @@ export function EditPostPage({ params, renderPreviewAction }: EditPostPageProps)
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8">
       <h1 className="mb-6 text-2xl font-bold md:mb-8 md:text-3xl">{t('posts.form.editTitle')}</h1>
-      {post && (
-        <PostForm post={post} renderPreviewAction={renderPreviewAction} />
-      )}
+      {post && <PostForm post={post} previewEndpoint={previewEndpoint} />}
     </div>
   )
 }

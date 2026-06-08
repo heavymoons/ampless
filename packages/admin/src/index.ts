@@ -115,9 +115,9 @@ export interface Admin {
    * instance. Throws when `createAdmin` was called without the
    * `ampless` option — same error as the other passthroughs.
    *
-   * Template-side server actions (e.g. `_actions/render-preview.ts`)
-   * use this to obtain the runtime without depending on the
-   * thunk/eager dual form of `admin.ampless`.
+   * Template-side Route Handlers (e.g. `preview/route.tsx`) use this
+   * to obtain the runtime without depending on the thunk/eager dual
+   * form of `admin.ampless`.
    */
   getAmpless(): Promise<Ampless>
 

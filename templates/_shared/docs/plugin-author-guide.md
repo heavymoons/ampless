@@ -1062,16 +1062,25 @@ registered list onto its built-in extensions on every render.
 
 The admin's edit / new post forms render the preview pane in an
 `<iframe sandbox="allow-scripts">` whose `srcDoc` is the HTML returned
-by the template's server action:
+by the template's preview Route Handler. The template scaffold ships
+the handler at `app/(admin)/admin/preview/route.tsx`:
 
 ```tsx
-// templates/_shared/app/(admin)/admin/_actions/render-preview.tsx
-'use server'
-import { renderToStaticMarkup } from 'react-dom/server'
+// templates/_shared/app/(admin)/admin/preview/route.tsx
 import type { Post } from 'ampless'
 import { admin } from '@/lib/admin'
 
-export async function renderPreviewHtml(draft: Post): Promise<string> {
+export async function POST(req: Request): Promise<Response> {
+  const session = await admin.getServerSession()
+  if (!admin.isEditor(session)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  let draft: Post
+  try {
+    draft = (await req.json()) as Post
+  } catch {
+    return new Response('Bad Request', { status: 400 })
+  }
   const ampless = await admin.getAmpless()
   const node = (
     <>
@@ -1079,21 +1088,53 @@ export async function renderPreviewHtml(draft: Post): Promise<string> {
       {await ampless.publicPostScriptsForPage([draft])}
     </>
   )
-  return renderToStaticMarkup(node)
+  // Dynamic import: see "Why a Route Handler" below.
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  return new Response(renderToStaticMarkup(node), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  })
 }
 ```
 
-Page factories thread the action down via the `renderPreviewAction`
-option:
+`<PostForm>` / `<PostHistoryPanel>` POST the draft to `/admin/preview`
+out of the box — no extra wiring at the call site:
 
 ```tsx
 // templates/_shared/app/(admin)/admin/posts/[postId]/page.tsx
 import { admin } from '@/lib/admin'
 import { createEditPostPage } from '@ampless/admin/pages'
-import { renderPreviewHtml } from '../../_actions/render-preview'
 
-export default createEditPostPage(admin, { renderPreviewAction: renderPreviewHtml })
+export default createEditPostPage(admin)
 ```
+
+If the admin is mounted at a non-default path (Next.js `basePath` or
+a custom prefix), override the endpoint via the page factory's
+`previewEndpoint` option:
+
+```tsx
+export default createEditPostPage(admin, { previewEndpoint: '/cms/admin/preview' })
+```
+
+Why a Route Handler rather than a Server Action: putting
+`react-dom/server`-driven rendering inside a `'use server'` module
+makes Next.js 15+ refuse to compile the edit-post page, because the
+build traces the import graph from Client Components through Server
+Action modules and any reach to `react-dom/server` along that path
+trips the "You're importing a component that imports
+react-dom/server" check. A Route Handler decouples the rendering
+from that graph entirely — `<PostForm>` fetches a plain HTTP
+endpoint and the bundler never walks from the form into here. The
+handler's explicit `admin.isEditor()` check also defends against
+accidental exposure if the `(admin)` route-group gate is ever
+misconfigured. The `react-dom/server` import itself is dynamic
+because Next.js 16's Turbopack flags any top-level static import of
+`react-dom/server` reached from the app router build, Route Handlers
+included; deferring it to request time keeps the module outside the
+build-time import-graph walker while still loading it from the same
+Node.js subpath at runtime.
 
 The iframe's `sandbox="allow-scripts"` (without `allow-same-origin`)
 keeps preview content in an opaque origin so widget scripts cannot
