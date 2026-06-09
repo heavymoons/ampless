@@ -137,6 +137,7 @@ describe('AmplessTweetNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
@@ -147,6 +148,7 @@ describe('AmplessTweetNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
@@ -157,6 +159,7 @@ describe('AmplessTweetNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
@@ -169,6 +172,23 @@ describe('AmplessTweetNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: 'see this tweet',
+      parentElement: null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns false when the link sits inside a <p> (= prose context — deferred to tag:p rule)', () => {
+    // Prose like `<p>See <a href=URL>URL</a> today</p>` must NOT promote the
+    // inline autolink to a block embed — that would split the paragraph.
+    // The single-link-paragraph case is handled by the `tag: 'p'` rule above,
+    // so reaching here with parent <p> means the paragraph is mixed prose
+    // and the link should stay an inline Link mark.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'P' },
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
@@ -262,6 +282,38 @@ describe('AmplessTweetNode.parseHTML', () => {
               ],
               text: 'watch this',
             },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('leaves an autolink inside mixed prose as an inline Link mark, not a block embed', () => {
+    // `<p>See <a href=URL>URL</a> today</p>` (= the GFM autolink inside
+    // prose case): the URL link text DOES equal href, but promoting it to
+    // a block embed would split the paragraph mid-sentence. The
+    // `tag: 'p'` rule rejects this paragraph (mixed prose), and the
+    // `tag: 'a[href]'` rule sees parent <p> and also rejects, so the link
+    // stays an inline Link mark surrounded by the paragraph's other text.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const doc = generateJSON(
+      `<p>See <a href="${url}">${url}</a> today</p>`,
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'See ' },
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: url } }],
+              text: url,
+            },
+            { type: 'text', text: ' today' },
           ],
         },
       ],

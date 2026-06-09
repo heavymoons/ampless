@@ -125,6 +125,7 @@ describe('AmplessYoutubeNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
@@ -135,6 +136,7 @@ describe('AmplessYoutubeNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
@@ -145,6 +147,7 @@ describe('AmplessYoutubeNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
@@ -157,6 +160,23 @@ describe('AmplessYoutubeNode.parseHTML', () => {
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: 'watch this',
+      parentElement: null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns false when the link sits inside a <p> (= prose context — deferred to tag:p rule)', () => {
+    // Prose like `<p>Watch <a href=URL>URL</a> today</p>` must NOT promote
+    // the inline autolink to a block embed — that would split the paragraph.
+    // The single-link-paragraph case is handled by the `tag: 'p'` rule above,
+    // so reaching here with parent <p> means the paragraph is mixed prose
+    // and the link should stay an inline Link mark.
+    const url = 'https://youtu.be/dQw4w9WgXcQ'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'P' },
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
@@ -248,6 +268,37 @@ describe('AmplessYoutubeNode.parseHTML', () => {
               marks: [{ type: 'link', attrs: { href: 'https://youtu.be/dQw4w9WgXcQ' } }],
               text: 'watch this',
             },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('leaves an autolink inside mixed prose as an inline Link mark, not a block embed', () => {
+    // `<p>Watch <a href=URL>URL</a> today</p>` (= the GFM autolink inside
+    // prose case): the URL link text DOES equal href, but promoting it to
+    // a block embed would split the paragraph mid-sentence. The
+    // `tag: 'p'` rule rejects this paragraph (mixed prose), and the
+    // `tag: 'a[href]'` rule sees parent <p> and also rejects, so the link
+    // stays an inline Link mark surrounded by the paragraph's other text.
+    const doc = generateJSON(
+      '<p>Watch <a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a> today</p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Watch ' },
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://youtu.be/dQw4w9WgXcQ' } }],
+              text: 'https://youtu.be/dQw4w9WgXcQ',
+            },
+            { type: 'text', text: ' today' },
           ],
         },
       ],

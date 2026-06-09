@@ -107,14 +107,21 @@ export const AmplessTweetNode = Node.create({
       },
       {
         // Bare-URL `<a>` standalone (outside a single-link `<p>`). Mirrors the
-        // markdown-side `extractSingleUrl` rule from PR #258: only intercept
-        // when the link's visible text equals its href — `[caption](url)` /
-        // `<a href="https://x.com/.../status/...">caption</a>` should stay a
-        // normal captioned Link, not silently swallow the caption into an embed.
+        // markdown-side `extractSingleUrl` rule from PR #258 on two axes:
+        //   1. Only intercept when the link's visible text equals its href —
+        //      `<a href="https://x.com/.../status/...">caption</a>` stays a
+        //      captioned Link, not silently swallowed into an embed.
+        //   2. Only intercept when the link is NOT inside a `<p>`. The
+        //      `tag: 'p'` rule above already handles single-link paragraphs;
+        //      if it didn't match, the parent paragraph is mixed prose
+        //      (e.g. `<p>See <a href=URL>URL</a> today</p>`) where the
+        //      autolink must stay an inline Link mark, not get promoted to
+        //      a block embed that would split the paragraph mid-sentence.
         tag: 'a[href]',
         priority: 100,
         getAttrs: (el) => {
           const link = el as HTMLElement
+          if (link.parentElement?.tagName.toLowerCase() === 'p') return false
           const href = link.getAttribute('href')?.trim() ?? ''
           if (!href) return false
           const linkText = link.textContent?.trim() ?? ''
