@@ -6,10 +6,11 @@
 //
 // Also exports `installAdminTiptapNodeMarkdown` /
 // `getAdminTiptapNodeMarkdown` for the tiptap → markdown lossless
-// serialisation registry. The codegen'd `_editor-bootstrap.tsx` calls
-// `installAdminTiptapNodeMarkdown` with the adapters exported by each
-// plugin's `./editor` module so the admin's format-switch can
-// round-trip embed nodes (e.g. amplessYoutube → bare YouTube URL).
+// serialisation registry, and `installAdminTiptapNodeHtml` /
+// `getAdminTiptapNodeHtml` for the tiptap → html lossless serialisation
+// registry. The codegen'd `_editor-bootstrap.tsx` calls both installs
+// with the adapters exported by each plugin's `./editor` module so the
+// admin's format-switch can round-trip embed nodes.
 //
 // The internal modules live at `src/editor/admin-*.ts` so tsup's
 // `entry: ['src/editor.ts']` emits `dist/editor.js` matching the
@@ -23,3 +24,7 @@ export {
   installAdminTiptapNodeMarkdown,
   getAdminTiptapNodeMarkdown,
 } from './editor/admin-node-markdown.js'
+export {
+  installAdminTiptapNodeHtml,
+  getAdminTiptapNodeHtml,
+} from './editor/admin-node-html.js'

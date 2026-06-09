@@ -1,39 +1,10 @@
 'use client'
 
 import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import Link from '@tiptap/extension-link'
-import Image from '@tiptap/extension-image'
-import { Table } from '@tiptap/extension-table'
-import { TableRow } from '@tiptap/extension-table-row'
-import { TableHeader } from '@tiptap/extension-table-header'
-import { TableCell } from '@tiptap/extension-table-cell'
-import { TaskList } from '@tiptap/extension-task-list'
-import { TaskItem } from '@tiptap/extension-task-item'
-import { Underline } from '@tiptap/extension-underline'
-import { Highlight } from '@tiptap/extension-highlight'
-import { TextAlign } from '@tiptap/extension-text-align'
 import { Toolbar } from './toolbar.js'
 import { ImageBubbleMenu } from './image-bubble-menu.js'
 import { getAdminEditorExtensions } from './admin-editor-extensions.js'
-
-// Extend the Image extension with a per-image `display` attribute
-// ("inline" | "lightbox" | null). null means "fall back to cms.config".
-const AmplessImage = Image.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      display: {
-        default: null,
-        parseHTML: (el) => el.getAttribute('data-display'),
-        renderHTML: (attrs) => {
-          const v = attrs.display as string | null
-          return v ? { 'data-display': v } : {}
-        },
-      },
-    }
-  },
-})
+import { BASE_TIPTAP_EXTENSIONS } from './base-extensions.js'
 
 // Inline styles for ProseMirror-rendered tiptap content inside the
 // editor. The public-facing rendering lives in templates (typically via
@@ -142,18 +113,7 @@ export function TiptapEditor({ initialContent, onChange, onUserEdit }: TiptapEdi
   const installed = getAdminEditorExtensions()
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false }),
-      AmplessImage.configure({ inline: false, allowBase64: false }),
-      Table.configure({ resizable: true, HTMLAttributes: { class: 'tiptap-table' } }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Underline,
-      Highlight.configure({ multicolor: false }),
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      ...BASE_TIPTAP_EXTENSIONS,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...(installed as readonly any[]),
     ],

@@ -678,7 +678,7 @@ async function regenerateEditorBootstrap(
   lines.push('// editor extension, add / remove the corresponding @ampless/plugin-...')
   lines.push('// entry in your project\'s package.json (and register it in cms.config.ts')
   lines.push('// for runtime).', '')
-  lines.push("import { installAdminEditorExtensions, installAdminTiptapNodeMarkdown } from '@ampless/admin/editor'")
+  lines.push("import { installAdminEditorExtensions, installAdminTiptapNodeMarkdown, installAdminTiptapNodeHtml } from '@ampless/admin/editor'")
 
   const identifiers: string[] = []
   const seen = new Map<string, string>()   // ident → packageName, for collision detection
@@ -712,6 +712,7 @@ async function regenerateEditorBootstrap(
     // 0 plugin の場合は inline 形 (= testability + 視認性)
     lines.push('  installAdminEditorExtensions([])')
     lines.push('  installAdminTiptapNodeMarkdown([])')
+    lines.push('  installAdminTiptapNodeHtml([])')
   } else {
     lines.push('  installAdminEditorExtensions([')
     for (const id of identifiers) lines.push(`    ${id}.editorExtension,`)
@@ -722,6 +723,9 @@ async function regenerateEditorBootstrap(
     // silently because JS object literals deduplicate keys.
     lines.push('  installAdminTiptapNodeMarkdown([')
     for (const id of identifiers) lines.push(`    ${id}.tiptapNodeToMarkdown ?? {},`)
+    lines.push('  ])')
+    lines.push('  installAdminTiptapNodeHtml([')
+    for (const id of identifiers) lines.push(`    ${id}.tiptapNodeToHtml ?? {},`)
     lines.push('  ])')
   }
   lines.push('  return <>{children}</>')

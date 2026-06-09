@@ -59,6 +59,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.2.4
         version: 1.2.4(@types/react@19.2.15)(react@19.2.6)
+      '@tiptap/core':
+        specifier: ^3.23.6
+        version: 3.23.6(@tiptap/pm@3.23.6)
       '@tiptap/extension-highlight':
         specifier: ^3.23.6
         version: 3.23.6(@tiptap/core@3.23.6(@tiptap/pm@3.23.6))

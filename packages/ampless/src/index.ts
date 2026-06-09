@@ -96,6 +96,8 @@ export type {
   TiptapRenderNode,
   TiptapNodeToMarkdown,
   TiptapNodeMarkdownAdapters,
+  TiptapNodeToHtml,
+  TiptapNodeHtmlAdapters,
   MarkdownEmbedMatch,
   PublicPostScriptDescriptor,
 } from './plugin.js'

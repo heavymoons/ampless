@@ -14,12 +14,6 @@ import {
   type StaticPostBody,
   type ContentFormat,
 } from 'ampless'
-import {
-  tiptapToHtml,
-  tiptapToMarkdown,
-  markdownToHtml,
-  htmlToMarkdown,
-} from '@ampless/runtime'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
@@ -48,6 +42,11 @@ import {
 } from '../lib/post-draft.js'
 import { getAdminCmsConfig } from '../lib/admin-config-client.js'
 import { getAdminTiptapNodeMarkdown } from '../editor/admin-node-markdown.js'
+import { getAdminTiptapNodeHtml } from '../editor/admin-node-html.js'
+import { getAdminEditorExtensions } from '../editor/admin-editor-extensions.js'
+import { BASE_TIPTAP_EXTENSIONS } from '../editor/base-extensions.js'
+import { convertBodyFormat } from '../editor/format-switch.js'
+import type { AnyExtension } from '@tiptap/core'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -407,38 +406,20 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     if (next === 'static' || format === 'static') {
       nextBody = defaultBodyForFormat(next)
     } else {
-      const k = `${format}→${next}` as
-        | 'tiptap→html'
-        | 'tiptap→markdown'
-        | 'html→tiptap'
-        | 'html→markdown'
-        | 'markdown→tiptap'
-        | 'markdown→html'
-      switch (k) {
-        case 'tiptap→html':
-          nextBody = tiptapToHtml(body)
-          break
-        case 'tiptap→markdown':
-          nextBody = tiptapToMarkdown(body, { nodeAdapters: getAdminTiptapNodeMarkdown() })
-          break
-        case 'html→tiptap':
-          // Tiptap parses HTML strings on mount.
-          nextBody = String(body ?? '')
-          break
-        case 'markdown→tiptap':
-          nextBody = markdownToHtml(String(body ?? ''))
-          break
-        case 'html→markdown':
-          nextBody = htmlToMarkdown(String(body ?? ''))
-          break
-        case 'markdown→html':
-          nextBody = markdownToHtml(String(body ?? ''))
-          break
-        default:
-          // Unreachable for the formats we expose, but reset to a
-          // sensible default if a new format is introduced later.
-          nextBody = defaultBodyForFormat(next)
-      }
+      nextBody = convertBodyFormat(body, format, next, {
+        markdownAdapters: getAdminTiptapNodeMarkdown(),
+        htmlAdapters: getAdminTiptapNodeHtml(),
+        // BASE_TIPTAP_EXTENSIONS carries real tiptap classes;
+        // getAdminEditorExtensions() returns the structural-typed registry
+        // (`TiptapExtensionLike[]`), but at runtime its entries are
+        // genuine tiptap Node/Mark/Extension instances installed by the
+        // plugin codegen. Bridge to the nominal `AnyExtension[]` here so
+        // the cast lives in one place (the registry boundary).
+        editorExtensions: [
+          ...BASE_TIPTAP_EXTENSIONS,
+          ...(getAdminEditorExtensions() as readonly unknown[] as readonly AnyExtension[]),
+        ],
+      })
     }
 
     setFormat(next)

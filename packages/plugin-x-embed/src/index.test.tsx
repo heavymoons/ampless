@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import { generateJSON, Mark, Node } from '@tiptap/core'
 import xEmbedPlugin from './index.js'
-import { AmplessTweetNode, tiptapNodeToMarkdown } from './editor.js'
+import { AmplessTweetNode, tiptapNodeToMarkdown, tiptapNodeToHtml } from './editor.js'
 
 const TestDocument = Node.create({
   name: 'doc',
@@ -340,5 +340,43 @@ describe('AmplessTweetNode.parseHTML', () => {
         },
       ],
     })
+  })
+})
+
+describe('tiptapNodeToHtml adapter (amplessTweet)', () => {
+  const adapter = tiptapNodeToHtml['amplessTweet']!
+
+  it('returns the placeholder div for a valid tweetId', () => {
+    const result = adapter({ type: 'amplessTweet', attrs: { tweetId: '2063778809632235750' } })
+    expect(typeof result).toBe('string')
+    expect(result).toContain('data-ampless-tweet')
+    expect(result).toContain('data-tweet-id="2063778809632235750"')
+    expect(result).toContain('class="ampless-tweet-placeholder"')
+  })
+
+  it('returns null when tweetId is empty (falls through to default switch)', () => {
+    expect(adapter({ type: 'amplessTweet', attrs: { tweetId: '' } })).toBeNull()
+    expect(adapter({ type: 'amplessTweet', attrs: {} })).toBeNull()
+    expect(adapter({ type: 'amplessTweet' })).toBeNull()
+  })
+})
+
+describe('html ↔ tiptap round-trip integration (amplessTweet)', () => {
+  it('placeholder div → tiptap node → placeholder div round-trips losslessly', () => {
+    const canonical =
+      '<div data-ampless-tweet data-tweet-id="2063778809632235750" class="ampless-tweet-placeholder"><span>Tweet: 2063778809632235750</span></div>'
+    // Round 1: HTML → tiptap (parseHTML)
+    const doc = generateJSON(canonical, htmlParseExtensions)
+    const node = doc.content?.[0]
+    expect(node).toEqual({
+      type: 'amplessTweet',
+      attrs: { tweetId: '2063778809632235750' },
+    })
+    // Round 2: tiptap node → HTML (adapter called directly, no runtime dep)
+    const adapter = tiptapNodeToHtml['amplessTweet']!
+    const html2 = adapter(node)
+    expect(typeof html2).toBe('string')
+    // Re-round 1: HTML → tiptap, same Node back?
+    expect(generateJSON(html2!, htmlParseExtensions)).toEqual(doc)
   })
 })
