@@ -1,8 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runUpgradeIn } from './upgrade.js'
+
+// Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
+// without hitting the network. The mock is configured per-test via mockImplementation.
+// Existing tests that pass `noInstall: true` are unaffected: none of their project
+// deps are user-installed @ampless/* packages (the only @ampless/* entry is
+// @ampless/admin which is in the template deps and therefore skipped by
+// bumpUserAmplessPlugins).
+vi.mock('execa', () => ({
+  execa: vi.fn(async (cmd: string, args: string[]) => {
+    // Default: simulate `npm install` success (no stdout needed)
+    if (cmd === 'npm' || cmd === 'pnpm') return { stdout: '', stderr: '' }
+    throw new Error(`Unexpected execa call: ${cmd} ${args.join(' ')}`)
+  }),
+}))
 
 // Minimal valid ampless project package.json for test sites
 function makeProjectPkg(extra: Record<string, unknown> = {}): string {
@@ -817,5 +831,83 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
 
     expect(existsSync(join(projectDir, 'lib', 'my-custom-helper.ts'))).toBe(true)
     expect(result.obsoleteRemoved).not.toContain('lib/my-custom-helper.ts')
+  })
+
+  // 8. bumpUserAmplessPlugins: user-installed @ampless/* not in template → bumped to @alpha
+  it('bumps a user-installed @ampless/* plugin not present in the template to latest @alpha', async () => {
+    // Add a user-installed plugin not in the template's deps
+    const pkgWithPlugin = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    pkgWithPlugin.dependencies['@ampless/plugin-youtube'] = '1.0.0-alpha.4'
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkgWithPlugin, null, 2) + '\n')
+
+    // Mock `npm view @ampless/plugin-youtube@alpha version` → '1.0.0-alpha.5'
+    const { execa: mockedExeca } = await import('execa')
+    vi.mocked(mockedExeca).mockImplementation((async (cmd: string, args: string[]) => {
+      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@alpha') {
+        return { stdout: '1.0.0-alpha.5', stderr: '' } as any
+      }
+      // All other calls (install, other npm view) succeed silently
+      return { stdout: '', stderr: '' } as any
+    }) as any)
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    const afterPkg = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    expect(afterPkg.dependencies['@ampless/plugin-youtube']).toBe('^1.0.0-alpha.5')
+    expect(result.userPluginsBumped).toBe(1)
+  })
+
+  // 9. bumpUserAmplessPlugins: template-managed @ampless/* dep → NOT bumped by this helper
+  it('does not re-bump @ampless/* packages that are already managed by the template sync', async () => {
+    // @ampless/admin is in the template's deps — mergePackageJson sync owns its version.
+    // bumpUserAmplessPlugins must skip it entirely.
+    const pkgBefore = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    const adminVersionBefore = pkgBefore.dependencies['@ampless/admin']
+
+    // Ensure execa is NOT called for @ampless/admin
+    const { execa: mockedExeca } = await import('execa')
+    const viewCalls: string[] = []
+    vi.mocked(mockedExeca).mockImplementation((async (cmd: string, args: string[]) => {
+      if (cmd === 'npm' && args[0] === 'view') viewCalls.push(args[1] ?? '')
+      return { stdout: '', stderr: '' } as any
+    }) as any)
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    // @ampless/admin must NOT appear in viewCalls (= bumpUserAmplessPlugins skipped it)
+    expect(viewCalls.some((a) => a.startsWith('@ampless/admin'))).toBe(false)
+
+    // Version in package.json comes from template sync (mergePackageJson), not from npm view
+    const pkgAfter = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    // Template has @ampless/admin at ^0.2.0-alpha.6; that's what mergePackageJson wrote
+    expect(pkgAfter.dependencies['@ampless/admin']).toBe('^0.2.0-alpha.6')
+    // Confirm it changed from the original project value (^0.1.0-alpha.0) — the template sync worked
+    expect(pkgAfter.dependencies['@ampless/admin']).not.toBe(adminVersionBefore)
+  })
+
+  // 10. bumpUserAmplessPlugins: npm view failure → warn + skip, existing pin unchanged
+  it('warns and leaves existing pin unchanged when npm view fails for a user plugin', async () => {
+    // Add a user-installed plugin not in the template
+    const pkgWithPlugin = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    pkgWithPlugin.dependencies['@ampless/plugin-youtube'] = '1.0.0-alpha.4'
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkgWithPlugin, null, 2) + '\n')
+
+    // Mock npm view to throw (simulates offline / package not found)
+    const { execa: mockedExeca } = await import('execa')
+    vi.mocked(mockedExeca).mockImplementation((async (cmd: string, args: string[]) => {
+      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@alpha') {
+        throw new Error('network timeout')
+      }
+      return { stdout: '', stderr: '' } as any
+    }) as any)
+
+    // Should NOT throw — failures are non-fatal
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    // Existing pin must be unchanged
+    const afterPkg = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    expect(afterPkg.dependencies['@ampless/plugin-youtube']).toBe('1.0.0-alpha.4')
+    // Nothing bumped
+    expect(result.userPluginsBumped).toBe(0)
   })
 })
