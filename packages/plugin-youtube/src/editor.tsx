@@ -118,26 +118,27 @@ export const AmplessYoutubeNode = Node.create({
         },
       },
       {
-        // Bare-URL `<a>` standalone (outside a single-link `<p>`). Mirrors the
-        // markdown-side `extractSingleUrl` rule from PR #258 on two axes:
-        //   1. Only intercept when the link's visible text equals its href —
-        //      `<a href="https://youtu.be/abc">caption</a>` stays a captioned
-        //      Link, not silently swallowed into an embed.
-        //   2. Only intercept when the link is NOT inside a `<p>`. The
-        //      `tag: 'p'` rule above already handles single-link paragraphs;
-        //      if it didn't match, the parent paragraph is mixed prose
-        //      (e.g. `<p>Watch <a href=URL>URL</a> today</p>`) where the
-        //      autolink must stay an inline Link mark, not get promoted to
-        //      a block embed that would split the paragraph mid-sentence.
+        // Bare-URL `<a>` (outside the `tag: 'p'` single-link-paragraph rule
+        // above). Mirrors the markdown-side `extractSingleUrl` rule from
+        // PR #258 on two axes:
+        //   1. Link text equals href — `<a href="URL">caption</a>` stays
+        //      a captioned Link, not silently swallowed into an embed.
+        //   2. The link is the **only** meaningful content of its parent
+        //      block. Without this, in-prose autolinks like
+        //      `<p>/<div>/<li> Watch <a href=URL>URL</a> today` would be
+        //      promoted to block embeds and split their parent mid-sentence.
+        //      The single-link `<p>` case is handled by the `tag: 'p'` rule
+        //      above; this guard catches the same case for non-<p> parents.
         tag: 'a[href]',
         priority: 100,
         getAttrs: (el) => {
           const link = el as HTMLElement
-          if (link.parentElement?.tagName.toLowerCase() === 'p') return false
           const href = link.getAttribute('href')?.trim() ?? ''
           if (!href) return false
           const linkText = link.textContent?.trim() ?? ''
           if (linkText !== href) return false
+          const parent = link.parentElement
+          if (parent && parent.textContent?.trim() !== linkText) return false
           const videoId = parseYoutubeUrl(href)
           if (!videoId) return false
           return { videoId, start: null }

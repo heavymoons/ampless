@@ -178,20 +178,55 @@ describe('AmplessTweetNode.parseHTML', () => {
     expect(linkRule?.getAttrs(el)).toBe(false)
   })
 
-  it('returns false when the link sits inside a <p> (= prose context — deferred to tag:p rule)', () => {
-    // Prose like `<p>See <a href=URL>URL</a> today</p>` must NOT promote the
-    // inline autolink to a block embed — that would split the paragraph.
-    // The single-link-paragraph case is handled by the `tag: 'p'` rule above,
-    // so reaching here with parent <p> means the paragraph is mixed prose
-    // and the link should stay an inline Link mark.
+  it('returns false when parent <p> is mixed prose (= autolink mid-sentence)', () => {
+    // `<p>See <a href=URL>URL</a> today</p>` — the single-link <p> case is
+    // handled by the tag:'p' rule above, so reaching here with a <p>
+    // parent whose textContent ≠ linkText means the paragraph is mixed
+    // prose. Promoting the autolink to a block embed would split the
+    // paragraph mid-sentence; it must stay an inline Link mark.
     const url = 'https://x.com/ishinao/status/2063778809632235750'
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
-      parentElement: { tagName: 'P' },
+      parentElement: { tagName: 'P', textContent: `See ${url} today` },
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns false when a non-<p> parent (e.g. <div>, <li>) is mixed prose', () => {
+    // Same in-prose autolink case as above, but for non-<p> block parents.
+    // `linkText === href` alone isn't enough — we also need the link to be
+    // the only meaningful content of its parent block, otherwise
+    // `<div>See <a href=URL>URL</a> today</div>` (or <li>, <blockquote>,
+    // etc.) would be promoted to a block embed and split its parent.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const elInDiv = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'DIV', textContent: `See ${url} today` },
+    }
+    expect(linkRule?.getAttrs(elInDiv)).toBe(false)
+
+    const elInLi = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'LI', textContent: `Watch ${url}` },
+    }
+    expect(linkRule?.getAttrs(elInLi)).toBe(false)
+  })
+
+  it('returns attrs when a non-<p> parent contains only this link (= standalone)', () => {
+    // Sanity: `<div><a href=URL>URL</a></div>` (or any block container
+    // whose sole meaningful content is the bare URL link) — promotion
+    // to embed is still correct.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'DIV', textContent: url },
+    }
+    expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
   })
 
   it('has priority 100 to beat the Link mark', () => {
