@@ -1147,19 +1147,39 @@ Two adapters fix both directions:
 | `tiptapNodeToMarkdown`| `tiptap → markdown`               | bare URL line (e.g. `https://youtu.be/<id>`) |
 | `tiptapNodeToHtml`    | `tiptap → html`, `markdown → html`| canonical placeholder div |
 
-The four canonical embed representations are:
+The three canonical body representations across format-switch are:
 
 | Format   | Canonical form |
 | -------- | -------------- |
 | tiptap   | `{ type: 'amplessYoutube', attrs: { videoId, start } }` Node |
 | markdown | bare `https://youtu.be/<id>` URL line |
 | html     | `<div data-ampless-youtube data-video-id="<id>" …>…</div>` |
-| public   | `<iframe src="https://www.youtube.com/embed/<id>" …>` via `publicHtmlForPost` |
 
-The placeholder div is the canonical HTML form: it is what `Node.renderHTML`
-emits, what `Node.parseHTML`'s `tag: 'div[data-ampless-*]'` rule restores
-from, and what `publicHtmlForPost` expands to the real iframe at public
-render time (concept separation preserved).
+The placeholder div is the canonical HTML form for **admin format-switch
+interop only**: it is what `Node.renderHTML` emits, and what
+`Node.parseHTML`'s `tag: 'div[data-ampless-*]'` rule restores from, so
+that switching `tiptap ↔ markdown ↔ html` in the admin preserves embeds
+losslessly.
+
+**Public render of `format: 'html'` posts does NOT expand the
+placeholder.** Public render paths are format-specific: tiptap posts go
+through the React walker that consults the `contentFields.tiptap`
+registry (= real iframe for `amplessYoutube` Nodes); markdown posts go
+through the markdown walker that consults `contentFields.markdownUrl`
+(= real iframe for bare URL paragraphs); html posts pass through as raw
+HTML (`htmlPassthroughBlock`). For an html-format post that contains a
+placeholder div, the public page shows the literal placeholder, not an
+iframe — `publicHtmlForPost` only emits `beforeContent` / `afterContent`
+slots and does not transform the body.
+
+If you want the embed to render publicly, save the post as `tiptap` or
+`markdown` (= the format-switch round-trip restores the embed Node /
+bare URL line, then the matching public walker emits the iframe). The
+`html` format is treated as **raw HTML written by an engineer who wants
+full control** — the placeholder is a format-switch round-trip artefact,
+not a renderable embed reference. A future capability could add a public
+html walker that expands `data-ampless-*` placeholders to iframes; see
+the follow-up note at the end of this section.
 
 #### Adapter contract
 
@@ -1219,6 +1239,27 @@ a 2-hop:
 This means your plugin only needs to export the `tiptap → html` adapter once;
 the `markdown → html` direction reuses it automatically through tiptap's parse
 rules. **No duplicate logic is needed.**
+
+#### Follow-up: public html walker (not implemented)
+
+To make `format: 'html'` posts render placeholder divs as real iframes
+on the public page, a future capability would walk the saved html body
+on render, look up the `data-ampless-*` flag, and replace the placeholder
+with the registered plugin's React renderer (same renderer that
+`contentFields.tiptap` already uses for tiptap posts). Sketch:
+
+- New plugin capability `contentFields.html` keyed on the placeholder
+  flag attribute (e.g. `data-ampless-youtube`), returning a React node
+  from the parsed div's attribute set.
+- Runtime: `renderBody` for `format: 'html'` parses the body, walks
+  `[data-ampless-*]` divs, replaces each with the registered renderer's
+  output, and emits the rest as raw HTML.
+- Server-side HTML parsing in runtime (currently absent — would need
+  to pick a small parser like `parse5` or `htmlparser2`).
+
+Out of scope for the current PR (tracked as a separate proposal). For
+now, html-format posts treat placeholders as raw HTML and authors who
+want public iframes should save as `tiptap` or `markdown`.
 
 ### Markdown to tiptap restoration
 

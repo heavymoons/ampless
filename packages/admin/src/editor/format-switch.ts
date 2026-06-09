@@ -15,15 +15,20 @@ import {
   markdownToHtml,
   htmlToMarkdown,
 } from '@ampless/runtime'
-import { generateJSON } from '@tiptap/core'
-import type { TiptapExtensionLike } from './admin-editor-extensions.js'
+import { generateJSON, type AnyExtension } from '@tiptap/core'
 
 type ConvertibleFormat = Exclude<ContentFormat, 'static'>
 
 export interface FormatSwitchRegistries {
   markdownAdapters: TiptapNodeMarkdownAdapters
   htmlAdapters: TiptapNodeHtmlAdapters
-  editorExtensions: readonly TiptapExtensionLike[]
+  // Use tiptap's AnyExtension (the union of Extension / Node / Mark) so
+  // BASE_TIPTAP_EXTENSIONS + getAdminEditorExtensions() compose into a
+  // single typed list. The structural `TiptapExtensionLike` shape used by
+  // `installAdminEditorExtensions` doesn't satisfy tiptap's nominal types,
+  // so the call site casts on the way in (= boundary between the
+  // structural registry API and the nominal tiptap world).
+  editorExtensions: readonly AnyExtension[]
 }
 
 /**
@@ -70,8 +75,10 @@ export function convertBodyFormat(
       // the embed plugins' Node.parseHTML rule promotes it to the embed
       // Node, then the html adapter serialises to the placeholder div.
       const html1 = markdownToHtml(String(body ?? ''))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const doc = generateJSON(html1, registries.editorExtensions as readonly any[])
+      // generateJSON wants a mutable AnyExtension[] — spread the readonly
+      // registry into a fresh array to satisfy the signature without
+      // exposing the live list to mutation.
+      const doc = generateJSON(html1, [...registries.editorExtensions])
       return tiptapToHtml(doc, { nodeAdapters: registries.htmlAdapters })
     }
     case 'tiptap→markdown':

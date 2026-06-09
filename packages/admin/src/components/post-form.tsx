@@ -46,6 +46,7 @@ import { getAdminTiptapNodeHtml } from '../editor/admin-node-html.js'
 import { getAdminEditorExtensions } from '../editor/admin-editor-extensions.js'
 import { BASE_TIPTAP_EXTENSIONS } from '../editor/base-extensions.js'
 import { convertBodyFormat } from '../editor/format-switch.js'
+import type { AnyExtension } from '@tiptap/core'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -408,7 +409,16 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       nextBody = convertBodyFormat(body, format, next, {
         markdownAdapters: getAdminTiptapNodeMarkdown(),
         htmlAdapters: getAdminTiptapNodeHtml(),
-        editorExtensions: [...BASE_TIPTAP_EXTENSIONS, ...getAdminEditorExtensions()],
+        // BASE_TIPTAP_EXTENSIONS carries real tiptap classes;
+        // getAdminEditorExtensions() returns the structural-typed registry
+        // (`TiptapExtensionLike[]`), but at runtime its entries are
+        // genuine tiptap Node/Mark/Extension instances installed by the
+        // plugin codegen. Bridge to the nominal `AnyExtension[]` here so
+        // the cast lives in one place (the registry boundary).
+        editorExtensions: [
+          ...BASE_TIPTAP_EXTENSIONS,
+          ...(getAdminEditorExtensions() as readonly unknown[] as readonly AnyExtension[]),
+        ],
       })
     }
 

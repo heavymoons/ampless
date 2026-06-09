@@ -66,7 +66,26 @@ const FakeEmbedNode = Node.create({
     return {
       url: {
         default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-url') ?? '',
+        // Same shape as the real youtube/x-embed plugins:
+        // (1) prefer the self-render `data-url` attribute, (2) fall back
+        // to walking the matched element for a bare URL link so the
+        // `tag: 'p'` rule's getAttrs value isn't clobbered by an empty
+        // string when tiptap re-runs addAttributes.parseHTML on the same
+        // <p> element.
+        parseHTML: (el: HTMLElement) => {
+          const dataUrl = el.getAttribute('data-url')
+          if (dataUrl != null) return dataUrl
+          // Walk for a single <a> child whose text === href, matching
+          // the tag:'p' rule's bare-URL shape.
+          const children = Array.from(el.children)
+          if (children.length !== 1) return ''
+          const link = children[0] as HTMLElement
+          if (link.tagName.toLowerCase() !== 'a') return ''
+          const href = link.getAttribute('href')?.trim() ?? ''
+          if (!href.startsWith('https://fake.example.com/')) return ''
+          if (link.textContent?.trim() !== href) return ''
+          return href
+        },
         renderHTML: (attrs) => ({ 'data-url': String(attrs.url ?? '') }),
       },
     }
