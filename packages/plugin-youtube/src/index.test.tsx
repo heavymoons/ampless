@@ -1,6 +1,67 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect } from 'vitest'
+import { generateJSON, Mark, Node } from '@tiptap/core'
 import youtubePlugin from './index.js'
 import { AmplessYoutubeNode, tiptapNodeToMarkdown } from './editor.js'
+
+const TestDocument = Node.create({
+  name: 'doc',
+  topNode: true,
+  content: 'block+',
+})
+
+const TestParagraph = Node.create({
+  name: 'paragraph',
+  group: 'block',
+  content: 'inline*',
+  parseHTML() {
+    return [{ tag: 'p' }]
+  },
+  renderHTML() {
+    return ['p', 0]
+  },
+})
+
+const TestText = Node.create({
+  name: 'text',
+  group: 'inline',
+})
+
+const TestLink = Mark.create({
+  name: 'link',
+  priority: 50,
+  addAttributes() {
+    return {
+      href: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute('href'),
+      },
+    }
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'a[href]',
+        getAttrs: (el) => {
+          const href = (el as HTMLElement).getAttribute('href')
+          return href ? { href } : false
+        },
+      },
+    ]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['a', HTMLAttributes, 0]
+  },
+})
+
+const htmlParseExtensions = [
+  TestDocument,
+  TestParagraph,
+  TestText,
+  TestLink,
+  AmplessYoutubeNode,
+]
 
 describe('youtubePlugin name', () => {
   it('uses simple identifier as default name', () => {
@@ -51,5 +112,81 @@ describe('tiptapNodeToMarkdown adapter (amplessYoutube)', () => {
     expect(adapter({ type: 'amplessYoutube', attrs: { videoId: '' } })).toBeNull()
     expect(adapter({ type: 'amplessYoutube', attrs: {} })).toBeNull()
     expect(adapter({ type: 'amplessYoutube' })).toBeNull()
+  })
+})
+
+describe('AmplessYoutubeNode.parseHTML', () => {
+  const rules =
+    (AmplessYoutubeNode.config as any).parseHTML?.call({ name: 'amplessYoutube' }) ?? []
+  const linkRule = rules.find((rule: { tag?: string }) => rule.tag === 'a[href]')
+
+  it('returns attrs for a canonical youtu.be URL', () => {
+    const el = {
+      getAttribute: (name: string) =>
+        name === 'href' ? 'https://youtu.be/dQw4w9WgXcQ' : null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
+  })
+
+  it('returns attrs for a youtube.com/watch URL', () => {
+    const el = {
+      getAttribute: (name: string) =>
+        name === 'href' ? 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' : null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
+  })
+
+  it('returns false for a non-YouTube URL', () => {
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? 'https://example.com/foo' : null),
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('has priority 100 to beat the Link mark', () => {
+    expect(linkRule?.priority).toBe(100)
+  })
+
+  it('restores a bare URL link paragraph to an embed node during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'amplessYoutube',
+          attrs: { videoId: 'dQw4w9WgXcQ', start: null },
+        },
+      ],
+    })
+  })
+
+  it('leaves non-YouTube links as normal link-marked text during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://example.com/foo">https://example.com/foo</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://example.com/foo' } }],
+              text: 'https://example.com/foo',
+            },
+          ],
+        },
+      ],
+    })
   })
 })

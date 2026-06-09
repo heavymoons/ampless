@@ -21,6 +21,29 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { parseYoutubeUrl, YOUTUBE_URL } from './shared.js'
 
+function getBareUrlLinkHref(el: HTMLElement): string | null {
+  if (el.tagName.toLowerCase() === 'a') {
+    return el.getAttribute('href')
+  }
+
+  if (el.tagName.toLowerCase() !== 'p') return null
+  const children = Array.from(el.children)
+  if (children.length !== 1) return null
+
+  const link = children[0]
+  if (!(link instanceof HTMLElement)) return null
+  if (link.tagName.toLowerCase() !== 'a') return null
+
+  const href = link.getAttribute('href')?.trim()
+  if (!href) return null
+
+  const linkText = link.textContent?.trim()
+  if (linkText !== href) return null
+  if (el.textContent?.trim() !== linkText) return null
+
+  return href
+}
+
 declare module '@tiptap/core' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface Commands<ReturnType> {
@@ -46,7 +69,13 @@ export const AmplessYoutubeNode = Node.create({
     return {
       videoId: {
         default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-video-id') ?? '',
+        parseHTML: (el: HTMLElement) => {
+          const dataVideoId = el.getAttribute('data-video-id')
+          if (dataVideoId != null) return dataVideoId
+
+          const href = getBareUrlLinkHref(el)
+          return href ? (parseYoutubeUrl(href) ?? '') : ''
+        },
         renderHTML: (attrs: Record<string, unknown>) => ({
           'data-video-id': String(attrs.videoId ?? ''),
         }),
@@ -68,6 +97,26 @@ export const AmplessYoutubeNode = Node.create({
     return [
       {
         tag: 'div[data-ampless-youtube]',
+      },
+      {
+        tag: 'p',
+        priority: 100,
+        getAttrs: (el) => {
+          const href = getBareUrlLinkHref(el as HTMLElement) ?? ''
+          const videoId = parseYoutubeUrl(href)
+          if (!videoId) return false
+          return { videoId, start: null }
+        },
+      },
+      {
+        tag: 'a[href]',
+        priority: 100,
+        getAttrs: (el) => {
+          const href = (el as HTMLElement).getAttribute('href') ?? ''
+          const videoId = parseYoutubeUrl(href)
+          if (!videoId) return false
+          return { videoId, start: null }
+        },
       },
     ]
   },

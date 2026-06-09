@@ -1,6 +1,67 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect } from 'vitest'
+import { generateJSON, Mark, Node } from '@tiptap/core'
 import xEmbedPlugin from './index.js'
 import { AmplessTweetNode, tiptapNodeToMarkdown } from './editor.js'
+
+const TestDocument = Node.create({
+  name: 'doc',
+  topNode: true,
+  content: 'block+',
+})
+
+const TestParagraph = Node.create({
+  name: 'paragraph',
+  group: 'block',
+  content: 'inline*',
+  parseHTML() {
+    return [{ tag: 'p' }]
+  },
+  renderHTML() {
+    return ['p', 0]
+  },
+})
+
+const TestText = Node.create({
+  name: 'text',
+  group: 'inline',
+})
+
+const TestLink = Mark.create({
+  name: 'link',
+  priority: 50,
+  addAttributes() {
+    return {
+      href: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute('href'),
+      },
+    }
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'a[href]',
+        getAttrs: (el) => {
+          const href = (el as HTMLElement).getAttribute('href')
+          return href ? { href } : false
+        },
+      },
+    ]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['a', HTMLAttributes, 0]
+  },
+})
+
+const htmlParseExtensions = [
+  TestDocument,
+  TestParagraph,
+  TestText,
+  TestLink,
+  AmplessTweetNode,
+]
 
 describe('xEmbedPlugin name', () => {
   it('uses simple identifier as default name', () => {
@@ -63,5 +124,81 @@ describe('tiptapNodeToMarkdown adapter (amplessTweet)', () => {
     expect(adapter({ type: 'amplessTweet', attrs: { tweetId: '' } })).toBeNull()
     expect(adapter({ type: 'amplessTweet', attrs: {} })).toBeNull()
     expect(adapter({ type: 'amplessTweet' })).toBeNull()
+  })
+})
+
+describe('AmplessTweetNode.parseHTML', () => {
+  const rules =
+    (AmplessTweetNode.config as any).parseHTML?.call({ name: 'amplessTweet' }) ?? []
+  const linkRule = rules.find((rule: { tag?: string }) => rule.tag === 'a[href]')
+
+  it('returns attrs for a canonical x.com URL', () => {
+    const el = {
+      getAttribute: (name: string) =>
+        name === 'href' ? 'https://x.com/ishinao/status/2063778809632235750' : null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
+  })
+
+  it('returns attrs for a twitter.com URL', () => {
+    const el = {
+      getAttribute: (name: string) =>
+        name === 'href' ? 'https://twitter.com/ishinao/status/2063778809632235750' : null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
+  })
+
+  it('returns false for a non-tweet URL', () => {
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? 'https://example.com/foo' : null),
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('has priority 100 to beat the Link mark', () => {
+    expect(linkRule?.priority).toBe(100)
+  })
+
+  it('restores a bare URL link paragraph to an embed node during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://x.com/ishinao/status/2063778809632235750">https://x.com/ishinao/status/2063778809632235750</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'amplessTweet',
+          attrs: { tweetId: '2063778809632235750' },
+        },
+      ],
+    })
+  })
+
+  it('leaves non-tweet links as normal link-marked text during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://example.com/foo">https://example.com/foo</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://example.com/foo' } }],
+              text: 'https://example.com/foo',
+            },
+          ],
+        },
+      ],
+    })
   })
 })

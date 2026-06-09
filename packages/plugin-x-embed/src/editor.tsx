@@ -19,6 +19,29 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { parseTweetUrl, TWEET_URL } from './shared.js'
 
+function getBareUrlLinkHref(el: HTMLElement): string | null {
+  if (el.tagName.toLowerCase() === 'a') {
+    return el.getAttribute('href')
+  }
+
+  if (el.tagName.toLowerCase() !== 'p') return null
+  const children = Array.from(el.children)
+  if (children.length !== 1) return null
+
+  const link = children[0]
+  if (!(link instanceof HTMLElement)) return null
+  if (link.tagName.toLowerCase() !== 'a') return null
+
+  const href = link.getAttribute('href')?.trim()
+  if (!href) return null
+
+  const linkText = link.textContent?.trim()
+  if (linkText !== href) return null
+  if (el.textContent?.trim() !== linkText) return null
+
+  return href
+}
+
 declare module '@tiptap/core' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface Commands<ReturnType> {
@@ -45,7 +68,13 @@ export const AmplessTweetNode = Node.create({
     return {
       tweetId: {
         default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-tweet-id') ?? '',
+        parseHTML: (el: HTMLElement) => {
+          const dataTweetId = el.getAttribute('data-tweet-id')
+          if (dataTweetId != null) return dataTweetId
+
+          const href = getBareUrlLinkHref(el)
+          return href ? (parseTweetUrl(href) ?? '') : ''
+        },
         renderHTML: (attrs: Record<string, unknown>) => ({
           'data-tweet-id': String(attrs.tweetId ?? ''),
         }),
@@ -56,6 +85,26 @@ export const AmplessTweetNode = Node.create({
     return [
       {
         tag: 'div[data-ampless-tweet]',
+      },
+      {
+        tag: 'p',
+        priority: 100,
+        getAttrs: (el) => {
+          const href = getBareUrlLinkHref(el as HTMLElement) ?? ''
+          const tweetId = parseTweetUrl(href)
+          if (!tweetId) return false
+          return { tweetId }
+        },
+      },
+      {
+        tag: 'a[href]',
+        priority: 100,
+        getAttrs: (el) => {
+          const href = (el as HTMLElement).getAttribute('href') ?? ''
+          const tweetId = parseTweetUrl(href)
+          if (!tweetId) return false
+          return { tweetId }
+        },
       },
     ]
   },

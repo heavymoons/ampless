@@ -1104,6 +1104,24 @@ export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
 inside a client component. The admin's `<TiptapEditor>` spreads the
 registered list onto its built-in extensions on every render.
 
+### Markdown to tiptap restoration
+
+If an editor Node serializes to markdown as a bare URL line, the reverse
+direction must be handled by `Node.parseHTML()`, not by paste rules. The
+admin's `markdown → tiptap` format switch first converts markdown to HTML;
+GFM autolinks emit a bare URL line as
+`<p><a href="https://...">https://...</a></p>`, then tiptap parses that
+HTML into a document. Paste rules only run for user paste / typing events,
+so they do not fire on this HTML parse path.
+
+Embed-style Nodes should add a high-priority parse rule for the paragraph
+shape above, and may also add an `a[href]` rule for other HTML-to-tiptap
+paths. The paragraph rule should only match when the paragraph contains a
+single link whose text equals its `href`; that lets the parser replace the
+whole paragraph with the block embed Node instead of leaving an empty
+paragraph before the embed. `getAttrs` should validate the URL and return
+`false` for non-matching links so the normal Link mark remains in place.
+
 ### Active source and full disable
 
 **The active source for editor wiring is `package.json#dependencies`**
