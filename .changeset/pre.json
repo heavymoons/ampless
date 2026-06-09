@@ -114,6 +114,7 @@
     "plugin-hook-result-reservation",
     "plugin-name-simple-identifier",
     "plugin-namespace-and-key-allowlist",
+    "plugin-paste-rule-g-flag",
     "plugin-phase1-descriptor-injection",
     "plugin-phase2-admin-settings",
     "plugin-phase3a-gtm-plausible",
