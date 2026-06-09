@@ -47,6 +47,7 @@ import {
   type DraftDecision,
 } from '../lib/post-draft.js'
 import { getAdminCmsConfig } from '../lib/admin-config-client.js'
+import { getAdminTiptapNodeMarkdown } from '../editor/admin-node-markdown.js'
 
 type PostFormView = 'edit' | 'preview'
 
@@ -417,7 +418,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
           nextBody = tiptapToHtml(body)
           break
         case 'tiptap→markdown':
-          nextBody = tiptapToMarkdown(body)
+          nextBody = tiptapToMarkdown(body, { nodeAdapters: getAdminTiptapNodeMarkdown() })
           break
         case 'html→tiptap':
           // Tiptap parses HTML strings on mount.

@@ -147,3 +147,23 @@ export const youtubeEditor = {
  * auto-wiring to find them.
  */
 export const editorExtension = AmplessYoutubeNode
+
+import type { TiptapNodeMarkdownAdapters } from 'ampless'
+
+/**
+ * tiptap → markdown adapter map. Serialises `amplessYoutube` nodes back
+ * to a bare `https://youtu.be/<videoId>` URL line so the admin's
+ * "format: tiptap → markdown" body switch is lossless. The reverse
+ * direction (URL → embed node on paste) is handled by the existing paste
+ * rule + `extractSingleUrl` path in the runtime.
+ *
+ * `update-ampless` reads this export (via namespace import `* as`) and
+ * wires it into `installAdminTiptapNodeMarkdown`.
+ */
+export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = {
+  amplessYoutube: (node) => {
+    const videoId = String(node.attrs?.videoId ?? '').trim()
+    if (!videoId) return null
+    return `https://youtu.be/${videoId}`
+  },
+}

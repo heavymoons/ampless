@@ -665,17 +665,21 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
 
     // Must contain AUTO-GENERATED banner
     expect(content).toContain('AUTO-GENERATED')
-    // Must import both plugins' editorExtension
-    expect(content).toContain("from '@ampless/plugin-x-embed/editor'")
-    expect(content).toContain("from '@ampless/plugin-youtube/editor'")
+    // Must import both plugins via namespace import
+    expect(content).toContain("import * as __ampless_plugin_x_embed_editor from '@ampless/plugin-x-embed/editor'")
+    expect(content).toContain("import * as __ampless_plugin_youtube_editor from '@ampless/plugin-youtube/editor'")
     // localeCompare order: x-embed < youtube
     const xIdx = content.indexOf('@ampless/plugin-x-embed/editor')
     const ytIdx = content.indexOf('@ampless/plugin-youtube/editor')
     expect(xIdx).toBeLessThan(ytIdx)
-    // installAdminEditorExtensions called with both identifiers
+    // installAdminEditorExtensions called with .editorExtension access
     expect(content).toContain('installAdminEditorExtensions([')
-    expect(content).toContain('__ampless_plugin_x_embed_editor')
-    expect(content).toContain('__ampless_plugin_youtube_editor')
+    expect(content).toContain('__ampless_plugin_x_embed_editor.editorExtension,')
+    expect(content).toContain('__ampless_plugin_youtube_editor.editorExtension,')
+    // installAdminTiptapNodeMarkdown called with spread of .tiptapNodeToMarkdown ?? {}
+    expect(content).toContain('installAdminTiptapNodeMarkdown({')
+    expect(content).toContain('...(__ampless_plugin_x_embed_editor.tiptapNodeToMarkdown ?? {}),')
+    expect(content).toContain('...(__ampless_plugin_youtube_editor.tiptapNodeToMarkdown ?? {}),')
     // Result reports the count
     expect(result.editorExtensionsWired).toBe(2)
   })
@@ -690,8 +694,9 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
 
     // Must contain AUTO-GENERATED banner
     expect(content).toContain('AUTO-GENERATED')
-    // Inline (not multiline) empty install
+    // Inline (not multiline) empty installs
     expect(content).toContain('installAdminEditorExtensions([])')
+    expect(content).toContain('installAdminTiptapNodeMarkdown({})')
     // Placeholder comment from template must NOT be present
     expect(content).not.toContain('Placeholder for fresh scaffolds')
     // Result reports 0
@@ -713,6 +718,7 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
     expect(content).not.toContain("from 'react'")
     expect(content).not.toContain("from 'next'")
     expect(content).toContain('installAdminEditorExtensions([])')
+    expect(content).toContain('installAdminTiptapNodeMarkdown({})')
     expect(result.editorExtensionsWired).toBe(0)
   })
 })

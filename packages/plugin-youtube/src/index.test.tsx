@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import youtubePlugin from './index.js'
-import { AmplessYoutubeNode } from './editor.js'
+import { AmplessYoutubeNode, tiptapNodeToMarkdown } from './editor.js'
 
 describe('youtubePlugin name', () => {
   it('uses simple identifier as default name', () => {
@@ -37,4 +37,19 @@ it('paste rule regex matches a canonical URL via matchAll and captures the video
   expect(matches.length).toBe(1)
   // youtu.be → match[2]; youtube.com/watch?v= → match[1]
   expect(matches[0][1] ?? matches[0][2]).toBe('dQw4w9WgXcQ')
+})
+
+describe('tiptapNodeToMarkdown adapter (amplessYoutube)', () => {
+  const adapter = tiptapNodeToMarkdown['amplessYoutube']!
+
+  it('returns the bare youtu.be URL for a valid videoId', () => {
+    expect(adapter({ type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ' } }))
+      .toBe('https://youtu.be/dQw4w9WgXcQ')
+  })
+
+  it('returns null when videoId is empty (falls through to default switch)', () => {
+    expect(adapter({ type: 'amplessYoutube', attrs: { videoId: '' } })).toBeNull()
+    expect(adapter({ type: 'amplessYoutube', attrs: {} })).toBeNull()
+    expect(adapter({ type: 'amplessYoutube' })).toBeNull()
+  })
 })

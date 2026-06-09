@@ -841,6 +841,37 @@ export interface TiptapRenderNode {
   text?: string
 }
 
+// --- tiptap → markdown lossless serialisation (Phase 7 add-on) ---
+//
+// Plugins that ship an embed tiptap node (e.g. `amplessYoutube`) can
+// also supply a `tiptapNodeToMarkdown` map from their `./editor` module
+// so that the admin's "format: tiptap → markdown" body switch can
+// losslessly serialise those nodes back to a bare URL line.
+//
+// The reverse direction (bare URL → embed node on markdown paste) is
+// handled by the existing paste rule + `extractSingleUrl` path in the
+// runtime — this map covers only the tiptap → markdown direction.
+//
+// `update-ampless` reads `tiptapNodeToMarkdown ?? {}` from each
+// plugin's editor namespace import and wires the combined map into the
+// admin via `installAdminTiptapNodeMarkdown`.
+
+/**
+ * Adapter that converts a single tiptap node back to its markdown form.
+ * Plugins that ship an embed node (e.g. amplessYoutube → bare YouTube URL)
+ * export a map from nodeType to adapter from their `./editor` module
+ * (named export `tiptapNodeToMarkdown`); `update-ampless` wires the map
+ * into `installAdminTiptapNodeMarkdown` so the admin's
+ * `tiptap → markdown` format switch can losslessly serialise the embed
+ * (the round-trip back to tiptap goes through markdown's bare-URL paste
+ * rule + `extractSingleUrl` in the runtime).
+ *
+ * Return `null` (or simply omit the nodeType from the map) to fall
+ * through to the runtime's default markdown switch.
+ */
+export type TiptapNodeToMarkdown = (node: TiptapRenderNode) => string | null
+export type TiptapNodeMarkdownAdapters = Readonly<Record<string, TiptapNodeToMarkdown>>
+
 /**
  * Match object passed to a `contentFields` `markdown-url` renderer. The
  * runtime walks the markdown body via `marked.lexer`, tests the trimmed

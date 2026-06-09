@@ -489,3 +489,84 @@ describe('htmlToMarkdown: new tag handling', () => {
     expect(md).toContain('- [ ] todo')
   })
 })
+
+// --- tiptapToMarkdown opts.nodeAdapters ---
+
+describe('tiptapToMarkdown: opts.nodeAdapters', () => {
+  const makeDoc = (type: string, attrs?: Record<string, unknown>) => ({
+    type: 'doc',
+    content: [{ type, attrs }],
+  })
+
+  it('no opts (backward compat): unknown atom node falls through with empty children', () => {
+    // amplessYoutube is an atom node — without an adapter it has no content,
+    // so the default switch falls through with children = '' (= empty string).
+    // The resulting trimmed output is effectively empty.
+    const doc = makeDoc('amplessYoutube', { videoId: 'abc' })
+    const md = tiptapToMarkdown(doc)
+    // Should NOT contain the video id — it's silently dropped in the old path.
+    expect(md).not.toContain('abc')
+  })
+
+  it('adapter returning a string emits a bare URL line wrapped in blank lines (within surrounding content)', () => {
+    // Test with surrounding paragraphs to verify blank lines survive
+    // (the top-level trim() strips leading/trailing whitespace, so we
+    //  need surrounding content to validate the inter-node blank lines).
+    const doc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'before' }] },
+        { type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ' } },
+        { type: 'paragraph', content: [{ type: 'text', text: 'after' }] },
+      ],
+    }
+    const md = tiptapToMarkdown(doc, {
+      nodeAdapters: {
+        amplessYoutube: (node) => {
+          const id = String(node.attrs?.videoId ?? '').trim()
+          return id ? `https://youtu.be/${id}` : null
+        },
+      },
+    })
+    // Bare URL present
+    expect(md).toContain('https://youtu.be/dQw4w9WgXcQ')
+    // Surrounded by blank lines so extractSingleUrl can pick it up as a
+    // standalone paragraph on the round-trip back to tiptap.
+    const lines = md.split('\n')
+    const urlLineIdx = lines.findIndex((l) => l === 'https://youtu.be/dQw4w9WgXcQ')
+    expect(urlLineIdx).toBeGreaterThan(-1)
+    expect(lines[urlLineIdx - 1]).toBe('')  // blank line before URL
+    expect(lines[urlLineIdx + 1]).toBe('')  // blank line after URL
+    // Surrounding paragraphs also present
+    expect(md).toContain('before')
+    expect(md).toContain('after')
+  })
+
+  it('adapter returning null falls through to the default switch (children)', () => {
+    // A paragraph node with an adapter that returns null — should use
+    // the default paragraph handling (children + \\n\\n).
+    const doc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+      ],
+    }
+    const md = tiptapToMarkdown(doc, {
+      nodeAdapters: {
+        // returning null → fall through to default switch
+        paragraph: () => null,
+      },
+    })
+    expect(md).toContain('hello')
+  })
+
+  it('no opts empty call produces the same output as calling with empty adapter map', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'world' }] },
+      ],
+    }
+    expect(tiptapToMarkdown(doc)).toBe(tiptapToMarkdown(doc, { nodeAdapters: {} }))
+  })
+})

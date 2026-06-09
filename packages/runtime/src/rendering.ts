@@ -10,6 +10,7 @@ import type {
   MarkdownEmbedMatch,
   PluginPublicRenderContext,
   Post,
+  TiptapNodeMarkdownAdapters,
   TiptapRenderNode,
 } from 'ampless'
 
@@ -580,6 +581,13 @@ export function markdownToHtml(md: string): string {
  * shape but produces markdown syntax. Loses anything markdown can't
  * express (data attributes, image display modes, custom marks).
  *
+ * `opts.nodeAdapters` lets callers supply per-nodeType serialisers —
+ * the admin post-form passes the registry populated by
+ * `installAdminTiptapNodeMarkdown` so that plugin-registered embed nodes
+ * (e.g. `amplessYoutube`) are serialised to bare URL lines instead of
+ * falling through with empty children. Callers that omit `opts` get the
+ * original behaviour unchanged.
+ *
  * Notes on info loss:
  * - underline / highlight are not in GFM, so they fall back to the
  *   literal `<u>` / `<mark>` HTML tags (preserved as-is across round trips).
@@ -590,13 +598,37 @@ export function markdownToHtml(md: string): string {
  * hasn't emitted JSON yet (the body is still the HTML we handed it).
  * Route through htmlToMarkdown so the content survives.
  */
-export function tiptapToMarkdown(doc: unknown): string {
+export function tiptapToMarkdown(
+  doc: unknown,
+  opts?: { nodeAdapters?: TiptapNodeMarkdownAdapters },
+): string {
   if (typeof doc === 'string') return htmlToMarkdown(doc)
   const node = doc as TiptapNode
-  return tiptapNodeToMarkdown(node).trim() + '\n'
+  return tiptapNodeToMarkdown(node, opts ?? {}).trim() + '\n'
 }
 
-function tiptapNodeToMarkdown(node: TiptapNode): string {
+function tiptapNodeToMarkdown(
+  node: TiptapNode,
+  opts: { nodeAdapters?: TiptapNodeMarkdownAdapters },
+): string {
+  // **Adapter first**: if a plugin registered a tiptap→markdown adapter
+  // for this nodeType, prefer its output. Atom nodes (e.g. amplessYoutube)
+  // would otherwise fall through the default switch with empty children,
+  // silently dropping the embed when the operator switches format
+  // tiptap → markdown in the admin.
+  const adapter = opts.nodeAdapters?.[node.type]
+  if (adapter) {
+    const out = adapter(node as TiptapRenderNode)
+    if (typeof out === 'string') {
+      // bare URL lines need surrounding blank lines so they survive as a
+      // standalone paragraph — extractSingleUrl on the round-trip side
+      // only intercepts single-token paragraphs.
+      return '\n' + out + '\n\n'
+    }
+    // out === null means the adapter explicitly defers to the default
+    // switch below (= plugin says "use the built-in handling").
+  }
+
   if (node.type === 'text') {
     let txt = node.text ?? ''
     for (const mark of node.marks ?? []) {
@@ -610,7 +642,7 @@ function tiptapNodeToMarkdown(node: TiptapNode): string {
     }
     return txt
   }
-  const children = (node.content ?? []).map(tiptapNodeToMarkdown).join('')
+  const children = (node.content ?? []).map((c) => tiptapNodeToMarkdown(c, opts)).join('')
   switch (node.type) {
     case 'doc':
       return children
@@ -650,7 +682,7 @@ function tiptapNodeToMarkdown(node: TiptapNode): string {
       return `![${alt}](${src})`
     }
     case 'table':
-      return tiptapTableToMarkdown(node)
+      return tiptapTableToMarkdown(node, opts)
     case 'taskList':
       return children + '\n'
     case 'taskItem': {
@@ -666,7 +698,10 @@ function tiptapNodeToMarkdown(node: TiptapNode): string {
   }
 }
 
-function tiptapTableToMarkdown(node: TiptapNode): string {
+function tiptapTableToMarkdown(
+  node: TiptapNode,
+  opts: { nodeAdapters?: TiptapNodeMarkdownAdapters },
+): string {
   const rows = node.content ?? []
   if (rows.length === 0) return ''
   const renderedRows: string[][] = []
@@ -675,7 +710,7 @@ function tiptapTableToMarkdown(node: TiptapNode): string {
     const row = rows[i]!
     const cells = row.content ?? []
     const cellTexts = cells.map((c) => {
-      const inner = (c.content ?? []).map(tiptapNodeToMarkdown).join('')
+      const inner = (c.content ?? []).map((n) => tiptapNodeToMarkdown(n, opts)).join('')
       // セル内の改行は GFM 慣行に従い <br> に置換、パイプはエスケープ。
       return inner.replace(/\n+$/, '').replace(/\n/g, '<br>').replace(/\|/g, '\\|')
     })
