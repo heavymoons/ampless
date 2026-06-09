@@ -11,6 +11,7 @@ import type {
   PluginPublicRenderContext,
   Post,
   TiptapNodeMarkdownAdapters,
+  TiptapNodeHtmlAdapters,
   TiptapRenderNode,
 } from 'ampless'
 
@@ -49,7 +50,23 @@ function textAlignStyle(attrs: Record<string, unknown> | undefined): string {
 
 // ---- HTML-string tiptap renderer (used by legacy sync path + format converters) ----
 
-function renderTiptapString(node: TiptapNode): string {
+function renderTiptapString(
+  node: TiptapNode,
+  opts?: { nodeAdapters?: TiptapNodeHtmlAdapters },
+): string {
+  // **Adapter first**: if a plugin registered a tiptap→html adapter for this
+  // nodeType, prefer its output. Atom nodes (e.g. amplessYoutube) would
+  // otherwise fall through the default switch with empty children, silently
+  // dropping the embed when the operator switches format tiptap → html in the
+  // admin.
+  const adapter = opts?.nodeAdapters?.[node.type]
+  if (adapter) {
+    const out = adapter(node as TiptapRenderNode)
+    if (typeof out === 'string') return out
+    // out === null means the adapter explicitly defers to the default
+    // switch below (= plugin says "use the built-in handling").
+  }
+
   if (node.type === 'text') {
     let html = escape(node.text ?? '')
     for (const mark of node.marks ?? []) {
@@ -67,7 +84,7 @@ function renderTiptapString(node: TiptapNode): string {
     return html
   }
 
-  const children = (node.content ?? []).map(renderTiptapString).join('')
+  const children = (node.content ?? []).map((c) => renderTiptapString(c, opts)).join('')
 
   switch (node.type) {
     case 'doc':
@@ -565,10 +582,20 @@ export function renderBodyHtmlString(post: Post): string {
  * markdown without editing) can still hand us a raw HTML string
  * here. In that case, return it as-is rather than walking it as a
  * malformed tiptap node and producing empty output.
+ *
+ * `opts.nodeAdapters` lets callers supply per-nodeType serialisers —
+ * the admin post-form passes the registry populated by
+ * `installAdminTiptapNodeHtml` so that plugin-registered embed nodes
+ * (e.g. `amplessYoutube`) are serialised to placeholder div strings
+ * instead of falling through with empty children. Callers that omit
+ * `opts` get the original behaviour unchanged.
  */
-export function tiptapToHtml(doc: unknown): string {
+export function tiptapToHtml(
+  doc: unknown,
+  opts?: { nodeAdapters?: TiptapNodeHtmlAdapters },
+): string {
   if (typeof doc === 'string') return doc
-  return renderTiptapString(doc as TiptapNode)
+  return renderTiptapString(doc as TiptapNode, opts)
 }
 
 /** Convert markdown to HTML using marked + GFM. */

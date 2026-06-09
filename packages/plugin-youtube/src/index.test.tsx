@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import { generateJSON, Mark, Node } from '@tiptap/core'
 import youtubePlugin from './index.js'
-import { AmplessYoutubeNode, tiptapNodeToMarkdown } from './editor.js'
+import { AmplessYoutubeNode, tiptapNodeToMarkdown, tiptapNodeToHtml } from './editor.js'
 
 const TestDocument = Node.create({
   name: 'doc',
@@ -325,5 +325,70 @@ describe('AmplessYoutubeNode.parseHTML', () => {
         },
       ],
     })
+  })
+})
+
+describe('tiptapNodeToHtml adapter (amplessYoutube)', () => {
+  const adapter = tiptapNodeToHtml['amplessYoutube']!
+
+  it('returns the placeholder div for a valid videoId', () => {
+    const result = adapter({ type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ', start: null } })
+    expect(typeof result).toBe('string')
+    expect(result).toContain('data-ampless-youtube')
+    expect(result).toContain('data-video-id="dQw4w9WgXcQ"')
+    expect(result).toContain('class="ampless-youtube-placeholder"')
+  })
+
+  it('returns null when videoId is empty (falls through to default switch)', () => {
+    expect(adapter({ type: 'amplessYoutube', attrs: { videoId: '', start: null } })).toBeNull()
+    expect(adapter({ type: 'amplessYoutube', attrs: {} })).toBeNull()
+    expect(adapter({ type: 'amplessYoutube' })).toBeNull()
+  })
+
+  it('includes data-start when start attr is a finite number', () => {
+    const result = adapter({ type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ', start: 42 } })
+    expect(result).toContain('data-start="42"')
+  })
+
+  it('omits data-start when start attr is null', () => {
+    const result = adapter({ type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ', start: null } })
+    expect(result).not.toContain('data-start')
+  })
+})
+
+describe('html ↔ tiptap round-trip integration (amplessYoutube)', () => {
+  it('placeholder div → tiptap node → placeholder div round-trips losslessly', () => {
+    const canonical =
+      '<div data-ampless-youtube data-video-id="dQw4w9WgXcQ" class="ampless-youtube-placeholder"><span>YouTube: dQw4w9WgXcQ</span></div>'
+    // Round 1: HTML → tiptap (parseHTML)
+    const doc = generateJSON(canonical, htmlParseExtensions)
+    const node = doc.content?.[0]
+    expect(node).toEqual({
+      type: 'amplessYoutube',
+      attrs: { videoId: 'dQw4w9WgXcQ', start: null },
+    })
+    // Round 2: tiptap node → HTML (adapter called directly, no runtime dep)
+    const adapter = tiptapNodeToHtml['amplessYoutube']!
+    const html2 = adapter(node)
+    expect(typeof html2).toBe('string')
+    // Re-round 1: HTML → tiptap, same Node back?
+    expect(generateJSON(html2!, htmlParseExtensions)).toEqual(doc)
+  })
+
+  it('round-trip preserves the start attr (YouTube ?t=<sec> variant)', () => {
+    // A placeholder div that includes data-start="30" must parse back to a
+    // node with start: 30 and re-serialise with data-start="30".
+    const canonical =
+      '<div data-ampless-youtube data-video-id="dQw4w9WgXcQ" data-start="30" class="ampless-youtube-placeholder"><span>YouTube: dQw4w9WgXcQ</span></div>'
+    const doc = generateJSON(canonical, htmlParseExtensions)
+    const node = doc.content?.[0]
+    expect(node).toEqual({
+      type: 'amplessYoutube',
+      attrs: { videoId: 'dQw4w9WgXcQ', start: 30 },
+    })
+    const adapter = tiptapNodeToHtml['amplessYoutube']!
+    const html2 = adapter(node)
+    expect(html2).toContain('data-start="30"')
+    expect(generateJSON(html2!, htmlParseExtensions)).toEqual(doc)
   })
 })

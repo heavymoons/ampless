@@ -93,6 +93,43 @@ describe('tiptapToHtml', () => {
   it('returns the string verbatim when handed a string body', () => {
     expect(tiptapToHtml('<p>a</p>')).toBe('<p>a</p>')
   })
+
+  it('consults nodeAdapters opts: adapter output is returned directly', () => {
+    // Verifies the runtime adapter-consultation path — that tiptapToHtml
+    // accepts opts.nodeAdapters and calls the adapter for matching nodeTypes.
+    // No embed-plugin-specific assumptions; just validates the consultation
+    // mechanism is wired correctly.
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'foo', attrs: { x: 'bar' } }],
+    }
+    const result = tiptapToHtml(doc, { nodeAdapters: { foo: () => '<bar/>' } })
+    expect(result).toBe('<bar/>')
+  })
+
+  it('consults nodeAdapters opts: empty string is valid adapter output (not treated as null)', () => {
+    // The plan constraint: `if (typeof out === 'string') return out` — NOT a
+    // truthy check. An adapter that returns '' means "emit nothing for this
+    // node", which is distinct from null (= "fall through to default switch").
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'foo', attrs: {} }],
+    }
+    const result = tiptapToHtml(doc, { nodeAdapters: { foo: () => '' } })
+    expect(result).toBe('')
+  })
+
+  it('falls through to default switch when adapter returns null', () => {
+    // An adapter that returns null means "use the built-in handling".
+    // For an unknown type the default switch returns children (empty for atom).
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'unknownAtom', attrs: {} }],
+    }
+    // null → fall through → default: return children → empty
+    const result = tiptapToHtml(doc, { nodeAdapters: { unknownAtom: () => null } })
+    expect(result).toBe('')
+  })
 })
 
 // --- Added: marked-based markdown coverage ---

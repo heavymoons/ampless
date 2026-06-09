@@ -58,6 +58,34 @@ declare module '@tiptap/core' {
   }
 }
 
+/**
+ * Returns the canonical flat attribute dictionary for a tweet embed
+ * placeholder div. Used by both `Node.renderHTML` (consumed via
+ * `mergeAttributes` → DOMOutputSpec array) and `tiptapNodeToHtml`
+ * (HTML-encoded into a `<div ...>` string). Single source of truth for
+ * the attribute set the parseHTML `tag: 'div[data-ampless-tweet]'`
+ * rule restores from.
+ */
+function placeholderAttrs(attrs: { tweetId?: unknown }): Record<string, string> {
+  return {
+    'data-ampless-tweet': '',
+    'data-tweet-id': String(attrs.tweetId ?? ''),
+    class: 'ampless-tweet-placeholder',
+  }
+}
+
+/** HTML-escape a single attribute value (prevents attribute injection). */
+function escapeAttr(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Serialise a flat attribute dict to an HTML attribute string. */
+function attrsToHtmlString(attrs: Record<string, string>): string {
+  return Object.entries(attrs)
+    .map(([k, v]) => (v === '' ? k : `${k}="${escapeAttr(v)}"`))
+    .join(' ')
+}
+
 export const AmplessTweetNode = Node.create({
   name: 'amplessTweet',
   group: 'block',
@@ -143,10 +171,9 @@ export const AmplessTweetNode = Node.create({
   renderHTML({ HTMLAttributes }) {
     return [
       'div',
-      mergeAttributes(HTMLAttributes, {
-        'data-ampless-tweet': '',
-        class: 'ampless-tweet-placeholder',
-      }),
+      mergeAttributes(HTMLAttributes, placeholderAttrs({
+        tweetId: HTMLAttributes['data-tweet-id'],
+      })),
       ['span', {}, `Tweet: ${HTMLAttributes['data-tweet-id'] ?? ''}`],
     ]
   },
@@ -233,5 +260,31 @@ export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = {
     const tweetId = String(node.attrs?.tweetId ?? '').trim()
     if (!tweetId) return null
     return `https://x.com/i/status/${tweetId}`
+  },
+}
+
+import type { TiptapNodeHtmlAdapters } from 'ampless'
+
+/**
+ * tiptap → html adapter map. Serialises `amplessTweet` nodes to the
+ * canonical placeholder div `<div data-ampless-tweet data-tweet-id="..."
+ * class="ampless-tweet-placeholder">…</div>` so the admin's
+ * "format: tiptap → html" body switch is lossless. The div is what
+ * `Node.parseHTML`'s `tag: 'div[data-ampless-tweet]'` rule restores
+ * from, and what `publicHtmlForPost` expands to the real tweet embed at
+ * public render time (concept separation preserved).
+ *
+ * `markdown → html` is a 2-hop via `generateJSON` (in admin format-switch);
+ * this adapter is reused by that path — no duplicate logic needed.
+ *
+ * `update-ampless` reads this export (via namespace import `* as`) and
+ * wires it into `installAdminTiptapNodeHtml`.
+ */
+export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
+  amplessTweet: (node) => {
+    const tweetId = String(node.attrs?.tweetId ?? '').trim()
+    if (!tweetId) return null
+    const attrs = placeholderAttrs(node.attrs ?? {})
+    return `<div ${attrsToHtmlString(attrs)}><span>Tweet: ${escapeAttr(tweetId)}</span></div>`
   },
 }

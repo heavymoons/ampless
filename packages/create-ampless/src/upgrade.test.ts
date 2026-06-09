@@ -700,6 +700,10 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
     // Must NOT use the spread-into-object form
     expect(content).not.toContain('installAdminTiptapNodeMarkdown({')
     expect(content).not.toContain('...(__ampless_plugin_')
+    // installAdminTiptapNodeHtml called with an **array of maps** (same pattern)
+    expect(content).toContain('installAdminTiptapNodeHtml([')
+    expect(content).toContain('__ampless_plugin_x_embed_editor.tiptapNodeToHtml ?? {},')
+    expect(content).toContain('__ampless_plugin_youtube_editor.tiptapNodeToHtml ?? {},')
     // Result reports the count
     expect(result.editorExtensionsWired).toBe(2)
   })
@@ -717,6 +721,7 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
     // Inline (not multiline) empty installs
     expect(content).toContain('installAdminEditorExtensions([])')
     expect(content).toContain('installAdminTiptapNodeMarkdown([])')
+    expect(content).toContain('installAdminTiptapNodeHtml([])')
     // Placeholder comment from template must NOT be present
     expect(content).not.toContain('Placeholder for fresh scaffolds')
     // Result reports 0
@@ -739,6 +744,7 @@ describe('runUpgradeIn — editor bootstrap codegen', () => {
     expect(content).not.toContain("from 'next'")
     expect(content).toContain('installAdminEditorExtensions([])')
     expect(content).toContain('installAdminTiptapNodeMarkdown([])')
+    expect(content).toContain('installAdminTiptapNodeHtml([])')
     expect(result.editorExtensionsWired).toBe(0)
   })
 })

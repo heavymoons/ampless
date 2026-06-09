@@ -873,6 +873,30 @@ export type TiptapNodeToMarkdown = (node: TiptapRenderNode) => string | null
 export type TiptapNodeMarkdownAdapters = Readonly<Record<string, TiptapNodeToMarkdown>>
 
 /**
+ * Adapter that converts a single tiptap node to its canonical HTML placeholder
+ * div form. Plugins that ship an embed node (e.g. amplessYoutube →
+ * `<div data-ampless-youtube data-video-id="...">…</div>`) export a map from
+ * nodeType to adapter from their `./editor` module (named export
+ * `tiptapNodeToHtml`); `update-ampless` wires the map into
+ * `installAdminTiptapNodeHtml` so the admin's `tiptap → html` format switch
+ * can losslessly serialise the embed to the canonical placeholder div form.
+ *
+ * The canonical div is what tiptap's `Node.renderHTML` emits, what the
+ * `Node.parseHTML` `tag: 'div[data-ampless-*]'` rule restores from, and what
+ * `publicHtmlForPost` expands to the real iframe at public render time (concept
+ * separation preserved).
+ *
+ * The `markdown → html` direction is a 2-hop via `generateJSON(...)` so
+ * plugins only need to export the `tiptap → html` adapter; the markdown side
+ * reuses it via tiptap's parseHTML rules (no duplicate logic).
+ *
+ * Return `null` (or simply omit the nodeType from the map) to fall through to
+ * the runtime's default HTML switch.
+ */
+export type TiptapNodeToHtml = (node: TiptapRenderNode) => string | null
+export type TiptapNodeHtmlAdapters = Readonly<Record<string, TiptapNodeToHtml>>
+
+/**
  * Match object passed to a `contentFields` `markdown-url` renderer. The
  * runtime walks the markdown body via `marked.lexer`, tests the trimmed
  * single-line URL of each `paragraph` token against the registered
