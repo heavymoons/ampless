@@ -205,6 +205,11 @@ export interface UpgradeResult {
    * `_editor-bootstrap.tsx` by `regenerateEditorBootstrap`.
    */
   editorExtensionsWired?: number
+  /**
+   * Number of user-installed `@ampless/*` plugin packages bumped to
+   * the latest `@alpha` dist-tag by `bumpUserAmplessPlugins`.
+   */
+  userPluginsBumped?: number
 }
 
 interface FileClassification {
@@ -533,6 +538,72 @@ function detectIndent(jsonStr: string): number {
 }
 
 // ----------------------------------------------------------------------------
+// User-installed @ampless/* plugin bump
+// ----------------------------------------------------------------------------
+
+interface BumpResult {
+  bumped: Array<{ name: string; from: string; to: string }>
+  warnings: string[]
+}
+
+/**
+ * Walk the project's `dependencies` and, for every `@ampless/*` entry
+ * that is **not** present in the template's deps (= user-installed opt-in
+ * plugin, not a template-managed core package), resolve the latest
+ * `@alpha` dist-tag version via `npm view` and rewrite the project's pin
+ * to `^<resolved>`.
+ *
+ * Caller is responsible for re-writing `package.json` when `bumped` is
+ * non-empty, and for surfacing `warnings` via `log.warn`.
+ * Network failures are non-fatal: warn + skip.
+ */
+async function bumpUserAmplessPlugins(
+  destDir: string,
+  projectPkg: { dependencies?: Record<string, string> },
+  templatePkg: { dependencies?: Record<string, string> },
+): Promise<BumpResult> {
+  const result: BumpResult = { bumped: [], warnings: [] }
+  const deps = projectPkg.dependencies ?? {}
+  const templateDeps = templatePkg.dependencies ?? {}
+
+  for (const pkgName of Object.keys(deps)) {
+    // Only @ampless/* (= first-party scope)
+    if (!pkgName.startsWith('@ampless/')) continue
+    // Skip if template already has it (= existing mergePackageJson sync owns this version)
+    if (pkgName in templateDeps) continue
+
+    // Resolve latest @alpha version via npm registry
+    let latest: string
+    try {
+      const { stdout } = await execa('npm', ['view', `${pkgName}@alpha`, 'version'], {
+        cwd: destDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      latest = stdout.trim()
+    } catch (e) {
+      result.warnings.push(
+        `${pkgName}: failed to resolve @alpha version (${e instanceof Error ? e.message : String(e)}). Leaving the existing pin in package.json.`,
+      )
+      continue
+    }
+    if (!latest) {
+      result.warnings.push(`${pkgName}: npm view returned empty version. Skipping bump.`)
+      continue
+    }
+
+    // Caret form matches template style (e.g. "^1.0.0-alpha.75")
+    const target = `^${latest}`
+    const current = deps[pkgName]!
+    if (current === target) continue  // already in sync
+
+    deps[pkgName] = target
+    result.bumped.push({ name: pkgName, from: current, to: target })
+  }
+
+  return result
+}
+
+// ----------------------------------------------------------------------------
 // Editor bootstrap codegen
 // ----------------------------------------------------------------------------
 
@@ -846,6 +917,17 @@ export async function runUpgradeIn(
 
   await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
 
+  // 7b. Bump user-installed @ampless/* plugins (not in template) to latest @alpha.
+  // Runs AFTER the template-managed sync write so we have the merged projectPkg in memory,
+  // and BEFORE install so the subsequent `npm install` picks up the new versions.
+  const templatePkgForBump = templatePkg as { dependencies?: Record<string, string> }
+  const projectPkgForBump = projectPkg as { dependencies?: Record<string, string> }
+  const userPluginBump = await bumpUserAmplessPlugins(destDir, projectPkgForBump, templatePkgForBump)
+  if (userPluginBump.bumped.length > 0) {
+    // Re-write package.json with the bumped versions
+    await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
+  }
+
   // 8. npm/pnpm install
   if (!opts.noInstall) {
     const usePnpm = existsSync(join(destDir, 'pnpm-lock.yaml'))
@@ -865,6 +947,11 @@ export async function runUpgradeIn(
       '_editor-bootstrap.tsx was generated without running npm install — ' +
       'node_modules may be stale. Run `npm run update-ampless` (without --no-install) to pick up newly added plugin editor extensions.'
     )
+    if (userPluginBump.bumped.length > 0) {
+      userPluginBump.warnings.push(
+        `package.json was updated with ${userPluginBump.bumped.length} bumped @ampless/* plugin version(s) but npm install was skipped — run \`npm install\` (or \`npm run update-ampless\` without --no-install) to apply the new versions.`,
+      )
+    }
   }
 
   for (const w of bootstrapResult.warnings) {
@@ -874,6 +961,16 @@ export async function runUpgradeIn(
   log.info(
     `editor:  ${pc.cyan(`auto-wired ${bootstrapResult.pluginCount} editor extension(s) in _editor-bootstrap.tsx`)}`
   )
+
+  if (userPluginBump.bumped.length > 0) {
+    log.info(`plugins: ${pc.cyan(`bumped ${userPluginBump.bumped.length} user-installed @ampless/* plugin(s) to latest @alpha:`)}`)
+    for (const { name, from, to } of userPluginBump.bumped) {
+      log.info(`  ${name}: ${from} → ${to}`)
+    }
+  }
+  for (const w of userPluginBump.warnings) {
+    log.warn(w)
+  }
 
   return {
     added: replaceNew,
@@ -886,6 +983,7 @@ export async function runUpgradeIn(
     packageJsonMerged: true,
     obsoleteRemoved: obsoleteFiles,
     editorExtensionsWired: bootstrapResult.pluginCount,
+    userPluginsBumped: userPluginBump.bumped.length,
   }
 }
 
