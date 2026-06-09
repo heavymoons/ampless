@@ -68,6 +68,7 @@
     "embed-admin-editor-installer",
     "embed-ampless-capability",
     "embed-create-ampless-scaffold",
+    "embed-html-adapter-emits-canonical-url-link",
     "embed-plugin-x-embed-initial",
     "embed-plugin-youtube-initial",
     "embed-runtime-renderbody-async",
