@@ -92,7 +92,15 @@ export const AmplessTweetNode = Node.create({
     return [
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ({
-        find: TWEET_URL,
+        // tiptap's paste rule internally calls `String.prototype.matchAll`
+        // which throws when the regex doesn't carry the `g` flag. Clone
+        // the source regex (which is anchored `^...$` for use in the
+        // renderer / markdown extractor) into a global form here. Anchored
+        // global is fine — without the `m` flag, `^...$` only anchor at the
+        // start / end of the **entire input**, so this matches at most
+        // once for the pasted input as a whole (= exactly the single-URL
+        // paste case we care about).
+        find: new RegExp(TWEET_URL.source, 'g'),
         handler: ({ range, match, commands }: any) => {
           const tweetId = match[1]
           if (!tweetId) return
