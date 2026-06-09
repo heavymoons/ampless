@@ -6,7 +6,9 @@ import { admin } from '@/lib/admin'
  * POST a draft Post to this endpoint while the preview tab is open; we
  * render the body + page-level scripts via `ampless.renderBody` /
  * `publicPostScriptsForPage` and return a fully-rendered HTML string
- * that the admin shows in an iframe (`sandbox="allow-scripts"`).
+ * that the admin shows in an iframe (`sandbox="allow-scripts allow-same-origin"`,
+ * v1 trust boundary expansion — admin preview content / plugin script are
+ * explicitly treated as trusted; see the iframe comment in post-form.tsx).
  *
  * Why a Route Handler instead of a Server Action: Next.js 15+
  * refuses to compile Client Components that reach `react-dom/server`

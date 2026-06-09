@@ -1120,7 +1120,7 @@ registered list onto its built-in extensions on every render.
 ### Editor preview pipeline
 
 The admin's edit / new post forms render the preview pane in an
-`<iframe sandbox="allow-scripts">` whose `srcDoc` is the HTML returned
+`<iframe sandbox="allow-scripts allow-same-origin">` whose `srcDoc` is the HTML returned
 by the template's preview Route Handler. The template scaffold ships
 the handler at `app/(admin)/admin/preview/route.tsx`:
 
@@ -1195,14 +1195,24 @@ included; deferring it to request time keeps the module outside the
 build-time import-graph walker while still loading it from the same
 Node.js subpath at runtime.
 
-The iframe's `sandbox="allow-scripts"` (without `allow-same-origin`)
-keeps preview content in an opaque origin so widget scripts cannot
-reach the admin's DOM. The trade-off is that some widgets may misbehave
-when they can't access their own origin's storage; the YouTube iframe
-embed and x.com widgets.js both work under these constraints in
-dogfood as of Phase 7. If a future widget needs a non-opaque preview
-origin, the escape hatch is a separate preview route on a different
-subdomain with appropriate CSP — not relaxing the sandbox flag.
+**Preview iframe sandbox — v1 trust boundary expansion:** The iframe uses
+`sandbox="allow-scripts allow-same-origin"`. With `srcDoc`, this gives
+the iframe the admin's origin, which 3rd-party embed widgets (YouTube SDK,
+x.com `widgets.js`) require — they refuse to initialise in an opaque-origin
+(`allow-scripts`-only) iframe because they need access to non-HttpOnly
+storage / cache and real-origin requests. Same-origin also gives the
+preview script access to the admin's auth state / non-HttpOnly storage /
+DOM and lets it issue authenticated same-origin XHR / fetch.
+
+This is an explicit v1 design decision, not a no-op sandbox relax:
+**ampless v1 treats admin preview content / plugin script as trusted**.
+The engineer audits plugins before npm-installing them (customization-based
+CMS model), and body content is produced by trusted editors of this site.
+`<PostHistoryPanel>` can also surface a past revision authored by a
+different editor (revision author ≠ preview viewer) — v1 explicitly puts
+both inside the trust ring. The safer alternative — separate-origin preview
+route + CSP / COEP / COOP — is parked for v2.0+ if/when a real plugin
+marketplace lands.
 
 ---
 

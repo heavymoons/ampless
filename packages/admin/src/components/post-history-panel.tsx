@@ -289,10 +289,32 @@ export function PostHistoryPanel({
                   {t('posts.history.staticCaveat')}
                 </p>
               ) : (
+                // Sandbox is `allow-scripts allow-same-origin`. With
+                // srcDoc, this gives the iframe the admin's origin so
+                // 3rd-party embed widgets (YouTube SDK, x.com widgets.js)
+                // can initialise — they refuse to work in an opaque-origin
+                // (`allow-scripts` only) iframe.
+                //
+                // Trust boundary (v1 explicit design decision): ampless
+                // treats admin preview content / plugin script as trusted.
+                // Same-origin gives the preview script access to the
+                // admin's auth state / non-HttpOnly storage / DOM, and
+                // lets it issue authenticated same-origin XHR / fetch.
+                // In PostHistoryPanel the previewed body is a past
+                // revision which may have been authored by a different
+                // editor (= revision author ≠ preview viewer). With
+                // same-origin, scripts in that historical body /
+                // publicPostScript can touch the current editor's admin
+                // session. v1 explicitly accepts this as inside the trust
+                // boundary because plugins were audited by the engineer at
+                // install time and revision authors are trusted editors of
+                // this site. A stricter sandbox (= separate-origin preview
+                // route + CSP / COEP / COOP) is parked for v2.0+ if/when
+                // a real plugin marketplace lands.
                 <iframe
                   title="revision-preview"
                   srcDoc={previewHtml}
-                  sandbox="allow-scripts"
+                  sandbox="allow-scripts allow-same-origin"
                   className="prose prose-neutral dark:prose-invert max-w-none min-h-[300px] w-full rounded-md border text-sm"
                 />
               )}

@@ -11,8 +11,10 @@
 // We do NOT hydrate widgets.js inside the editor because:
 //   1. The editor is in the admin same-origin context; loading
 //      platform.twitter.com there is unnecessary CSP risk.
-//   2. The preview iframe (sandbox=`allow-scripts`) handles the real
-//      widget render via `publicPostScript`.
+//   2. The preview iframe (sandbox=`allow-scripts allow-same-origin`,
+//      v1 trust boundary expansion) handles the real widget render via
+//      `publicPostScript` — widgets.js hydrates there because it gets a
+//      real origin (= the admin's) rather than an opaque origin.
 
 import { Node, mergeAttributes } from '@tiptap/core'
 import { parseTweetUrl, TWEET_URL } from './shared.js'
