@@ -130,3 +130,25 @@ export const tweetEditor = {
  * auto-wiring to find them.
  */
 export const editorExtension = AmplessTweetNode
+
+import type { TiptapNodeMarkdownAdapters } from 'ampless'
+
+/**
+ * tiptap → markdown adapter map. Serialises `amplessTweet` nodes back
+ * to a bare `https://x.com/i/status/<tweetId>` URL line so the admin's
+ * "format: tiptap → markdown" body switch is lossless. The URL form
+ * uses `i` as the handle — confirmed to match the existing `TWEET_URL`
+ * regex (`/[A-Za-z0-9_]{1,15}/`). The reverse direction (URL → embed
+ * node on paste) is handled by the existing paste rule + `extractSingleUrl`
+ * path in the runtime.
+ *
+ * `update-ampless` reads this export (via namespace import `* as`) and
+ * wires it into `installAdminTiptapNodeMarkdown`.
+ */
+export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = {
+  amplessTweet: (node) => {
+    const tweetId = String(node.attrs?.tweetId ?? '').trim()
+    if (!tweetId) return null
+    return `https://x.com/i/status/${tweetId}`
+  },
+}

@@ -678,12 +678,16 @@ async function regenerateEditorBootstrap(
   lines.push('// editor extension, add / remove the corresponding @ampless/plugin-...')
   lines.push('// entry in your project\'s package.json (and register it in cms.config.ts')
   lines.push('// for runtime).', '')
-  lines.push("import { installAdminEditorExtensions } from '@ampless/admin/editor'")
+  lines.push("import { installAdminEditorExtensions, installAdminTiptapNodeMarkdown } from '@ampless/admin/editor'")
 
   const identifiers: string[] = []
   const seen = new Map<string, string>()   // ident → packageName, for collision detection
   for (const p of installedPlugins) {
     // sanitise "@scope/pkg-name" → "__scope_pkg_name_editor"
+    // Using namespace imports (`import * as`) so that plugins which do NOT
+    // export `tiptapNodeToMarkdown` are still valid (missing named exports
+    // cause build errors on direct named imports, but are undefined on
+    // namespace access — `ns.tiptapNodeToMarkdown ?? {}` handles it).
     let ident = '__' + p.packageName.replace(/^@/, '').replace(/[^a-zA-Z0-9]+/g, '_') + '_editor'
     // Collision detection: identical sanitised identifier from different package names
     // (e.g. `@a/b-c` と `@a/b_c` would both sanitise to `__a_b_c_editor`)
@@ -698,7 +702,7 @@ async function regenerateEditorBootstrap(
     const importSubpath = p.editorExports.startsWith('./')
       ? `${p.packageName}/${p.editorExports.slice(2)}`
       : `${p.packageName}/${p.editorExports}`
-    lines.push(`import { editorExtension as ${ident} } from '${importSubpath}'`)
+    lines.push(`import * as ${ident} from '${importSubpath}'`)
     identifiers.push(ident)
   }
 
@@ -707,9 +711,17 @@ async function regenerateEditorBootstrap(
   if (identifiers.length === 0) {
     // 0 plugin の場合は inline 形 (= testability + 視認性)
     lines.push('  installAdminEditorExtensions([])')
+    lines.push('  installAdminTiptapNodeMarkdown([])')
   } else {
     lines.push('  installAdminEditorExtensions([')
-    for (const id of identifiers) lines.push(`    ${id},`)
+    for (const id of identifiers) lines.push(`    ${id}.editorExtension,`)
+    lines.push('  ])')
+    // Pass each plugin's adapter map as a separate array entry — install
+    // detects cross-plugin nodeType collisions by walking the maps
+    // independently. Pre-merging via `{ ...a, ...b }` would lose them
+    // silently because JS object literals deduplicate keys.
+    lines.push('  installAdminTiptapNodeMarkdown([')
+    for (const id of identifiers) lines.push(`    ${id}.tiptapNodeToMarkdown ?? {},`)
     lines.push('  ])')
   }
   lines.push('  return <>{children}</>')

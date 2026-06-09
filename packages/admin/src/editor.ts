@@ -4,11 +4,22 @@
 // `getAdminEditorExtensions`) and the admin's <TiptapEditor> picks up
 // every registered extension at the end of its built-in list.
 //
-// The internal module lives at `src/editor/admin-editor-extensions.ts`
-// so tsup's `entry: ['src/editor.ts']` emits `dist/editor.js` matching
-// the `exports#./editor` mapping in package.json.
+// Also exports `installAdminTiptapNodeMarkdown` /
+// `getAdminTiptapNodeMarkdown` for the tiptap → markdown lossless
+// serialisation registry. The codegen'd `_editor-bootstrap.tsx` calls
+// `installAdminTiptapNodeMarkdown` with the adapters exported by each
+// plugin's `./editor` module so the admin's format-switch can
+// round-trip embed nodes (e.g. amplessYoutube → bare YouTube URL).
+//
+// The internal modules live at `src/editor/admin-*.ts` so tsup's
+// `entry: ['src/editor.ts']` emits `dist/editor.js` matching the
+// `exports#./editor` mapping in package.json.
 export {
   installAdminEditorExtensions,
   getAdminEditorExtensions,
   type TiptapExtensionLike,
 } from './editor/admin-editor-extensions.js'
+export {
+  installAdminTiptapNodeMarkdown,
+  getAdminTiptapNodeMarkdown,
+} from './editor/admin-node-markdown.js'

@@ -94,6 +94,8 @@ export type {
   PluginRepeatableField,
   ContentFieldRenderer,
   TiptapRenderNode,
+  TiptapNodeToMarkdown,
+  TiptapNodeMarkdownAdapters,
   MarkdownEmbedMatch,
   PublicPostScriptDescriptor,
 } from './plugin.js'
