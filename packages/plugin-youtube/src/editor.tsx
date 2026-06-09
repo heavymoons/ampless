@@ -118,27 +118,33 @@ export const AmplessYoutubeNode = Node.create({
         },
       },
       {
-        // Bare-URL `<a>` (outside the `tag: 'p'` single-link-paragraph rule
-        // above). Mirrors the markdown-side `extractSingleUrl` rule from
-        // PR #258 on two axes:
+        // Defensive fallback for genuinely top-level bare-URL `<a>` tags
+        // (no parent block, or directly under `<body>` — = HTML fragments
+        // without a paragraph wrapper at all). The primary case is the
+        // markdown bare URL line `<p><a href=URL>URL</a></p>`, which is
+        // already handled by the `tag: 'p'` rule above (priority 100,
+        // `getBareUrlLinkHref`). This rule covers the rare standalone-link
+        // shape that bypasses that rule entirely.
+        //
+        // Scope is deliberately narrow:
         //   1. Link text equals href — `<a href="URL">caption</a>` stays
         //      a captioned Link, not silently swallowed into an embed.
-        //   2. The link is the **only** meaningful content of its parent
-        //      block. Without this, in-prose autolinks like
-        //      `<p>/<div>/<li> Watch <a href=URL>URL</a> today` would be
-        //      promoted to block embeds and split their parent mid-sentence.
-        //      The single-link `<p>` case is handled by the `tag: 'p'` rule
-        //      above; this guard catches the same case for non-<p> parents.
+        //   2. Parent is null or `<body>` only. Inside any content block
+        //      (`<p>`, `<li>`, `<blockquote>`, `<div>`, …) the autolink
+        //      stays an inline Link mark to preserve the surrounding
+        //      structure. Promoting it would split `<li>` into an empty
+        //      paragraph item plus a list-external embed, break
+        //      blockquotes, etc.
         tag: 'a[href]',
         priority: 100,
         getAttrs: (el) => {
           const link = el as HTMLElement
+          const parent = link.parentElement
+          if (parent && parent.tagName.toLowerCase() !== 'body') return false
           const href = link.getAttribute('href')?.trim() ?? ''
           if (!href) return false
           const linkText = link.textContent?.trim() ?? ''
           if (linkText !== href) return false
-          const parent = link.parentElement
-          if (parent && parent.textContent?.trim() !== linkText) return false
           const videoId = parseYoutubeUrl(href)
           if (!videoId) return false
           return { videoId, start: null }

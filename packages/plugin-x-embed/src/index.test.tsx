@@ -178,55 +178,42 @@ describe('AmplessTweetNode.parseHTML', () => {
     expect(linkRule?.getAttrs(el)).toBe(false)
   })
 
-  it('returns false when parent <p> is mixed prose (= autolink mid-sentence)', () => {
-    // `<p>See <a href=URL>URL</a> today</p>` — the single-link <p> case is
-    // handled by the tag:'p' rule above, so reaching here with a <p>
-    // parent whose textContent ≠ linkText means the paragraph is mixed
-    // prose. Promoting the autolink to a block embed would split the
-    // paragraph mid-sentence; it must stay an inline Link mark.
+  it('returns attrs when the parent is <body> (= top-level in the document)', () => {
+    // ProseMirror's HTML parser wraps fragments in <body>, so a genuinely
+    // top-level `<a>` reaches getAttrs with parent === <body>. This is the
+    // shape the standalone-<a> integration test below exercises.
     const url = 'https://x.com/ishinao/status/2063778809632235750'
     const el = {
       getAttribute: (name: string) => (name === 'href' ? url : null),
       textContent: url,
-      parentElement: { tagName: 'P', textContent: `See ${url} today` },
-    }
-
-    expect(linkRule?.getAttrs(el)).toBe(false)
-  })
-
-  it('returns false when a non-<p> parent (e.g. <div>, <li>) is mixed prose', () => {
-    // Same in-prose autolink case as above, but for non-<p> block parents.
-    // `linkText === href` alone isn't enough — we also need the link to be
-    // the only meaningful content of its parent block, otherwise
-    // `<div>See <a href=URL>URL</a> today</div>` (or <li>, <blockquote>,
-    // etc.) would be promoted to a block embed and split its parent.
-    const url = 'https://x.com/ishinao/status/2063778809632235750'
-    const elInDiv = {
-      getAttribute: (name: string) => (name === 'href' ? url : null),
-      textContent: url,
-      parentElement: { tagName: 'DIV', textContent: `See ${url} today` },
-    }
-    expect(linkRule?.getAttrs(elInDiv)).toBe(false)
-
-    const elInLi = {
-      getAttribute: (name: string) => (name === 'href' ? url : null),
-      textContent: url,
-      parentElement: { tagName: 'LI', textContent: `Watch ${url}` },
-    }
-    expect(linkRule?.getAttrs(elInLi)).toBe(false)
-  })
-
-  it('returns attrs when a non-<p> parent contains only this link (= standalone)', () => {
-    // Sanity: `<div><a href=URL>URL</a></div>` (or any block container
-    // whose sole meaningful content is the bare URL link) — promotion
-    // to embed is still correct.
-    const url = 'https://x.com/ishinao/status/2063778809632235750'
-    const el = {
-      getAttribute: (name: string) => (name === 'href' ? url : null),
-      textContent: url,
-      parentElement: { tagName: 'DIV', textContent: url },
+      parentElement: { tagName: 'BODY' },
     }
     expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
+  })
+
+  it('returns false for any content-block parent — preserves markdown / list / quote structure', () => {
+    // The primary markdown bare URL line case (`<p><a href=URL>URL</a></p>`)
+    // is handled by the tag:'p' rule above. The tag:'a[href]' rule is a
+    // narrow fallback for body-level / no-parent links only. Inside ANY
+    // content block — <p> (mixed prose), <li>, <blockquote>, <div> — the
+    // autolink must stay an inline Link mark. Promoting it would split
+    // lists into empty-paragraph items + list-external embeds, break
+    // blockquotes, etc.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const parents = [
+      { tagName: 'P' },          // mixed prose <p> (single-link <p> handled by tag:'p')
+      { tagName: 'LI' },         // list item — keep list structure
+      { tagName: 'BLOCKQUOTE' }, // quote — keep quote structure
+      { tagName: 'DIV' },        // arbitrary div wrapper — be conservative
+    ]
+    for (const parentElement of parents) {
+      const el = {
+        getAttribute: (name: string) => (name === 'href' ? url : null),
+        textContent: url,
+        parentElement,
+      }
+      expect(linkRule?.getAttrs(el)).toBe(false)
+    }
   })
 
   it('has priority 100 to beat the Link mark', () => {
