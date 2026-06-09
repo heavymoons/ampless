@@ -73,6 +73,15 @@ export const AmplessYoutubeNode = Node.create({
           const dataVideoId = el.getAttribute('data-video-id')
           if (dataVideoId != null) return dataVideoId
 
+          // Defensive fallback for the `tag: 'div[data-ampless-youtube]'`
+          // self-render rule. That rule has no `getAttrs`, so tiptap consults
+          // this addAttributes.parseHTML — and the higher-priority `tag: 'p'`
+          // / `tag: 'a[href]'` rules already have their own getAttrs so they
+          // don't reach here. If the malformed `<div data-ampless-youtube>`
+          // somehow lost its `data-video-id` (e.g. a downstream HTML sanitiser
+          // stripped data-* attrs but left the tag) we try to recover the id
+          // from a bare URL link inside it. Normal happy-path HTML never hits
+          // this branch.
           const href = getBareUrlLinkHref(el)
           return href ? (parseYoutubeUrl(href) ?? '') : ''
         },
@@ -109,10 +118,19 @@ export const AmplessYoutubeNode = Node.create({
         },
       },
       {
+        // Bare-URL `<a>` standalone (outside a single-link `<p>`). Mirrors the
+        // markdown-side `extractSingleUrl` rule from PR #258: only intercept
+        // when the link's visible text equals its href — `[caption](url)` /
+        // `<a href="https://youtu.be/abc">caption</a>` should stay a normal
+        // captioned Link, not silently swallow the caption into an embed.
         tag: 'a[href]',
         priority: 100,
         getAttrs: (el) => {
-          const href = (el as HTMLElement).getAttribute('href') ?? ''
+          const link = el as HTMLElement
+          const href = link.getAttribute('href')?.trim() ?? ''
+          if (!href) return false
+          const linkText = link.textContent?.trim() ?? ''
+          if (linkText !== href) return false
           const videoId = parseYoutubeUrl(href)
           if (!videoId) return false
           return { videoId, start: null }

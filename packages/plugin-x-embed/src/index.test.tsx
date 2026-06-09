@@ -132,27 +132,43 @@ describe('AmplessTweetNode.parseHTML', () => {
     (AmplessTweetNode.config as any).parseHTML?.call({ name: 'amplessTweet' }) ?? []
   const linkRule = rules.find((rule: { tag?: string }) => rule.tag === 'a[href]')
 
-  it('returns attrs for a canonical x.com URL', () => {
+  it('returns attrs for a canonical x.com URL when link text equals href', () => {
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
     const el = {
-      getAttribute: (name: string) =>
-        name === 'href' ? 'https://x.com/ishinao/status/2063778809632235750' : null,
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
   })
 
-  it('returns attrs for a twitter.com URL', () => {
+  it('returns attrs for a twitter.com URL when link text equals href', () => {
+    const url = 'https://twitter.com/ishinao/status/2063778809632235750'
     const el = {
-      getAttribute: (name: string) =>
-        name === 'href' ? 'https://twitter.com/ishinao/status/2063778809632235750' : null,
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
     }
 
     expect(linkRule?.getAttrs(el)).toEqual({ tweetId: '2063778809632235750' })
   })
 
   it('returns false for a non-tweet URL', () => {
+    const url = 'https://example.com/foo'
     const el = {
-      getAttribute: (name: string) => (name === 'href' ? 'https://example.com/foo' : null),
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns false for a caption link (link text ≠ href) even with a matching URL', () => {
+    // Mirrors the markdown-side `extractSingleUrl` rule from PR #258: a
+    // captioned link is not a bare URL, so it must stay a normal Link mark.
+    const url = 'https://x.com/ishinao/status/2063778809632235750'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: 'see this tweet',
     }
 
     expect(linkRule?.getAttrs(el)).toBe(false)
@@ -195,6 +211,56 @@ describe('AmplessTweetNode.parseHTML', () => {
               type: 'text',
               marks: [{ type: 'link', attrs: { href: 'https://example.com/foo' } }],
               text: 'https://example.com/foo',
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('restores a standalone bare URL <a> (no <p> wrapper) to an embed node', () => {
+    // Goes through the `tag: 'a[href]'` rule rather than the `tag: 'p'`
+    // single-link-paragraph rule, so this covers the standalone-link path
+    // (e.g. HTML pasted from sources that don't wrap each link in its own
+    // paragraph).
+    const doc = generateJSON(
+      '<a href="https://x.com/ishinao/status/2063778809632235750">https://x.com/ishinao/status/2063778809632235750</a>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'amplessTweet',
+          attrs: { tweetId: '2063778809632235750' },
+        },
+      ],
+    })
+  })
+
+  it('keeps a caption link (link text ≠ href) as a captioned Link, not an embed', () => {
+    // Mirrors the markdown-side `extractSingleUrl` rule from PR #258:
+    // `[caption](url)` markdown links stay as captioned Link marks instead
+    // of being silently swallowed into an embed. The HTML-to-tiptap path
+    // honours the same semantic on `<a href="URL">caption</a>` shapes.
+    const doc = generateJSON(
+      '<p><a href="https://x.com/ishinao/status/2063778809632235750">watch this</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [
+                { type: 'link', attrs: { href: 'https://x.com/ishinao/status/2063778809632235750' } },
+              ],
+              text: 'watch this',
             },
           ],
         },

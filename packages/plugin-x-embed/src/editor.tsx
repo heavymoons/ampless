@@ -72,6 +72,15 @@ export const AmplessTweetNode = Node.create({
           const dataTweetId = el.getAttribute('data-tweet-id')
           if (dataTweetId != null) return dataTweetId
 
+          // Defensive fallback for the `tag: 'div[data-ampless-tweet]'`
+          // self-render rule. That rule has no `getAttrs`, so tiptap consults
+          // this addAttributes.parseHTML — and the higher-priority `tag: 'p'`
+          // / `tag: 'a[href]'` rules already have their own getAttrs so they
+          // don't reach here. If the malformed `<div data-ampless-tweet>`
+          // somehow lost its `data-tweet-id` (e.g. a downstream HTML sanitiser
+          // stripped data-* attrs but left the tag) we try to recover the id
+          // from a bare URL link inside it. Normal happy-path HTML never hits
+          // this branch.
           const href = getBareUrlLinkHref(el)
           return href ? (parseTweetUrl(href) ?? '') : ''
         },
@@ -97,10 +106,19 @@ export const AmplessTweetNode = Node.create({
         },
       },
       {
+        // Bare-URL `<a>` standalone (outside a single-link `<p>`). Mirrors the
+        // markdown-side `extractSingleUrl` rule from PR #258: only intercept
+        // when the link's visible text equals its href — `[caption](url)` /
+        // `<a href="https://x.com/.../status/...">caption</a>` should stay a
+        // normal captioned Link, not silently swallow the caption into an embed.
         tag: 'a[href]',
         priority: 100,
         getAttrs: (el) => {
-          const href = (el as HTMLElement).getAttribute('href') ?? ''
+          const link = el as HTMLElement
+          const href = link.getAttribute('href')?.trim() ?? ''
+          if (!href) return false
+          const linkText = link.textContent?.trim() ?? ''
+          if (linkText !== href) return false
           const tweetId = parseTweetUrl(href)
           if (!tweetId) return false
           return { tweetId }
