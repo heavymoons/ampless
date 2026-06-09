@@ -926,7 +926,13 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
     const videoId = String(node.attrs?.videoId ?? '').trim()
     if (!videoId) return null
     const attrs = placeholderAttrs(node.attrs ?? {})
-    return `<div ${attrsToHtmlString(attrs)}><span>YouTube: ${escapeAttr(videoId)}</span></div>`
+    // 内側のコンテンツは editor 用視覚 label (`<span>YouTube: id</span>`、
+    // Node.renderHTML 専用) ではなく URL link にする。`format: 'html'` の
+    // 公開描画ではこの body をリテラル表示するため editor 用 label が漏れる
+    // のを防ぐ。viewer 側で iframe 展開されない場合でもクリック可能な link が
+    // 残り graceful degradation する。
+    const url = `https://youtu.be/${videoId}`
+    return `<div ${attrsToHtmlString(attrs)}><a href="${escapeAttr(url)}">${escapeAttr(url)}</a></div>`
   },
 }
 ```

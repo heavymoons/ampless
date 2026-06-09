@@ -339,6 +339,18 @@ describe('tiptapNodeToHtml adapter (amplessYoutube)', () => {
     expect(result).toContain('class="ampless-youtube-placeholder"')
   })
 
+  it('inner content is a clickable canonical URL link, NOT the editor span label', () => {
+    // Regression guard: the adapter must not emit `<span>YouTube: id</span>`
+    // (the editor visual label from Node.renderHTML). On public render of
+    // `format: 'html'` posts, the body ships literally, so an editor-internal
+    // label would leak. The canonical URL link gracefully degrades and
+    // mirrors the markdown bare-URL canonical form.
+    const result = adapter({ type: 'amplessYoutube', attrs: { videoId: 'dQw4w9WgXcQ', start: null } })
+    expect(result).toContain('<a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a>')
+    expect(result).not.toContain('<span>')
+    expect(result).not.toContain('YouTube:')
+  })
+
   it('returns null when videoId is empty (falls through to default switch)', () => {
     expect(adapter({ type: 'amplessYoutube', attrs: { videoId: '', start: null } })).toBeNull()
     expect(adapter({ type: 'amplessYoutube', attrs: {} })).toBeNull()

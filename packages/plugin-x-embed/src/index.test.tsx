@@ -354,6 +354,20 @@ describe('tiptapNodeToHtml adapter (amplessTweet)', () => {
     expect(result).toContain('class="ampless-tweet-placeholder"')
   })
 
+  it('inner content is a clickable canonical URL link, NOT the editor span label', () => {
+    // Regression guard: the adapter must not emit `<span>Tweet: id</span>`
+    // (the editor visual label from Node.renderHTML). On public render of
+    // `format: 'html'` posts, the body ships literally, so an editor-internal
+    // label would leak. The canonical URL link gracefully degrades and
+    // mirrors the markdown bare-URL canonical form.
+    const result = adapter({ type: 'amplessTweet', attrs: { tweetId: '2063778809632235750' } })
+    expect(result).toContain(
+      '<a href="https://x.com/i/status/2063778809632235750">https://x.com/i/status/2063778809632235750</a>',
+    )
+    expect(result).not.toContain('<span>')
+    expect(result).not.toContain('Tweet:')
+  })
+
   it('returns null when tweetId is empty (falls through to default switch)', () => {
     expect(adapter({ type: 'amplessTweet', attrs: { tweetId: '' } })).toBeNull()
     expect(adapter({ type: 'amplessTweet', attrs: {} })).toBeNull()
