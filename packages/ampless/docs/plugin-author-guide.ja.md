@@ -857,7 +857,7 @@ export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
 
 ### エディタプレビューのパイプライン
 
-admin の edit / new post フォームは preview ペインを `<iframe sandbox="allow-scripts">` で表示する。`srcDoc` はテンプレート側 preview Route Handler が返す HTML。テンプレート scaffold は handler を `app/(admin)/admin/preview/route.tsx` に同梱する:
+admin の edit / new post フォームは preview ペインを `<iframe sandbox="allow-scripts allow-same-origin">` で表示する。`srcDoc` はテンプレート側 preview Route Handler が返す HTML。テンプレート scaffold は handler を `app/(admin)/admin/preview/route.tsx` に同梱する:
 
 ```tsx
 // templates/_shared/app/(admin)/admin/preview/route.tsx
@@ -911,7 +911,9 @@ export default createEditPostPage(admin, { previewEndpoint: '/cms/admin/preview'
 
 Server Action ではなく Route Handler を採用した理由: `'use server'` モジュール内部で `react-dom/server` 由来の rendering を行うと、Next.js 15+ が edit-post page の compile に失敗する。build 時に Client Component から Server Action モジュール経由で import graph を辿るため、その経路上で `react-dom/server` に到達した時点で「You're importing a component that imports react-dom/server」チェックが発火する。Route Handler に切り出すことで rendering を import graph から完全に切り離せる — `<PostForm>` は plain な HTTP endpoint を fetch するだけで、bundler は form から handler 側へ踏み込まない。さらに handler 自身が `admin.isEditor()` を明示的にチェックすることで、将来 `(admin)` route-group gate が誤設定された場合の安全側のフェールセーフになる。`react-dom/server` の import 自体を dynamic にしているのは Next.js 16 の Turbopack が、Route Handler を含む app router build 経路で reach できる top-level の `react-dom/server` static import を一律で flag するため。request 時に解決することで build-time import-graph walker から外しつつ、runtime では同じ Node.js subpath からロードする。
 
-iframe の `sandbox="allow-scripts"` は `allow-same-origin` を含まないので、preview の中身は opaque origin で動作する → widget script は admin の DOM に触れない。トレードオフ: widget が自身の origin の storage にアクセスできない場合に正しく動かない可能性がある。Phase 7 時点の dogfood では YouTube iframe / x.com widgets.js とも opaque origin で動作することを確認済み。将来 non-opaque origin が必要な widget が出てきた場合、escape hatch は別 subdomain の preview route + 適切な CSP — sandbox flag を緩めるのは取らない。
+**Preview iframe sandbox — v1 trust boundary 拡張:** iframe は `sandbox="allow-scripts allow-same-origin"` を使う。`srcDoc` とともに使用すると iframe は admin の origin を継承し、サードパーティ embed widget（YouTube SDK、x.com `widgets.js`）が動作できるようになる — opaque-origin（`allow-scripts` のみ）の iframe では動作を拒否する（非 HttpOnly storage / cache へのアクセスと real-origin requests が必要なため）。同時に same-origin により preview スクリプトは admin の auth state / 非 HttpOnly storage / DOM へのアクセスと authenticated same-origin XHR / fetch の発行が可能になる。
+
+これは単なる sandbox 緩和ではなく、**v1 の明示的な設計判断**です: **ampless v1 は admin preview content / plugin script を全部 trusted とみなす**。エンジニアは npm install 前に plugin を審査するし（カスタマイズベース CMS モデル）、body content はこのサイトの trusted editor が作成する。`<PostHistoryPanel>` では別の editor が作成した過去 revision（revision author ≠ preview viewer）をプレビューするケースも通常発生するが、v1 ではそれも明示的に trust ring 内と位置づける。より安全な代替案（別 origin preview route + CSP / COEP / COOP）は v2.0+ でリアルなプラグインマーケットプレイスが必要になった場合に再検討する。
 
 ---
 

@@ -62,9 +62,10 @@ interface PostFormProps {
    * `previewEndpoint?: string` option that threads down to here for
    * non-default admin mount paths (e.g. Next.js `basePath`).
    *
-   * The resulting HTML is shown in an `<iframe srcDoc>` (sandbox =
-   * `allow-scripts` only) so YouTube iframes / x.com `widgets.js` can
-   * hydrate without crossing the admin's same-origin boundary.
+   * The resulting HTML is shown in an `<iframe srcDoc>` with
+   * `sandbox="allow-scripts allow-same-origin"` (v1 trust boundary
+   * expansion — admin preview content / plugin script are explicitly
+   * treated as trusted; see the iframe comment below for full rationale).
    */
   previewEndpoint?: string
 }
@@ -738,14 +739,36 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
             // `/admin/preview` Route Handler so `ampless.renderBody`
             // (async ReactNode) + `ampless.publicPostScriptsForPage(
             // [draft])` can run server-side. The result is injected
-            // into an iframe with sandbox=`allow-scripts` only (no
-            // `allow-same-origin`) so 3rd-party widget scripts
-            // (YouTube iframes, x.com widgets.js) can hydrate without
-            // crossing the admin's same-origin boundary.
+            // into an iframe srcDoc.
+            //
+            // Sandbox is `allow-scripts allow-same-origin`. With srcDoc,
+            // this gives the iframe the embedding document's origin
+            // (= the admin), which 3rd-party embed widgets (YouTube SDK,
+            // x.com widgets.js) require — they refuse to initialise in an
+            // opaque-origin (`allow-scripts` only) iframe because they
+            // need access to their own non-HttpOnly storage / cache and
+            // real-origin requests (an opaque-origin iframe blocks them
+            // outright; with a real origin the iframe can use
+            // non-opaque-origin storage / cache and issue eligible
+            // credentialed XHR — subject to browser settings and
+            // third-party cookie restrictions).
+            //
+            // Trust boundary (v1 explicit design decision): ampless treats
+            // admin preview content / plugin script as trusted.
+            // Same-origin gives the preview script access to the admin's
+            // auth state / non-HttpOnly storage / DOM, and lets it issue
+            // authenticated same-origin XHR / fetch (HttpOnly cookies
+            // aren't readable from JS but they ride along those requests).
+            // v1 explicitly puts both revision body AND configured plugin
+            // scripts inside the trust ring: the engineer audits plugins
+            // before npm-installing them, and body content is produced by
+            // trusted editors of this site. A stricter sandbox (= separate-
+            // origin preview route + CSP / COEP / COOP) is parked for
+            // v2.0+ if/when a real plugin marketplace lands.
             <iframe
               title="post-preview"
               srcDoc={previewHtml}
-              sandbox="allow-scripts"
+              sandbox="allow-scripts allow-same-origin"
               className="prose prose-neutral dark:prose-invert max-w-none min-h-[400px] w-full rounded-md border"
             />
           )}
