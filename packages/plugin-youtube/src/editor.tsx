@@ -289,8 +289,9 @@ import type { TiptapNodeHtmlAdapters } from 'ampless'
  * class="ampless-youtube-placeholder">…</div>` so the admin's
  * "format: tiptap → html" body switch is lossless. The div is what
  * `Node.parseHTML`'s `tag: 'div[data-ampless-youtube]'` rule restores
- * from, and what `publicHtmlForPost` expands to the real iframe at
- * public render time (concept separation preserved).
+ * from. It is an admin format-switch interchange form; public rendering
+ * expands YouTube embeds from the `tiptap` / `markdown` walkers, while
+ * `format: 'html'` preserves the div literally.
  *
  * `markdown → html` is a 2-hop via `generateJSON` (in admin format-switch);
  * this adapter is reused by that path — no duplicate logic needed.

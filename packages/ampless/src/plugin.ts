@@ -881,10 +881,11 @@ export type TiptapNodeMarkdownAdapters = Readonly<Record<string, TiptapNodeToMar
  * `installAdminTiptapNodeHtml` so the admin's `tiptap → html` format switch
  * can losslessly serialise the embed to the canonical placeholder div form.
  *
- * The canonical div is what tiptap's `Node.renderHTML` emits, what the
- * `Node.parseHTML` `tag: 'div[data-ampless-*]'` rule restores from, and what
- * `publicHtmlForPost` expands to the real iframe at public render time (concept
- * separation preserved).
+ * The canonical div is what tiptap's `Node.renderHTML` emits and what the
+ * `Node.parseHTML` `tag: 'div[data-ampless-*]'` rule restores from. It is an
+ * admin format-switch interchange form; public rendering expands embeds from
+ * the `tiptap` / `markdown` walkers, while `format: 'html'` preserves the div
+ * literally.
  *
  * The `markdown → html` direction is a 2-hop via `generateJSON(...)` so
  * plugins only need to export the `tiptap → html` adapter; the markdown side
