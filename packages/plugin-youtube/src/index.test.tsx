@@ -1,6 +1,67 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect } from 'vitest'
+import { generateJSON, Mark, Node } from '@tiptap/core'
 import youtubePlugin from './index.js'
 import { AmplessYoutubeNode, tiptapNodeToMarkdown } from './editor.js'
+
+const TestDocument = Node.create({
+  name: 'doc',
+  topNode: true,
+  content: 'block+',
+})
+
+const TestParagraph = Node.create({
+  name: 'paragraph',
+  group: 'block',
+  content: 'inline*',
+  parseHTML() {
+    return [{ tag: 'p' }]
+  },
+  renderHTML() {
+    return ['p', 0]
+  },
+})
+
+const TestText = Node.create({
+  name: 'text',
+  group: 'inline',
+})
+
+const TestLink = Mark.create({
+  name: 'link',
+  priority: 50,
+  addAttributes() {
+    return {
+      href: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute('href'),
+      },
+    }
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'a[href]',
+        getAttrs: (el) => {
+          const href = (el as HTMLElement).getAttribute('href')
+          return href ? { href } : false
+        },
+      },
+    ]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['a', HTMLAttributes, 0]
+  },
+})
+
+const htmlParseExtensions = [
+  TestDocument,
+  TestParagraph,
+  TestText,
+  TestLink,
+  AmplessYoutubeNode,
+]
 
 describe('youtubePlugin name', () => {
   it('uses simple identifier as default name', () => {
@@ -51,5 +112,218 @@ describe('tiptapNodeToMarkdown adapter (amplessYoutube)', () => {
     expect(adapter({ type: 'amplessYoutube', attrs: { videoId: '' } })).toBeNull()
     expect(adapter({ type: 'amplessYoutube', attrs: {} })).toBeNull()
     expect(adapter({ type: 'amplessYoutube' })).toBeNull()
+  })
+})
+
+describe('AmplessYoutubeNode.parseHTML', () => {
+  const rules =
+    (AmplessYoutubeNode.config as any).parseHTML?.call({ name: 'amplessYoutube' }) ?? []
+  const linkRule = rules.find((rule: { tag?: string }) => rule.tag === 'a[href]')
+
+  it('returns attrs for a canonical youtu.be URL when link text equals href', () => {
+    const url = 'https://youtu.be/dQw4w9WgXcQ'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
+  })
+
+  it('returns attrs for a youtube.com/watch URL when link text equals href', () => {
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
+    }
+
+    expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
+  })
+
+  it('returns false for a non-YouTube URL', () => {
+    const url = 'https://example.com/foo'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: null,   // standalone <a>, not inside a <p>
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns false for a caption link (link text ≠ href) even with a matching URL', () => {
+    // Mirrors the markdown-side `extractSingleUrl` rule from PR #258: a
+    // captioned link is not a bare URL, so it must stay a normal Link mark.
+    const url = 'https://youtu.be/dQw4w9WgXcQ'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: 'watch this',
+      parentElement: null,
+    }
+
+    expect(linkRule?.getAttrs(el)).toBe(false)
+  })
+
+  it('returns attrs when the parent is <body> (= top-level in the document)', () => {
+    // ProseMirror's HTML parser wraps fragments in <body>, so a genuinely
+    // top-level `<a>` reaches getAttrs with parent === <body>. This is the
+    // shape the standalone-<a> integration test below exercises.
+    const url = 'https://youtu.be/dQw4w9WgXcQ'
+    const el = {
+      getAttribute: (name: string) => (name === 'href' ? url : null),
+      textContent: url,
+      parentElement: { tagName: 'BODY' },
+    }
+    expect(linkRule?.getAttrs(el)).toEqual({ videoId: 'dQw4w9WgXcQ', start: null })
+  })
+
+  it('returns false for any content-block parent — preserves markdown / list / quote structure', () => {
+    // The primary markdown bare URL line case (`<p><a href=URL>URL</a></p>`)
+    // is handled by the tag:'p' rule above. The tag:'a[href]' rule is a
+    // narrow fallback for body-level / no-parent links only. Inside ANY
+    // content block — <p> (mixed prose), <li>, <blockquote>, <div> — the
+    // autolink must stay an inline Link mark. Promoting it would split
+    // lists into empty-paragraph items + list-external embeds, break
+    // blockquotes, etc.
+    const url = 'https://youtu.be/dQw4w9WgXcQ'
+    const parents = [
+      { tagName: 'P' },          // mixed prose <p> (single-link <p> handled by tag:'p')
+      { tagName: 'LI' },         // list item — keep list structure
+      { tagName: 'BLOCKQUOTE' }, // quote — keep quote structure
+      { tagName: 'DIV' },        // arbitrary div wrapper — be conservative
+    ]
+    for (const parentElement of parents) {
+      const el = {
+        getAttribute: (name: string) => (name === 'href' ? url : null),
+        textContent: url,
+        parentElement,
+      }
+      expect(linkRule?.getAttrs(el)).toBe(false)
+    }
+  })
+
+  it('has priority 100 to beat the Link mark', () => {
+    expect(linkRule?.priority).toBe(100)
+  })
+
+  it('restores a bare URL link paragraph to an embed node during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'amplessYoutube',
+          attrs: { videoId: 'dQw4w9WgXcQ', start: null },
+        },
+      ],
+    })
+  })
+
+  it('leaves non-YouTube links as normal link-marked text during HTML parse', () => {
+    const doc = generateJSON(
+      '<p><a href="https://example.com/foo">https://example.com/foo</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://example.com/foo' } }],
+              text: 'https://example.com/foo',
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('restores a standalone bare URL <a> (no <p> wrapper) to an embed node', () => {
+    // Goes through the `tag: 'a[href]'` rule rather than the `tag: 'p'`
+    // single-link-paragraph rule, so this covers the standalone-link path
+    // (e.g. HTML pasted from sources that don't wrap each link in its own
+    // paragraph).
+    const doc = generateJSON(
+      '<a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'amplessYoutube',
+          attrs: { videoId: 'dQw4w9WgXcQ', start: null },
+        },
+      ],
+    })
+  })
+
+  it('keeps a caption link (link text ≠ href) as a captioned Link, not an embed', () => {
+    // Mirrors the markdown-side `extractSingleUrl` rule from PR #258:
+    // `[caption](url)` markdown links stay as captioned Link marks instead
+    // of being silently swallowed into an embed. The HTML-to-tiptap path
+    // honours the same semantic on `<a href="URL">caption</a>` shapes.
+    const doc = generateJSON(
+      '<p><a href="https://youtu.be/dQw4w9WgXcQ">watch this</a></p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://youtu.be/dQw4w9WgXcQ' } }],
+              text: 'watch this',
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('leaves an autolink inside mixed prose as an inline Link mark, not a block embed', () => {
+    // `<p>Watch <a href=URL>URL</a> today</p>` (= the GFM autolink inside
+    // prose case): the URL link text DOES equal href, but promoting it to
+    // a block embed would split the paragraph mid-sentence. The
+    // `tag: 'p'` rule rejects this paragraph (mixed prose), and the
+    // `tag: 'a[href]'` rule sees parent <p> and also rejects, so the link
+    // stays an inline Link mark surrounded by the paragraph's other text.
+    const doc = generateJSON(
+      '<p>Watch <a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a> today</p>',
+      htmlParseExtensions,
+    )
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Watch ' },
+            {
+              type: 'text',
+              marks: [{ type: 'link', attrs: { href: 'https://youtu.be/dQw4w9WgXcQ' } }],
+              text: 'https://youtu.be/dQw4w9WgXcQ',
+            },
+            { type: 'text', text: ' today' },
+          ],
+        },
+      ],
+    })
   })
 })

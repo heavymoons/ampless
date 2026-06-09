@@ -848,6 +848,12 @@ export default createAdminLayout(admin, { editorBootstrap: EditorBootstrap })
 
 `installAdminEditorExtensions` は idempotent で、render 時に client component 内で呼ばれる。admin の `<TiptapEditor>` は毎回 render 時に登録済みリストを built-in extensions の末尾に spread する。
 
+### markdown → tiptap の復元
+
+editor Node が markdown へ bare URL line として serialise される場合、逆方向の復元は paste rule ではなく `Node.parseHTML()` で扱う必要がある。admin の `markdown → tiptap` format switch は、まず markdown を HTML に変換する。GFM autolink により bare URL line は `<p><a href="https://...">https://...</a></p>` になり、その HTML を tiptap が document として parse する。paste rule は user paste / typing event 用なので、この HTML parse 経路では発火しない。
+
+embed 系 Node は、上記 paragraph shape 用の high-priority parse rule を追加し、必要に応じて他の HTML-to-tiptap 経路向けに `a[href]` rule も追加する。paragraph rule は「paragraph が単一 link だけを含み、その link text が `href` と同じ」場合だけ match させる。これにより parser は paragraph 全体を block embed Node に置換でき、embed の前に空 paragraph が残らない。`getAttrs` は URL を検証し、match しない link では `false` を返して通常の Link mark にフォールバックさせる。
+
 ### active source と完全無効化
 
 **エディタ配線の active source は `package.json#dependencies`**（= `node_modules`）であり、`cms.config.ts` ではない。
