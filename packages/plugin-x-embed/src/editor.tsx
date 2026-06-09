@@ -286,6 +286,18 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
     const tweetId = String(node.attrs?.tweetId ?? '').trim()
     if (!tweetId) return null
     const attrs = placeholderAttrs(node.attrs ?? {})
-    return `<div ${attrsToHtmlString(attrs)}><span>Tweet: ${escapeAttr(tweetId)}</span></div>`
+    // Inner content is a bare URL link, not the editor visual label
+    // (`<span>Tweet: id</span>` that lives only in Node.renderHTML).
+    // Reasons: (a) public render of `format: 'html'` posts shows this
+    // body literally, so an editor-internal label would leak; (b) the
+    // URL link gracefully degrades — viewers without iframe expansion
+    // still get a clickable link to the source tweet; (c) it mirrors
+    // the markdown canonical form (bare URL line), keeping the
+    // canonical 3-format mapping symmetric. The parseHTML
+    // `tag: 'div[data-ampless-tweet]'` rule reads `data-tweet-id`
+    // via addAttributes.tweetId.parseHTML, so the inner content is
+    // irrelevant for round-trip.
+    const url = `https://x.com/i/status/${tweetId}`
+    return `<div ${attrsToHtmlString(attrs)}><a href="${escapeAttr(url)}">${escapeAttr(url)}</a></div>`
   },
 }

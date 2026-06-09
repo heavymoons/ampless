@@ -304,6 +304,18 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
     const videoId = String(node.attrs?.videoId ?? '').trim()
     if (!videoId) return null
     const attrs = placeholderAttrs(node.attrs ?? {})
-    return `<div ${attrsToHtmlString(attrs)}><span>YouTube: ${escapeAttr(videoId)}</span></div>`
+    // Inner content is a bare URL link, not the editor visual label
+    // (`<span>YouTube: id</span>` that lives only in Node.renderHTML).
+    // Reasons: (a) public render of `format: 'html'` posts shows this
+    // body literally, so an editor-internal label would leak; (b) the
+    // URL link gracefully degrades — viewers without iframe expansion
+    // still get a clickable link to the source video; (c) it mirrors
+    // the markdown canonical form (bare URL line), keeping the
+    // canonical 3-format mapping symmetric. The parseHTML
+    // `tag: 'div[data-ampless-youtube]'` rule reads `data-video-id`
+    // via addAttributes.videoId.parseHTML, so the inner content is
+    // irrelevant for round-trip.
+    const url = `https://youtu.be/${videoId}`
+    return `<div ${attrsToHtmlString(attrs)}><a href="${escapeAttr(url)}">${escapeAttr(url)}</a></div>`
   },
 }

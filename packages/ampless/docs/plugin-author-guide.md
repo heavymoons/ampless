@@ -1212,7 +1212,16 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
     // placeholderAttrs() is a plugin-local helper that returns the same
     // attribute dict used by Node.renderHTML — single source of truth.
     const attrs = placeholderAttrs(node.attrs ?? {})
-    return `<div ${attrsToHtmlString(attrs)}><span>YouTube: ${escapeAttr(videoId)}</span></div>`
+    // Inner content is the canonical URL as a clickable link, not the
+    // editor's visual label `<span>YouTube: id</span>`. Public render of
+    // `format: 'html'` posts shows this content literally; an editor
+    // label would leak. The URL link gracefully degrades — viewers
+    // without iframe expansion still get a clickable link, and it
+    // mirrors the markdown canonical form. parseHTML reads the
+    // `data-video-id` attribute, so the inner content is irrelevant
+    // for round-trip.
+    const url = `https://youtu.be/${videoId}`
+    return `<div ${attrsToHtmlString(attrs)}><a href="${escapeAttr(url)}">${escapeAttr(url)}</a></div>`
   },
 }
 ```
