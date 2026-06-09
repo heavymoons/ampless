@@ -640,14 +640,18 @@ async function regenerateEditorBootstrap(
   if (identifiers.length === 0) {
     // 0 plugin の場合は inline 形 (= testability + 視認性)
     lines.push('  installAdminEditorExtensions([])')
-    lines.push('  installAdminTiptapNodeMarkdown({})')
+    lines.push('  installAdminTiptapNodeMarkdown([])')
   } else {
     lines.push('  installAdminEditorExtensions([')
     for (const id of identifiers) lines.push(`    ${id}.editorExtension,`)
     lines.push('  ])')
-    lines.push('  installAdminTiptapNodeMarkdown({')
-    for (const id of identifiers) lines.push(`    ...(${id}.tiptapNodeToMarkdown ?? {}),`)
-    lines.push('  })')
+    // Pass each plugin's adapter map as a separate array entry — install
+    // detects cross-plugin nodeType collisions by walking the maps
+    // independently. Pre-merging via `{ ...a, ...b }` would lose them
+    // silently because JS object literals deduplicate keys.
+    lines.push('  installAdminTiptapNodeMarkdown([')
+    for (const id of identifiers) lines.push(`    ${id}.tiptapNodeToMarkdown ?? {},`)
+    lines.push('  ])')
   }
   lines.push('  return <>{children}</>')
   lines.push('}')

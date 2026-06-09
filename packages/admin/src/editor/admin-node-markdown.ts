@@ -9,19 +9,25 @@
 //   'use client'
 //   import { installAdminEditorExtensions, installAdminTiptapNodeMarkdown } from '@ampless/admin/editor'
 //   import * as __ampless_plugin_youtube_editor from '@ampless/plugin-youtube/editor'
+//   import * as __ampless_plugin_x_embed_editor from '@ampless/plugin-x-embed/editor'
 //
 //   export function EditorBootstrap({ children }: { children: React.ReactNode }) {
 //     installAdminEditorExtensions([
 //       __ampless_plugin_youtube_editor.editorExtension,
+//       __ampless_plugin_x_embed_editor.editorExtension,
 //     ])
-//     installAdminTiptapNodeMarkdown({
-//       ...(__ampless_plugin_youtube_editor.tiptapNodeToMarkdown ?? {}),
-//     })
+//     installAdminTiptapNodeMarkdown([
+//       __ampless_plugin_youtube_editor.tiptapNodeToMarkdown ?? {},
+//       __ampless_plugin_x_embed_editor.tiptapNodeToMarkdown ?? {},
+//     ])
 //     return <>{children}</>
 //   }
 //
 // Then thread `<EditorBootstrap>` into `createAdminLayout(admin, {
-// editorBootstrap: EditorBootstrap })`.
+// editorBootstrap: EditorBootstrap })`. The adapters are passed as an
+// **array of maps** (not a pre-merged object) so the install can detect
+// cross-plugin nodeType collisions — see `installAdminTiptapNodeMarkdown`
+// below.
 
 import type { TiptapNodeMarkdownAdapters } from 'ampless'
 
@@ -36,20 +42,33 @@ let installed = false
  * Idempotent: subsequent calls after the first are no-ops (= HMR /
  * double-mount safe).
  *
- * Collision detection: throws when two **different** adapter functions
- * are registered for the same nodeType. This surfaces misconfiguration
- * early (at bootstrap time) rather than silently keeping the last
- * registered adapter and producing hard-to-diagnose round-trip failures.
+ * **Takes an array of maps, one per plugin** (NOT a single pre-merged
+ * object). Pre-merging via object spread (`{ ...a, ...b }`) would
+ * silently lose cross-plugin collisions because a JS object literal
+ * can't carry duplicate keys at all — the last spread wins quietly.
+ * By keeping the plugin maps separate, the install can detect when two
+ * plugins register **different** adapter functions for the same
+ * `nodeType` and throw at bootstrap time, instead of producing
+ * hard-to-diagnose silent round-trip failures at format-switch time.
+ *
+ * Same-plugin re-occurrences (= same `nodeType` registered with the
+ * **identical** function reference, e.g. the same plugin's map appearing
+ * twice from idempotent codegen) are allowed — the second occurrence is
+ * a no-op.
  */
-export function installAdminTiptapNodeMarkdown(map: TiptapNodeMarkdownAdapters): void {
+export function installAdminTiptapNodeMarkdown(
+  maps: ReadonlyArray<TiptapNodeMarkdownAdapters>,
+): void {
   if (installed) return
-  for (const [type, adapter] of Object.entries(map)) {
-    if (type in adapters && adapters[type] !== adapter) {
-      throw new Error(
-        `installAdminTiptapNodeMarkdown: conflict on nodeType "${type}" — two different adapter functions registered`,
-      )
+  for (const map of maps) {
+    for (const [type, adapter] of Object.entries(map)) {
+      if (type in adapters && adapters[type] !== adapter) {
+        throw new Error(
+          `installAdminTiptapNodeMarkdown: conflict on nodeType "${type}" — two plugins registered different adapter functions`,
+        )
+      }
+      adapters[type] = adapter
     }
-    adapters[type] = adapter
   }
   installed = true
 }
