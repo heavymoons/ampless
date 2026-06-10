@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { listPosts, type Post } from 'ampless'
+import { listPostSummaries, type PostSummary } from 'ampless'
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
 
@@ -13,17 +13,23 @@ import { useT } from './i18n-provider.js'
  */
 export function AdminDashboard() {
   const t = useT()
-  const [posts, setPosts] = useState<Post[]>([])
+  const [posts, setPosts] = useState<PostSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    listPosts({ status: 'all' })
+    listPostSummaries({ status: 'all' })
       .then(setPosts)
+      .catch((err: unknown) => {
+        console.error('[admin-dashboard] listPostSummaries failed:', err)
+        setLoadError(err instanceof Error ? err.message : String(err))
+      })
       .finally(() => setLoading(false))
   }, [])
 
   const published = posts.filter((p) => p.status === 'published').length
   const drafts = posts.filter((p) => p.status === 'draft').length
+  const countPending = loading || Boolean(loadError)
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8">
@@ -34,13 +40,19 @@ export function AdminDashboard() {
         </Button>
       </div>
 
+      {loadError && (
+        <p className="mb-4 text-sm text-destructive">
+          {t('posts.list.loadError')}: {loadError}
+        </p>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>{t('dashboard.totalPosts')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? '—' : posts.length}</p>
+            <p className="text-3xl font-bold">{countPending ? '-' : posts.length}</p>
             <p className="text-sm text-muted-foreground">{t('dashboard.totalLabel')}</p>
           </CardContent>
         </Card>
@@ -49,7 +61,7 @@ export function AdminDashboard() {
             <CardTitle>{t('dashboard.published')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? '—' : published}</p>
+            <p className="text-3xl font-bold">{countPending ? '-' : published}</p>
           </CardContent>
         </Card>
         <Card>
@@ -57,7 +69,7 @@ export function AdminDashboard() {
             <CardTitle>{t('dashboard.drafts')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? '—' : drafts}</p>
+            <p className="text-3xl font-bold">{countPending ? '-' : drafts}</p>
           </CardContent>
         </Card>
       </div>

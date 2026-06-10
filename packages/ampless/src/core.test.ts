@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  listPostSummaries,
   listPostHistory,
   setPostsProvider,
   type PostsProvider,
+  type PostSummary,
   type PostRevision,
 } from './core.js'
+import type { Post } from './types.js'
 
 // A minimal provider stub. Only `listPostHistory` is exercised here; the
 // other methods throw so an accidental call surfaces loudly.
@@ -34,6 +37,31 @@ const SAMPLE: PostRevision = {
   body: '# Hi',
   status: 'published',
   tags: ['a', 'b'],
+}
+
+const SAMPLE_POST: Post = {
+  postId: 'post-1',
+  slug: 'hello',
+  title: 'Hello',
+  excerpt: 'Intro',
+  format: 'markdown',
+  body: '# Hi',
+  status: 'published',
+  publishedAt: '2026-06-05T00:00:00.000Z',
+  updatedAt: '2026-06-06T00:00:00.000Z',
+  tags: ['a', 'b'],
+  metadata: { cache: 'auto' },
+}
+
+const SAMPLE_SUMMARY: PostSummary = {
+  postId: SAMPLE_POST.postId,
+  slug: SAMPLE_POST.slug,
+  title: SAMPLE_POST.title,
+  excerpt: SAMPLE_POST.excerpt,
+  status: SAMPLE_POST.status,
+  publishedAt: SAMPLE_POST.publishedAt,
+  updatedAt: SAMPLE_POST.updatedAt,
+  tags: SAMPLE_POST.tags ?? [],
 }
 
 describe('listPostHistory', () => {
@@ -69,5 +97,50 @@ describe('listPostHistory', () => {
     const conn = await listPostHistory('post-1')
     expect(conn.nextToken).toBeUndefined()
     expect(conn.items).toHaveLength(1)
+  })
+})
+
+describe('listPostSummaries', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    // @ts-expect-error — intentionally clearing for isolation.
+    setPostsProvider(null)
+  })
+
+  it('delegates to provider.listSummaries when available', async () => {
+    const listFn = vi.fn().mockResolvedValue([SAMPLE_POST])
+    const listSummariesFn = vi.fn().mockResolvedValue([SAMPLE_SUMMARY])
+    setPostsProvider(makeProvider({ list: listFn, listSummaries: listSummariesFn }))
+
+    const summaries = await listPostSummaries({ status: 'all' })
+
+    expect(listSummariesFn).toHaveBeenCalledWith({ status: 'all' })
+    expect(listFn).not.toHaveBeenCalled()
+    expect(summaries).toEqual([SAMPLE_SUMMARY])
+  })
+
+  it('falls back to list() once and strips body / metadata when listSummaries is absent', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const listFn = vi.fn().mockResolvedValue([SAMPLE_POST])
+    setPostsProvider(makeProvider({ list: listFn }))
+
+    const summaries = await listPostSummaries({ status: 'draft' })
+
+    expect(listFn).toHaveBeenCalledWith({ status: 'draft' })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(summaries).toEqual([
+      {
+        postId: SAMPLE_POST.postId,
+        slug: SAMPLE_POST.slug,
+        title: SAMPLE_POST.title,
+        excerpt: SAMPLE_POST.excerpt,
+        status: SAMPLE_POST.status,
+        publishedAt: SAMPLE_POST.publishedAt,
+        updatedAt: SAMPLE_POST.updatedAt,
+        tags: SAMPLE_POST.tags,
+      },
+    ])
+    expect(summaries[0]).not.toHaveProperty('body')
+    expect(summaries[0]).not.toHaveProperty('metadata')
   })
 })
