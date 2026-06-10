@@ -316,7 +316,7 @@ importers:
   packages/plugin-x-embed:
     dependencies:
       ampless:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../ampless
     devDependencies:
       '@tiptap/core':
@@ -338,7 +338,7 @@ importers:
   packages/plugin-youtube:
     dependencies:
       ampless:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../ampless
     devDependencies:
       '@tiptap/core':

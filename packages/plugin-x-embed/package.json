@@ -37,7 +37,7 @@
   },
   "peerDependencies": {
     "@tiptap/core": "^3",
-    "ampless": "workspace:*",
+    "ampless": "workspace:^",
     "react": "^18 || ^19"
   },
   "devDependencies": {
