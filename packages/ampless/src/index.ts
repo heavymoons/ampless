@@ -8,13 +8,16 @@ export {
   updatePost,
   deletePost,
   listPostHistory,
+  listPostSummaries,
   setPostsProvider,
   hasPostsProvider,
 } from './core.js'
 export type {
   ListOptions,
+  SummaryListOptions,
   CreatePostInput,
   PostsProvider,
+  PostSummary,
   PostRevision,
   ListPostHistoryOptions,
   PostRevisionConnection,

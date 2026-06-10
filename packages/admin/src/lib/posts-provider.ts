@@ -13,6 +13,8 @@ import {
   type PostRevision,
   type ListPostHistoryOptions,
   type PostRevisionConnection,
+  type PostSummary,
+  type SummaryListOptions,
 } from 'ampless'
 
 // Structural shape of the AppSync data client surface admin needs. The
@@ -72,11 +74,6 @@ interface ModelResult<T> {
   errors?: Array<{ message?: string }> | null
 }
 
-interface ListResult<T> {
-  data: T[]
-  errors?: Array<{ message?: string }> | null
-}
-
 // Connection result for the `byPost` GSI query. Amplify returns
 // `nextToken: string | null`; we normalise to `string | undefined` at
 // the provider boundary so the public connection type stays clean.
@@ -90,7 +87,9 @@ interface PostModel {
   list(args?: {
     filter?: Record<string, unknown>
     limit?: number
-  }): Promise<ListResult<DataPostRow>>
+    nextToken?: string | null
+    selectionSet?: readonly string[]
+  }): Promise<ConnectionResult<DataPostRow>>
   get(args: { postId: string }): Promise<ModelResult<DataPostRow>>
   create(args: Record<string, unknown>): Promise<ModelResult<DataPostRow>>
   update(args: Record<string, unknown>): Promise<ModelResult<DataPostRow>>
@@ -147,6 +146,19 @@ function toCorePost(p: DataPostRow): Post {
   }
 }
 
+function toSummary(p: DataPostRow): PostSummary {
+  return {
+    postId: p.postId,
+    slug: p.slug,
+    title: p.title,
+    excerpt: p.excerpt ?? undefined,
+    status: (p.status ?? 'draft') as PostSummary['status'],
+    publishedAt: p.publishedAt ?? undefined,
+    updatedAt: p.updatedAt ?? undefined,
+    tags: (p.tags ?? []).filter((t): t is string => typeof t === 'string'),
+  }
+}
+
 // Map a raw PostHistory row to the in-memory `PostRevision` snapshot
 // shape. `body` is decoded from AWSJSON to match `Post['body']` for the
 // declared format (same decode path as `toCorePost`).
@@ -192,6 +204,39 @@ export function installAdminPostsProvider(): void {
         limit: opts.limit ?? 100,
       })
       return data.map(toCorePost)
+    },
+
+    async listSummaries(opts: SummaryListOptions = {}) {
+      const status = opts.status ?? 'all'
+      const filter = status !== 'all' ? { status: { eq: status } } : undefined
+      const out: PostSummary[] = []
+      let nextToken: string | null | undefined = undefined
+
+      do {
+        const { data, errors, nextToken: nt } = await client.models.Post.list({
+          filter,
+          limit: 200,
+          nextToken,
+          selectionSet: [
+            'postId',
+            'slug',
+            'title',
+            'excerpt',
+            'status',
+            'publishedAt',
+            'updatedAt',
+            'tags',
+          ],
+        })
+        if (errors && errors.length > 0) {
+          console.error('[ampless admin] Post.list page failed:', errors)
+          throw new Error(errors[0]?.message ?? 'Post.list failed')
+        }
+        out.push(...data.map(toSummary))
+        nextToken = nt
+      } while (nextToken)
+
+      return out
     },
 
     async get(slug) {

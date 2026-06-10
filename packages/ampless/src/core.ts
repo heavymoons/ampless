@@ -50,6 +50,36 @@ export interface PostRevisionConnection {
   nextToken?: string
 }
 
+/**
+ * Lightweight row for admin list views — excludes body / metadata.
+ * Body fields (tiptap JSON, markdown source, etc.) can be tens of KB per post;
+ * projecting them out cuts per-post transfer size by 90%+ at scale.
+ *
+ * For list views that only need title / slug / status / dates / tags,
+ * use `listPostSummaries` instead of `listPosts`.
+ *
+ * Scale note: for single-site blogs (hundreds to low thousands of posts),
+ * full client-side fetch + sort/search is fast and eliminates GSI complexity.
+ * If a site grows to many thousands of posts, revisit with a
+ * (status, updatedAt) GSI + server-side pagination.
+ */
+export interface PostSummary {
+  postId: string
+  slug: string
+  title: string
+  excerpt?: string
+  status: 'draft' | 'published'
+  publishedAt?: string
+  updatedAt?: string
+  tags: string[]
+}
+
+/** Options for `listPostSummaries`. */
+export interface SummaryListOptions {
+  /** default 'all' */
+  status?: 'draft' | 'published' | 'all'
+}
+
 export interface PostsProvider {
   list(opts?: ListOptions): Promise<Post[]>
   get(slug: string): Promise<Post | null>
@@ -61,9 +91,21 @@ export interface PostsProvider {
     postId: string,
     options?: ListPostHistoryOptions
   ): Promise<PostRevisionConnection>
+  /**
+   * Return lightweight summaries for all posts (no body / metadata).
+   * Implementations MUST page through all nextToken values to return the
+   * complete list — the admin list view depends on this for accurate search
+   * and sort.
+   *
+   * Optional: providers that do not implement this fall back to a best-effort
+   * single-page result via `list()` (see `listPostSummaries` fallback path).
+   * The admin provider always implements this.
+   */
+  listSummaries?(opts?: SummaryListOptions): Promise<PostSummary[]>
 }
 
 let provider: PostsProvider | null = null
+let warnedSummaryFallback = false
 
 export function setPostsProvider(p: PostsProvider): void {
   provider = p
@@ -122,4 +164,59 @@ export async function listPostHistory(
 ): Promise<PostRevisionConnection> {
   if (!provider) return { items: [] }
   return provider.listPostHistory(postId, options)
+}
+
+/**
+ * Return lightweight summaries for all posts (no body / metadata).
+ *
+ * Delegates to `provider.listSummaries()` when available — the admin
+ * provider implements this with a full nextToken loop and selectionSet
+ * projection, ensuring all posts are returned without fetching large body
+ * fields.
+ *
+ * **Fallback**: if the configured provider does not implement `listSummaries`,
+ * falls back to a single page from `provider.list({ status })`. This is
+ * best-effort only — it returns at most one page of results (no pagination).
+ * Providers that need complete summary lists MUST implement `listSummaries`.
+ * A `console.warn` is emitted once to make this visible.
+ *
+ * If no provider is configured, maps DUMMY_POSTS to summaries.
+ */
+export async function listPostSummaries(opts?: SummaryListOptions): Promise<PostSummary[]> {
+  const status = opts?.status ?? 'all'
+
+  if (!provider) {
+    // No provider — map dummy posts to summaries
+    return dummyList({ status }).map(postToSummary)
+  }
+
+  if (provider.listSummaries) {
+    return provider.listSummaries(opts)
+  }
+
+  // Fallback: best-effort single page via list(). No full pagination —
+  // providers that need complete listings must implement listSummaries.
+  if (!warnedSummaryFallback) {
+    warnedSummaryFallback = true
+    console.warn(
+      '[ampless] listPostSummaries: provider does not implement listSummaries; ' +
+        'falling back to a single-page best-effort via list(). ' +
+        'Complete listings require the provider to implement listSummaries.'
+    )
+  }
+  const posts = await provider.list({ status })
+  return posts.map(postToSummary)
+}
+
+function postToSummary(p: Post): PostSummary {
+  return {
+    postId: p.postId,
+    slug: p.slug,
+    title: p.title,
+    excerpt: p.excerpt,
+    status: p.status as 'draft' | 'published',
+    publishedAt: p.publishedAt,
+    updatedAt: p.updatedAt,
+    tags: p.tags ?? [],
+  }
 }
