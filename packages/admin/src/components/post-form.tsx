@@ -746,11 +746,18 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
             // trusted editors of this site. A stricter sandbox (= separate-
             // origin preview route + CSP / COEP / COOP) is parked for
             // v2.0+ if/when a real plugin marketplace lands.
+            //
+            // Typography note: `prose prose-neutral dark:prose-invert
+            // max-w-none` were removed from the iframe element. Those classes
+            // style the iframe *element* border-box only, not its content
+            // document — an iframe srcDoc does not inherit the parent page's
+            // CSS. Typography is now applied inside the document returned by
+            // createPreviewRouteHandler (PREVIEW_BASE_CSS + theme cssVars).
             <iframe
               title="post-preview"
               srcDoc={previewHtml}
               sandbox="allow-scripts allow-same-origin"
-              className="prose prose-neutral dark:prose-invert max-w-none min-h-[400px] w-full rounded-md border"
+              className="min-h-[400px] w-full rounded-md border"
             />
           )}
           {previewPost.tags && previewPost.tags.length > 0 && (
