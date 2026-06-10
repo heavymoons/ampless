@@ -115,6 +115,21 @@ describe('hasTweetIn', () => {
     ).toBe(true)
   })
 
+  it('detects an UPPERCASE placeholder attribute name (case-insensitive, matching the walker)', () => {
+    // HTML attribute names are case-insensitive and the public html walker
+    // matches them via html.toLowerCase() — `<div DATA-AMPLESS-TWEET ...>`
+    // IS expanded into a twitter-tweet blockquote at render time. If this
+    // detection stayed case-sensitive, the walker would render the embed
+    // but widgets.js would never be injected and the tweet would sit
+    // unhydrated.
+    expect(
+      hasTweetIn({
+        format: 'html',
+        body: '<div DATA-AMPLESS-TWEET data-tweet-id="20"><a href="https://twitter.com/i/status/20">20</a></div>',
+      }),
+    ).toBe(true)
+  })
+
   it('returns false for plain html without a tweet placeholder', () => {
     expect(
       hasTweetIn({
