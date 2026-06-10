@@ -36,7 +36,7 @@
     "@ampless/plugin-schema-jsonld": "^0.1.1-alpha.29",
     "@ampless/plugin-seo": "^0.2.0-alpha.50",
     "@ampless/plugin-webhook": "^0.2.0-alpha.51",
-    "@ampless/admin": "^1.0.0-alpha.84",
+    "@ampless/admin": "^1.0.0-alpha.85",
     "@ampless/backend": "^1.0.0-alpha.72",
     "@ampless/runtime": "^1.0.0-alpha.59",
     "@digital-go-jp/tailwind-theme-plugin": "^0.3.4",
