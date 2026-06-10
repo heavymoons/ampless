@@ -213,11 +213,27 @@ em { font-style: italic; }
  *   1. **Theme CSS vars**: `renderThemeCss(cssVars)` — the same `:root {…}`
  *      block the public root layout emits, so the live theme's colour tokens
  *      flow into the preview.
- *   2. **`PREVIEW_BASE_CSS`**: a self-contained typography approximation
- *      (h1-h6, p, ul/ol/li, a, code, pre, blockquote, img, table, hr, dark
- *      mode). This is *not* the actual live theme stylesheet — Next.js App
- *      Router emits hashed CSS filenames that are unknowable from a Route
- *      Handler — but it's enough for a "readable preview".
+ *   2. **`PREVIEW_BASE_CSS`** (`id="ampless-preview-base"`): a self-contained
+ *      typography approximation (h1-h6, p, ul/ol/li, a, code, pre, blockquote,
+ *      img, table, hr, dark mode). This is *not* the actual live theme stylesheet
+ *      — Next.js App Router emits hashed CSS filenames that are unknowable from
+ *      a Route Handler — but it's enough for a "readable preview" when the
+ *      client-side injection has no stylesheets to collect.
+ *
+ * ## Two-stage design: client injection primary, base CSS fallback
+ *
+ * Before the iframe's srcDoc is set, the client helper `buildPreviewSrcDoc`
+ * (packages/admin/src/lib/preview-srcdoc.ts) collects the parent admin page's
+ * actual compiled stylesheets (`link[rel="stylesheet"]` absolute hrefs and
+ * inline `<style>` blocks) and injects them right after `<head>` in the
+ * document returned here. When ≥ 1 stylesheet is collected the fallback
+ * `<style id="ampless-preview-base">` block is stripped (it would compete with
+ * the real theme CSS). When 0 are collected (e.g. SSR path or no stylesheets
+ * yet), the fallback is kept so the preview stays readable.
+ *
+ * This gives pixel-accurate theme rendering (drop caps, theme tokens, dark
+ * mode) in the preview without requiring the Route Handler to know the hashed
+ * CSS bundle filenames.
  *
  * ## Why a Route Handler (not a Server Action)?
  *
@@ -247,9 +263,25 @@ em { font-style: italic; }
  * group + middleware, but we add an explicit check here as defence-in-depth
  * against the middleware gate being misconfigured.
  */
+export interface PreviewRouteHandlerOptions {
+  /**
+   * CSS class string applied to the `<main>` wrapper in the preview document.
+   * Defaults to `'prose prose-neutral dark:prose-invert max-w-none'` which
+   * matches the typical blog theme `#post-body` wrapper. Sites that use a
+   * different wrapper class (e.g. a custom typography plugin) can override
+   * this so the theme's `.prose`-scoped CSS selectors apply correctly inside
+   * the preview iframe.
+   */
+  bodyClassName?: string
+}
+
 export function createPreviewRouteHandler(
-  admin: Admin
+  admin: Admin,
+  options: PreviewRouteHandlerOptions = {}
 ): (req: Request) => Promise<Response> {
+  const {
+    bodyClassName = 'prose prose-neutral dark:prose-invert max-w-none',
+  } = options
   return async function POST(req: Request): Promise<Response> {
     const session = await admin.getServerSession()
     if (!admin.isEditor(session)) {
@@ -300,10 +332,10 @@ export function createPreviewRouteHandler(
       `<head>` +
       `<meta charset="utf-8">` +
       (themeCssBlock ? `<style>${themeCssBlock}</style>` : '') +
-      `<style>${PREVIEW_BASE_CSS}</style>` +
+      `<style id="ampless-preview-base">${PREVIEW_BASE_CSS}</style>` +
       `</head>` +
       `<body class="ampless-preview">` +
-      `<main>${fragment}</main>` +
+      `<main class="${bodyClassName}">${fragment}</main>` +
       `</body>` +
       `</html>`
 
