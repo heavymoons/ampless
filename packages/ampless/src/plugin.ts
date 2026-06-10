@@ -933,6 +933,50 @@ export type ContentFieldRenderer =
       kind: 'tiptap'
       nodeType: string
       render(node: TiptapRenderNode, ctx: PluginPublicRenderContext): ReactNode
+      /**
+       * Opt-in: expand this node's canonical placeholder div when it
+       * appears in a `format: 'html'` post body on public render.
+       *
+       * The admin's `tiptap → html` format switch serialises an embed
+       * node (e.g. `amplessYoutube`) to its canonical placeholder div
+       * (`<div data-ampless-youtube data-video-id="…"><a href="…">…</a></div>`,
+       * via the `tiptapNodeToHtml` adapter). Without `htmlPlaceholder`,
+       * the public renderer of a `format: 'html'` post emits that div
+       * literally — the placeholder shows as a bare div + link instead
+       * of the live embed. (This was the documented limitation from the
+       * canonical-html-embed work; declaring `htmlPlaceholder` resolves
+       * it.)
+       *
+       * When declared, the runtime's public html walker finds each
+       * **top-level** element carrying `flagAttr`, builds a
+       * `TiptapRenderNode { type: nodeType, attrs: attrsFromElement(attribs) }`,
+       * and calls this same `render` — so the `tiptap`, `markdown`, and
+       * `html` formats all reach one renderer (no per-format divergence).
+       *
+       * - `flagAttr` is the marker attribute (e.g.
+       *   `'data-ampless-youtube'`). It is **matched case-insensitively**:
+       *   the runtime lowercases it at registration because htmlparser2
+       *   lowercases HTML attribute names while parsing, so declaring
+       *   `'data-My-Embed'` still matches `<div data-my-embed>` /
+       *   `<div DATA-MY-EMBED>`.
+       * - `attrsFromElement` converts the div's HTML attributes (already
+       *   lowercased by the parser) into the tiptap node `attrs` that
+       *   `render` expects, with the correct types — e.g. a
+       *   `data-start="30"` string must become the `number 30` that
+       *   `render` reads.
+       *
+       * Only top-level placeholders expand; divs nested inside
+       * `<blockquote>` / `<li>` / etc. stay literal. If `attrsFromElement`
+       * or `render` throws, the runtime warns and falls back to the raw
+       * placeholder slice (the embedded link stays clickable) rather than
+       * dropping the engineer-authored content.
+       */
+      htmlPlaceholder?: {
+        flagAttr: string
+        attrsFromElement(
+          attribs: Readonly<Record<string, string>>,
+        ): Record<string, unknown>
+      }
     }
   | {
       kind: 'markdown-url'

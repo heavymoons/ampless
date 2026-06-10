@@ -386,6 +386,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      htmlparser2:
+        specifier: ^10.1.0
+        version: 10.1.0
       lucide-react:
         specifier: ^1.16.0
         version: 1.16.0(react@19.2.6)

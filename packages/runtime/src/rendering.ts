@@ -4,6 +4,13 @@ import {
   type ReactNode,
 } from 'react'
 import { marked, type Tokens } from 'marked'
+// Server-side HTML parser used by the public html walker (`renderHtmlNode`)
+// to expand registered embed placeholder divs in `format: 'html'` bodies.
+// htmlparser2 is a direct dependency (also present transitively via
+// sanitize-html, but pnpm forbids importing transitive packages, so the
+// runtime declares it explicitly). `ElementType` provides the `isTag`
+// type guard / element-type enum without pulling domhandler in directly.
+import { parseDocument, ElementType } from 'htmlparser2'
 import type {
   AmplessPlugin,
   ContentFieldRenderer,
@@ -178,6 +185,22 @@ export interface ContentFieldRegistry {
     plugin: AmplessPlugin
     renderer: Extract<ContentFieldRenderer, { kind: 'markdown-url' }>
   }>
+  /**
+   * Plugins that declared `htmlPlaceholder` on their `kind: 'tiptap'`
+   * entry, keyed by the **lowercased** `flagAttr` (htmlparser2 lowercases
+   * HTML attribute names while parsing, so the public html walker looks
+   * up `attribs[flagAttr.toLowerCase()]` and compares against these keys
+   * case-insensitively). Used by `renderHtmlNode` to expand canonical
+   * placeholder divs in `format: 'html'` bodies into the plugin's
+   * existing tiptap renderer output.
+   */
+  htmlPlaceholder: ReadonlyMap<
+    string,
+    {
+      plugin: AmplessPlugin
+      renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }>
+    }
+  >
 }
 
 /**
@@ -190,6 +213,10 @@ export function buildContentFieldRegistry(
   plugins: readonly AmplessPlugin[],
 ): ContentFieldRegistry {
   const tiptap = new Map<
+    string,
+    { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> }
+  >()
+  const htmlPlaceholder = new Map<
     string,
     { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> }
   >()
@@ -209,6 +236,20 @@ export function buildContentFieldRegistry(
           )
         }
         tiptap.set(field.nodeType, { plugin, renderer: field })
+        if (field.htmlPlaceholder) {
+          // Normalize to lowercase: htmlparser2 lowercases attribute
+          // names in HTML mode, so the walker's attribs lookup + fast-path
+          // substring scan must use the normalized value. Duplicate
+          // detection is on the normalized key too (`data-X` and `data-x`
+          // collide).
+          const flagAttr = field.htmlPlaceholder.flagAttr.toLowerCase()
+          if (htmlPlaceholder.has(flagAttr)) {
+            throw new Error(
+              `[ampless contentFields] duplicate htmlPlaceholder flagAttr "${flagAttr}" — already registered by another plugin. Each flagAttr may be claimed by at most one plugin.`,
+            )
+          }
+          htmlPlaceholder.set(flagAttr, { plugin, renderer: field })
+        }
       } else if (field.kind === 'markdown-url') {
         const key = field.pattern.source
         if (seenMarkdownPatterns.has(key)) {
@@ -221,7 +262,7 @@ export function buildContentFieldRegistry(
       }
     }
   }
-  return { tiptap, markdownUrl }
+  return { tiptap, markdownUrl, htmlPlaceholder }
 }
 
 export interface RenderBodyOptions {
@@ -513,6 +554,201 @@ function extractSingleUrl(para: Tokens.Paragraph): string | null {
   return null
 }
 
+// ---- Phase 7 add-on: public html walker (htmlparser2 index slicing) ----
+
+/**
+ * Minimal structural shape of a parsed element node the walker reads.
+ * htmlparser2 doesn't re-export domhandler's `Element` type / `isTag`
+ * type guard (and pnpm forbids importing the transitive `domhandler`
+ * directly), so we narrow `ChildNode` via `ElementType.isTag` + this
+ * local interface rather than coupling to domhandler's class.
+ */
+interface ParsedElement {
+  attribs: Record<string, string>
+  startIndex: number | null
+  endIndex: number | null
+}
+
+/**
+ * Type guard narrowing a parsed child node to an element with `attribs`
+ * + index range. `ElementType.isTag` returns a plain boolean (Tag /
+ * Script / Style), so we pair it with a structural cast.
+ */
+function isParsedElement<T extends { type: ElementType.ElementType }>(
+  node: T,
+): node is T & ParsedElement {
+  return ElementType.isTag(node)
+}
+
+
+/**
+ * Render a `format: 'html'` post body, expanding registered embed
+ * placeholder divs into the plugin's existing `kind: 'tiptap'` renderer
+ * output while passing everything else through as **byte-for-byte
+ * original-string slices** (never DOM re-serialisation).
+ *
+ * A placeholder is a **top-level** (depth-0) element carrying a
+ * registered `flagAttr` (e.g. `<div data-ampless-youtube …>`). The admin's
+ * `tiptap → html` format switch emits these canonical divs; this walker
+ * is what makes the `html` format reach the same React renderer as the
+ * `tiptap` / `markdown` formats. Nested placeholders (inside
+ * `<blockquote>` / `<li>` / etc.) stay literal — consistent with the
+ * editor's body-level-only `parseHTML` fallback.
+ *
+ * Fast path (zero regression for posts without placeholders): if the
+ * registry has no `htmlPlaceholder` entries, or none of the registered
+ * flagAttrs appear as a substring of the (lowercased) body, return a
+ * single `htmlPassthroughBlock(html)` — markup-identical to the previous
+ * raw-passthrough behaviour.
+ *
+ * Error policy (graceful degradation — the body is engineer-authored, so
+ * preserve content rather than drop it):
+ *   - `attrsFromElement` or `render` throwing → `console.warn` + raw
+ *     slice fallback (the placeholder div, including its clickable link,
+ *     stays visible).
+ *   - ctx resolver returning nothing → raw slice fallback.
+ *   - htmlparser2 throwing (effectively never) → whole-body
+ *     `htmlPassthroughBlock(html)` fallback.
+ *
+ * Note on DOM structure: a body with placeholders changes from a single
+ * wrapper div (raw passthrough) to multiple wrapper divs interleaved with
+ * the React embed siblings. The bytes inside each raw chunk are preserved
+ * exactly, but the wrapper boundaries shift — direct-child / adjacent-
+ * sibling CSS selectors that assumed one wrapper won't match the same way.
+ * Placeholder-free posts keep the single wrapper via the fast path.
+ */
+function renderHtmlNode(html: string, opts: RenderBodyOptions): ReactNode {
+  const registry = opts.contentFields?.htmlPlaceholder
+  // Fast path (a): no plugin opted in.
+  if (!registry || registry.size === 0) {
+    return htmlPassthroughBlock(html)
+  }
+  // Fast path (b): none of the registered flagAttrs appear in the body.
+  // Case-insensitive: registry keys are already lowercase; lowercase the
+  // body once. NOT a fixed `'data-ampless'` prefix check — flagAttr is an
+  // arbitrary attribute name (a site-local plugin can declare
+  // `data-my-embed`), so a fixed prefix would never expand those.
+  const lower = html.toLowerCase()
+  let anyFlagPresent = false
+  for (const flagAttr of registry.keys()) {
+    if (lower.includes(flagAttr)) {
+      anyFlagPresent = true
+      break
+    }
+  }
+  if (!anyFlagPresent) {
+    return htmlPassthroughBlock(html)
+  }
+
+  let doc
+  try {
+    doc = parseDocument(html, {
+      withStartIndices: true,
+      withEndIndices: true,
+    })
+  } catch (err) {
+    // htmlparser2 is famously tolerant and effectively never throws, but
+    // if it does we fall back to whole-body raw passthrough rather than
+    // dropping the engineer's content.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ampless renderBody] htmlparser2 failed to parse a format:'html' body; falling back to raw passthrough: ${err instanceof Error ? err.message : String(err)}`,
+    )
+    return htmlPassthroughBlock(html)
+  }
+
+  const children: ReactNode[] = []
+  let chunk = 0
+  // `cursor` tracks the next unconsumed byte in the original string. The
+  // region between the previous placeholder's end and the next
+  // placeholder's start (raw text, comments, whitespace, non-placeholder
+  // elements) is emitted as one original-string slice — preserving bytes
+  // exactly. Top-level children's inclusive slices reconstruct the source
+  // verbatim, so slicing on indices is byte-faithful.
+  let cursor = 0
+
+  const flushRawUntil = (end: number) => {
+    if (end <= cursor) return
+    const slice = html.slice(cursor, end)
+    children.push(htmlPassthroughBlock(slice, `html-raw-${chunk++}`))
+    cursor = end
+  }
+
+  for (const node of doc.children) {
+    // Only element nodes (Tag/Script/Style) can carry the flag attr; text,
+    // comments, directives, etc. are part of the surrounding raw slices.
+    if (!isParsedElement(node)) continue
+    if (node.startIndex == null || node.endIndex == null) continue
+    const reg = matchHtmlPlaceholder(node.attribs, registry)
+    if (!reg) continue
+
+    // domhandler endIndex is INCLUSIVE of the terminal `>` — slice with
+    // `endIndex + 1` so the closing `>` isn't dropped.
+    const start = node.startIndex
+    const endExclusive = node.endIndex + 1
+
+    // Emit the raw region preceding this placeholder.
+    flushRawUntil(start)
+
+    const placeholderSlice = html.slice(start, endExclusive)
+    const ctx = opts.ctxForPlugin?.(reg.plugin)
+    if (!ctx) {
+      // Defensive: registry says renderer is here but ctx resolver
+      // missing. Preserve the engineer-authored placeholder (its link
+      // stays clickable) rather than dropping content.
+      children.push(htmlPassthroughBlock(placeholderSlice, `html-raw-${chunk++}`))
+      cursor = endExclusive
+      continue
+    }
+    try {
+      // `attrsFromElement` and `render` share ONE try/catch: HTML attribs
+      // come from the post body, so even the attr→node-attrs conversion
+      // can throw. Either throwing → warn + raw slice fallback.
+      const renderNode: TiptapRenderNode = {
+        type: reg.renderer.nodeType,
+        attrs: reg.renderer.htmlPlaceholder!.attrsFromElement(node.attribs),
+      }
+      const out = reg.renderer.render(renderNode, ctx)
+      children.push(createElement(Fragment, { key: `html-embed-${start}` }, out))
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ampless renderBody] plugin "${reg.plugin.instanceId ?? reg.plugin.name}" threw inside contentFields tiptap renderer for nodeType "${reg.renderer.nodeType}": ${err instanceof Error ? err.message : String(err)}`,
+      )
+      children.push(htmlPassthroughBlock(placeholderSlice, `html-raw-${chunk++}`))
+    }
+    cursor = endExclusive
+  }
+
+  // Trailing raw region after the last placeholder.
+  flushRawUntil(html.length)
+
+  return createElement(Fragment, null, ...children)
+}
+
+/**
+ * Find the `htmlPlaceholder` registry entry whose (lowercased) flagAttr is
+ * present on this element's attributes. htmlparser2 lowercases attribute
+ * names in HTML mode, and registry keys are lowercased at registration, so
+ * the lookup is a direct `attribs` key check. Returns the first match (a
+ * single element carrying two registered flags is vanishingly unlikely;
+ * first-match keeps the walk deterministic).
+ */
+function matchHtmlPlaceholder(
+  attribs: Record<string, string>,
+  registry: ReadonlyMap<
+    string,
+    { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> }
+  >,
+): { plugin: AmplessPlugin; renderer: Extract<ContentFieldRenderer, { kind: 'tiptap' }> } | null {
+  for (const flagAttr of registry.keys()) {
+    if (Object.prototype.hasOwnProperty.call(attribs, flagAttr)) {
+      return registry.get(flagAttr) ?? null
+    }
+  }
+  return null
+}
+
 // ---- Public entry points ----
 
 /**
@@ -529,8 +765,15 @@ export function renderBody(post: Post, opts: RenderBodyOptions = {}): ReactNode 
   // 仕様: editor は信頼された主体。`'html'` フォーマットは body をその
   // ままレンダリングする (任意 HTML / script 可)。ファイル冒頭のコメント
   // および 04-access-layer-mcp.md を参照。
+  //
+  // The public html walker (`renderHtmlNode`) expands registered embed
+  // placeholder divs (e.g. `<div data-ampless-youtube …>`) into the same
+  // React renderer the tiptap / markdown walkers use, while passing all
+  // other markup through unchanged (byte-faithful original-string slices).
+  // Posts without placeholders hit the fast path = identical single-wrapper
+  // raw passthrough as before.
   if (post.format === 'html') {
-    return htmlPassthroughBlock(String(post.body))
+    return renderHtmlNode(String(post.body), opts)
   }
   if (post.format === 'markdown') {
     return renderMarkdownNode(String(post.body), opts)

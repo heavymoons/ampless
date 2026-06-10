@@ -80,7 +80,22 @@ export function hasTweetIn(post: {
   }
   if (post.format === 'html') {
     if (typeof post.body !== 'string') return false
-    return post.body.includes('twitter-tweet')
+    // `twitter-tweet`: a hand-written `<blockquote class="twitter-tweet">`.
+    // Case-sensitive on purpose — it's a class VALUE; widgets.js only
+    // hydrates the lowercase class, so an uppercase variant wouldn't
+    // hydrate anyway and injecting the script for it would be useless.
+    // `data-ampless-tweet`: the canonical placeholder div the admin's
+    // tiptap→html switch emits — the public html walker expands it into a
+    // `<blockquote class="twitter-tweet">` at render time, so widgets.js
+    // must be injected for that hydration to happen. Case-INsensitive —
+    // it's an attribute NAME (case-insensitive per HTML spec), and the
+    // walker matches it via html.toLowerCase(), so a hand-written
+    // `<div DATA-AMPLESS-TWEET ...>` gets expanded by the walker and must
+    // be detected here too or the embed renders unhydrated.
+    return (
+      post.body.includes('twitter-tweet') ||
+      post.body.toLowerCase().includes('data-ampless-tweet')
+    )
   }
   return false
 }

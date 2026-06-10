@@ -52,6 +52,23 @@ export default function youtubePlugin(
               : undefined
           return <YouTubeEmbed videoId={videoId} start={start} />
         },
+        // Opt into the public html walker so `format: 'html'` posts expand
+        // the canonical placeholder div (emitted by the admin's tiptap→html
+        // switch) into the same `<YouTubeEmbed>` the tiptap / markdown
+        // walkers render. Attribute names match `placeholderAttrs()` in
+        // ./editor.tsx (the canonical definition site).
+        htmlPlaceholder: {
+          flagAttr: 'data-ampless-youtube',
+          attrsFromElement: (attribs) => {
+            // `render` requires `typeof start === 'number'`; the HTML attr
+            // is a string, so coerce it here (the walker is type-agnostic).
+            const start = Number(attribs['data-start'])
+            return {
+              videoId: attribs['data-video-id'] ?? '',
+              start: Number.isFinite(start) ? start : undefined,
+            }
+          },
+        },
       },
       {
         kind: 'markdown-url',

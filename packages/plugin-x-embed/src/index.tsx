@@ -40,6 +40,18 @@ export default function xEmbedPlugin(
           const tweetId = String(node.attrs?.tweetId ?? '')
           return <TweetEmbed tweetId={tweetId} />
         },
+        // Opt into the public html walker so `format: 'html'` posts expand
+        // the canonical placeholder div (emitted by the admin's tiptap→html
+        // switch) into the same `<TweetEmbed>` the tiptap / markdown walkers
+        // render. Attribute names match `placeholderAttrs()` in ./editor.tsx
+        // (the canonical definition site). The page-level widgets.js is
+        // injected via `publicPostScript` + the `hasTweetIn` html branch.
+        htmlPlaceholder: {
+          flagAttr: 'data-ampless-tweet',
+          attrsFromElement: (attribs) => ({
+            tweetId: attribs['data-tweet-id'] ?? '',
+          }),
+        },
       },
       {
         kind: 'markdown-url',
