@@ -896,9 +896,9 @@ operator が admin UI でポストのフォーマットを切り替える場合�
 
 プレースホルダー div は **admin format-switch 相互運用専用**の正規 HTML 形式: `Node.renderHTML` が emit し、`Node.parseHTML` の `tag: 'div[data-ampless-*]'` rule が復元することで、admin での `tiptap ↔ markdown ↔ html` 切替が embed を保ったまま round-trip できる。
 
-**`format: 'html'` の公開描画ではプレースホルダー展開を行わない。** 公開描画はフォーマット別に分岐: tiptap 投稿は React walker が `contentFields.tiptap` registry を参照（= `amplessYoutube` Node を実際の iframe に変換）、markdown 投稿は markdown walker が `contentFields.markdownUrl` を参照（= bare URL paragraph を実際の iframe に変換）、html 投稿は `htmlPassthroughBlock` で raw HTML をそのまま出力する。**プレースホルダー div を含む html-format 投稿は公開ページでリテラル div として表示される。** `publicHtmlForPost` は `beforeContent` / `afterContent` slot のみ提供する capability であり、body を変換しない。
+**`format: 'html'` の公開描画は、plugin が `htmlPlaceholder` を宣言していればプレースホルダーを展開する。** 公開描画の 3 経路すべてが同じ `contentFields.tiptap` renderer に到達する: tiptap 投稿は React walker が `contentFields.tiptap` registry を参照（= `amplessYoutube` Node を実際の iframe に変換）、markdown 投稿は markdown walker が `contentFields.markdownUrl` を参照（= bare URL paragraph を実際の iframe に変換）、html 投稿は **public html walker** が `contentFields.htmlPlaceholder` を参照（= top-level の `<div data-ampless-youtube …>` プレースホルダーを実際の iframe に変換）。上の `tiptapNodeToHtml` アダプターは **admin format-switch** の交換形式のみを司り、その形式を公開描画時に展開させるのは `htmlPlaceholder` の宣言である（契約は下記の `htmlPlaceholder` セクションを参照）。`publicHtmlForPost` は従来どおり `beforeContent` / `afterContent` slot のみ提供する capability であり、body を変換しない。
 
-embed を公開ページで実際に描画させたい場合は、投稿を `tiptap` または `markdown` 形式で保存する（= format-switch round-trip で embed Node / bare URL line に戻り、対応する公開 walker が iframe を emit する）。`html` 形式は **engineer が完全制御で書く raw HTML** として扱われる前提で、プレースホルダーは format-switch round-trip の artefact であって描画可能な embed reference ではない。`data-ampless-*` プレースホルダーを public html walker で iframe に展開する将来 capability は本セクション末尾の follow-up note を参照。
+embed node を持つが `htmlPlaceholder` を**宣言しない** plugin は従来挙動を維持する: `format: 'html'` 投稿の公開描画ではプレースホルダー div がリテラルにそのまま出力される（内側の正規 URL link は clickable なので graceful に degrade する）。その場合に iframe を得るには `tiptap` または `markdown` 形式で保存する。
 
 #### アダプターの契約
 
@@ -951,15 +951,52 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
 
 プラグインは `tiptap → html` アダプターを 1 つ export するだけでよく、`markdown → html` の方向は tiptap の parse rule を通して自動的に再利用される。**重複ロジックは不要。**
 
-#### Follow-up: public html walker（未実装）
+#### Public html walker: `htmlPlaceholder`
 
-`format: 'html'` 投稿で、保存されたプレースホルダー div を公開ページで実 iframe として描画するためには、将来の capability で保存された html body を render 時に walk し、`data-ampless-*` flag を見て登録済プラグインの React renderer（= tiptap 投稿で `contentFields.tiptap` が使うのと同じ renderer）に置換する仕組みが必要。スケッチ:
+`format: 'html'` 投稿のプレースホルダー div を公開ページで実 embed として描画するには、既存の `contentFields` の `tiptap` entry に **`htmlPlaceholder`** 宣言を追加する。**新しい renderer は書かない** — walker は tiptap entry が既に使う `render(node, ctx)` をそのまま呼ぶので、3 形式（tiptap / markdown / html）すべてが 1 個の renderer に到達し、描画が divergence しない。
 
-- 新 plugin capability `contentFields.html`: プレースホルダー flag attribute（例: `data-ampless-youtube`）を key にし、parse 済 div の attribute set から React node を返す。
-- Runtime: `renderBody` の `format: 'html'` ブランチが body を parse、`[data-ampless-*]` div を walk して登録済 renderer の output に置換、残りは raw HTML として emit。
-- Runtime 側の server-side HTML parser（現状なし、`parse5` / `htmlparser2` 等の小さなパーサーを選定する必要あり）。
+```ts
+// packages/plugin-youtube/src/index.tsx
+contentFields: [
+  {
+    kind: 'tiptap',
+    nodeType: 'amplessYoutube',
+    render: (node) => {
+      const videoId = String(node.attrs?.videoId ?? '')
+      const startRaw = node.attrs?.start
+      const start =
+        typeof startRaw === 'number' && Number.isFinite(startRaw) ? startRaw : undefined
+      return <YouTubeEmbed videoId={videoId} start={start} />
+    },
+    htmlPlaceholder: {
+      // top-level プレースホルダー div を識別する marker attribute。
+      flagAttr: 'data-ampless-youtube',
+      // div の HTML 属性を render が期待する tiptap node attrs に変換する
+      // — 型も正しく。walker は型を知らないのでここで変換する
+      // （例: data-start string → number）。
+      attrsFromElement: (attribs) => {
+        const start = Number(attribs['data-start'])
+        return {
+          videoId: attribs['data-video-id'] ?? '',
+          start: Number.isFinite(start) ? start : undefined,
+        }
+      },
+    },
+  },
+  // …markdown-url entry は変更なし…
+]
+```
 
-本 PR の scope 外（別 proposal として track）。当面は html-format 投稿のプレースホルダーは raw HTML として扱われ、公開ページで iframe 表示したい著者は `tiptap` か `markdown` で保存する。
+`format: 'html'` 投稿の公開描画時、runtime は body を server-side で parse し（`htmlparser2`）、`flagAttr` を持つ **top-level** element ごとに `{ type: nodeType, attrs: attrsFromElement(attribs) }` node を組んで `render(node, ctx)` を呼ぶ。それ以外はすべて **元文字列の slice**（byte 単位で完全保存、DOM の再シリアライズなし）として passthrough する。
+
+把握すべき制約:
+
+- **top-level のみ。** `<blockquote>` / `<li>` 等の内側に nest したプレースホルダー div はリテラルのまま — editor の body-level-only な `parseHTML` fallback と整合。展開されるのは depth-0 の element のみ。
+- **`flagAttr` は case-insensitive で照合される。** htmlparser2 は parse 時に HTML 属性名を小文字化し、runtime は登録時に `flagAttr` を小文字化するため、`<div DATA-AMPLESS-YOUTUBE …>` も `<div data-ampless-youtube …>` も展開される。`flagAttr` は任意の属性名でよい — site-local plugin は `data-my-embed` を使える。固定の `data-ampless` prefix 要件はない。
+- **graceful degradation。** `attrsFromElement` または `render` が throw した場合、runtime は `console.warn` を出力し **元のプレースホルダー slice**（内側の正規 URL link は clickable のまま）に fallback する。engineer が書いた本文を消さない。
+- **page-level script。** embed が third-party script を要する場合（例: x.com の `widgets.js`）、`publicPostScript` / 検知ヘルパーもプレースホルダー形式を認識する必要がある。`plugin-x-embed` の `hasTweetIn` は `format: 'html'` body 内で `twitter-tweet` と `data-ampless-tweet` の両方を match させ、展開された blockquote を hydrate するため widgets.js を注入する。
+
+**wrapper 境界の変化。** プレースホルダーを含まない `format: 'html'` 投稿は単一の wrapper `<div>` として出力される（fast path — 従来の raw passthrough と markup 完全一致）。プレースホルダーを**含む**投稿は **複数の wrapper div と React embed の兄弟列が交互に並ぶ**構造になる: 各 raw chunk 内の bytes は正確に保存されるが、wrapper 境界は移動する。body 全体を 1 個の wrapper で囲む前提の direct-child / adjacent-sibling CSS selector は従来と同じには効かない。これは embed を in-place 展開するための許容トレードオフ。
 
 ### markdown → tiptap の復元
 

@@ -100,6 +100,45 @@ it('paste rule regex matches a canonical URL via matchAll and captures the video
   expect(matches[0][1] ?? matches[0][2]).toBe('dQw4w9WgXcQ')
 })
 
+describe('contentFields htmlPlaceholder (amplessYoutube)', () => {
+  const plugin = youtubePlugin()
+  const tiptapEntry = plugin.contentFields?.find(
+    (f): f is Extract<typeof f, { kind: 'tiptap' }> =>
+      f.kind === 'tiptap' && f.nodeType === 'amplessYoutube',
+  )
+
+  it('declares flagAttr matching the canonical placeholder attribute', () => {
+    expect(tiptapEntry?.htmlPlaceholder?.flagAttr).toBe('data-ampless-youtube')
+  })
+
+  it('attrsFromElement reads videoId and coerces data-start to a number', () => {
+    const attrs = tiptapEntry!.htmlPlaceholder!.attrsFromElement({
+      'data-ampless-youtube': '',
+      'data-video-id': 'dQw4w9WgXcQ',
+      'data-start': '30',
+    })
+    expect(attrs.videoId).toBe('dQw4w9WgXcQ')
+    expect(attrs.start).toBe(30)
+    expect(typeof attrs.start).toBe('number')
+  })
+
+  it('attrsFromElement leaves start undefined when data-start is absent', () => {
+    const attrs = tiptapEntry!.htmlPlaceholder!.attrsFromElement({
+      'data-ampless-youtube': '',
+      'data-video-id': 'dQw4w9WgXcQ',
+    })
+    expect(attrs.videoId).toBe('dQw4w9WgXcQ')
+    expect(attrs.start).toBeUndefined()
+  })
+
+  it('attrsFromElement defaults videoId to empty string when missing', () => {
+    const attrs = tiptapEntry!.htmlPlaceholder!.attrsFromElement({
+      'data-ampless-youtube': '',
+    })
+    expect(attrs.videoId).toBe('')
+  })
+})
+
 describe('tiptapNodeToMarkdown adapter (amplessYoutube)', () => {
   const adapter = tiptapNodeToMarkdown['amplessYoutube']!
 

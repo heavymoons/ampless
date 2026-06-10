@@ -80,7 +80,15 @@ export function hasTweetIn(post: {
   }
   if (post.format === 'html') {
     if (typeof post.body !== 'string') return false
-    return post.body.includes('twitter-tweet')
+    // `twitter-tweet`: a hand-written `<blockquote class="twitter-tweet">`.
+    // `data-ampless-tweet`: the canonical placeholder div the admin's
+    // tiptap→html switch emits — the public html walker expands it into a
+    // `<blockquote class="twitter-tweet">` at render time, so widgets.js
+    // must be injected for that hydration to happen.
+    return (
+      post.body.includes('twitter-tweet') ||
+      post.body.includes('data-ampless-tweet')
+    )
   }
   return false
 }

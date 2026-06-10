@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { AmplessPlugin, Post, PluginPublicRenderContext } from 'ampless'
@@ -181,5 +181,222 @@ describe('contentFields registry duplicate-reject', () => {
     expect(() => buildContentFieldRegistry([youtubePlugin, other])).toThrow(
       /duplicate markdown-url pattern/,
     )
+  })
+})
+
+// ---- Public html walker (`format: 'html'` placeholder expansion) ----
+
+/**
+ * Fake plugin whose tiptap entry opts into the html walker via
+ * `htmlPlaceholder`. The renderer echoes the resolved attrs so tests can
+ * assert both that expansion happened AND that `attrsFromElement` ran
+ * (incl. type coercion). `flagAttr` is `data-fake-embed`.
+ */
+const fakeHtmlPlugin: AmplessPlugin = definePlugin({
+  name: 'fake-html',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'fakeEmbed',
+      render: (node) =>
+        createElement(
+          'span',
+          {
+            'data-vid': String(node.attrs?.vid ?? ''),
+            // number 30, not string "30", proves attrsFromElement coerced
+            'data-start-type': typeof node.attrs?.start,
+            'data-start': node.attrs?.start === undefined ? '' : String(node.attrs.start),
+          },
+          'EMBED',
+        ),
+      htmlPlaceholder: {
+        flagAttr: 'data-fake-embed',
+        attrsFromElement: (attribs) => {
+          const start = Number(attribs['data-start'])
+          return {
+            vid: attribs['data-vid'] ?? '',
+            start: Number.isFinite(start) && attribs['data-start'] !== undefined ? start : undefined,
+          }
+        },
+      },
+    },
+  ],
+})
+
+/** Fake plugin whose renderer always throws (renderer-throw case). */
+const throwingRenderPlugin: AmplessPlugin = definePlugin({
+  name: 'throwing-render',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'boomEmbed',
+      render: () => {
+        throw new Error('render boom')
+      },
+      htmlPlaceholder: {
+        flagAttr: 'data-boom-embed',
+        attrsFromElement: (attribs) => ({ vid: attribs['data-vid'] ?? '' }),
+      },
+    },
+  ],
+})
+
+/** Fake plugin whose `attrsFromElement` throws (attrs-throw case). */
+const throwingAttrsPlugin: AmplessPlugin = definePlugin({
+  name: 'throwing-attrs',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'attrsBoomEmbed',
+      render: () => createElement('span', null, 'EMBED'),
+      htmlPlaceholder: {
+        flagAttr: 'data-attrs-boom-embed',
+        attrsFromElement: () => {
+          throw new Error('attrs boom')
+        },
+      },
+    },
+  ],
+})
+
+/** Fake plugin with a non-`data-ampless`-prefixed flagAttr. */
+const customPrefixPlugin: AmplessPlugin = definePlugin({
+  name: 'custom-prefix',
+  apiVersion: 1,
+  trust_level: 'trusted',
+  capabilities: ['contentFields'],
+  contentFields: [
+    {
+      kind: 'tiptap',
+      nodeType: 'myEmbed',
+      render: (node) =>
+        createElement('span', { 'data-vid': String(node.attrs?.vid ?? '') }, 'MY'),
+      htmlPlaceholder: {
+        flagAttr: 'data-my-embed',
+        attrsFromElement: (attribs) => ({ vid: attribs['data-vid'] ?? '' }),
+      },
+    },
+  ],
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('contentFields html walker', () => {
+  it('expands a placeholder-only body into the plugin renderer output', () => {
+    const body = '<div data-fake-embed data-vid="abc"><a href="u">u</a></div>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    expect(html).toContain('EMBED')
+    expect(html).toContain('data-vid="abc"')
+    // The literal placeholder div / link is gone — it was replaced.
+    expect(html).not.toContain('data-fake-embed')
+    expect(html).not.toContain('href="u"')
+  })
+
+  it('preserves bytes inside raw chunks; wrapper boundaries change', () => {
+    // before/after are raw chunks whose bytes must be the ORIGINAL string,
+    // and the center is the renderer output. The single-wrapper invariant
+    // of placeholder-free posts is intentionally broken here (multiple
+    // wrappers + embed sibling).
+    const before = '<p>before &amp; co</p>'
+    const placeholder = '<div data-fake-embed data-vid="xyz"></div>'
+    const after = '<p>after</p>'
+    const body = `${before}${placeholder}${after}`
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    // Raw chunk bytes preserved verbatim (entity `&amp;` not re-encoded).
+    expect(html).toContain(before)
+    expect(html).toContain(after)
+    // Center replaced by renderer.
+    expect(html).toContain('EMBED')
+    expect(html).toContain('data-vid="xyz"')
+    expect(html).not.toContain('data-fake-embed')
+    // Wrapper boundary changed: there is more than one wrapper div now.
+    const wrapperCount = (html.match(/<div/g) ?? []).length
+    expect(wrapperCount).toBeGreaterThan(1)
+  })
+
+  it('does NOT expand a nested (non-top-level) placeholder', () => {
+    const body = '<blockquote><div data-fake-embed data-vid="abc"></div></blockquote>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    // Stays literal — top-level only.
+    expect(html).toContain('data-fake-embed')
+    expect(html).not.toContain('EMBED')
+  })
+
+  it('does NOT expand an unregistered data-ampless-* style flag', () => {
+    const body = '<div data-ampless-unknown data-vid="abc"></div>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    expect(html).toContain('data-ampless-unknown')
+    expect(html).not.toContain('EMBED')
+  })
+
+  it('renderer throw → raw slice fallback (exact placeholder string) + warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const placeholder = '<div data-boom-embed data-vid="abc"><a href="u">u</a></div>'
+    const html = renderWith([throwingRenderPlugin], p('html', placeholder))
+    // The fallback must be the EXACT original placeholder string — this
+    // pins the `endIndex + 1` boundary (a bare `endIndex` slice would drop
+    // the closing `>`).
+    expect(html).toContain(placeholder)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain('threw inside contentFields tiptap renderer')
+  })
+
+  it('attrsFromElement throw → raw slice fallback + warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const placeholder = '<div data-attrs-boom-embed data-vid="abc"></div>'
+    const html = renderWith([throwingAttrsPlugin], p('html', placeholder))
+    expect(html).toContain(placeholder)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain('threw inside contentFields tiptap renderer')
+  })
+
+  it('fast path: empty registry → markup identical to raw passthrough', () => {
+    const body = '<h1>title</h1>'
+    const html = renderWith([], p('html', body))
+    expect(html).toBe('<div><h1>title</h1></div>')
+  })
+
+  it('fast path: no registered flagAttr in body → identical raw passthrough', () => {
+    const body = '<h1>title</h1><p>no embeds here</p>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    // Markup-identical to the single-wrapper raw passthrough.
+    expect(html).toBe(`<div>${body}</div>`)
+  })
+
+  it('expands a non-data-ampless prefix flagAttr (registry-key driven)', () => {
+    const body = '<div data-my-embed data-vid="zzz"></div>'
+    const html = renderWith([customPrefixPlugin], p('html', body))
+    // Proves the fast path keys on registered flagAttrs, not a fixed
+    // `data-ampless` prefix.
+    expect(html).toContain('MY')
+    expect(html).toContain('data-vid="zzz"')
+    expect(html).not.toContain('data-my-embed')
+  })
+
+  it('expands an uppercase source attribute (case-insensitive)', () => {
+    // htmlparser2 lowercases attribute names; the fast path lowercases the
+    // body. `<div DATA-FAKE-EMBED …>` must still expand.
+    const body = '<div DATA-FAKE-EMBED DATA-VID="up"></div>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    expect(html).toContain('EMBED')
+    expect(html).toContain('data-vid="up"')
+  })
+
+  it('coerces data-start string → number for render (type conversion)', () => {
+    const body = '<div data-fake-embed data-vid="abc" data-start="30"></div>'
+    const html = renderWith([fakeHtmlPlugin], p('html', body))
+    expect(html).toContain('data-start-type="number"')
+    expect(html).toContain('data-start="30"')
   })
 })

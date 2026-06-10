@@ -104,6 +104,26 @@ describe('hasTweetIn', () => {
     ).toBe(true)
   })
 
+  it('detects a data-ampless-tweet placeholder div in html format', () => {
+    // The public html walker expands this into a twitter-tweet blockquote,
+    // so widgets.js must be injected for it to hydrate.
+    expect(
+      hasTweetIn({
+        format: 'html',
+        body: '<div data-ampless-tweet data-tweet-id="20"><a href="https://twitter.com/i/status/20">20</a></div>',
+      }),
+    ).toBe(true)
+  })
+
+  it('returns false for plain html without a tweet placeholder', () => {
+    expect(
+      hasTweetIn({
+        format: 'html',
+        body: '<p>just some prose, no embeds</p>',
+      }),
+    ).toBe(false)
+  })
+
   it('returns false for a [caption](url) markdown link', () => {
     expect(
       hasTweetIn({

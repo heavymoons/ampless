@@ -100,6 +100,33 @@ it('paste rule regex matches a canonical URL via matchAll and captures the tweet
   expect(matches[0][1]).toBe('2063778809632235750')
 })
 
+describe('contentFields htmlPlaceholder (amplessTweet)', () => {
+  const plugin = xEmbedPlugin()
+  const tiptapEntry = plugin.contentFields?.find(
+    (f): f is Extract<typeof f, { kind: 'tiptap' }> =>
+      f.kind === 'tiptap' && f.nodeType === 'amplessTweet',
+  )
+
+  it('declares flagAttr matching the canonical placeholder attribute', () => {
+    expect(tiptapEntry?.htmlPlaceholder?.flagAttr).toBe('data-ampless-tweet')
+  })
+
+  it('attrsFromElement reads tweetId from data-tweet-id', () => {
+    const attrs = tiptapEntry!.htmlPlaceholder!.attrsFromElement({
+      'data-ampless-tweet': '',
+      'data-tweet-id': '2063778809632235750',
+    })
+    expect(attrs.tweetId).toBe('2063778809632235750')
+  })
+
+  it('attrsFromElement defaults tweetId to empty string when missing', () => {
+    const attrs = tiptapEntry!.htmlPlaceholder!.attrsFromElement({
+      'data-ampless-tweet': '',
+    })
+    expect(attrs.tweetId).toBe('')
+  })
+})
+
 describe('tiptapNodeToMarkdown adapter (amplessTweet)', () => {
   const adapter = tiptapNodeToMarkdown['amplessTweet']!
 

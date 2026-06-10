@@ -1161,25 +1161,27 @@ interop only**: it is what `Node.renderHTML` emits, and what
 that switching `tiptap ↔ markdown ↔ html` in the admin preserves embeds
 losslessly.
 
-**Public render of `format: 'html'` posts does NOT expand the
-placeholder.** Public render paths are format-specific: tiptap posts go
-through the React walker that consults the `contentFields.tiptap`
-registry (= real iframe for `amplessYoutube` Nodes); markdown posts go
-through the markdown walker that consults `contentFields.markdownUrl`
-(= real iframe for bare URL paragraphs); html posts pass through as raw
-HTML (`htmlPassthroughBlock`). For an html-format post that contains a
-placeholder div, the public page shows the literal placeholder, not an
-iframe — `publicHtmlForPost` only emits `beforeContent` / `afterContent`
-slots and does not transform the body.
+**Public render of `format: 'html'` posts expands the placeholder when
+the plugin declares `htmlPlaceholder`.** All three public render paths
+reach the same `contentFields.tiptap` renderer: tiptap posts go through
+the React walker that consults the `contentFields.tiptap` registry
+(= real iframe for `amplessYoutube` Nodes); markdown posts go through the
+markdown walker that consults `contentFields.markdownUrl` (= real iframe
+for bare URL paragraphs); html posts go through the **public html walker**
+that consults `contentFields.htmlPlaceholder` (= real iframe for
+top-level `<div data-ampless-youtube …>` placeholders). The
+`tiptapNodeToHtml` adapter above only governs the **admin format-switch**
+interchange form — declaring `htmlPlaceholder` is what makes the public
+html walker expand that form on render. (See the dedicated
+`htmlPlaceholder` section below for the contract.) `publicHtmlForPost`
+still only emits `beforeContent` / `afterContent` slots and does not
+transform the body.
 
-If you want the embed to render publicly, save the post as `tiptap` or
-`markdown` (= the format-switch round-trip restores the embed Node /
-bare URL line, then the matching public walker emits the iframe). The
-`html` format is treated as **raw HTML written by an engineer who wants
-full control** — the placeholder is a format-switch round-trip artefact,
-not a renderable embed reference. A future capability could add a public
-html walker that expands `data-ampless-*` placeholders to iframes; see
-the follow-up note at the end of this section.
+A plugin that ships an embed node but does **not** declare
+`htmlPlaceholder` keeps the old behaviour: the placeholder div is shipped
+literally on public render of `format: 'html'` posts (the inner canonical
+URL link is still clickable, so it degrades gracefully). Save as `tiptap`
+or `markdown` to get the iframe in that case.
 
 #### Adapter contract
 
@@ -1249,26 +1251,82 @@ This means your plugin only needs to export the `tiptap → html` adapter once;
 the `markdown → html` direction reuses it automatically through tiptap's parse
 rules. **No duplicate logic is needed.**
 
-#### Follow-up: public html walker (not implemented)
+#### Public html walker: `htmlPlaceholder`
 
-To make `format: 'html'` posts render placeholder divs as real iframes
-on the public page, a future capability would walk the saved html body
-on render, look up the `data-ampless-*` flag, and replace the placeholder
-with the registered plugin's React renderer (same renderer that
-`contentFields.tiptap` already uses for tiptap posts). Sketch:
+To make `format: 'html'` posts render placeholder divs as real embeds on
+the public page, add an **`htmlPlaceholder`** declaration to your existing
+`contentFields` `tiptap` entry. You write **no new renderer** — the walker
+calls the same `render(node, ctx)` your tiptap entry already uses, so all
+three formats (tiptap / markdown / html) reach one renderer with no
+divergence.
 
-- New plugin capability `contentFields.html` keyed on the placeholder
-  flag attribute (e.g. `data-ampless-youtube`), returning a React node
-  from the parsed div's attribute set.
-- Runtime: `renderBody` for `format: 'html'` parses the body, walks
-  `[data-ampless-*]` divs, replaces each with the registered renderer's
-  output, and emits the rest as raw HTML.
-- Server-side HTML parsing in runtime (currently absent — would need
-  to pick a small parser like `parse5` or `htmlparser2`).
+```ts
+// packages/plugin-youtube/src/index.tsx
+contentFields: [
+  {
+    kind: 'tiptap',
+    nodeType: 'amplessYoutube',
+    render: (node) => {
+      const videoId = String(node.attrs?.videoId ?? '')
+      const startRaw = node.attrs?.start
+      const start =
+        typeof startRaw === 'number' && Number.isFinite(startRaw) ? startRaw : undefined
+      return <YouTubeEmbed videoId={videoId} start={start} />
+    },
+    htmlPlaceholder: {
+      // The marker attribute that flags a top-level placeholder div.
+      flagAttr: 'data-ampless-youtube',
+      // Convert the div's HTML attributes into the tiptap node `attrs`
+      // your `render` expects — WITH the right types. The walker is
+      // type-agnostic, so coerce here (e.g. data-start string → number).
+      attrsFromElement: (attribs) => {
+        const start = Number(attribs['data-start'])
+        return {
+          videoId: attribs['data-video-id'] ?? '',
+          start: Number.isFinite(start) ? start : undefined,
+        }
+      },
+    },
+  },
+  // …markdown-url entry unchanged…
+]
+```
 
-Out of scope for the current PR (tracked as a separate proposal). For
-now, html-format posts treat placeholders as raw HTML and authors who
-want public iframes should save as `tiptap` or `markdown`.
+On public render of a `format: 'html'` post, the runtime parses the body
+server-side (`htmlparser2`), finds each **top-level** element carrying
+`flagAttr`, builds a `{ type: nodeType, attrs: attrsFromElement(attribs) }`
+node, and calls `render(node, ctx)`. Everything else passes through as the
+**original-string slices** (byte-for-byte; no DOM re-serialisation).
+
+Constraints worth knowing:
+
+- **Top-level only.** Placeholder divs nested inside `<blockquote>`,
+  `<li>`, etc. stay literal — consistent with the editor's body-level-only
+  `parseHTML` fallback. Only depth-0 elements expand.
+- **`flagAttr` is matched case-insensitively.** htmlparser2 lowercases
+  HTML attribute names while parsing, and the runtime lowercases your
+  `flagAttr` at registration, so `<div DATA-AMPLESS-YOUTUBE …>` and
+  `<div data-ampless-youtube …>` both expand. `flagAttr` can be any
+  attribute name — a site-local plugin may use `data-my-embed`; there is
+  no fixed `data-ampless` prefix requirement.
+- **Graceful degradation.** If `attrsFromElement` or `render` throws, the
+  runtime logs a `console.warn` and falls back to the **raw placeholder
+  slice** (the inner canonical URL link stays clickable) rather than
+  dropping the engineer-authored content.
+- **Page-level scripts.** If your embed needs a third-party script (e.g.
+  x.com's `widgets.js`), your `publicPostScript` / detection helper must
+  also recognise the placeholder form. `plugin-x-embed`'s `hasTweetIn`
+  matches both `twitter-tweet` and `data-ampless-tweet` in `format: 'html'`
+  bodies so widgets.js is injected for the expanded blockquote to hydrate.
+
+**Wrapper-boundary change.** A placeholder-free `format: 'html'` post is
+emitted as a single wrapper `<div>` (the fast path — markup-identical to
+the previous raw passthrough). A post **with** placeholders becomes
+**multiple wrapper divs interleaved with the React embed siblings**: the
+bytes inside each raw chunk are preserved exactly, but the wrapper
+boundaries shift. Direct-child / adjacent-sibling CSS selectors that
+assumed one wrapper around the whole body will not match the same way.
+This is the accepted trade-off for expanding embeds in-place.
 
 ### Markdown to tiptap restoration
 
