@@ -11,3 +11,4 @@
 //     export const runtime = 'nodejs'
 
 export { createMediaProxyRoute } from './media-proxy.js'
+export { createPreviewRouteHandler } from './preview-route.js'
