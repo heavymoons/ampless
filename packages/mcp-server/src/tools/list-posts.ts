@@ -65,11 +65,53 @@ export const listPostsSchema = {
   },
 } as const
 
+const VALID_STATUS = new Set<string>(['draft', 'published', 'all'])
+const VALID_SORT = new Set<string>([
+  'updated-desc',
+  'updated-asc',
+  'published-desc',
+  'published-asc',
+  'title-asc',
+  'title-desc',
+])
+
+/**
+ * Accept only string values; anything else (a number / object from a
+ * sloppy JSON-RPC caller) is treated as "not provided".
+ */
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+
+/**
+ * Finite-integer coercion with fallback. `Number("abc")` is NaN and must
+ * fall back to the default — NaN would survive Math.trunc/min/max and
+ * serialise as `null` in the JSON response.
+ */
+function asInt(v: unknown, fallback: number): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.trunc(n) : fallback
+}
+
 export async function listPosts(client: GraphqlClient, args: ListPostsArgs = {}) {
-  // Clamp and normalise — inputSchema is not validated by dispatchToolCall
-  const limit = Math.min(100, Math.max(1, Math.trunc(args.limit ?? 20)))
-  const offset = Math.max(0, Math.trunc(args.offset ?? 0))
-  const status = args.status ?? 'all'
+  // Normalise EVERY arg at runtime — `dispatchToolCall` does NOT validate
+  // inputSchema, so raw JSON-RPC args can carry wrong types or out-of-enum
+  // values. Without this: `limit: "abc"` → NaN → serialises as null,
+  // `query: 1` throws inside filterSortPostSummaries, and an invalid
+  // `status` would be pushed into the GraphQL filter as-is.
+  const limit = Math.min(100, Math.max(1, asInt(args.limit, 20)))
+  const offset = Math.max(0, asInt(args.offset, 0))
+  const rawStatus = asString(args.status)
+  const status = (rawStatus && VALID_STATUS.has(rawStatus) ? rawStatus : 'all') as
+    | 'draft'
+    | 'published'
+    | 'all'
+  const rawSort = asString(args.sort)
+  const sort = (rawSort && VALID_SORT.has(rawSort) ? rawSort : undefined) as
+    | PostListSort
+    | undefined
+  const query = asString(args.query)
+  const tag = asString(args.tag)
 
   // Build GraphQL filter — push status down to DDB for efficiency
   const filter: Record<string, unknown> = {}
@@ -97,9 +139,9 @@ export async function listPosts(client: GraphqlClient, args: ListPostsArgs = {})
 
   // In-process filter / sort (query, tag, sort) — status already pushed to GQL
   const filtered = filterSortPostSummaries(allItems, {
-    query: args.query,
-    tag: args.tag,
-    sort: args.sort,
+    query,
+    tag,
+    sort,
     // status already applied server-side; pass 'all' to avoid double-filter
     status: 'all',
   })

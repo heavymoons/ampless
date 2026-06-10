@@ -195,6 +195,41 @@ describe('list_posts clamping and normalisation', () => {
     const result = await listPosts(g.graphql, { offset: 2.7 })
     expect(result.offset).toBe(2)
   })
+
+  // dispatchToolCall does NOT validate inputSchema — raw JSON-RPC args can
+  // carry arbitrary types. Every arg must be normalised at runtime.
+
+  it('non-numeric limit/offset fall back to defaults (NaN must not serialise as null)', async () => {
+    const g = makeGraphql([{ items: [], nextToken: null }])
+    const result = await listPosts(g.graphql, {
+      limit: 'abc' as unknown as number,
+      offset: {} as unknown as number,
+    })
+    expect(result.limit).toBe(20)
+    expect(result.offset).toBe(0)
+  })
+
+  it('non-string query/tag are ignored instead of throwing in filterSortPostSummaries', async () => {
+    const g = makeGraphql([{ items: [ROW], nextToken: null }])
+    const result = await listPosts(g.graphql, {
+      query: 1 as unknown as string,
+      tag: ['x'] as unknown as string,
+    })
+    // Treated as "not provided" — no filtering, no throw
+    expect(result.total).toBe(1)
+  })
+
+  it('invalid status is NOT pushed into the GraphQL filter (falls back to all)', async () => {
+    const g = makeGraphql([{ items: [ROW], nextToken: null }])
+    await listPosts(g.graphql, { status: 'bogus' as unknown as 'all' })
+    expect(g.calls[0]!.vars['filter']).toBeUndefined()
+  })
+
+  it('invalid sort falls back to the default order instead of leaking into the comparator', async () => {
+    const g = makeGraphql([{ items: [ROW], nextToken: null }])
+    const result = await listPosts(g.graphql, { sort: 'bogus-order' as never })
+    expect(result.posts).toHaveLength(1)
+  })
 })
 
 describe('list_posts response shape', () => {
