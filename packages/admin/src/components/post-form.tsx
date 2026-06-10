@@ -41,6 +41,7 @@ import {
   type DraftDecision,
 } from '../lib/post-draft.js'
 import { getAdminCmsConfig } from '../lib/admin-config-client.js'
+import { buildPreviewSrcDoc } from '../lib/preview-srcdoc.js'
 import { getAdminTiptapNodeMarkdown } from '../editor/admin-node-markdown.js'
 import { getAdminTiptapNodeHtml } from '../editor/admin-node-html.js'
 import { getAdminEditorExtensions } from '../editor/admin-editor-extensions.js'
@@ -624,7 +625,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
           return r.text()
         })
         .then((html) => {
-          if (!ctrl.signal.aborted) setPreviewHtml(html)
+          if (!ctrl.signal.aborted) setPreviewHtml(buildPreviewSrcDoc(html))
         })
         .catch((err) => {
           if (ctrl.signal.aborted) return

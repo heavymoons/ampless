@@ -98,12 +98,12 @@ describe('createPreviewRouteHandler', () => {
     expect(text.toLowerCase()).toMatch(/^<!doctype html>/)
   })
 
-  it('happy path: response contains at least one <style> block', async () => {
+  it('happy path: response contains the base style block with id="ampless-preview-base"', async () => {
     const admin = makeAdmin()
     const handler = createPreviewRouteHandler(admin)
     const res = await handler(makeRequest())
     const text = await res.text()
-    expect(text).toContain('<style>')
+    expect(text).toContain('<style id="ampless-preview-base">')
   })
 
   it('happy path: response contains theme :root CSS custom properties', async () => {
@@ -137,9 +137,9 @@ describe('createPreviewRouteHandler', () => {
     expect(bodyTagIdx).toBeGreaterThan(-1)
     expect(endBodyIdx).toBeGreaterThan(bodyTagIdx)
 
-    // <main> wrapper (which holds the fragment) is inside <body>
+    // <main class="..."> wrapper (which holds the fragment) is inside <body>
     const bodyContent = text.slice(bodyTagIdx, endBodyIdx)
-    expect(bodyContent).toContain('<main>')
+    expect(bodyContent).toMatch(/<main\b/)
   })
 
   it('happy path: Content-Type header is text/html', async () => {
@@ -158,9 +158,26 @@ describe('createPreviewRouteHandler', () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text.toLowerCase()).toMatch(/^<!doctype html>/)
-    // PREVIEW_BASE_CSS is always present
-    expect(text).toContain('<style>')
+    // PREVIEW_BASE_CSS fallback is always present (id="ampless-preview-base")
+    expect(text).toContain('<style id="ampless-preview-base">')
     // No :root vars because loadThemeConfig threw
     expect(text).not.toContain(':root')
+  })
+
+  it('default bodyClassName is applied to <main>', async () => {
+    const admin = makeAdmin()
+    const handler = createPreviewRouteHandler(admin)
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<main class="prose prose-neutral dark:prose-invert max-w-none">')
+  })
+
+  it('custom bodyClassName overrides the default on <main>', async () => {
+    const admin = makeAdmin()
+    const handler = createPreviewRouteHandler(admin, { bodyClassName: 'my-custom-wrapper' })
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<main class="my-custom-wrapper">')
+    expect(text).not.toContain('prose prose-neutral')
   })
 })

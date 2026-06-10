@@ -5,6 +5,7 @@ import { listPostHistory, type Post, type PostRevision } from 'ampless'
 import { Button } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
 import { getAdminCmsConfig } from '../lib/admin-config-client.js'
+import { buildPreviewSrcDoc } from '../lib/preview-srcdoc.js'
 
 interface PostHistoryPanelProps {
   postId: string
@@ -116,7 +117,7 @@ export function PostHistoryPanel({
         return r.text()
       })
       .then((html) => {
-        if (!ctrl.signal.aborted) setPreviewHtml(html)
+        if (!ctrl.signal.aborted) setPreviewHtml(buildPreviewSrcDoc(html))
       })
       .catch((err) => {
         if (ctrl.signal.aborted) return
