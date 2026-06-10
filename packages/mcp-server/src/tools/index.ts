@@ -39,7 +39,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'list_posts',
     description:
-      'List posts in the CMS with optional filters by status. Returns up to `limit` posts (default 20) plus a `nextToken` cursor for pagination.',
+      'Returns lightweight post summaries (no body — use get_post for content) with search / sort / filters. `total` reflects the filtered count. Supports query (substring over title/slug/tags), tag (exact), status, sort, limit (1–100, default 20), offset (default 0).',
     inputSchema: listPostsSchema,
     handler: (args, ctx) => listPosts(ctx.graphql, args),
   },

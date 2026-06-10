@@ -347,10 +347,11 @@ describe('mcp-handler', () => {
     const body = JSON.parse(res.body)
     expect(body.id).toBe(3)
     expect(body.result.content[0].type).toBe('text')
-    // The graphql client mock returned an empty list; the tool wraps
-    // it as `{ posts: [], nextToken: null }`.
+    // The graphql client mock returned an empty list; the tool wraps it as
+    // `{ posts: [], total: 0, offset: 0, limit: 20 }` (new contract —
+    // nextToken removed, offset/total added; see changeset mcp-list-posts-summaries-search-sort).
     const payload = JSON.parse(body.result.content[0].text)
-    expect(payload).toEqual({ posts: [], nextToken: null })
+    expect(payload).toEqual({ posts: [], total: 0, offset: 0, limit: 20 })
     expect(mockGraphqlQuery).toHaveBeenCalledOnce()
   })
 

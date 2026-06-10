@@ -18,7 +18,7 @@ import {
   filterSortPostSummaries,
   type PostListSort,
   type PostListStatusFilter,
-} from '../lib/post-list-filter.js'
+} from 'ampless'
 import { useT } from './i18n-provider.js'
 
 const PAGE_SIZE = 100
