@@ -286,8 +286,12 @@ export function createPreviewRouteHandler(
       const themeConfig = await admin.loadThemeConfig()
       const css = renderThemeCss(themeConfig.cssVars)
       if (css) themeCssBlock = css
-    } catch {
+    } catch (err) {
       // Storage not yet configured or theme manifest unavailable — skip vars.
+      // Recoverable, but leave a log trail (repo guidance: never swallow
+      // server-side errors silently) so an S3 / theme-cache misconfig is
+      // debuggable instead of just rendering an unthemed preview.
+      console.warn('[ampless admin] preview theme CSS unavailable:', err)
     }
 
     const html =

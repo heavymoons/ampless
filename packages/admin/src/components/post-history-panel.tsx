@@ -311,11 +311,15 @@ export function PostHistoryPanel({
                 // this site. A stricter sandbox (= separate-origin preview
                 // route + CSP / COEP / COOP) is parked for v2.0+ if/when
                 // a real plugin marketplace lands.
+                // No `prose` classes here: classes on the iframe ELEMENT
+                // don't style its srcDoc contents. Typography comes from
+                // the full document the preview route now returns
+                // (PREVIEW_BASE_CSS + theme vars in createPreviewRouteHandler).
                 <iframe
                   title="revision-preview"
                   srcDoc={previewHtml}
                   sandbox="allow-scripts allow-same-origin"
-                  className="prose prose-neutral dark:prose-invert max-w-none min-h-[300px] w-full rounded-md border text-sm"
+                  className="min-h-[300px] w-full rounded-md border"
                 />
               )}
             </div>
