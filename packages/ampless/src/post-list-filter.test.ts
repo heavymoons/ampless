@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PostSummary } from 'ampless'
+import type { PostSummary } from './core.js'
 import { collectTags, filterSortPostSummaries } from './post-list-filter.js'
 
 const rows: PostSummary[] = [

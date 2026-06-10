@@ -62,7 +62,7 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 
 | Tool | Role | Description |
 |---|---|---|
-| `list_posts` | reader | List posts with optional status filter and pagination |
+| `list_posts` | reader | Returns lightweight post summaries (no body — use `get_post` for content) with search / sort / filters. Returns `{ posts, total, offset, limit }` |
 | `get_post` | reader | Fetch a single post by slug or postId |
 | `create_post` | editor | Create a new post (draft or published) |
 | `update_post` | editor | Patch fields on an existing post |

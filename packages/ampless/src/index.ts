@@ -112,6 +112,13 @@ export {
 } from './plugin-settings.js'
 export { extractFirstImageUrl } from './post-images.js'
 export {
+  filterSortPostSummaries,
+  collectTags,
+  type PostListStatusFilter,
+  type PostListSort,
+  type PostListFilterOptions,
+} from './post-list-filter.js'
+export {
   DEFAULT_ENTRYPOINT,
   MAX_BUNDLE_BYTES,
   TEXT_EXTENSIONS,

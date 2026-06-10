@@ -1,4 +1,4 @@
-import type { PostSummary } from 'ampless'
+import type { PostSummary } from './core.js'
 
 export type PostListStatusFilter = 'all' | 'draft' | 'published'
 
@@ -17,10 +17,10 @@ export interface PostListFilterOptions {
   sort?: PostListSort
 }
 
-export function filterSortPostSummaries(
-  rows: PostSummary[],
+export function filterSortPostSummaries<T extends PostSummary>(
+  rows: readonly T[],
   options: PostListFilterOptions = {}
-): PostSummary[] {
+): T[] {
   const query = options.query?.trim().toLowerCase() ?? ''
   const status = options.status ?? 'all'
   const tag = options.tag ?? ''
@@ -41,7 +41,7 @@ export function filterSortPostSummaries(
     .sort((a, b) => compareRows(a, b, sort))
 }
 
-export function collectTags(rows: PostSummary[]): Map<string, number> {
+export function collectTags(rows: readonly PostSummary[]): Map<string, number> {
   const counts = new Map<string, number>()
   for (const row of rows) {
     for (const tag of row.tags) {

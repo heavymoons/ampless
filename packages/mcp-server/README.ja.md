@@ -62,7 +62,7 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 
 | ツール | role | 説明 |
 |---|---|---|
-| `list_posts` | reader | オプションの status フィルターとページネーション付きで投稿一覧を取得 |
+| `list_posts` | reader | 投稿の軽量サマリーを返す（body なし — 本文は `get_post` を使用）。検索/ソート/フィルター対応。`{ posts, total, offset, limit }` を返す |
 | `get_post` | reader | slug または postId で単一の投稿を取得 |
 | `create_post` | editor | 新しい投稿を作成（下書きまたは公開済み） |
 | `update_post` | editor | 既存の投稿のフィールドをパッチ更新 |
