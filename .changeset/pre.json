@@ -24,6 +24,7 @@
   "changesets": [
     "admin-ampless-thunk",
     "admin-pages-server-side",
+    "admin-posts-list-search-sort",
     "admin-providers-sync-install",
     "admin-responsive-layout",
     "admin-sidebar-mobile-opacity",
@@ -42,6 +43,7 @@
     "auto-sync-create-ampless-1781011958738",
     "auto-sync-create-ampless-1781074032102",
     "auto-sync-create-ampless-1781076841916",
+    "auto-sync-create-ampless-1781087913154",
     "awsjson-shared-utils",
     "blog-post-footer-tags",
     "body-always-json-encode",
