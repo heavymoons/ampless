@@ -125,6 +125,7 @@
     "plugin-namespace-and-key-allowlist",
     "plugin-parsehtml-restores-embed-from-url-link",
     "plugin-paste-rule-g-flag",
+    "plugin-peer-dep-caret-range",
     "plugin-phase1-descriptor-injection",
     "plugin-phase2-admin-settings",
     "plugin-phase3a-gtm-plausible",
