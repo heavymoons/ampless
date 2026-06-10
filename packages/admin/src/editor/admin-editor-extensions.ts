@@ -22,17 +22,24 @@
 // editorBootstrap: EditorBootstrap })`.
 
 /**
- * Structural type for a tiptap extension instance. The admin can't
- * import `@tiptap/core` here (the package is a peerDep of admin and
- * not all consumers have it installed), so we accept anything with a
- * `name` string and pass it through to <TiptapEditor>'s
- * `useEditor({ extensions: [...] })` array spread.
+ * Structural type for a tiptap extension instance. Deliberately NOT
+ * `AnyExtension` from `@tiptap/core` even though admin now depends on
+ * it directly: user sites can end up with duplicate `@tiptap/core`
+ * copies (npm dedup failures across plugin/admin dependency trees),
+ * and a nominal type would make cross-copy extension instances fail
+ * to typecheck. A minimal structural shape stays robust.
+ *
+ * Deliberately NO index signature: TypeScript class instances (tiptap
+ * `Node` / `Mark` / `Extension`) don't get implicit index signatures,
+ * so `readonly [key: string]: unknown` here makes the codegen'd
+ * `_editor-bootstrap.tsx` in user sites fail Next.js typecheck with
+ * "Index signature for type 'string' is missing in type 'Node<any, any>'".
+ * The admin only ever reads `name` (duplicate detection) and passes the
+ * instance through to <TiptapEditor>'s `useEditor({ extensions })`
+ * spread untouched.
  */
 export interface TiptapExtensionLike {
   readonly name?: string
-  // Tiptap extensions carry arbitrary additional fields — `unknown`
-  // here is intentional. The admin doesn't inspect them.
-  readonly [key: string]: unknown
 }
 
 let extensions: readonly TiptapExtensionLike[] = []
