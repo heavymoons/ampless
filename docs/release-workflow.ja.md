@@ -326,7 +326,12 @@ confirm: flip-to-beta
 ### flip 時に変わらないもの
 
 - `scripts/sync-dist-tag.mjs`: `pre.json.tag` を読むため、`pre.json.tag` が flip されると
-  自動的に新しいタグを検出する
+  自動的に新しいタグを検出する。また **stable release がまだ無い package に限り**
+  `latest` も現行 pre-release チャンネルに追従させる — タグ無しの
+  `npm install <pkg>` が古い pre-release ではなく現行版に解決される。package に
+  stable が出て `latest` が prerelease suffix なしの version を指した時点で
+  追従は自動停止 (以後は `npm publish` が `latest` を管理し、1.1.0-beta.* のような
+  後続 pre-release サイクルは自分のチャンネルタグだけを動かす)
 - `scripts/sync-template-versions.mjs`: 変更なし
 - `.changeset/config.json`: `access: "public"` は既に設定済み
 

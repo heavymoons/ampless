@@ -4,6 +4,17 @@
  * dist-tag (e.g. `alpha` or `beta`) so `npx <pkg>@alpha` (or `@beta`)
  * resolves to the same version that `@latest` does.
  *
+ * Additionally, while a package has NO stable release yet, `latest` is
+ * kept tracking the active pre-release channel as well. Rationale: with
+ * no stable to point at, a bare `npm install <pkg>` (= `@latest`) would
+ * otherwise serve whatever stale pre-release happened to be tagged last
+ * (observed post-beta-flip: `latest` still served old alphas). The
+ * tracking self-deactivates the moment a stable version owns `latest`:
+ * if the current `latest` value has no prerelease suffix, the script
+ * never touches it again — `npm publish` of stable versions manages
+ * `latest` natively from then on, and later pre-release cycles (e.g.
+ * 1.1.0-beta.*) only move their own channel tag.
+ *
  * Background: in changesets pre-release mode (`.changeset/pre.json`
  * present), `changeset publish` still publishes to the `latest` dist
  * tag by default. The pre-release tag therefore stays pinned to whatever
@@ -56,30 +67,37 @@ const PACKAGES_DIR = join(ROOT, 'packages')
 const entries = readdirSync(PACKAGES_DIR, { withFileTypes: true })
 
 let success = 0
+let latestSynced = 0
 let skippedPrivate = 0
 let skippedAlreadyTagged = 0
+let skippedLatestAlready = 0
+let skippedLatestStable = 0
 let skippedPrereleaseMismatch = 0
 let failures = 0
 
 /**
- * Read the current dist-tag version for `name`, or `null` if it isn't
- * set / the package isn't published / we can't reach the registry. We
+ * Read all current dist-tags for `name` as a `{ tag: version }` map, or
+ * `{}` if the package isn't published / we can't reach the registry. We
  * pre-check before `dist-tag add` because the npm registry returns
  * `400 Bad Request` (not a no-op) for some packages when the requested
  * tag→version already matches — unscoped names like `create-ampless`
  * trip this consistently, scoped names like `@ampless/admin` don't.
- * Pre-checking lets us skip the redundant PUT cleanly.
+ * Pre-checking lets us skip the redundant PUT cleanly. One `dist-tag ls`
+ * per package serves both the pre-tag check and the `latest` check.
  */
-function currentTagVersion(name, tag) {
+function currentTags(name) {
   try {
     const stdout = execSync(`npm dist-tag ls ${name}`, {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).toString()
-    const pattern = new RegExp(`^${tag}:\\s*(\\S+)\\s*$`, 'm')
-    const m = stdout.match(pattern)
-    return m ? m[1] : null
+    const tags = {}
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/^(\S+):\s*(\S+)\s*$/)
+      if (m) tags[m[1]] = m[2]
+    }
+    return tags
   } catch {
-    return null
+    return {}
   }
 }
 
@@ -116,25 +134,50 @@ for (const entry of entries) {
   }
 
   const target = `${pkg.name}@${pkg.version}`
-  const existing = currentTagVersion(pkg.name, distTag)
-  if (existing === pkg.version) {
+  const tags = currentTags(pkg.name)
+
+  if (tags[distTag] === pkg.version) {
     skippedAlreadyTagged++
-    continue
+  } else {
+    try {
+      execSync(`npm dist-tag add ${target} ${distTag}`, {
+        stdio: ['ignore', 'inherit', 'inherit'],
+      })
+      success++
+    } catch (err) {
+      failures++
+      console.error(`  failed: ${target} — ${err instanceof Error ? err.message : err}`)
+    }
   }
-  try {
-    execSync(`npm dist-tag add ${target} ${distTag}`, {
-      stdio: ['ignore', 'inherit', 'inherit'],
-    })
-    success++
-  } catch (err) {
-    failures++
-    console.error(`  failed: ${target} — ${err instanceof Error ? err.message : err}`)
+
+  // `latest` tracking — ONLY while no stable release owns the tag.
+  // Guard: a stable `latest` (no '-' prerelease suffix) means the
+  // package has shipped 1.0.0+; from then on `npm publish` manages
+  // `latest` natively and this script must never move it (a 1.1.0-beta
+  // cycle would otherwise yank `latest` off the stable release).
+  const latest = tags['latest']
+  if (latest && !latest.includes('-')) {
+    skippedLatestStable++
+  } else if (latest === pkg.version) {
+    skippedLatestAlready++
+  } else {
+    try {
+      execSync(`npm dist-tag add ${target} latest`, {
+        stdio: ['ignore', 'inherit', 'inherit'],
+      })
+      latestSynced++
+    } catch (err) {
+      failures++
+      console.error(`  failed (latest): ${target} — ${err instanceof Error ? err.message : err}`)
+    }
   }
 }
 
 console.log(
   `dist-tag sync (dist-tag: ${distTag}): ${success} synced, ` +
     `${skippedAlreadyTagged} already at target, ` +
+    `latest: ${latestSynced} synced, ${skippedLatestAlready} already at target, ` +
+    `${skippedLatestStable} left to stable, ` +
     `${skippedPrivate} skipped (private), ` +
     `${skippedPrereleaseMismatch} skipped (prerelease mismatch), ` +
     `${failures} failed`
