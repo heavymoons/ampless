@@ -212,19 +212,27 @@ export function PluginSettingsForm({
     async function fetchStoredValues() {
       const updates: Record<string, string> = {}
       const newStoredKeys: string[] = []
+      // Fields where DDB authoritatively has NO value. Needed for the
+      // reverse direction of the S3 lag: after a Reset (delete) + reload
+      // within the snapshot window, SSR initialValues still carry the old
+      // stored value — without this, the UI would keep showing the deleted
+      // value and its Reset button.
+      const clearedKeys: string[] = []
       for (const field of fields) {
         try {
           const stored = await getPluginPublicSetting(instanceId, field.key)
           if (stored !== null && stored !== undefined) {
             updates[field.key] = stringify(field, stored)
             newStoredKeys.push(field.key)
+          } else {
+            clearedKeys.push(field.key)
           }
         } catch (err) {
           console.warn('[plugin] mount fetch failed for field', field.key, err)
         }
       }
       if (cancelled) return
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length > 0 || clearedKeys.length > 0) {
         setState((prev) => {
           const nextValues = { ...prev.values }
           for (const [key, val] of Object.entries(updates)) {
@@ -233,11 +241,20 @@ export function PluginSettingsForm({
               nextValues[key] = val
             }
           }
+          for (const key of clearedKeys) {
+            // DDB has no value → revert non-touched fields to the manifest
+            // default (mirrors what the Reset button does locally)
+            if (!prev.touched[key]) {
+              const field = fields.find((f) => f.key === key)
+              if (field) nextValues[key] = defaultDisplay(field)
+            }
+          }
           return { ...prev, values: nextValues }
         })
         setStoredKeys((prev) => {
           const next = new Set(prev)
           for (const k of newStoredKeys) next.add(k)
+          for (const k of clearedKeys) next.delete(k)
           return next
         })
       }
