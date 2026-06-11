@@ -159,15 +159,17 @@ alpha → beta 移行とは、ampless の npm dist-tag を `alpha` から `beta`
 
 - [ ] public-flip 向けドキュメントが merge 済み (README scrub、Community files、
       Positioning pivot — git log の PR #240、#242、#243、#244 周辺を参照)
-- [ ] **最初の beta cut のために少なくとも 1 つの意図的な beta changeset が queued されている**
-      (= 1 つ以上のパッケージを bump する `.changeset/*.md`)。`sync-dist-tag.mjs` には
-      バージョン-prerelease 整合ガードが組み込まれており、flip 後は `package.json` バージョンの
-      prerelease 識別子が `pre.json.tag` と一致するパッケージ (= `1.0.0-beta.<N>` に bump 済み) にのみ
-      `beta` dist-tag を再設定する。`1.0.0-alpha.<N>` のままのパッケージは warn ログ付きで skip され、
-      誤ってタグ付けされない。したがって "partial beta cut" は安全 — bump されたパッケージだけが
-      `beta` に移行し、それ以外は次の cut で bump されるまで既存の `alpha` タグのまま残る。
-      (ガードがなければ「すべての public パッケージを bump する」に厳格化される必要があったが、
-      ガードがあるおかげで単一 changeset 運用が可能になっている。)
+- [ ] **意図的な beta changeset を手動で queue する必要はない** —
+      flip workflow が kickoff changeset (`.changeset/beta-kickoff-<tag>.md`、
+      `ampless: patch`、"First beta cut") を `pnpm version-packages` の直前に自動生成する。
+      手動で事前 queue **しない**こと: alpha Version Packages パイプラインと race して
+      silent に消費される可能性がある。
+      `sync-dist-tag.mjs` にはバージョン-prerelease 整合ガードが組み込まれており、
+      flip 後は `package.json` バージョンの prerelease 識別子が `pre.json.tag` と一致する
+      パッケージ (= `1.0.0-beta.<N>` に bump 済み) にのみ `beta` dist-tag を再設定する。
+      `1.0.0-alpha.<N>` のままのパッケージは warn ログ付きで skip され、誤ってタグ付けされない。
+      したがって "partial beta cut" は安全 — bump されたパッケージだけが `beta` に移行し、
+      それ以外は次の cut で bump されるまで既存の `alpha` タグのまま残る。
 - [ ] 最初の beta cut に含めたくない queued `.changeset/*.md` がない (`pnpm changeset status` で確認)
 - [ ] 未 merge の "Version Packages (alpha)" PR がない — 先に merge か close する
 - [ ] dogfood サイト (例: ishinao.net) が最新の `@alpha` で正常稼働中。
@@ -183,127 +185,130 @@ feature PR 中 (または調整されていないコンテキスト) でこれ�
 
 したがって flip は feature ブランチのローカル編集としてではなく、`main` 上での調整済みオペレーションとして実行する。
 
-### flip 時に解決すべき 2 つの未解決問題 (この Prep PR では決めない)
+### 解決済み決定事項 (旧「2 つの未解決問題」)
 
-#### A. exit/enter のシーケンス — 意図しない `1.0.0` publish を防ぐ
+Prep PR では未確定だったが、どちらも `.github/workflows/flip-prerelease.yml` に実装済みで確定した。
 
-素朴な手順は `pre exit && pre enter beta`。注意点: この 2 コマンドの間に `pnpm changeset version`
-が走ると (例: `main` への push で `changesets/action` が動く)、pre-suffix がその場で剥がれて
-本物の `1.0.0` リリース PR が生まれる。その中間的な `1.0.0` の publish は **望ましくない**。
+#### A. exit/enter のシーケンス — 決定: アトミック workflow + [skip ci]
 
-候補となる手順 (いずれも本番 flip の前に fork で検証が必要):
+**採用したアプローチ**: `.github/workflows/flip-prerelease.yml` — 以下すべてを単一のアトミック
+`workflow_dispatch` job で実行することで、`pre exit` と `pre enter` の間に `changesets/action`
+が stray `version` を実行する隙を完全になくす:
 
-1. **アトミック operational workflow** (スケッチ): `changesets/action` が途中で stray `version`
-   を実行できないよう、以下すべてを単一 job で走らせる `workflow_dispatch` ワークフローを追加する。
-   **既存の `package.json` スクリプトエイリアス** (`version-packages` / `release`) を
-   直接の `changeset version` / `changeset publish` コールより優先して使う — 既存エイリアスは
-   `scripts/sync-template-versions.mjs` と `turbo run build` をラップしており、バイパスすると
-   template-version-sync やビルド前処理なしで publish されてしまう:
-   1. `pnpm changeset pre exit` (`.changeset/pre.json` を変更)
-   2. `pnpm changeset pre enter beta` (`.changeset/pre.json` を変更)
-   3. **`pnpm version-packages`** — 既存エイリアスは
-      `changeset version && node scripts/sync-template-versions.mjs &&
-      changeset version` ([package.json:14](../package.json#L14));
-      `version` を 1 回実行して changeset からパッケージを bump し、
-      template-version sync で `templates/_shared/package.json` のピン留めバージョンを更新し、
-      さらに `version` を再実行して前のステップが emit した auto-sync changeset を吸収する。
-      このエイリアスを使うことで既存の template-pin 不変条件が保たれる。
-   4. **`git add -A && git commit -m "<release.yml ガードに合わせたメッセージ>" && git push origin HEAD:main`**
-      (GitHub Actions の checkout は通常 detached HEAD になるため、`HEAD:main` という明示的な
-      refspec でプッシュ先を明確にする)
-      (例: 抑制方法が commit message の `[skip ci]` なら `"chore: flip alpha → beta [skip ci]"`;
-      `release.yml` の `head_commit.message` が同じフレーズと一致する `if:` ガードなら
-      `"chore: flip alpha → beta"`)。このコミット/プッシュがないと、ワークフローは npm を
-      リポジトリ状態より先に進めたまま終わる (= 次の `changesets/action` run が stale なローカル
-      状態を見て、stale な VP PR を再度開くか、サイレントに二重 bump する)。`contents: write`
-      権限を持つ deploy key / PAT を使うこと。commit message のフレーズと `release.yml` ガードは
-      二重トリガーを実際に抑制するために **一貫したペアとして記述する必要がある**。
-   5. **`pnpm release`** — 既存エイリアスは `turbo run build &&
-      changeset publish` ([package.json:16](../package.json#L16));
-      ワークスペース全体をビルドし (`changeset publish` は既存のビルド成果物を publish するだけで
-      ビルドは行わないため必要)、beta バージョンの tarball を npm に publish する。
-      **注意**: pre mode では、これまで stable release がない "only-pre packages" は
-      `npm publish --tag latest` がデフォルトになり、pre-mode タグ (`alpha` / `beta`) ではなく
-      `latest` に push される。これがまさに `sync-dist-tag.mjs` が存在する理由で、
-      publish 後に正しい pre-mode タグを再設定する。以下のステップ 6 がこれを担う。
-   6. `node scripts/sync-dist-tag.mjs` が **一致する public workspace packages** に対して
-      `beta` dist-tag を再設定する (リネームされたスクリプトは `pre.json.tag` を読み — 現在は
-      `"beta"` — `package.json` バージョンの prerelease 識別子が一致しないパッケージをスキップする
-      — まだ alpha のパッケージは warn ログとともにスキップされ、誤ってタグが付くことはない)。
-   7. **`pnpm changeset publish` が作成した git タグをプッシュする**。
-      Changesets の CLI は publish したパッケージごとに `<pkg-name>@<version>` タグをローカルに
-      作成する (scope を含む完全な npm 名を使用 — 例: `ampless@1.0.0-beta.<N>`、
-      `@ampless/runtime@1.0.0-beta.<N>`、`create-ampless@1.0.0-beta.<N>`)
-      が、**リモートにはプッシュしない**。このステップがないと GitHub Releases が beta cut の
-      ものを表示せず、`git tag` イベントを監視する downstream ツール (例: リリースノート生成器)
-      も何も受け取れない。以下のどちらかを使う:
-      - `git push origin --follow-tags HEAD:main` (ブランチと到達可能な annotated タグを
-        同時にプッシュする 1 コマンド; ステップ 4 の detached-HEAD 形状と合う)
-      - またはタグを個別にプッシュ:
-        作成されたタグそれぞれに `git push origin <pkg-name>@<version>`
-      パッケージごとのタグをまったく作りたくない場合は `changeset publish` に直接
-      `--no-git-tag` を渡す必要がある。ステップ 5 で使う `pnpm release` エイリアス
-      (= `turbo run build && changeset publish`、[package.json:16](../package.json#L16)) は
-      `changeset publish` に追加引数を転送しない (pnpm スクリプトエイリアスの arg-forwarding は
-      扱いが難しく、ここでは使っていない)。そのため正確な代替コマンドは:
+1. `pnpm changeset pre exit`
+2. `pnpm changeset pre enter <tag>`
+3. kickoff changeset を自動生成 (`beta-kickoff-<tag>.md`)
+4. `pnpm version-packages` (エイリアス — template-version-sync を含む)
+5. `git commit -m "chore: flip prerelease to <tag> [skip ci]" && git push origin HEAD:main`
+6. `pnpm release` (エイリアス — pre-publish build を含む)
+7. パッケージタグの 3 段 reconcile + 明示的 push (名前指定、`--tags` 不使用)
+8. `.npmrc` 書き直し + `node scripts/sync-dist-tag.mjs`
 
-      ```sh
-      pnpm build && pnpm changeset publish --no-git-tag
-      ```
+**二重再トリガー抑制** (2 層の独立した対策):
 
-      (= `pnpm release` を、publish ステップだけを no-tag バリアントに置き換えて実行。)
-      この選択肢を取る場合は flip PR にその旨を記録する。デフォルト動作はタグを作成するので、
-      no-tag バリアントを明示しない限りステップ 7 のプッシュが必要になる。
+- 主対策: GITHUB_TOKEN による push は GitHub プラットフォーム仕様で push-based workflow を
+  トリガーしないため、flip commit で `release.yml` は起動しない。`release.yml` は**無変更**
+  — `if:` ガードも不要。
+- ベルト+サスペンダー: commit message に `[skip ci]` を含める。
 
-   通常の `release.yml` の二重トリガーを抑制するには: commit message に `[skip ci]` を含める、
-   `release.yml` に `if: !contains(github.event.head_commit.message, 'flip alpha → beta')` ガードを追加する、
-   または手動 dispatch の間だけ `release.yml` を一時無効化する (あまりスマートではない)。
-   Prep PR ではどれかを決めない; flip PR で決定する。
-2. **`pre.json` 直接編集**: `pre.json.tag` を `"alpha"` から `"beta"` に変更する 1 行 PR。
-   pre-mode のまま留まる (exit/enter の落とし穴を完全に回避)。Changesets は公式にこの手法を
-   文書化していないが、カウンターロジックは `tag` だけを参照するため実際には動作する。非公式な手法ではある。
+#### B. pre カウンター — 決定: 連続性を受け入れる
 
-#### B. pre カウンターは `pre enter beta` でリセットされない
+beta に移行しても alpha の pre カウンターは**リセットしない**。最初の beta cut は
+`1.0.0-beta.<N+1>` (各パッケージの最新 alpha カウンターの次の整数) から始まる。
+これは semver として有効; CHANGELOG の `alpha.<N>` から `beta.<N+1>` へのジャンプは
+見た目が奇妙に見えるが正確。カスタムリセットツールは導入しない。
+alpha → beta の移行はリリースノートで明示的に説明する。
 
-上記どちらの手順でも alpha の pre カウンターを引き継ぐ。今の `ampless` `@alpha` が
-`1.0.0-alpha.N` なら、カウンターリセットなしの beta cut 後の最初の beta publish は
-おおよそ `1.0.0-beta.N+1` (同じカウンターの次の整数) になり、`1.0.0-beta.0` には **ならない**。
-パッケージごとにカウンターが異なる (`create-ampless` は template auto-sync のため `ampless` より
-大幅に高い); それぞれが自分自身の最新 alpha `N` から独立して継続する。
+### flip の実行手順
 
-技術的には semver として有効: pre-release 識別子はドット区切りセグメントごとに辞書順で比較され、
-整数の連続性は純粋に見た目の問題 — 同じパッケージが同じ `-beta.N` を 2 回 publish することはない。
-しかし CHANGELOG.md では最後の `alpha.<some-N>` から `beta.<N+1>` へ飛ぶことになり、読者が
-混乱するかもしれない。
+flip は 2 フェーズの dispatch で行う: まず dry-run で確認し、次に本番 flip。
 
-選択肢 (flip 時に決定):
+**フェーズ 1 — dry-run**
 
-- **連続性を受け入れる** (見た目が重要でない限り推奨): `1.0.0-beta.<N+1>` を publish し
-  (`N` はそのパッケージの最新 alpha カウンター)、CHANGELOG にジャンプの旨を記述する。
-  リリースノートで alpha → beta の移行を明示的に説明できる。
-- **カウンターを 0 にリセットする**: カスタムツールが必要 (`pre.json.changesets` 配列から
-  alpha エントリを削除するか、`pre enter beta` の前にすべてのパッケージの `package.json` の
-  `version` を `1.0.0-alpha.N` から `1.0.0-beta.0` に手動 bump する)。どちらも手作業で
-  エラーが起きやすい。見た目が強く重要な場合のみ検討する価値がある。
+**main** から (feature ブランチからではなく) `.github/workflows/flip-prerelease.yml` を dispatch:
 
-Prep PR (この PR) では A も B も確定しない; flip PR を作成する際に — できれば throwaway fork で
-テストしてから — 両方を詳細化する。
+```
+tag:     beta
+mode:    dry-run
+confirm: (空のまま)
+```
+
+実行完了後、`flip-preview` artifact をダウンロードして確認:
+
+- `version-diff.patch`: `pre.json` が `{mode: "pre", tag: "beta"}` になっていること;
+  kickoff changeset と queued alpha changeset で bump されたパッケージが
+  `1.0.0-alpha.N` から `1.0.0-beta.N+1` に移行していること;
+  `templates/_shared/package.json` のピン留めバージョンが更新されていること。
+- `status.txt`: 変更ファイルに予期しないものが含まれていないこと。
+- pending changeset がないパッケージは alpha のまま残る — 正常 (`sync-dist-tag.mjs` がスキップする)。
+
+**フェーズ 2 — 本番 flip**
+
+dry-run の diff に問題がなければ、以下で再 dispatch:
+
+```
+tag:     beta
+mode:    flip
+confirm: flip-to-beta
+```
+
+workflow がバージョン bump を main に commit し、npm に publish し、パッケージタグを push し、
+`beta` dist-tag を sync する。
+
+**flip 後の確認コマンド**
+
+```sh
+npm view ampless@beta version        # 1.0.0-beta.<N> になっているはず
+npm view ampless@alpha version       # 最後の alpha で凍結済; 今後は動かない
+npm view ampless@latest version      # only-pre packages は beta と同じになる場合がある
+gh run list --workflow=release.yml   # 次の通常 push で release.yml が正常に動くことを確認
+```
+
+**npm provenance** はこの workflow では**有効化しない**。Provenance には public GitHub
+source repository が必要。repo の public 化は GitHub Settings での手動操作であり、この
+workflow の範囲外。repo が public になった後、別の follow-up PR で
+`.github/workflows/release.yml` の `NPM_CONFIG_PROVENANCE: true` を un-comment して有効化する。
+
+### 部分 flip の復旧手順
+
+flip commit の main への push (workflow の手順 1〜5) は成功したが、publish / tag push /
+dist-tag sync のどこかで失敗した場合、リポジトリはすでに beta 状態 (`pre.json.tag == "beta"`)
+になっているが npm はまだ更新されていない。`mode=flip` で再 dispatch しても pre-flight チェック
+(「pre.json.tag がすでに 'beta'」) で弾かれる。
+
+`mode=publish-only` で復旧する:
+
+```
+tag:     beta
+mode:    publish-only
+confirm: flip-to-beta
+```
+
+`publish-only` は `pre exit` / `pre enter` / kickoff / version / commit をすべてスキップし、
+`pnpm release` → タグ reconcile → dist-tag sync だけを再実行する。3 つのステップはすべて冪等:
+
+- `changeset publish`: npm に既にある version はスキップ。
+- タグ reconcile: リモートに既にあるタグはスキップ。
+- `sync-dist-tag.mjs`: dist-tag が既に正しいバージョンを指している場合は no-op。
+
+`publish-only` の pre-flight は `pre.json.tag == requested tag` を要求する (flip チェックと
+逆向き)。これにより「flip commit 済みの復旧シナリオ」であることを確認し、誤った二重 flip を
+構造的に防ぐ。
 
 ### flip 時に変わるもの
 
-- `.github/workflows/release.yml`: `NPM_CONFIG_PROVENANCE` をコメントアウトから有効化
-  (provenance には public repo が必要)
+- `.changeset/pre.json#tag`: `"alpha"` → `"beta"`。`flip-prerelease.yml` workflow の
+  `pre exit && pre enter beta` によってアトミックに処理される。別途 commit や PR にしない。
 - リポジトリ可視性: GitHub Settings → Public に変更 (Settings → Security →
-  Private vulnerability reporting → Enable の後に実施)
+  Private vulnerability reporting → Enable の後に実施)。workflow の範囲外の手動操作。
+- `.github/workflows/release.yml`: **repo が public になった後に**
+  `NPM_CONFIG_PROVENANCE` を un-comment して有効化する (provenance には public repo が必要;
+  flip workflow の範囲外 — follow-up PR で対応する)。
 - `README.md` + `.ja.md`: `@alpha` を使うインストールコマンドはそのままにするか `@beta` に
   変更するか (エンジニアの判断 — `@alpha` の最後に publish された tarball は `pre exit` 後も
   `sync-dist-tag.mjs` によってピン留めされたまま残る)
 - `CLAUDE.md`: `## Status` セクションで現在のステージを反映する 1 行更新が必要かもしれない (alpha → beta)
 - `docs/architecture/14-roadmap.md`: 変更不要 (4 段階パスのフレームはステージ非依存)
-- `.changeset/pre.json#tag`: `"alpha"` → `"beta"`。**正確な仕組みは上記 §A で選択した flip の
-  形状に依存する**: atomic workflow 形状では `pre exit && pre enter beta` が同一ワークフロー run
-  内で暗黙的にこれを行う; 直接編集形状では `pre.json#tag` を編集する 1 行 PR (no `pre exit` /
-  `pre enter` 不要)。どちらの場合も編集は flip の残りとセットで行う — 単独の変更としては行わない。
 
 ### flip 時に変わらないもの
 
