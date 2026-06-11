@@ -67,12 +67,22 @@ export function createAdminLayout(
       redirect('/login')
     }
 
+    let siteName = ''
+    try {
+      siteName = (await admin.loadSiteSettings()).site.name ?? ''
+    } catch (err) {
+      // KV unavailable (e.g. fresh sandbox) is recoverable — log but don't crash
+      console.warn('[ampless admin] site name unavailable for sidebar:', err)
+      siteName = admin.cmsConfig?.site?.name ?? ''
+    }
+
     const inner = (
       <I18nProvider locale={admin.locale} dict={admin.dict}>
         <div className="flex min-h-screen flex-col md:flex-row">
           <Sidebar
             email={session!.email}
             isAdmin={admin.isAdmin(session)}
+            siteName={siteName}
           />
           <main className="min-w-0 flex-1">{children}</main>
         </div>
