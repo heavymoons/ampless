@@ -44,10 +44,13 @@ const navItems: readonly NavItem[] = [
 export function Sidebar({
   email,
   isAdmin,
+  siteName,
 }: {
   email: string
   /** Gates `adminOnly` nav entries (user management). */
   isAdmin: boolean
+  /** Site name from settings; shown as the primary brand line when present. */
+  siteName?: string
 }) {
   const pathname = usePathname()
   const t = useT()
@@ -77,7 +80,14 @@ export function Sidebar({
           scrolling pages (post editor, media grid). */}
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background px-4 md:hidden">
         <Link href="/admin" className="font-semibold">
-          {t('sidebar.brand')}
+          {siteName ? (
+            <span className="flex flex-col leading-tight">
+              <span className="truncate font-semibold">{siteName}</span>
+              <span className="text-xs text-muted-foreground">{t('sidebar.brand')}</span>
+            </span>
+          ) : (
+            t('sidebar.brand')
+          )}
         </Link>
         <Button
           variant="ghost"
@@ -112,7 +122,14 @@ export function Sidebar({
       >
         <div className="flex items-center justify-between border-b p-4">
           <Link href="/admin" className="font-semibold">
-            {t('sidebar.brand')}
+            {siteName ? (
+              <span className="flex flex-col leading-tight">
+                <span className="truncate font-semibold">{siteName}</span>
+                <span className="text-xs text-muted-foreground">{t('sidebar.brand')}</span>
+              </span>
+            ) : (
+              t('sidebar.brand')
+            )}
           </Link>
           <Button
             variant="ghost"
