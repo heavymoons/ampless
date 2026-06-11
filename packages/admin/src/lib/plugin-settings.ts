@@ -68,6 +68,59 @@ export async function setPluginPublicSetting(
 }
 
 /**
+ * Read one stored public setting directly from DDB (via KvStore, strongly
+ * consistent). Pairs with `setPluginPublicSetting` / `deletePluginPublicSetting`.
+ *
+ * Returns the stored value, or `null` if no row exists. Used by the
+ * form's mount-time refresh to bypass the S3 snapshot lag (~60 s).
+ */
+export async function getPluginPublicSetting(
+  instanceId: string,
+  fieldKey: string
+): Promise<unknown | null> {
+  return getKvStore().get(SITE_CONFIG_PK, pluginSettingKey(instanceId, fieldKey))
+}
+
+/**
+ * Collect the writes that a save() call would need to perform.
+ *
+ * Extracted as a pure function so that:
+ *   1. It is unit-testable without a real form.
+ *   2. The form can inspect the result before actually calling
+ *      `setPluginPublicSetting` — if `writes` is empty and `invalid`
+ *      is empty, the save is a no-op and the UI can say so honestly.
+ *
+ * Mirror of the write-collection loop in save() (plugin-settings-form.tsx).
+ * Keep both in sync — the form calls this function, it no longer
+ * duplicates the logic.
+ */
+export function collectSettingWrites(
+  fields: ReadonlyArray<PluginSettingField>,
+  values: Record<string, string>,
+  touched: Record<string, boolean>,
+  parseFn: (field: PluginSettingField, raw: string) => unknown | null
+): { writes: Array<{ field: PluginSettingField; parsed: unknown }>; invalid: Record<string, boolean> } {
+  const writes: Array<{ field: PluginSettingField; parsed: unknown }> = []
+  const invalid: Record<string, boolean> = {}
+
+  for (const field of fields) {
+    if (!touched[field.key]) continue
+    const raw = values[field.key] ?? ''
+    const parsed = parseFn(field, raw)
+    if (parsed === null && raw !== '') {
+      invalid[field.key] = true
+      continue
+    }
+    // parsed === null && raw === '' means "empty non-string field" — skip,
+    // don't write. The Reset button handles reverting to the default.
+    if (parsed === null) continue
+    writes.push({ field, parsed })
+  }
+
+  return { writes, invalid }
+}
+
+/**
  * Delete a stored public setting. Used by the "Reset to default"
  * button on the admin form — distinct from "save empty string"
  * (which is a valid explicit value for string-like fields).
