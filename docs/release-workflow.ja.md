@@ -277,10 +277,10 @@ npm view ampless@latest version      # only-pre packages は beta と同じに�
 gh run list --workflow=release.yml   # 次の通常 push で release.yml が正常に動くことを確認
 ```
 
-**npm provenance** はこの workflow では**有効化しない**。Provenance には public GitHub
-source repository が必要。repo の public 化は GitHub Settings での手動操作であり、この
-workflow の範囲外。repo が public になった後、別の follow-up PR で
-`.github/workflows/release.yml` の `NPM_CONFIG_PROVENANCE: true` を un-comment して有効化する。
+**npm provenance** は repo public 化 (beta flip、2026-06-11) 以降、`release.yml` と
+`flip-prerelease.yml` の両方で有効 (`NPM_CONFIG_PROVENANCE: 'true'` + job-level
+`id-token: write`)。Provenance には public GitHub source repository が必要 — repo を
+private に戻すと publish が失敗するため、その場合は env var を外すこと。
 
 ### 部分 flip の復旧手順
 
@@ -318,9 +318,8 @@ confirm: flip-to-beta
   または `gh api -X PUT repos/heavymoons/ampless/private-vulnerability-reporting`)。
   あわせて、GitHub が repo に対して secret scanning / push protection を表示する場合は
   有効になっていることを確認する。
-- `.github/workflows/release.yml`: **repo が public になった後に**
-  `NPM_CONFIG_PROVENANCE` を un-comment して有効化する (provenance には public repo が必要;
-  flip workflow の範囲外 — follow-up PR で対応する)。
+- `.github/workflows/release.yml` + `flip-prerelease.yml`: npm provenance は
+  **有効化済み** (public 化直後、2026-06-11 に対応済)。
 - `README.md` + `.ja.md`、`CLAUDE.md`、`docs/architecture/14-roadmap.md`:
   repo 可視性を変更する前に public beta stage の説明になっていること。
 

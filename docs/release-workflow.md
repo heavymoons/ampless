@@ -298,12 +298,12 @@ npm view ampless@latest version      # may point to same as beta (only-pre packa
 gh run list --workflow=release.yml   # next normal push should trigger release.yml cleanly
 ```
 
-**npm provenance** is **not** enabled by this workflow. Provenance
-requires a public GitHub source repository. Making the repo public is a
-manual step in GitHub Settings that happens separately (outside this
-workflow). After the repo goes public, enable provenance by
-un-commenting `NPM_CONFIG_PROVENANCE: true` in `.github/workflows/release.yml`
-in a follow-up PR.
+**npm provenance** is enabled in both `release.yml` and
+`flip-prerelease.yml` (`NPM_CONFIG_PROVENANCE: 'true'` + job-level
+`id-token: write`) since the repo went public at the beta flip
+(2026-06-11). Provenance requires a public GitHub source repository —
+if the repo ever goes private again, publishing will fail until the
+env var is removed.
 
 ### Recovering a partial flip
 
@@ -346,9 +346,8 @@ scenario and not an accidental double-flip.
   `gh api -X PUT repos/heavymoons/ampless/private-vulnerability-reporting`)
   and confirm secret scanning / push protection if GitHub exposes them
   for the repo.
-- `.github/workflows/release.yml`: **un-comment `NPM_CONFIG_PROVENANCE`
-  after repo goes public** (provenance requires a public repo; this is
-  a post-public TODO in a follow-up PR, not part of the flip workflow).
+- `.github/workflows/release.yml` + `flip-prerelease.yml`: npm
+  provenance is **enabled** (done post-public, 2026-06-11).
 - `README.md` + `.ja.md`, `CLAUDE.md`, and
   `docs/architecture/14-roadmap.md`: should already describe the public
   beta stage before the repo visibility flip.
