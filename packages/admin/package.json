@@ -61,7 +61,6 @@
     "@tiptap/pm": "^3.23.6",
     "@tiptap/react": "^3.23.6",
     "@tiptap/starter-kit": "^3.23.6",
-    "amazon-cognito-identity-js": "^6.3.16",
     "ampless": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
