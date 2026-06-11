@@ -1,0 +1,391 @@
+name: Flip prerelease tag
+
+# One-shot atomic workflow that exits the current prerelease tag, enters a
+# new one, version-bumps all affected packages, commits the result to main,
+# and publishes to npm — all in a single job so changesets/action can never
+# fire a stray `version` run between the exit and enter steps (which would
+# strip the pre-suffix and produce an unintended 1.0.0 release).
+#
+# Usage:
+#   mode=dry-run  (default) — shows the git diff after version without
+#                              pushing or publishing; inspect the artifact
+#                              before the real flip.
+#   mode=flip     — the live flip; requires confirm == "flip-to-<tag>"
+#   mode=publish-only — recovery path when the flip commit was pushed but
+#                       publish / tag push / dist-tag sync failed; skips
+#                       exit / enter / kickoff / version / commit and re-runs
+#                       only the publish + tag push + sync steps (all idempotent)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Target prerelease tag, e.g. "beta"'
+        required: true
+        type: string
+      mode:
+        description: 'dry-run = preview only | flip = live flip | publish-only = recovery re-run'
+        type: choice
+        options:
+          - dry-run
+          - flip
+          - publish-only
+        default: dry-run
+      confirm:
+        description: 'For mode != dry-run, type exactly "flip-to-<tag>" to proceed'
+        required: false
+        default: ''
+
+# Same concurrency group as release.yml — serialises this workflow against
+# the normal Release workflow; cancel-in-progress: false so a running release
+# is not aborted mid-publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  flip:
+    name: Flip prerelease (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push flip commit + tags to main
+      pull-requests: read  # gh pr list needs read access on private repos
+
+    steps:
+      # ── Step 1: Guards (no checkout required) ──────────────────────────────
+      # Run all cheap guards before any I/O so failures are fast.
+      - name: Guard — branch, confirm, tag format, no open VP PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # GH_REPO is mandatory here: this step runs before checkout, so
+          # there is no git context for `gh` to infer the repo from. Without
+          # it, `gh pr list` silently targets the wrong repo or errors out.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # 1a. Refuse to run from any branch other than main.
+          # workflow_dispatch can be triggered from any branch; without this
+          # guard a stale branch's HEAD would be pushed to main via
+          # `git push origin HEAD:main` later, silently overwriting history.
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "::error::This workflow must be dispatched from the main branch. Got: ${{ github.ref }}"
+            exit 1
+          fi
+
+          # 1b. For non-dry-run modes, require the safety confirmation string.
+          if [[ "${{ inputs.mode }}" != "dry-run" ]]; then
+            expected="flip-to-${{ inputs.tag }}"
+            if [[ "${{ inputs.confirm }}" != "$expected" ]]; then
+              echo "::error::confirm input must be exactly '${expected}' for mode '${{ inputs.mode }}'. Got: '${{ inputs.confirm }}'"
+              exit 1
+            fi
+          fi
+
+          # 1c. Validate tag format: must be ^[a-z][a-z0-9-]*$ to avoid
+          # breaking `changeset pre enter` with shell-injected values.
+          if ! echo "${{ inputs.tag }}" | grep -qE '^[a-z][a-z0-9-]*$'; then
+            echo "::error::tag input must match ^[a-z][a-z0-9-]*$. Got: '${{ inputs.tag }}'"
+            exit 1
+          fi
+
+          # 1d. Fail if there is an open "Version Packages" PR.
+          # A VP PR being open means a version bump is in-flight; doing the
+          # flip now would interleave two version-bump operations and likely
+          # corrupt pre.json or publish at the wrong version.
+          # Detection is by HEAD BRANCH, not label: changesets/action always
+          # opens its PR from the fixed branch `changeset-release/main` and
+          # attaches no label (labels like "autorelease: pending" belong to
+          # release-please, a different tool — filtering on that would match
+          # nothing and let the guard pass vacuously).
+          # GH_REPO env is required — we're pre-checkout and `gh` has no local
+          # git context to derive the repo from.
+          vp_count=$(gh pr list --state open --head changeset-release/main --json number --jq 'length')
+          if [[ "$vp_count" -gt 0 ]]; then
+            echo "::error::There are ${vp_count} open Version Packages PR(s) (head branch changeset-release/main). Merge or close them before running the flip."
+            exit 1
+          fi
+
+      # ── Step 2: Checkout (fetch-depth: 0 for git tag history) ─────────────
+      # Must come BEFORE the pre.json assert — the assert reads files that
+      # only exist after checkout.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Step 3: Pre-flight asserts (checkout required) ─────────────────────
+      - name: Assert HEAD == origin/main and pre.json state
+        run: |
+          set -euo pipefail
+
+          # 3a. Ensure HEAD has not drifted from origin/main since dispatch.
+          # A race between the dispatch click and the checkout can leave HEAD
+          # one commit behind the real tip; pushing HEAD:main would then
+          # silently undo the intervening commit.
+          local_sha=$(git rev-parse HEAD)
+          remote_sha=$(git rev-parse origin/main)
+          if [[ "$local_sha" != "$remote_sha" ]]; then
+            echo "::error::HEAD ($local_sha) does not match origin/main ($remote_sha). Re-dispatch from the current tip."
+            exit 1
+          fi
+
+          pre_json=".changeset/pre.json"
+          if [[ ! -f "$pre_json" ]]; then
+            echo "::error::${pre_json} does not exist. This repo is not in changesets pre-release mode."
+            exit 1
+          fi
+
+          current_tag=$(node -e "const p=require('./.changeset/pre.json');console.log(p.tag)")
+          current_mode=$(node -e "const p=require('./.changeset/pre.json');console.log(p.mode)")
+
+          if [[ "$current_mode" != "pre" ]]; then
+            echo "::error::pre.json mode is '${current_mode}', expected 'pre'."
+            exit 1
+          fi
+
+          # 3b. Mode-conditional pre.json tag asserts:
+          #   flip / dry-run: current tag must differ from requested tag
+          #     (= we haven't already done the flip)
+          #   publish-only: current tag must match requested tag
+          #     (= flip commit is already on main, we're re-running publish)
+          if [[ "${{ inputs.mode }}" == "publish-only" ]]; then
+            if [[ "$current_tag" != "${{ inputs.tag }}" ]]; then
+              echo "::error::publish-only requires pre.json.tag == '${{ inputs.tag }}' (flip commit already pushed). Got '${current_tag}'."
+              exit 1
+            fi
+            echo "pre.json.tag='${current_tag}' matches requested tag — publish-only recovery path confirmed."
+          else
+            if [[ "$current_tag" == "${{ inputs.tag }}" ]]; then
+              echo "::error::pre.json.tag is already '${{ inputs.tag }}'. Flip has already been applied (or you mis-typed the tag). Use mode=publish-only to re-run publish."
+              exit 1
+            fi
+            echo "pre.json.tag='${current_tag}' → will flip to '${{ inputs.tag }}'."
+          fi
+
+      # ── Step 4: pnpm + Node + registry ────────────────────────────────────
+      - uses: pnpm/action-setup@v4
+        # version inferred from package.json packageManager field
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      # ── Step 5: Build + test (same gate as release.yml) ───────────────────
+      - run: pnpm build
+      - run: pnpm test
+
+      # ── Steps 6–9: exit / enter / kickoff / version (skip for publish-only) ─
+      # publish-only jumps directly to step 11 (pnpm release).
+
+      # Step 6: Exit current prerelease mode.
+      # This rewrites .changeset/pre.json to {mode: "normal"}, which removes
+      # the guard that prevents changeset publish from producing a bare 1.0.0.
+      # Steps 7 and 8 happen immediately after in the same job — there is no
+      # window for changesets/action to fire a stray `changeset version`.
+      - name: 'changeset pre exit'
+        if: inputs.mode != 'publish-only'
+        run: pnpm changeset pre exit
+
+      # Step 7: Enter the new prerelease mode.
+      # Rewrites pre.json to {mode: "pre", tag: "<requested-tag>"}.
+      - name: 'changeset pre enter'
+        if: inputs.mode != 'publish-only'
+        run: pnpm changeset pre enter ${{ inputs.tag }}
+
+      # Step 8: Generate a kickoff changeset.
+      # `pnpm version-packages` (next step) requires at least one pending
+      # changeset to produce a non-empty version bump. Rather than requiring
+      # the operator to pre-stage one (which has a race with the alpha VP
+      # pipeline eating it), this step auto-generates it inside the workflow.
+      # NOTE: in pre-release mode `changeset version` does NOT delete consumed
+      # .md files — it records them in pre.json's `changesets` array and keeps
+      # the file on disk. The kickoff file therefore IS committed to main by
+      # the flip commit, which is required: deleting it while pre.json
+      # references it would recreate the stale-pre.json failure mode
+      # documented in CLAUDE.md (## Changeset Policy, incidents #135/#139).
+      # All accumulated pre-mode .md files get cleaned up together at the
+      # eventual `pre exit` for the next stage (beta → rc).
+      - name: Generate kickoff changeset
+        if: inputs.mode != 'publish-only'
+        run: |
+          cat > ".changeset/beta-kickoff-${{ inputs.tag }}.md" << 'HEREDOC'
+          ---
+          "ampless": patch
+          ---
+
+          First ${{ inputs.tag }} cut.
+          HEREDOC
+
+      # Step 9: Bump versions.
+      # MUST use the package.json alias `version-packages`, NOT raw
+      # `changeset version`. The alias is:
+      #   changeset version && node scripts/sync-template-versions.mjs && changeset version
+      # The extra passes update templates/_shared/package.json's pinned dep
+      # versions and absorb the auto-sync changeset the sync script emits.
+      # Calling `changeset version` directly skips template-version-sync and
+      # leaves the template in an inconsistent state.
+      - name: 'pnpm version-packages'
+        if: inputs.mode != 'publish-only'
+        run: pnpm version-packages
+
+      # ── Step 10: Mode branch ───────────────────────────────────────────────
+
+      # dry-run: upload the diff as an artifact and stop — no push, no publish.
+      - name: 'dry-run: capture diff + status'
+        if: inputs.mode == 'dry-run'
+        run: |
+          mkdir -p /tmp/flip-preview
+          git diff > /tmp/flip-preview/version-diff.patch
+          git status --short > /tmp/flip-preview/status.txt
+          echo "=== git status ===" && cat /tmp/flip-preview/status.txt
+          echo "=== diff (first 200 lines) ===" && head -200 /tmp/flip-preview/version-diff.patch
+
+      - name: 'dry-run: upload preview artifact'
+        if: inputs.mode == 'dry-run'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flip-preview
+          path: /tmp/flip-preview/
+
+      # flip: commit + push the version bump to main, then continue to publish.
+      # GITHUB_TOKEN push does NOT trigger push-based workflows (GitHub design):
+      # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+      # Belt-and-suspenders: also include [skip ci] in the commit message.
+      - name: 'flip: commit and push to main'
+        if: inputs.mode == 'flip'
+        run: |
+          # Bot identity is required: unlike changesets/action (which injects
+          # its own git author), this step is a plain shell command running in
+          # the workflow's checkout. Without explicit git config, `git commit`
+          # fails with "Author identity unknown".
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: flip prerelease to ${{ inputs.tag }} [skip ci]"
+          # Use HEAD:main refspec — Actions checkout often leaves a detached
+          # HEAD; the explicit refspec ensures we push to main regardless.
+          git push origin HEAD:main
+
+      # ── Step 11: Publish to npm (flip + publish-only) ─────────────────────
+      # MUST use the package.json alias `release`, NOT raw `changeset publish`.
+      # The alias is: turbo run build && changeset publish
+      # Running `changeset publish` directly would publish the packages without
+      # the pre-publish build step, shipping stale or missing build artifacts.
+      #
+      # `changeset publish` in pre-release mode publishes "only-pre packages"
+      # (those with no prior stable release) under the `latest` dist-tag, not
+      # the pre-mode tag. sync-dist-tag.mjs (step 13) corrects this.
+      #
+      # publish-only re-runs are safe because `changeset publish` skips
+      # versions that are already on npm — idempotent by design.
+      - name: 'pnpm release'
+        if: inputs.mode == 'flip' || inputs.mode == 'publish-only'
+        run: pnpm release
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # `setup-node` writes .npmrc with `_authToken=${NODE_AUTH_TOKEN}`,
+          # so we must expose the npm token under that name too. Otherwise npm
+          # publish sends the literal string "${NODE_AUTH_TOKEN}" as the bearer
+          # token and the registry rejects it (manifests as 404 on PUT for
+          # first-time publishes).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # NPM_CONFIG_PROVENANCE intentionally NOT set: npm provenance requires
+          # a public GitHub source repository. Enabling it now (before repo
+          # public-flip) would cause publish failures. After the repo goes
+          # public (a manual step in GitHub Settings, outside this workflow),
+          # re-enable provenance in release.yml as a separate PR.
+
+      # ── Step 12: Reconcile and push package tags ──────────────────────────
+      # `changeset publish` creates one <name>@<version> tag per published
+      # package locally (e.g. ampless@1.0.0-beta.N) but does NOT push them to
+      # the remote. Without this step GitHub Releases stays empty.
+      #
+      # We do NOT use `git push --tags` or rely on `changeset publish` output:
+      # - `--tags` would push any stray local tag, not just this cut's tags
+      # - the publish output is not available in publish-only re-runs (where
+      #   changeset publish skips already-published versions → creates no tags)
+      #
+      # Instead: for every public workspace package whose package.json version's
+      # prerelease identifier matches the requested tag (same guard as
+      # sync-dist-tag.mjs), we assemble the expected tag, then apply a 3-stage
+      # reconcile:
+      #   (1) if already on remote  → skip (idempotent)
+      #   (2) if not local          → create it (publish-only path: changeset
+      #       publish skipped, so no local tag was created this run)
+      #   (3) push explicitly by name
+      #
+      # Restricting to prerelease-matching packages is mandatory: including
+      # packages still on alpha would create a tag pointing at the flip commit
+      # for an old alpha version — fabricating a false history.
+      - name: Reconcile and push package tags
+        if: inputs.mode == 'flip' || inputs.mode == 'publish-only'
+        run: |
+          set -euo pipefail
+          REQUESTED_TAG="${{ inputs.tag }}"
+          tags_to_push=()
+
+          # Enumerate public workspace packages
+          for pkg_json in packages/*/package.json; do
+            name=$(node -e "const p=require('./${pkg_json}');if(!p.private&&p.name&&p.version)process.stdout.write(p.name)")
+            version=$(node -e "const p=require('./${pkg_json}');if(!p.private&&p.name&&p.version)process.stdout.write(p.version)")
+            if [[ -z "$name" || -z "$version" ]]; then
+              continue
+            fi
+
+            # Guard: only process packages whose version prerelease identifier
+            # matches the requested tag. Packages still on a prior prerelease
+            # (e.g. alpha) must be excluded — their tags belong to earlier
+            # commits, not the flip commit. Including them would fabricate tags.
+            prerelease_id=$(echo "$version" | sed -n 's/.*-\([a-z][a-z0-9-]*\)\..*/\1/p')
+            if [[ "$prerelease_id" != "$REQUESTED_TAG" ]]; then
+              echo "[skip] ${name}@${version} — prerelease identifier '${prerelease_id}' != '${REQUESTED_TAG}'"
+              continue
+            fi
+
+            tag_name="${name}@${version}"
+
+            # (1) Already on remote → skip
+            if git ls-remote --tags origin "refs/tags/${tag_name}" | grep -q "${tag_name}"; then
+              echo "[remote-exists] ${tag_name} — skipping"
+              continue
+            fi
+
+            # (2) Not local → create (handles publish-only path where changeset
+            #     publish skipped the version so no local tag was produced)
+            if ! git tag -l "${tag_name}" | grep -q "${tag_name}"; then
+              echo "[create-local] ${tag_name}"
+              git tag "${tag_name}" HEAD
+            fi
+
+            tags_to_push+=("${tag_name}")
+          done
+
+          if [[ "${#tags_to_push[@]}" -eq 0 ]]; then
+            echo "No new tags to push."
+          else
+            echo "Pushing tags: ${tags_to_push[*]}"
+            git push origin "${tags_to_push[@]}"
+          fi
+
+      # ── Step 13: Sync dist-tag ─────────────────────────────────────────────
+      # `changeset publish` in pre-release mode publishes "only-pre packages"
+      # (those that have no prior stable release) under the `latest` dist-tag,
+      # leaving the pre-release dist-tag (alpha / beta / ...) stale. This is
+      # the same problem release.yml's Sync dist-tag step addresses.
+      #
+      # Re-write ~/.npmrc explicitly. After `changeset publish` runs, the .npmrc
+      # written by `setup-node` (which references `${NODE_AUTH_TOKEN}`) can be
+      # in a state where subsequent `npm` calls hit E401. Writing a fresh
+      # `_authToken=<value>` line restores auth deterministically — same
+      # workaround as release.yml.
+      - name: Sync dist-tag
+        if: inputs.mode == 'flip' || inputs.mode == 'publish-only'
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          node scripts/sync-dist-tag.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
