@@ -50,6 +50,7 @@ jobs:
     permissions:
       contents: write      # push flip commit + tags to main
       pull-requests: read  # gh pr list needs read access on private repos
+      id-token: write      # npm provenance attestation (sigstore OIDC)
 
     steps:
       # ── Step 1: Guards (no checkout required) ──────────────────────────────
@@ -293,11 +294,10 @@ jobs:
           # token and the registry rejects it (manifests as 404 on PUT for
           # first-time publishes).
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # NPM_CONFIG_PROVENANCE intentionally NOT set: npm provenance requires
-          # a public GitHub source repository. Enabling it now (before repo
-          # public-flip) would cause publish failures. After the repo goes
-          # public (a manual step in GitHub Settings, outside this workflow),
-          # re-enable provenance in release.yml as a separate PR.
+          # npm provenance: enabled since the repo went public (beta flip,
+          # 2026-06-11). Requires a public GitHub source repository and the
+          # job-level `id-token: write` permission.
+          NPM_CONFIG_PROVENANCE: 'true'
 
       # ── Step 12: Reconcile and push package tags ──────────────────────────
       # `changeset publish` creates one <name>@<version> tag per published
