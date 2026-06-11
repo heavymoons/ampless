@@ -355,7 +355,13 @@ scenario and not an accidental double-flip.
 ### What does NOT change at the flip
 
 - `scripts/sync-dist-tag.mjs`: reads `pre.json.tag` so it auto-detects
-  the new tag once `pre.json.tag` flips
+  the new tag once `pre.json.tag` flips. It also keeps `latest` tracking
+  the active pre-release channel **while a package has no stable
+  release** — a bare `npm install <pkg>` resolves to the current
+  pre-release instead of a stale one. The tracking self-deactivates per
+  package the moment a stable version owns `latest` (no prerelease
+  suffix): from then on `npm publish` manages `latest` natively and
+  later pre-release cycles (1.1.0-beta.*) only move their own tag
 - `scripts/sync-template-versions.mjs`: unchanged
 - `.changeset/config.json`: `access: "public"` already
 
