@@ -13,7 +13,7 @@ import { userAdmin } from './functions/user-admin/resource.js'
 import { pluginSecretHandler } from './functions/plugin-secret-handler/resource.js'
 import { customizeBackend } from './backend.custom.js'
 // Plugin secret encryption key (Phase 6a v2.2).
-// Generate with: npx create-ampless setup-encryption-key
+// Generate with: npx create-ampless@beta setup-encryption-key
 // The key lives in amplify/secrets/encryption-key.ts (gitignore it for
 // public repos; safe to commit for private repos).
 import { PLUGIN_SECRET_ENCRYPTION_KEY } from './secrets/encryption-key.js'

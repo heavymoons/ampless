@@ -207,7 +207,7 @@ export interface UpgradeResult {
   editorExtensionsWired?: number
   /**
    * Number of user-installed `@ampless/*` plugin packages bumped to
-   * the latest `@alpha` dist-tag by `bumpUserAmplessPlugins`.
+   * the latest `@beta` dist-tag by `bumpUserAmplessPlugins`.
    */
   userPluginsBumped?: number
 }
@@ -550,7 +550,7 @@ interface BumpResult {
  * Walk the project's `dependencies` and, for every `@ampless/*` entry
  * that is **not** present in the template's deps (= user-installed opt-in
  * plugin, not a template-managed core package), resolve the latest
- * `@alpha` dist-tag version via `npm view` and rewrite the project's pin
+ * `@beta` dist-tag version via `npm view` and rewrite the project's pin
  * to `^<resolved>`.
  *
  * Caller is responsible for re-writing `package.json` when `bumped` is
@@ -572,17 +572,17 @@ async function bumpUserAmplessPlugins(
     // Skip if template already has it (= existing mergePackageJson sync owns this version)
     if (pkgName in templateDeps) continue
 
-    // Resolve latest @alpha version via npm registry
+    // Resolve latest @beta version via npm registry
     let latest: string
     try {
-      const { stdout } = await execa('npm', ['view', `${pkgName}@alpha`, 'version'], {
+      const { stdout } = await execa('npm', ['view', `${pkgName}@beta`, 'version'], {
         cwd: destDir,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       latest = stdout.trim()
     } catch (e) {
       result.warnings.push(
-        `${pkgName}: failed to resolve @alpha version (${e instanceof Error ? e.message : String(e)}). Leaving the existing pin in package.json.`,
+        `${pkgName}: failed to resolve @beta version (${e instanceof Error ? e.message : String(e)}). Leaving the existing pin in package.json.`,
       )
       continue
     }
@@ -591,7 +591,7 @@ async function bumpUserAmplessPlugins(
       continue
     }
 
-    // Caret form matches template style (e.g. "^1.0.0-alpha.75")
+    // Caret form matches template style (e.g. "^1.0.0-beta.75")
     const target = `^${latest}`
     const current = deps[pkgName]!
     if (current === target) continue  // already in sync
@@ -933,7 +933,7 @@ export async function runUpgradeIn(
 
   await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
 
-  // 7b. Bump user-installed @ampless/* plugins (not in template) to latest @alpha.
+  // 7b. Bump user-installed @ampless/* plugins (not in template) to latest @beta.
   // Runs AFTER the template-managed sync write so we have the merged projectPkg in memory,
   // and BEFORE install so the subsequent `npm install` picks up the new versions.
   const templatePkgForBump = templatePkg as { dependencies?: Record<string, string> }
@@ -979,7 +979,7 @@ export async function runUpgradeIn(
   )
 
   if (userPluginBump.bumped.length > 0) {
-    log.info(`plugins: ${pc.cyan(`bumped ${userPluginBump.bumped.length} user-installed @ampless/* plugin(s) to latest @alpha:`)}`)
+    log.info(`plugins: ${pc.cyan(`bumped ${userPluginBump.bumped.length} user-installed @ampless/* plugin(s) to latest @beta:`)}`)
     for (const { name, from, to } of userPluginBump.bumped) {
       log.info(`  ${name}: ${from} → ${to}`)
     }

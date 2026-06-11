@@ -31,7 +31,7 @@ that:
 - you'd rather not version-bump or republish to iterate on
 
 When the plugin grows useful for more than one site, lift it into its
-own npm package — `npx create-ampless@latest plugin <name> --standalone`
+own npm package — `npx create-ampless@beta plugin <name> --standalone`
 scaffolds the directory ready for `npm publish`.
 
 ## A note on client-side scripts

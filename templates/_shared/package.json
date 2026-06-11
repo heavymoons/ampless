@@ -12,8 +12,8 @@
     "start": "next start",
     "lint": "next lint",
     "sandbox": "ampx sandbox --once && next dev",
-    "update-ampless": "npx create-ampless@latest upgrade",
-    "copy-theme": "npx create-ampless@latest copy-theme"
+    "update-ampless": "npx create-ampless@beta upgrade",
+    "copy-theme": "npx create-ampless@beta copy-theme"
   },
   "dependencies": {
     "@aws-amplify/adapter-nextjs": "^1.7.3",

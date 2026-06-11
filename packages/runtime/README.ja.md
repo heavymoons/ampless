@@ -5,14 +5,14 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向けパブリックサイドランタイム。投稿取得クライアント、サイト設定、テーマ解決、SEO メタデータ集約、ミドルウェア、パブリックルートハンドラーを `createAmpless()` ひとつのファクトリーにまとめます。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 テンプレートから切り出すことで、スキャフォールドされたファイルに触れずに `npm update @ampless/runtime` でアップデートできます — パブリックサイトの動作改善はスキャフォールダーの再実行ではなく、パッケージを通じて届きます。
 
 ## インストール
 
 ```bash
-npm install @ampless/runtime@alpha ampless@alpha
+npm install @ampless/runtime@beta ampless@beta
 ```
 
 `@ampless/runtime` は `next`（15+）、`react`（18/19）、`aws-amplify`（6+）、`@aws-amplify/adapter-nextjs`（1+）をピア依存として宣言します。CLI スキャフォールダーがテンプレートの `package.json` に互換バージョンをピン留めします。

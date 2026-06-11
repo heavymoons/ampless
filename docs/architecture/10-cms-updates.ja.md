@@ -45,7 +45,7 @@ pnpm update ampless @ampless/admin @ampless/runtime @ampless/backend \
             @ampless/plugin-seo @ampless/plugin-rss
 
 # 2. テンプレート管理下のファイル（ルートシェル、管理ページ等）を再生成
-npx create-ampless@latest --upgrade
+npx create-ampless@beta --upgrade
 ```
 
 `--upgrade` はプロジェクト内の **ampless 管理パス**（管理ルート、内部ルートシェル、API プロキシルート）を現在のテンプレートと同期する。管理パスのリストは [`packages/create-ampless/src/upgrade.ts`](../../packages/create-ampless/src/upgrade.ts) の `AMPLESS_MANAGED_APP_PATHS` に固定されている。管理パス外のユーザ所有ファイル（`themes/`、`app/page.tsx`、`cms.config.ts` 等）は触らない。

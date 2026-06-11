@@ -5,7 +5,7 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け管理 UI ライブラリ。投稿エディター（Tiptap + Markdown + HTML）、メディアマネージャー（S3 + 画像処理）、サイト / テーマ設定、ロケール対応 UI 文字列、そしてすべてを結びつける Next.js ページファクトリーを提供します。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 ## なぜライブラリなのか？
 
@@ -14,7 +14,7 @@
 ## インストール
 
 ```bash
-npm install @ampless/admin@alpha @ampless/runtime@alpha ampless@alpha
+npm install @ampless/admin@beta @ampless/runtime@beta ampless@beta
 ```
 
 ピア依存: `next`、`react`、`react-dom`、`aws-amplify`、`@aws-amplify/adapter-nextjs`。

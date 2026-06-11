@@ -6,12 +6,12 @@
 
 ampless follows a four-stage release path: **alpha → beta → RC → stable**.
 
-- **alpha** (current): closed development, repo private, npm `alpha` dist-tag, dogfood-driven feature work. Decisions are guided by "can I run my own multiple sites on ampless?"
-- **beta**: repo goes **public**, npm `beta` dist-tag. Breaking changes are still possible (called out via changesets), but external users can install and external plugin authors can publish. The public-flip moment.
+- **alpha** (complete): closed development, repo private, npm `alpha` dist-tag, dogfood-driven feature work. Decisions were guided by "can I run my own multiple sites on ampless?"
+- **beta** (current): repo is **public**, npm `beta` dist-tag. Breaking changes are still possible (called out via changesets), but external users can install and external plugin authors can publish.
 - **RC**: feature-complete, no more breaking changes expected. Dogfood sites run on RC builds for the final-tuning period.
 - **stable** (v1.0): public launch. The ampless introduction page (built with ampless itself) ships simultaneously.
 
-v1.0 RC entry criteria (unchanged from the previous plan): (a) production-quality for the dogfood sites, and (b) the ampless-built introduction page is ready. Beta entry has its own internal blocker checklist tracked separately. Internal version numbers are bumped normally with changesets throughout all four stages.
+v1.0 RC entry criteria (unchanged from the previous plan): (a) production-quality for the dogfood sites, and (b) the ampless-built introduction page is ready. Beta entry was handled through a private blocker checklist before public launch. Internal version numbers are bumped normally with changesets throughout all four stages.
 
 WordPress compatibility scope is **WXR data import only**; plugin / theme / Gutenberg block compatibility is explicitly out of scope.
 
@@ -41,16 +41,16 @@ Features needed to run dogfood sites on ampless, in priority order. Each changes
 - [ ] Proofreading / summarization plugins
 
 #### Plugin Extension (dogfood-driven, phased)
-Phased work tracked in [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md). Each phase ships at least one bundled plugin that exercises the new surface, then the next phase starts.
+Phased work is summarized here; the public contract lives in [08-plugin-architecture.md](./08-plugin-architecture.md). Each phase ships at least one bundled plugin that exercises the new surface, then the next phase starts.
 
-- [x] Phase 1: descriptor-based head/body injection + `capabilities` / `instanceId` / `displayName` on `AmplessPlugin`. First plugin: `@ampless/plugin-analytics-ga4` (settings via `cms.config.ts`). Spec: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
+- [x] Phase 1: descriptor-based head/body injection + `capabilities` / `instanceId` / `displayName` on `AmplessPlugin`. First plugin: `@ampless/plugin-analytics-ga4` (settings via `cms.config.ts`). Contract: [08-plugin-architecture.md](./08-plugin-architecture.md)
 - [x] Phase 2: admin-managed public settings (`/admin/plugins`, S3 cache mirror). GA4 settings migrate to the admin UI; new plugin author guide ships in `ampless` tarball + scaffold copy
 - [x] Phase 3: trust-level dogfood. Phase 3a complete — `@ampless/plugin-gtm` + `@ampless/plugin-plausible` (untrusted) ship as new bundled plugins exercising the Phase 1/2 descriptor + admin-settings API. Phase 3c complete — `writePublicAsset` is formalised with runtime key validation + `instanceId ?? name` namespace enforcement, and existing `seo` / `rss` declare the new capability surface. Phase 3b complete — `PluginRepeatableField` (list-of-objects setting type) + `@ampless/plugin-cookie-consent` (untrusted) + Consent Convention regulation (`window.amplessConsent` global API + standard events), plus `consentCategory?: string` gated mode in GA4 / GTM / Plausible.
 - [x] Phase 4: per-post body injection API (`publicBodyForPost`) + `schema` capability + JSON-LD auto-escape (`escapeJsonLdInlineBody`). First plugin: `@ampless/plugin-schema-jsonld` (untrusted). Theme post templates call `ampless.publicBodyForPost(post)` to render `<script type="application/ld+json">` elements.
-- [x] Phase 5: external (out-of-monorepo) plugin npm-install proof — static `package.json#amplessPlugin` manifest convention + runtime cross-check, `npx create-ampless plugin <name>` scaffold subcommand, plugin author guide rewrite, dogfooded with `@ishinao/ampless-plugin-site-verification` published to npm and consumed by ishinao.net
+- [x] Phase 5: external (out-of-monorepo) plugin npm-install proof — static `package.json#amplessPlugin` manifest convention + runtime cross-check, `npx create-ampless@beta plugin <name>` scaffold subcommand, plugin author guide rewrite, dogfooded with `@ishinao/ampless-plugin-site-verification` published to npm and consumed by ishinao.net
 - [x] Phase 6d: `publicHtmlForPost` capability + `PublicPostHtmlDescriptor` type + `sanitize-html` sanitize layer in `@ampless/runtime`. First plugin: `@ampless/plugin-reading-time` (untrusted) — reading-time badge with English/CJK word count, admin-editable label template and position.
 - [x] Phase 6a: `secretSettings` capability + `PluginSecretField` type (`default` stripped via `Omit` to prevent leakage) + `TrustedPluginRuntimeContext.secret<T>(key)` async accessor + `PluginSecret` DynamoDB model (admin/editor: write-only; IAM Lambda: read-only). `@ampless/plugin-webhook` retrofitted to `trust_level: 'trusted'` with admin-managed signing secret for zero-deploy key rotation.
-- [x] Phase 7 (embed plugin extension): `contentFields` capability (promoted from reserved) + `publicPostScript` capability + `Ampless.renderBody(post): Promise<ReactNode>` (alpha breaking) + `renderBodyHtmlString` for raw-route compat + admin editor extension installer (`@ampless/admin/editor`) + iframe-srcDoc preview pipeline (Route Handler at `/admin/preview`, configurable via page factory `previewEndpoint` option). First plugins: `@ampless/plugin-youtube` + `@ampless/plugin-x-embed` (both `trusted`, served via `youtube-nocookie.com` and `platform.twitter.com/widgets.js`).
+- [x] Phase 7 (embed plugin extension): `contentFields` capability (promoted from reserved) + `publicPostScript` capability + `Ampless.renderBody(post): Promise<ReactNode>` (pre-1.0 breaking) + `renderBodyHtmlString` for raw-route compat + admin editor extension installer (`@ampless/admin/editor`) + iframe-srcDoc preview pipeline (Route Handler at `/admin/preview`, configurable via page factory `previewEndpoint` option). First plugins: `@ampless/plugin-youtube` + `@ampless/plugin-x-embed` (both `trusted`, served via `youtube-nocookie.com` and `platform.twitter.com/widgets.js`).
 - [ ] Phase 6+ (each is its own RFP): developer-extension capabilities (`adminPage` / `serverRoute` / ...)
 
 #### Content
@@ -70,11 +70,11 @@ If dogfood targets include existing WordPress sites, the priority of this item i
 
 ---
 
-### Beta (public flip)
+### Beta (current public pre-release)
 
-Beta is the public-release stage: the GitHub repo becomes browsable, packages publish under the npm `beta` dist-tag, and external users can install / external plugin authors can publish. Breaking changes are still possible (called out via changesets and dist-tag bumps); the contract becomes locked at RC.
+Beta is the current public pre-release stage: the GitHub repo is browsable, packages publish under the npm `beta` dist-tag, and external users can install / external plugin authors can publish. Breaking changes are still possible (called out via changesets and dist-tag bumps); the contract becomes locked at RC.
 
-Beta entry criteria are tracked in an internal blocker checklist (separate from this public roadmap). At a high level: scrub of alpha-only language across README / CLAUDE.md / Roadmap (this scrub), CI provenance flip, dist-tag tooling switch (`pnpm changeset pre exit` → `pnpm changeset pre enter beta`), and curation of accumulated alpha-period changesets.
+Beta entry criteria are complete enough for public beta. Remaining hardening work stays in this roadmap and in ordinary GitHub issues.
 
 ---
 
@@ -85,7 +85,7 @@ Beta entry criteria are tracked in an internal blocker checklist (separate from 
 Completion criteria:
 - Multiple sites the maintainer wants to operate are running on ampless (dogfooded under load)
 - The ampless introduction page (product page) is buildable with ampless (ready to ship at v1.0 stable)
-- There is a clear path to running a blog with just `npx create-ampless@latest` + official plugins
+- There is a clear path to running a blog with just `npx create-ampless@beta` + official plugins
 
 Note: the **public-flip** to GitHub-public + npm `beta` dist-tag happens at the start of beta (one stage earlier than this RC). The **simultaneous introduction-page launch** happens at v1.0 stable (one stage later). See "Release Strategy" above for the four-stage breakdown.
 

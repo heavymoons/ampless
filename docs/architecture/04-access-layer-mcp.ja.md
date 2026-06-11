@@ -54,7 +54,7 @@ magic link や WebAuthn などのパスワードレスは現状使っていな�
 #### 初期セットアップ
 
 ```
-1. `npx create-ampless@latest` でプロジェクト生成
+1. `npx create-ampless@beta` でプロジェクト生成
 2. `npx ampx sandbox`（開発）か Amplify Hosting（本番）でデプロイ
 3. 管理画面のログイン画面で sign up → Cognito が確認コードをメール送信
 4. コードを入力。post-confirmation トリガが admin グループが空かを確認し、

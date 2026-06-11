@@ -5,14 +5,14 @@
 
 Amplify Gen 2 backend factories for [ampless](https://github.com/heavymoons/ampless). Bundles the IAM / SQS / DynamoDB-stream wiring, the auth / data / storage definitions, and every event-processing Lambda behind one `defineAmplessBackend(...)` factory.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Splitting this out of the template lets you `npm update @ampless/backend` without re-running the scaffolder. Backend bug fixes and infrastructure improvements arrive through the package; the user-side `amplify/` tree becomes a handful of 1–5 line shells that compose the factories.
 
 ## Install
 
 ```bash
-npm install @ampless/backend@alpha ampless@alpha
+npm install @ampless/backend@beta ampless@beta
 ```
 
 Peer dependencies: `@aws-amplify/backend` (^1), `aws-cdk-lib` (^2). The CLI scaffolder pins compatible versions in the template's `package.json`.

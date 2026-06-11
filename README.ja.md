@@ -7,7 +7,7 @@
 
 AWS Amplify Gen 2 上に構築。エンジニアはテーマ・プラグイン・スキーマを TypeScript で自由にカスタマイズ。編集者はポリッシュされた admin UI で投稿とメディアを管理。MCP ネイティブで Claude / Cursor がコエンジニアとして参加できる。
 
-> **プレリリース / アルファ版。** 全パッケージは `alpha` npm dist-tag で公開しています。ampless は 4 段階のリリースパスを歩んでいます: **alpha**（クローズド、ドッグフード専用）→ **beta**（リポジトリ公開; npm `beta` dist-tag; 破壊的変更まだあり）→ **RC**（feature-complete、破壊的変更は予定なし）→ **stable**（v1.0）。現在は alpha 段階 — GitHub でソースは閲覧できませんが、npm パッケージはインストール可能です。
+> **プレリリース / ベータ版。** パッケージは `beta` npm dist-tag で公開しています。ampless は 4 段階のリリースパスを歩んでいます: **alpha**（クローズド dogfood、完了）→ **beta**（リポジトリ公開; npm `beta` dist-tag; 破壊的変更まだあり）→ **RC**（feature-complete、破壊的変更は予定なし）→ **stable**（v1.0）。現在は beta 段階 — GitHub でソースを閲覧でき、外部ユーザーがインストール可能で、API は RC まで変更される可能性があります。
 
 ## ampless を選ぶ理由
 
@@ -19,12 +19,12 @@ AWS Amplify Gen 2 上に構築。エンジニアはテーマ・プラグイン�
 ## クイックスタート
 
 ```bash
-npx create-ampless@alpha my-site
+npx create-ampless@beta my-site
 cd my-site && npm install
 npm run sandbox       # AWS 開発リソースをプロビジョニング後、http://localhost:3000 を起動
 ```
 
-> ampless が alpha の間は `@alpha` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。
+> ampless が beta の間は `@beta` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。
 
 `/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。2 人目以降はデフォルトでグループなしとなり、手動で昇格が必要です。**前提条件・プロビジョニングされるリソース・次のステップの詳細**: [docs/quickstart.ja.md](./docs/quickstart.ja.md)
 
@@ -49,7 +49,7 @@ npm run sandbox       # AWS 開発リソースをプロビジョニング後、h
 | パッケージ | 用途 |
 |---|---|
 | [`ampless`](./packages/ampless) | コア型定義、プラグインコントラクト、共通ユーティリティ |
-| [`create-ampless`](./packages/create-ampless) | `npx create-ampless@latest` — プロジェクトスキャフォールディング |
+| [`create-ampless`](./packages/create-ampless) | `npx create-ampless@beta` — プロジェクトスキャフォールディング |
 | [`@ampless/plugin-seo`](./packages/plugin-seo) | OGP / Twitter / canonical メタデータ + `sitemap.xml` |
 | [`@ampless/plugin-rss`](./packages/plugin-rss) | RSS 2.0 `/feed.xml` |
 | [`@ampless/plugin-webhook`](./packages/plugin-webhook) | 外部 URL への POST イベント通知（HMAC 署名付き） |
@@ -82,13 +82,13 @@ export default defineConfig({
 **CLI (`--mount`, 推奨).** プロジェクトディレクトリ内で:
 
 ```bash
-npx create-ampless@latest --mount \
+npx create-ampless@beta --mount \
   --github-owner <your-user-or-org> \
   --aws-region <region> \
   --create-iam-role           # 初回のみ。次回以降は `--iam-service-role <arn>` で使い回し
 ```
 
-CLI が GitHub repo 作成 (`gh` CLI 認証または `GITHUB_TOKEN` が必要)、Amplify Hosting アプリ作成、GitHub 連携登録、`amplify.yml` ビルド設定、初回デプロイ起動までを一気に実行します。`--domain` / `--subdomain` を渡すと同じ流れの中でカスタムドメインもバインドされます。`--skip-confirm` で CI フレンドリーな非対話モードに。フラグ全体は `npx create-ampless@latest --help` で確認できます。
+CLI が GitHub repo 作成 (`gh` CLI 認証または `GITHUB_TOKEN` が必要)、Amplify Hosting アプリ作成、GitHub 連携登録、`amplify.yml` ビルド設定、初回デプロイ起動までを一気に実行します。`--domain` / `--subdomain` を渡すと同じ流れの中でカスタムドメインもバインドされます。`--skip-confirm` で CI フレンドリーな非対話モードに。フラグ全体は `npx create-ampless@beta --help` で確認できます。
 
 **手動 (コンソール).** `git init && git push` で自前の repo に上げてから、**AWS Amplify Hosting コンソール → Create new app → Host web app → repo 連携 → デプロイ**。詳細手順は scaffold 後のプロジェクトの `README.ja.md`（「本番デプロイ」セクション）と `RUNBOOK.ja.md` に。
 
@@ -120,13 +120,13 @@ ampless は `ampless-editor` を信頼済みプリンシパルとして扱いま
 
 ## ロードマップ
 
-ampless の開発は 4 段階のリリースパスに従っています: **alpha → beta → RC → stable**。現在は alpha 段階 — リポジトリは非公開ですが、npm パッケージは `alpha` dist-tag で公開中です。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なしのフェーズ。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。ampless はエンジニア向けのカスタマイズベース CMS として位置づけられており、プラグインはサイトエンジニアが審査してインストールする npm dep です。未審査のサードパーティプラグインを安全に動かすためのマーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、コミット済みの v2.0 成果物ではありません。
+ampless の開発は 4 段階のリリースパスに従っています: **alpha → beta → RC → stable**。現在は beta 段階 — リポジトリは公開され、npm パッケージは `beta` dist-tag で公開中で、RC までは破壊的変更がまだあり得ます。**Alpha** はクローズド dogfood 期間でした。**RC** は feature-complete で破壊的変更なしのフェーズ。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。ampless はエンジニア向けのカスタマイズベース CMS として位置づけられており、プラグインはサイトエンジニアが審査してインストールする npm dep です。未審査のサードパーティプラグインを安全に動かすためのマーケットプレイス + ランタイムサンドボックスは v2.0+ の探索項目であり、コミット済みの v2.0 成果物ではありません。
 
 | フェーズ | ハイライト |
 |---|---|
 | v0.1（完了 — 内部） | CLI、管理パネル、ブログテンプレート、Cognito、MCP サーバー、SEO / RSS / Webhook プラグイン |
 | v0.x（進行中） | テーマカスタマイズ、MCP HTTP トランスポート + アクセストークン、CloudFront キャッシュ戦略、AI プロバイダー抽象化、WXR インポート、モニタリング改善 |
-| **Beta（公開リリース）** | リポジトリを公開、npm `beta` dist-tag、破壊的変更はまだあり得る。外部プラグイン作者は npm にプラグインを publish 可能（`cms.config.ts` での静的読み込み）、外部ユーザはソース閲覧可で install 可能 |
+| **Beta（現在の公開プレリリース）** | リポジトリは公開、npm `beta` dist-tag、破壊的変更はまだあり得る。外部プラグイン作者は npm にプラグインを publish 可能（`cms.config.ts` での静的読み込み）、外部ユーザはソース閲覧可で install 可能 |
 | v1.0 RC | feature-complete、破壊的変更は予定なし。ファーストパーティサイトは RC ビルドで運用 |
 | v1.0 stable | 公開ローンチ — ampless 自身のマーケティングページ（ampless 製）も同時にローンチ |
 | v2.0+ | 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合: ランタイムサンドボックス、動的 IAM、配布 UI。v1.0 のコミットではない |

@@ -17,7 +17,7 @@ If you only read one thing in this document, read [Pitfall: pre.json stale entry
    - Uses [`changesets/action@v1`](https://github.com/changesets/action).
    - If there are pending changesets in `.changeset/`:
      - Runs `pnpm version-packages` (= `changeset version`).
-     - Opens (or updates) a "Version Packages (alpha)" PR on the `changeset-release/main` branch.
+     - Opens (or updates) a "Version Packages (<pre-tag>)" PR on the `changeset-release/main` branch.
    - If there are no pending changesets:
      - Runs `pnpm release` (= `changeset publish`) to publish anything on `main` that isn't yet on npm.
 
@@ -28,9 +28,9 @@ If you only read one thing in this document, read [Pitfall: pre.json stale entry
 
 You as a feature-PR author only do step 1. **Don't touch step 2 or step 3 locally.**
 
-## Pre-release (alpha) mode
+## Pre-release mode
 
-This repo is currently in [changesets pre-release mode](https://github.com/changesets/changesets/blob/main/docs/prereleases.md), tagged `alpha`. The mode marker is `.changeset/pre.json` with `"mode": "pre"`.
+This repo uses [changesets pre-release mode](https://github.com/changesets/changesets/blob/main/docs/prereleases.md). The active pre-release tag is `.changeset/pre.json#tag`: `alpha` before the public beta flip, `beta` after it. The mode marker is `.changeset/pre.json` with `"mode": "pre"`.
 
 Pre mode changes two things you need to know about:
 
@@ -110,7 +110,7 @@ Verified in [#136](https://github.com/heavymoons/ampless/pull/136). Worth greppi
 
 ## Pitfall: incomplete wiring when adding a new plugin package
 
-**Symptom**: A new `@ampless/plugin-<x>` package builds and publishes, but downstream sites scaffolded with `create-ampless` don't pick it up, or `npx create-ampless@latest upgrade` doesn't keep its version in sync, or the Release workflow crashes with the `CHANGELOG.md` ENOENT above.
+**Symptom**: A new `@ampless/plugin-<x>` package builds and publishes, but downstream sites scaffolded with `create-ampless` don't pick it up, or `npx create-ampless@beta upgrade` doesn't keep its version in sync, or the Release workflow crashes with the `CHANGELOG.md` ENOENT above.
 
 **Cause**: Adding a plugin touches six places. Missing any one of them leaves the plugin "almost shipped" — the npm tarball exists but the rest of the pipeline acts like it's not there. This list comes from real fixes:
 
@@ -162,13 +162,16 @@ Before initiating the flip, confirm all of:
 
 - [ ] Public-flip docs are merged (README scrub, Community files,
       Positioning pivot — see git log around PR #240, #242, #243, #244)
-- [ ] **No intentional beta changeset needs to be manually queued** —
-      the flip workflow auto-generates a kickoff changeset
+- [ ] Public-flip package changes may carry normal changesets (for
+      example docs / CLI behavior that must publish as `beta`). After
+      that prep PR lands on `main`, the normal Release workflow may open
+      a "Version Packages (alpha)" PR. **Close it unmerged** before the
+      flip; the queued changesets remain on `main` and the flip workflow
+      consumes them under the `beta` tag.
+      Do **not** pre-stage a separate "first beta" changeset: the flip
+      workflow auto-generates a kickoff changeset
       (`.changeset/beta-kickoff-<tag>.md`, `ampless: patch`, "First
       beta cut") immediately before running `pnpm version-packages`.
-      Do **not** pre-stage a manual one: it would race with the alpha
-      Version Packages pipeline and could be silently consumed before
-      the flip runs.
       `sync-dist-tag.mjs` includes a version-prerelease integrity guard:
       after the flip it re-asserts the `beta` dist-tag only on packages
       whose `package.json` version prerelease identifier matches
@@ -179,7 +182,11 @@ Before initiating the flip, confirm all of:
       `alpha` tag until they get bumped in a later cut.
 - [ ] No queued `.changeset/*.md` you don't intend to ship in the first
       beta cut (run `pnpm changeset status` to inspect)
-- [ ] No open "Version Packages (alpha)" PR — merge or close it first
+- [ ] No open "Version Packages (alpha)" PR — close the public-flip
+      one unmerged; resolve unrelated alpha VP PRs intentionally first
+- [ ] GitHub security baseline is enabled: Dependabot alerts and
+      Dependabot security updates are on; Actions default token
+      permissions are read-only
 - [ ] Dogfood site (e.g. ishinao.net) is healthy on the latest published
       `@alpha`; the rollback path back to a known-good `@alpha` tarball
       is mentally walked
@@ -332,19 +339,19 @@ scenario and not an accidental double-flip.
 - `.changeset/pre.json#tag`: `"alpha"` → `"beta"`. Handled atomically
   inside the `flip-prerelease.yml` workflow via `pre exit && pre enter
   beta`. It is **not** a separate commit or PR.
-- Repo visibility: GitHub Settings → flip to Public (after Settings →
-  Security → Private vulnerability reporting → Enable). This is a
-  manual step outside the workflow.
+- Repo visibility: GitHub Settings → flip to Public after the live beta
+  publish succeeds. This is a manual step outside the workflow. After
+  the repo is public, immediately enable Private Vulnerability Reporting
+  (Settings → Security → Private vulnerability reporting, or
+  `gh api -X PUT repos/heavymoons/ampless/private-vulnerability-reporting`)
+  and confirm secret scanning / push protection if GitHub exposes them
+  for the repo.
 - `.github/workflows/release.yml`: **un-comment `NPM_CONFIG_PROVENANCE`
   after repo goes public** (provenance requires a public repo; this is
   a post-public TODO in a follow-up PR, not part of the flip workflow).
-- `README.md` + `.ja.md`: install commands using `@alpha` may stay or
-  flip to `@beta` (engineer's call — `@alpha` last-published tarball
-  remains pinned by `sync-dist-tag.mjs` after `pre exit`)
-- `CLAUDE.md`: `## Status` section may want a 1-line update reflecting
-  current stage (alpha → beta)
-- `docs/architecture/14-roadmap.md`: no change required (the four-stage
-  path framing is stage-agnostic)
+- `README.md` + `.ja.md`, `CLAUDE.md`, and
+  `docs/architecture/14-roadmap.md`: should already describe the public
+  beta stage before the repo visibility flip.
 
 ### What does NOT change at the flip
 

@@ -13,7 +13,6 @@
 // Both English (space-separated words) and CJK characters (count ÷ 2) are
 // accounted for so multilingual posts produce a reasonable estimate.
 //
-// Spec: docs/tmp/plugin-extension-phase6d.md §3.
 // Architecture: docs/architecture/08-plugin-architecture.md — publicHtmlForPost.
 
 import { definePlugin, type AmplessPlugin, type PublicPostHtmlDescriptor } from 'ampless'

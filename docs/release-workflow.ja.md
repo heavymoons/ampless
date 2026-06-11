@@ -17,7 +17,7 @@
    - [`changesets/action@v1`](https://github.com/changesets/action) を使用
    - `.changeset/` に pending changeset があれば:
      - `pnpm version-packages` (`changeset version` 相当) を実行
-     - `changeset-release/main` ブランチで「Version Packages (alpha)」PR を open / update
+     - `changeset-release/main` ブランチで「Version Packages (<pre-tag>)」PR を open / update
    - pending changeset が無ければ:
      - `pnpm release` (`changeset publish` 相当) を実行、`main` 上にあるが npm に未公開のものを publish
 
@@ -28,9 +28,9 @@
 
 feature PR 著者は **1 だけ** 担当する。**2 や 3 をローカルで触らない**。
 
-## Pre-release (alpha) モード
+## Pre-release モード
 
-このリポジトリは現在 [changesets pre-release モード](https://github.com/changesets/changesets/blob/main/docs/prereleases.md) で `alpha` タグ運用中。モードのマーカーは `.changeset/pre.json` の `"mode": "pre"`。
+このリポジトリは [changesets pre-release モード](https://github.com/changesets/changesets/blob/main/docs/prereleases.md) を使う。現在の pre-release tag は `.changeset/pre.json#tag` が source of truth: public beta flip 前は `alpha`、flip 後は `beta`。モードのマーカーは `.changeset/pre.json` の `"mode": "pre"`。
 
 pre モードで知っておくべき挙動は 2 点:
 
@@ -110,7 +110,7 @@ pnpm changeset status
 
 ## 落とし穴: 新規 plugin パッケージ追加時の配線漏れ
 
-**症状**: 新規 `@ampless/plugin-<x>` パッケージは build / publish できているのに、`create-ampless` で scaffold したサイトに入らない、または `npx create-ampless@latest upgrade` でバージョンが追従しない、あるいは Release workflow が前述の `CHANGELOG.md` ENOENT で crash する。
+**症状**: 新規 `@ampless/plugin-<x>` パッケージは build / publish できているのに、`create-ampless` で scaffold したサイトに入らない、または `npx create-ampless@beta upgrade` でバージョンが追従しない、あるいは Release workflow が前述の `CHANGELOG.md` ENOENT で crash する。
 
 **原因**: plugin 追加は 6 箇所触る必要がある。どれか 1 つでも欠けると「ほぼ ship した」状態 — npm tarball は存在するのにパイプラインの残りが「無いもの」として扱う。このリストは過去の実 fix から来ている:
 
@@ -159,11 +159,14 @@ alpha → beta 移行とは、ampless の npm dist-tag を `alpha` から `beta`
 
 - [ ] public-flip 向けドキュメントが merge 済み (README scrub、Community files、
       Positioning pivot — git log の PR #240、#242、#243、#244 周辺を参照)
-- [ ] **意図的な beta changeset を手動で queue する必要はない** —
-      flip workflow が kickoff changeset (`.changeset/beta-kickoff-<tag>.md`、
-      `ampless: patch`、"First beta cut") を `pnpm version-packages` の直前に自動生成する。
-      手動で事前 queue **しない**こと: alpha Version Packages パイプラインと race して
-      silent に消費される可能性がある。
+- [ ] public-flip 用の package 変更は通常の changeset を持ってよい
+      (例: `beta` として publish する必要がある docs / CLI 挙動)。その prep PR が
+      `main` に入った後、通常の Release workflow が "Version Packages (alpha)" PR を
+      開くことがある。flip 前にそれを **merge せず close** すること。queued changesets は
+      `main` に残り、flip workflow が `beta` tag の下で消費する。
+      ただし、別途 "first beta" changeset を事前 queue **しない**こと: flip workflow が
+      kickoff changeset (`.changeset/beta-kickoff-<tag>.md`、`ampless: patch`、
+      "First beta cut") を `pnpm version-packages` の直前に自動生成する。
       `sync-dist-tag.mjs` にはバージョン-prerelease 整合ガードが組み込まれており、
       flip 後は `package.json` バージョンの prerelease 識別子が `pre.json.tag` と一致する
       パッケージ (= `1.0.0-beta.<N>` に bump 済み) にのみ `beta` dist-tag を再設定する。
@@ -171,7 +174,10 @@ alpha → beta 移行とは、ampless の npm dist-tag を `alpha` から `beta`
       したがって "partial beta cut" は安全 — bump されたパッケージだけが `beta` に移行し、
       それ以外は次の cut で bump されるまで既存の `alpha` タグのまま残る。
 - [ ] 最初の beta cut に含めたくない queued `.changeset/*.md` がない (`pnpm changeset status` で確認)
-- [ ] 未 merge の "Version Packages (alpha)" PR がない — 先に merge か close する
+- [ ] 未 merge の "Version Packages (alpha)" PR がない — public-flip 由来のものは
+      merge せず close し、無関係な alpha VP PR は意図を確認して先に処理する
+- [ ] GitHub security baseline が有効: Dependabot alerts と Dependabot
+      security updates が on、Actions の default token permissions は read-only
 - [ ] dogfood サイト (例: ishinao.net) が最新の `@alpha` で正常稼働中。
       既知の正常な `@alpha` tarball へのロールバック手順を頭の中で確認済み
 - [ ] 切り替え + publish workflow の監視に ~30 分の集中時間がある
@@ -306,16 +312,17 @@ confirm: flip-to-beta
 
 - `.changeset/pre.json#tag`: `"alpha"` → `"beta"`。`flip-prerelease.yml` workflow の
   `pre exit && pre enter beta` によってアトミックに処理される。別途 commit や PR にしない。
-- リポジトリ可視性: GitHub Settings → Public に変更 (Settings → Security →
-  Private vulnerability reporting → Enable の後に実施)。workflow の範囲外の手動操作。
+- リポジトリ可視性: live beta publish 成功後に GitHub Settings → Public に変更。
+  workflow の範囲外の手動操作。repo が public になった直後に Private Vulnerability
+  Reporting を有効化する (Settings → Security → Private vulnerability reporting、
+  または `gh api -X PUT repos/heavymoons/ampless/private-vulnerability-reporting`)。
+  あわせて、GitHub が repo に対して secret scanning / push protection を表示する場合は
+  有効になっていることを確認する。
 - `.github/workflows/release.yml`: **repo が public になった後に**
   `NPM_CONFIG_PROVENANCE` を un-comment して有効化する (provenance には public repo が必要;
   flip workflow の範囲外 — follow-up PR で対応する)。
-- `README.md` + `.ja.md`: `@alpha` を使うインストールコマンドはそのままにするか `@beta` に
-  変更するか (エンジニアの判断 — `@alpha` の最後に publish された tarball は `pre exit` 後も
-  `sync-dist-tag.mjs` によってピン留めされたまま残る)
-- `CLAUDE.md`: `## Status` セクションで現在のステージを反映する 1 行更新が必要かもしれない (alpha → beta)
-- `docs/architecture/14-roadmap.md`: 変更不要 (4 段階パスのフレームはステージ非依存)
+- `README.md` + `.ja.md`、`CLAUDE.md`、`docs/architecture/14-roadmap.md`:
+  repo 可視性を変更する前に public beta stage の説明になっていること。
 
 ### flip 時に変わらないもの
 

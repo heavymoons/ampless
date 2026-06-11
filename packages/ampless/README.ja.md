@@ -5,7 +5,7 @@
 
 AWS Amplify 向け CMS コアライブラリ。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。全文ドキュメントは [ルート README](https://github.com/heavymoons/ampless#readme) を参照してください。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。全文ドキュメントは [ルート README](https://github.com/heavymoons/ampless#readme) を参照してください。
 
 ## 概要
 
@@ -22,7 +22,7 @@ AWS Amplify 向け CMS コアライブラリ。
 ## インストール
 
 ```bash
-npm install ampless@alpha
+npm install ampless@beta
 ```
 
 ## 使い方

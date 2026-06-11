@@ -7,7 +7,7 @@
 `create-ampless` is the entry point. The interactive wizard asks four questions and writes a self-contained project tree.
 
 ```bash
-$ npx create-ampless@latest my-blog
+$ npx create-ampless@beta my-blog
 
 create-ampless
 │
@@ -41,7 +41,7 @@ There is no auth-method prompt — every project ships with the standard Cognito
 All wizard prompts have flag equivalents for CI / automation:
 
 ```bash
-npx create-ampless@latest my-blog \
+npx create-ampless@beta my-blog \
   --site-name "My Blog" \
   --themes blog,docs \
   --plugins seo,rss \
@@ -67,7 +67,7 @@ There are two paths.
 `create-ampless --deploy` scaffolds the project, then creates a GitHub repo, an Amplify Hosting app, connects them, and kicks off the first deployment in one go.
 
 ```bash
-npx create-ampless@latest my-blog --deploy \
+npx create-ampless@beta my-blog --deploy \
   --github-owner my-org \
   --aws-region us-east-1 \
   --create-iam-role
@@ -81,7 +81,7 @@ If you've scaffolded locally and tested with `npx ampx sandbox`, `--mount` skips
 
 ```bash
 cd my-blog
-npx create-ampless@latest --mount \
+npx create-ampless@beta --mount \
   --github-owner my-org \
   --aws-region us-east-1
 ```
@@ -94,7 +94,7 @@ After ampless package versions move, refresh the template-owned files (admin rou
 
 ```bash
 cd my-blog
-npx create-ampless@latest upgrade        # or: --upgrade
+npx create-ampless@beta upgrade        # or: --upgrade
 ```
 
 The upgrade command syncs `AMPLESS_MANAGED_APP_PATHS` (admin routes, internal route shells) and deletes any retired files listed in `AMPLESS_RETIRED_PATHS`. User-owned files outside those paths (themes, `cms.config.ts`, `app/page.tsx`, etc.) are never touched. `--dry-run` shows what would change without writing.
@@ -104,14 +104,14 @@ The upgrade command syncs `AMPLESS_MANAGED_APP_PATHS` (admin routes, internal ro
 The shipped themes (`blog`, `corporate`, …) are *managed* — `--upgrade` rewrites them when the template changes. To customise a theme without losing your edits on upgrade, copy it to a `my-`-prefixed directory:
 
 ```bash
-npx create-ampless@latest copy-theme blog my-blog
+npx create-ampless@beta copy-theme blog my-blog
 ```
 
 Files in `themes/my-blog/` are user-owned; upgrades leave them alone. The full workflow is documented in the project's `THEMES.md`.
 
 ### Distribution Methods
 
-1. **`npx create-ampless@latest`** (primary): interactive scaffold + optional one-shot deploy.
+1. **`npx create-ampless@beta`** (primary): interactive scaffold + optional one-shot deploy.
 2. **`--mount`**: take a project you've already scaffolded and connect it to GitHub + Amplify Hosting.
 3. **CDK construct path**: add `@ampless/backend` to an existing Amplify Gen 2 project by importing `defineAmplessBackend`, `amplessSchemaModels`, `amplessAuthConfig`, etc. directly into the project's `amplify/backend.ts`. This is the unsupported escape hatch for sites that don't fit the template tree.
 
@@ -119,7 +119,7 @@ Files in `themes/my-blog/` are user-owned; upgrades leave them alone. The full w
 
 | Step | EmDash (Cloudflare) | ampless (Amplify) |
 |------|--------------------|-------------------|
-| Initialize | `npm create emdash@latest` | `npx create-ampless@latest` |
+| Initialize | `npm create emdash@latest` | `npx create-ampless@beta` |
 | Local backend | `npx wrangler dev` | `npx ampx sandbox` |
 | Local frontend | (same process) | `pnpm dev` |
 | Production deploy | `npx wrangler deploy` | `--deploy` / `--mount` (auto), or manually connect GitHub in the Amplify console |

@@ -77,7 +77,7 @@ same surfaces. The differences are packaging, distribution, and the
 opt-in install-time validation that the static `package.json#amplessPlugin`
 manifest enables (see §3 below).
 
-§14 below has a one-command scaffold (`npx create-ampless plugin <name>`)
+§14 below has a one-command scaffold (`npx create-ampless@beta plugin <name>`)
 that produces ready-to-use boilerplate for either of the latter two.
 
 An ampless plugin is a TypeScript module that returns an
@@ -123,10 +123,10 @@ The fastest way to create a plugin is to scaffold one:
 
 ```bash
 # Site-local (writes plugins/<name>/index.ts in the current ampless site)
-npx create-ampless@latest plugin my-thing
+npx create-ampless@beta plugin my-thing
 
 # Standalone npm package (writes ./<name>/ ready for `npm publish`)
-npx create-ampless@latest plugin @myscope/ampless-plugin-my-thing --standalone
+npx create-ampless@beta plugin @myscope/ampless-plugin-my-thing --standalone
 ```
 
 §14 covers the full flow. The rest of this section explains what the
@@ -1065,7 +1065,7 @@ and the plugin is skipped):
 
 ### For plugin users (site engineers)
 
-1. `npm i @ampless/plugin-youtube@alpha` — add the plugin as a dependency.
+1. `npm i @ampless/plugin-youtube@beta` — add the plugin as a dependency.
 2. Register it in `cms.config.ts` for the server-side renderer.
 3. `npm run update-ampless` — regenerates `_editor-bootstrap.tsx`
    automatically from the installed plugin manifests.
@@ -1700,7 +1700,7 @@ etc. — but completely wrong for a webhook signing secret.
   | Threat | Status |
   |---|---|
   | AWS Console operator browsing PluginSecret table | ✓ defeated — ciphertext only, no key in DDB |
-  | Source repo / deploy artifact access | ⚠ NOT defeated — key is in `amplify/secrets/encryption-key.ts`. Private repo + restricted artifact access expected. |
+  | Source repo / deploy artifact access | ⚠ NOT defeated — key is in `amplify/secrets/encryption-key.ts`. For public repos, keep the key out of source control (for example with `npx create-ampless@beta setup-encryption-key --gitignore`) and restrict deploy artifact access. |
   | Malicious trusted plugin in same Lambda | ✗ NOT defeated — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` reachable from plugin code. True isolation = per-plugin Lambda (privileged tier, roadmap). |
   | S3 mirror leak | ✓ defeated — PluginSecret table never mirrored. |
 
@@ -1733,7 +1733,7 @@ To use `settings.secret`, you also need:
 2. `'secretSettings'` in `capabilities` (omitting it when `capabilities` is defined produces a console warning).
 3. **One-time key setup** — run from your project root:
    ```sh
-   npx create-ampless setup-encryption-key
+   npx create-ampless@beta setup-encryption-key
    ```
    This generates a cryptographically random 32-byte key and writes
    it to `amplify/secrets/encryption-key.ts`. No AWS credentials
@@ -2237,7 +2237,7 @@ a normal npm package:
   `apiVersion: 1` and do NOT require a bump. See the [apiVersion
   bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy)
   in the architecture doc for the full criteria.
-- **Dist-tag**: `@alpha` while ampless itself is in alpha. The
+- **Dist-tag**: `@beta` while ampless itself is in beta. The
   `@latest` tag stays reserved until ampless v1.0.
 
 Worked examples to crib from:
@@ -2304,7 +2304,7 @@ CLI ships a `plugin <name>` subcommand:
 ```bash
 # Site-local: scaffolds plugins/<name>/index.ts inside the current
 # ampless site. Run from the site repo root.
-npx create-ampless@latest plugin my-thing \
+npx create-ampless@beta plugin my-thing \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings
 
@@ -2312,7 +2312,7 @@ npx create-ampless@latest plugin my-thing \
 # tsconfig.json, tsup.config.ts, README + .ja, CHANGELOG, .gitignore,
 # and src/index.ts + src/index.test.ts. Run from wherever you want
 # the new package directory to land.
-npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
+npx create-ampless@beta plugin @myscope/ampless-plugin-thing \
   --standalone \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings \
@@ -2326,7 +2326,7 @@ keyword, and a minimal vitest sample so `pnpm install && pnpm test &&
 pnpm build` runs clean on the freshly generated directory.
 
 Both modes also accept a positional flag-less invocation (`npx
-create-ampless@latest plugin`) that walks you through the same
+create-ampless@beta plugin`) that walks you through the same
 questions interactively via the @clack prompt UI.
 
 ### Publishing a standalone plugin
@@ -2336,17 +2336,17 @@ cd ampless-plugin-thing
 pnpm install
 pnpm test
 pnpm build
-pnpm publish --access public --tag alpha
+pnpm publish --access public --tag beta
 ```
 
 `--access public` is mandatory for scoped names (`@scope/...`).
-`--tag alpha` matches the current ampless pre-release cadence — drop
+`--tag beta` matches the current ampless pre-release cadence — drop
 it once the package reaches a stable major.
 
 There's a publish-to-install lag of "seconds to minutes" before
-`npm install <pkg>@alpha` picks up a fresh publish (CDN + registry
+`npm install <pkg>@beta` picks up a fresh publish (CDN + registry
 replica propagation). If `npm install` 404s right after `npm publish`
-returns, wait 1-2 minutes and retry — `npm view <pkg>@alpha version`
+returns, wait 1-2 minutes and retry — `npm view <pkg>@beta version`
 visible in the registry is necessary but sometimes not sufficient.
 
 ### Naming the package
@@ -2397,8 +2397,7 @@ PROTECTED), so the scaffolded code is safe across ampless upgrades.
 - Bugs in the plugin runtime / admin form → same repo, label
   `area:plugins`.
 
-The ampless repo is currently private during the alpha stage; the
-GitHub URLs above start resolving once beta ships (npm `beta`
-dist-tag, repo flips public). Today the same docs also live in the
-package tarball directly under `node_modules/ampless/docs/`, so
-you can read them locally without browsing GitHub.
+The GitHub URLs above resolve in the public beta repo. The same docs
+also live in the package tarball directly under
+`node_modules/ampless/docs/`, so plugin authors can read them locally
+without checking out this repo.

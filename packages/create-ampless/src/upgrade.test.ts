@@ -62,7 +62,7 @@ function makeTemplatePkg(): string {
       type: 'module',
       scripts: {
         dev: 'next dev',
-        'update-ampless': 'npx create-ampless@latest upgrade',
+        'update-ampless': 'npx create-ampless@beta upgrade',
       },
       dependencies: {
         'ampless': '^0.2.0-alpha.1',
@@ -469,7 +469,7 @@ describe('runUpgradeIn', () => {
     expect(merged.scripts['my-script']).toBe('echo hello')
 
     // update-ampless script set from template
-    expect(merged.scripts['update-ampless']).toBe('npx create-ampless@latest upgrade')
+    expect(merged.scripts['update-ampless']).toBe('npx create-ampless@beta upgrade')
   })
 
   // 7b. @tiptap/* managed-transitive deps: synced from template to project
@@ -851,18 +851,18 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     expect(result.obsoleteRemoved).not.toContain('lib/my-custom-helper.ts')
   })
 
-  // 8. bumpUserAmplessPlugins: user-installed @ampless/* not in template → bumped to @alpha
-  it('bumps a user-installed @ampless/* plugin not present in the template to latest @alpha', async () => {
+  // 8. bumpUserAmplessPlugins: user-installed @ampless/* not in template → bumped to @beta
+  it('bumps a user-installed @ampless/* plugin not present in the template to latest @beta', async () => {
     // Add a user-installed plugin not in the template's deps
     const pkgWithPlugin = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
     pkgWithPlugin.dependencies['@ampless/plugin-youtube'] = '1.0.0-alpha.4'
     writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkgWithPlugin, null, 2) + '\n')
 
-    // Mock `npm view @ampless/plugin-youtube@alpha version` → '1.0.0-alpha.5'
+    // Mock `npm view @ampless/plugin-youtube@beta version` → '1.0.0-beta.5'
     const { execa: mockedExeca } = await import('execa')
     vi.mocked(mockedExeca).mockImplementation((async (cmd: string, args: string[]) => {
-      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@alpha') {
-        return { stdout: '1.0.0-alpha.5', stderr: '' } as any
+      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@beta') {
+        return { stdout: '1.0.0-beta.5', stderr: '' } as any
       }
       // All other calls (install, other npm view) succeed silently
       return { stdout: '', stderr: '' } as any
@@ -871,7 +871,7 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
 
     const afterPkg = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
-    expect(afterPkg.dependencies['@ampless/plugin-youtube']).toBe('^1.0.0-alpha.5')
+    expect(afterPkg.dependencies['@ampless/plugin-youtube']).toBe('^1.0.0-beta.5')
     expect(result.userPluginsBumped).toBe(1)
   })
 
@@ -913,7 +913,7 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     // Mock npm view to throw (simulates offline / package not found)
     const { execa: mockedExeca } = await import('execa')
     vi.mocked(mockedExeca).mockImplementation((async (cmd: string, args: string[]) => {
-      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@alpha') {
+      if (cmd === 'npm' && args[0] === 'view' && args[1] === '@ampless/plugin-youtube@beta') {
         throw new Error('network timeout')
       }
       return { stdout: '', stderr: '' } as any

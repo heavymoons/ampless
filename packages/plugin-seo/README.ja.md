@@ -5,12 +5,12 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け SEO プラグイン。投稿ごと・サイトごとのメタデータ（Open Graph、Twitter カード、canonical）を生成し、投稿セットが変更されるたびに `sitemap.xml` を S3 に再生成します。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 ## インストール
 
 ```bash
-npm install @ampless/plugin-seo@alpha
+npm install @ampless/plugin-seo@beta
 ```
 
 ## 設定

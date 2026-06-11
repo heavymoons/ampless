@@ -15,9 +15,9 @@ ampless は AWS Amplify Gen 2 上で完結します — 外部サービスや別
 
 1. **プロジェクトを生成する**:
    ```bash
-   npx create-ampless@alpha my-site
+   npx create-ampless@beta my-site
    ```
-   Amplify Gen 2 バックエンドが組み込まれた `my-site` という名前の Next.js 16（App Router）プロジェクトを作成します。CLI フラグの全一覧は `npx create-ampless@alpha --help` で確認できます。
+   Amplify Gen 2 バックエンドが組み込まれた `my-site` という名前の Next.js 16（App Router）プロジェクトを作成します。CLI フラグの全一覧は `npx create-ampless@beta --help` で確認できます。
 
 2. **依存関係をインストールする**:
    ```bash
@@ -31,7 +31,7 @@ ampless は AWS Amplify Gen 2 上で完結します — 外部サービスや別
    ```
    `--once` フラグはデプロイが完了した後にサンドボックスを終了させ、Next.js dev サーバーを起動します。バックエンド開発が続く場合は、別のターミナルで `npx ampx sandbox`（ウォッチモード）を、もう一方のターミナルで `npm run dev` を実行してください。
 
-> ampless が alpha の間は `@alpha` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。4 段階のリリースパスについては[リリース戦略](./architecture/14-roadmap.ja.md)を参照してください。
+> ampless が beta の間は `@beta` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。4 段階のリリースパスについては[リリース戦略](./architecture/14-roadmap.ja.md)を参照してください。
 
 ## 最初の管理者ユーザー
 

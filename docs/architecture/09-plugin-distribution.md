@@ -50,9 +50,9 @@ Shipped from this monorepo, published under `@ampless/` on npm:
 - `@ampless/plugin-cookie-consent` — GDPR/ePrivacy cookie consent banner. Installs the `window.amplessConsent` Consent Convention API (`has` / `isSet` / `on` / `set` + the `ampless:consent-ready` / `ampless:consent-changed` events) so other plugins can gate themselves on user consent. Configures categories via the `PluginRepeatableField` setting type. The GA4 / GTM / Plausible plugins each support a `consentCategory?: string` option that switches them into a gated mode (single inlineScript that defers loading until consent is granted). untrusted. (Phase 3b)
 - `@ampless/plugin-reading-time` — reading-time badge via `publicHtmlForPost` (Phase 6d). Estimates read time from the post body (English word count + CJK character count ÷ 2) and injects a `<p class="ampless-reading-time">` element before or after the post content. Label template, WPM, and position are admin-editable. untrusted. (Phase 6d)
 
-The first-party set is being expanded along the plugin extension roadmap ([docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)). Future additions also exercise the descriptor-based head/body injection API ([docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)).
+The first-party set is being expanded along the plugin extension roadmap in [14-roadmap.md](./14-roadmap.md). Future additions also exercise the descriptor-based head/body injection API documented in [08-plugin-architecture.md](./08-plugin-architecture.md).
 
-The existing `seo` / `rss` plugins migrate to the new capability + descriptor surface in Phase 3c ([docs/tmp/plugin-trust-levels-rfp.md](../tmp/plugin-trust-levels-rfp.md), pending) while keeping their existing behaviour as backward-compatible defaults.
+The existing `seo` / `rss` plugins have migrated to the new capability + descriptor surface while keeping their existing behaviour as backward-compatible defaults.
 
 ### Runtime / marketplace installation
 

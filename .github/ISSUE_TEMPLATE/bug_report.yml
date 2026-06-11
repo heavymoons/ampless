@@ -12,14 +12,14 @@ body:
     attributes:
       label: ampless version
       description: Output of `npm ls ampless` (or the `ampless` version in your `package.json`)
-      placeholder: "1.0.0-alpha.115"
+      placeholder: "1.0.0-beta.0"
     validations:
       required: true
   - type: input
     id: runtime-version
     attributes:
       label: "@ampless/runtime version"
-      placeholder: "1.0.0-alpha.69"
+      placeholder: "1.0.0-beta.0"
     validations:
       required: false
   - type: input
@@ -47,7 +47,7 @@ body:
       label: Reproduction steps
       description: Minimal steps a maintainer can follow to reproduce. A public repo link or a code snippet is ideal.
       placeholder: |
-        1. `npx create-ampless@alpha my-site`
+        1. `npx create-ampless@beta my-site`
         2. `cd my-site && ...`
         3. ...
     validations:

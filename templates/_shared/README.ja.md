@@ -133,7 +133,7 @@ export default defineConfig({
 このプロジェクトディレクトリ内で:
 
 ```bash
-npx create-ampless@latest --mount \
+npx create-ampless@beta --mount \
   --github-owner <your-user-or-org> \
   --aws-region <region> \
   --create-iam-role           # 初回のみ。次回以降は `--iam-service-role <arn>` で使い回し
@@ -153,7 +153,7 @@ CLI が以下を一気に実行します:
 - `--skip-confirm` — 非対話モード（CI / 再実行向け）
 - `--aws-profile <name>` — 複数 AWS profile がある場合に明示
 
-全フラグは `npx create-ampless@latest --help` を参照。
+全フラグは `npx create-ampless@beta --help` を参照。
 
 **このフロー固有の事前準備（[トップの必要なもの](#必要なもの) に加えて）:**
 
@@ -216,13 +216,13 @@ MCP のセットアップとトークン管理の詳細については [docs/arc
 
 ## ampless の更新
 
-ampless は `alpha` dist-tag でリリースしています。新機能を取り込むには:
+public beta 中の ampless は `beta` dist-tag でリリースしています。新機能を取り込むには:
 
 ```bash
 npm run update-ampless
 ```
 
-これは `npx create-ampless@latest upgrade` を実行し、以下を行います:
+これは `npx create-ampless@beta upgrade` を実行し、以下を行います:
 
 - `package.json` の `@ampless/*` / `ampless` 依存をバージョンアップ
 - 共有テンプレートファイル（admin アプリの土台、amplify バックエンド、lib/、middleware、テーマ）を再同期 — `cms.config.ts`、`theme.*` 管理画面設定、投稿、テーマ manifest 値などのユーザーカスタマイズは保持されます

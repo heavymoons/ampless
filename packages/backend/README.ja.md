@@ -5,14 +5,14 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け Amplify Gen 2 バックエンドファクトリー。IAM / SQS / DynamoDB ストリームの配線、認証 / データ / ストレージの定義、およびすべてのイベント処理 Lambda を `defineAmplessBackend(...)` ひとつのファクトリーにまとめます。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 テンプレートから切り出すことで、スキャフォールダーを再実行せずに `npm update @ampless/backend` でアップデートできます。バックエンドのバグ修正やインフラ改善はパッケージ経由で届きます。ユーザー側の `amplify/` ツリーは、ファクトリーを組み合わせる 1〜5 行のシェルだけで済みます。
 
 ## インストール
 
 ```bash
-npm install @ampless/backend@alpha ampless@alpha
+npm install @ampless/backend@beta ampless@beta
 ```
 
 ピア依存: `@aws-amplify/backend`（^1）、`aws-cdk-lib`（^2）。CLI スキャフォールダーがテンプレートの `package.json` に互換バージョンをピン留めします。

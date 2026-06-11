@@ -367,12 +367,12 @@ export function parseDeployArgs(argv: string[]): ParsedArgs {
 export const HELP_TEXT = `create-ampless — scaffold an ampless project
 
 Usage:
-  npx create-ampless@latest <project-name> [options]
-  npx create-ampless@latest --mount [options]               # in an existing project dir
-  npx create-ampless@latest upgrade [options]               # in an existing project dir
-  npx create-ampless@latest copy-theme <src> <dst>          # in an existing project dir
-  npx create-ampless@latest plugin <name> [options]         # scaffold a plugin (Phase 5)
-  npx create-ampless@latest setup-encryption-key [--gitignore]  # generate encryption key file
+  npx create-ampless@beta <project-name> [options]
+  npx create-ampless@beta --mount [options]               # in an existing project dir
+  npx create-ampless@beta upgrade [options]               # in an existing project dir
+  npx create-ampless@beta copy-theme <src> <dst>          # in an existing project dir
+  npx create-ampless@beta plugin <name> [options]         # scaffold a plugin (Phase 5)
+  npx create-ampless@beta setup-encryption-key [--gitignore]  # generate encryption key file
 
 Options:
   --site-name <name>          Site display name (default: "My Blog")
@@ -409,7 +409,7 @@ Options:
                               flag values (for CI / automation)
   -h, --help                  Show this message
 
-upgrade  Sync ampless package files / deps to latest alpha.
+upgrade  Sync ampless package files / deps to latest beta.
          Run inside an existing ampless project.
 
   --dry-run                   Show what would change without writing any files
@@ -422,7 +422,7 @@ copy-theme <source> <target>
          (the convention that flags it as user-owned, so upgrade leaves
          it alone). Run inside an existing ampless project.
 
-         Example: npx create-ampless@latest copy-theme blog my-blog
+         Example: npx create-ampless@beta copy-theme blog my-blog
 
 plugin <name>
          Scaffold an ampless plugin. Two modes:
@@ -447,8 +447,8 @@ plugin <name>
   --description "<text>"      Optional one-line description
 
          Examples:
-           npx create-ampless@latest plugin site-verification
-           npx create-ampless@latest plugin @ishinao/ampless-plugin-foo --standalone
+           npx create-ampless@beta plugin site-verification
+           npx create-ampless@beta plugin @ishinao/ampless-plugin-foo --standalone
 
 setup-encryption-key
          Generate the AES-256-GCM encryption key for plugin secret storage
@@ -475,6 +475,6 @@ setup-encryption-key
          Rotation: re-run with confirm overwrite. Existing ciphertext
          becomes unreadable; re-save each secret via /admin/plugins.
 
-         Example: npx create-ampless@latest setup-encryption-key
-         Example: npx create-ampless@latest setup-encryption-key --gitignore
+         Example: npx create-ampless@beta setup-encryption-key
+         Example: npx create-ampless@beta setup-encryption-key --gitignore
 `

@@ -5,10 +5,10 @@
 
 [ampless](https://github.com/heavymoons/ampless) プロジェクト向け CLI スキャフォールディングツール。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。`@alpha` タグを使用してください（`@latest` タグは v1.0 まで存在しません）。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。`@beta` タグを使用してください（`@latest` タグは v1.0 まで存在しません）。
 
 ```bash
-npx create-ampless@alpha
+npx create-ampless@beta
 ```
 
 ウィザードが以下を順に案内します：
@@ -36,7 +36,7 @@ npm run dev             # http://localhost:3000
 ウィザードは `npx` から Amplify Hosting の URL まで一気に進めることもできます：
 
 ```bash
-npx create-ampless@alpha my-site --deploy
+npx create-ampless@beta my-site --deploy
 ```
 
 このフラグを追加すると、スキャフォールディング後に以下が実行されます：
@@ -51,7 +51,7 @@ npx create-ampless@alpha my-site --deploy
 コマンドラインに指定が不足している場合はインタラクティブに確認します。CI 向けのフル指定の例：
 
 ```bash
-npx create-ampless@alpha my-site --deploy \
+npx create-ampless@beta my-site --deploy \
   --github-owner my-org \
   --github-private \
   --aws-region us-east-1 \

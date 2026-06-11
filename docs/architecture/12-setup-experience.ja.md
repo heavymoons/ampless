@@ -7,7 +7,7 @@
 `create-ampless` がエントリポイント。インタラクティブウィザードが 4 つの質問を聞き、自己完結したプロジェクトツリーを書き出す。
 
 ```bash
-$ npx create-ampless@latest my-blog
+$ npx create-ampless@beta my-blog
 
 create-ampless
 │
@@ -41,7 +41,7 @@ Next steps:
 CI / 自動化向けにすべての質問にフラグ等価が用意されている：
 
 ```bash
-npx create-ampless@latest my-blog \
+npx create-ampless@beta my-blog \
   --site-name "My Blog" \
   --themes blog,docs \
   --plugins seo,rss \
@@ -67,7 +67,7 @@ Amplify sandbox は Cognito + AppSync + DynamoDB + S3 を個人のユーザス�
 `create-ampless --deploy` は scaffold したあと GitHub リポジトリと Amplify Hosting アプリを作成し、両者を接続して最初のデプロイをキックする — を 1 コマンドで完了させる。
 
 ```bash
-npx create-ampless@latest my-blog --deploy \
+npx create-ampless@beta my-blog --deploy \
   --github-owner my-org \
   --aws-region us-east-1 \
   --create-iam-role
@@ -81,7 +81,7 @@ npx create-ampless@latest my-blog --deploy \
 
 ```bash
 cd my-blog
-npx create-ampless@latest --mount \
+npx create-ampless@beta --mount \
   --github-owner my-org \
   --aws-region us-east-1
 ```
@@ -94,7 +94,7 @@ ampless パッケージのバージョンを上げた後、テンプレート所
 
 ```bash
 cd my-blog
-npx create-ampless@latest upgrade        # または --upgrade
+npx create-ampless@beta upgrade        # または --upgrade
 ```
 
 upgrade コマンドは `AMPLESS_MANAGED_APP_PATHS`（管理ルートと内部ルートシェル）を同期し、`AMPLESS_RETIRED_PATHS` にある retired ファイルがあれば削除する。管理パスの外にあるユーザ所有ファイル（テーマ、`cms.config.ts`、`app/page.tsx` 等）は触らない。`--dry-run` で書き込みなしの差分プレビューが見られる。
@@ -104,14 +104,14 @@ upgrade コマンドは `AMPLESS_MANAGED_APP_PATHS`（管理ルートと内部�
 同梱テーマ（`blog`、`corporate`、…）は *managed* — `--upgrade` でテンプレートが更新されると上書きされる。アップグレードで自分の編集を失わずカスタマイズするには、`my-` プレフィックス付きディレクトリにコピーする：
 
 ```bash
-npx create-ampless@latest copy-theme blog my-blog
+npx create-ampless@beta copy-theme blog my-blog
 ```
 
 `themes/my-blog/` 配下はユーザ所有扱いで、upgrade は触らない。詳しい流れはプロジェクトの `THEMES.md` を参照。
 
 ### 配布方式
 
-1. **`npx create-ampless@latest`**（primary）：インタラクティブ scaffold + 任意のワンショットデプロイ。
+1. **`npx create-ampless@beta`**（primary）：インタラクティブ scaffold + 任意のワンショットデプロイ。
 2. **`--mount`**：すでに scaffold したプロジェクトを後から GitHub + Amplify Hosting に接続。
 3. **CDK construct 経路**：既存の Amplify Gen 2 プロジェクトに `@ampless/backend` を追加し、`defineAmplessBackend` / `amplessSchemaModels` / `amplessAuthConfig` 等を直接 `amplify/backend.ts` に import する。テンプレートツリーに収まらないサイト向けの逃げ道。
 
@@ -119,7 +119,7 @@ npx create-ampless@latest copy-theme blog my-blog
 
 | 工程 | EmDash (Cloudflare) | ampless (Amplify) |
 |------|--------------------|-------------------|
-| 初期化 | `npm create emdash@latest` | `npx create-ampless@latest` |
+| 初期化 | `npm create emdash@latest` | `npx create-ampless@beta` |
 | ローカル backend | `npx wrangler dev` | `npx ampx sandbox` |
 | ローカル frontend | （同じプロセス） | `pnpm dev` |
 | 本番デプロイ | `npx wrangler deploy` | `--deploy` / `--mount`（自動）、または Amplify コンソールで手動接続 |

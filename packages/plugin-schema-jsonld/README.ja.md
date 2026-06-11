@@ -5,7 +5,7 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け JSON-LD 構造化データ (Article スキーマ) プラグイン。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 `publicBodyForPost` フック (Phase 4) を使って、投稿ページの body 内に `<script type="application/ld+json">` 要素を出力します。スクリプトには、投稿フィールドと 4 つの管理設定から組み立てた [schema.org](https://schema.org/) Article 系オブジェクトが格納されます。
 
@@ -14,7 +14,7 @@ AWS のデータ権限は不要です。プラグインは公開 Next.js プロ�
 ## インストール
 
 ```bash
-npm install @ampless/plugin-schema-jsonld@alpha
+npm install @ampless/plugin-schema-jsonld@beta
 ```
 
 ## 設定

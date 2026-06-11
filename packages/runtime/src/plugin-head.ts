@@ -21,7 +21,7 @@
 // (`process.env.NODE_ENV !== 'production'`) we additionally log a
 // `console.warn` so plugin authors can spot the problem.
 //
-// Spec: docs/tmp/plugin-extension-spec.md §6.
+// Architecture: docs/architecture/08-plugin-architecture.md — public head/body descriptors.
 
 import {
   Fragment,

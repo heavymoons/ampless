@@ -5,7 +5,7 @@
 
 JSON-LD structured data (Article schema) plugin for [ampless](https://github.com/heavymoons/ampless).
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Emits a `<script type="application/ld+json">` element inside the post body via the `publicBodyForPost` hook (Phase 4). The script carries an Article-family [schema.org](https://schema.org/) object built from the post's fields and four admin-managed settings.
 
@@ -14,7 +14,7 @@ No AWS data permissions are required — the plugin is a pure function that runs
 ## Install
 
 ```bash
-npm install @ampless/plugin-schema-jsonld@alpha
+npm install @ampless/plugin-schema-jsonld@beta
 ```
 
 ## Configure

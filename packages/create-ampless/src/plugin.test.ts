@@ -27,7 +27,7 @@ function makeAmplessProject(): string {
         version: '0.1.0',
         private: true,
         type: 'module',
-        dependencies: { ampless: '^1.0.0-alpha.22' },
+        dependencies: { ampless: '^1.0.0-beta.0' },
       },
       null,
       2,
@@ -344,8 +344,8 @@ describe('runCreatePluginIn — standalone mode', () => {
     const pkg = JSON.parse(
       readFileSync(join(cwd, 'ampless-plugin-versioned', 'package.json'), 'utf-8'),
     )
-    // version must be a semver-ish string starting with ^ and contain alpha
-    expect(pkg.dependencies.ampless).toMatch(/^\^[\d.]+.*alpha/)
+    // version must be a semver-ish string starting with ^ and target beta
+    expect(pkg.dependencies.ampless).toMatch(/^\^[\d.]+.*beta/)
   })
 })
 

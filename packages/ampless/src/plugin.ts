@@ -23,11 +23,10 @@ export type TrustLevel = 'untrusted' | 'trusted' | 'privileged'
  *     `PluginSecret` DynamoDB model. Requires `trust_level: 'trusted'`.
  *     Trusted hooks access secrets via `ctx.secret<T>(key)`.
  *
- * Reserved capabilities are accepted by the type so that plugins can
- * declare future intent, but the runtime does nothing with them yet —
- * each has its own RFP under `docs/tmp/`. Declaring a reserved
- * capability today is harmless, but the runtime won't expose any new
- * surface for it until the matching phase ships.
+   * Reserved capabilities are accepted by the type so that plugins can
+   * declare future intent, but the runtime does nothing with them yet.
+   * Declaring a reserved capability today is harmless, but the runtime
+   * won't expose any new surface for it until the matching phase ships.
  */
 export type PluginCapability =
   // Phase 1 active
@@ -1029,7 +1028,7 @@ export interface AmplessPlugin {
    *
    * For external `npm publish` plugins, `packageName` MUST match the
    * package's actual `name` and the package's `exports` MUST expose
-   * `./package.json`. The scaffold tool (`npx create-ampless plugin`)
+   * `./package.json`. The scaffold tool (`npx create-ampless@beta plugin`)
    * handles both automatically.
    */
   packageName?: string

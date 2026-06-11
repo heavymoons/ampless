@@ -112,7 +112,7 @@ If a stale `.changeset/pre.json` slips through and the symptom shows up (Release
 
 - Scope: `@ampless` (npm org secured)
 - Core package: `ampless`
-- CLI: `create-ampless` (invoked as `npx create-ampless@latest`)
+- CLI: `create-ampless` (invoked as `npx create-ampless@beta`)
 - Plugins: `@ampless/plugin-*`
 
 ## Positioning
@@ -129,4 +129,4 @@ Reference category: **Statamic / Craft / Sanity / Wagtail / Strapi** (engineer-c
 
 ## Status
 
-ampless follows a four-stage release path: **alpha → beta → RC → stable**. Currently in **alpha**: repo is private, packages publish to npm under the `alpha` dist-tag from `main` via changesets. **Beta** is the public-flip moment (repo public, npm `beta` dist-tag, breaking changes still possible). **RC** is feature-complete with no more breaking changes. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself).
+ampless follows a four-stage release path: **alpha → beta → RC → stable**. Currently in **beta**: repo is public, packages publish to npm under the `beta` dist-tag from `main` via changesets, and breaking changes are still possible. **Alpha** was the closed dogfood phase. **RC** is feature-complete with no more breaking changes. **v1.0 stable** ships simultaneously with the ampless introduction page (built with ampless itself).

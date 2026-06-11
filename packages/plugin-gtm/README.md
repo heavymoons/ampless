@@ -5,7 +5,7 @@
 
 Google Tag Manager plugin for [ampless](https://github.com/heavymoons/ampless).
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Drops Google Tag Manager's standard two-part snippet onto every public page through the descriptor-based plugin head/body injection API:
 
@@ -17,7 +17,7 @@ The container ID is **editable from `/admin/plugins`** after deploy — the cons
 ## Install
 
 ```bash
-npm install @ampless/plugin-gtm@alpha
+npm install @ampless/plugin-gtm@beta
 ```
 
 ## Configure

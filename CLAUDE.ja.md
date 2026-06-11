@@ -112,7 +112,7 @@ pnpm changeset        # バージョニング用 changeset を作成
 
 - スコープ: `@ampless` (npm org 取得済み)
 - コアパッケージ: `ampless`
-- CLI: `create-ampless` (`npx create-ampless@latest` で起動)
+- CLI: `create-ampless` (`npx create-ampless@beta` で起動)
 - プラグイン: `@ampless/plugin-*`
 
 ## ポジショニング
@@ -129,4 +129,4 @@ ampless は**エンジニア向けのカスタマイズベース CMS** です �
 
 ## ステータス
 
-ampless は 4 段階のリリースパスを歩んでいます: **alpha → beta → RC → stable**。現在は **alpha**: リポジトリは非公開で、`main` ブランチから changesets 経由で `alpha` dist-tag として npm に公開中。**Beta** はリポジトリ公開のタイミング（リポジトリ公開、npm `beta` dist-tag、破壊的変更まだあり）。**RC** は feature-complete で破壊的変更なし。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。
+ampless は 4 段階のリリースパスを歩んでいます: **alpha → beta → RC → stable**。現在は **beta**: リポジトリは公開され、`main` ブランチから changesets 経由で `beta` dist-tag として npm に公開中で、破壊的変更はまだあり得ます。**Alpha** はクローズド dogfood 期間でした。**RC** は feature-complete で破壊的変更なし。**v1.0 stable** は ampless の紹介ページ（ampless 自身で構築）と同時ローンチ。

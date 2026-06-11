@@ -5,12 +5,12 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け動的 Open Graph 画像生成プラグイン。SNS クローラーが `https://<your-site>/og/<slug>` にアクセスすると、Next.js ルートが投稿タイトル・抜粋・サイト名・オプション画像（テーマバナーまたは投稿本文の最初の画像）を含む JSX カードをレンダリングし、Next.js `ImageResponse` が PNG を返します。WebP / AVIF ソース画像は [@jsquash](https://github.com/jamsinclair/jSquash) で PNG にデコードされるため、Satori が描画できます。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 ## インストール
 
 ```bash
-npm install @ampless/plugin-og-image@alpha
+npm install @ampless/plugin-og-image@beta
 ```
 
 ## 設定

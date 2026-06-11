@@ -5,10 +5,10 @@
 
 CLI scaffolding tool for [ampless](https://github.com/heavymoons/ampless) projects.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0. Use the `@alpha` tag (the `@latest` tag won't exist until v1.0).
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0. Use the `@beta` tag (the `@latest` tag won't exist until v1.0).
 
 ```bash
-npx create-ampless@alpha
+npx create-ampless@beta
 ```
 
 The wizard walks you through:
@@ -36,7 +36,7 @@ Sign up at `/login` — the first registered user is automatically promoted to t
 The wizard can also take you all the way from `npx` to a live Amplify Hosting URL:
 
 ```bash
-npx create-ampless@alpha my-site --deploy
+npx create-ampless@beta my-site --deploy
 ```
 
 That extra flag, after scaffolding, runs:
@@ -51,7 +51,7 @@ That extra flag, after scaffolding, runs:
 Anything missing on the command line gets asked interactively. For CI-friendly fully-flagged usage:
 
 ```bash
-npx create-ampless@alpha my-site --deploy \
+npx create-ampless@beta my-site --deploy \
   --github-owner my-org \
   --github-private \
   --aws-region us-east-1 \
