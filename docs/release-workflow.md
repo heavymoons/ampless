@@ -256,6 +256,15 @@ When the run completes, download the `flip-preview` artifact. Review:
   packages bumped by the kickoff changeset and any queued alpha
   changesets should move from `1.0.0-alpha.N` to `1.0.0-beta.N+1`;
   `templates/_shared/package.json` pinned versions should be updated.
+- **`CHANGELOG.md` diffs must contain ONLY the new entries** (the kickoff
+  changeset + any genuinely-pending changesets). If the diff re-lists
+  alpha-era changes that already shipped (= the `pre exit` / `pre enter`
+  cycle dropped the consumed-changesets bookkeeping and `version`
+  re-applied the accumulated alpha `.md` files), STOP — do not run the
+  live flip. That failure mode would duplicate every alpha entry in
+  every CHANGELOG and over-bump packages; it must be resolved (e.g. by
+  also deleting the already-consumed alpha `.md` files in the same
+  workflow step, validated by another dry-run) before proceeding.
 - `status.txt`: all changed files are accounted for.
 - Packages still on alpha (no pending changesets) stay on their
   alpha version — this is correct; `sync-dist-tag.mjs` skips them.

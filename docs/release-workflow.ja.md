@@ -239,6 +239,13 @@ confirm: (空のまま)
   kickoff changeset と queued alpha changeset で bump されたパッケージが
   `1.0.0-alpha.N` から `1.0.0-beta.N+1` に移行していること;
   `templates/_shared/package.json` のピン留めバージョンが更新されていること。
+- **`CHANGELOG.md` の diff が新規エントリ (kickoff changeset + 本当に pending の
+  changeset) だけを含むこと**。出荷済みの alpha 期の変更が再掲されている場合
+  (= `pre exit` / `pre enter` のサイクルで consumed-changesets の記録が落ち、
+  `version` が蓄積された alpha `.md` を再適用した)、**本番 flip を実行しない**。
+  この failure mode は全 CHANGELOG に alpha エントリを重複させ過剰 bump を生む —
+  解消 (例: 同 workflow step で consumed 済 alpha `.md` の削除を追加し、再度
+  dry-run で検証) してから進める。
 - `status.txt`: 変更ファイルに予期しないものが含まれていないこと。
 - pending changeset がないパッケージは alpha のまま残る — 正常 (`sync-dist-tag.mjs` がスキップする)。
 

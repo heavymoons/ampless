@@ -93,11 +93,16 @@ jobs:
           # A VP PR being open means a version bump is in-flight; doing the
           # flip now would interleave two version-bump operations and likely
           # corrupt pre.json or publish at the wrong version.
+          # Detection is by HEAD BRANCH, not label: changesets/action always
+          # opens its PR from the fixed branch `changeset-release/main` and
+          # attaches no label (labels like "autorelease: pending" belong to
+          # release-please, a different tool — filtering on that would match
+          # nothing and let the guard pass vacuously).
           # GH_REPO env is required — we're pre-checkout and `gh` has no local
           # git context to derive the repo from.
-          vp_count=$(gh pr list --state open --label "autorelease: pending" --json number --jq 'length')
+          vp_count=$(gh pr list --state open --head changeset-release/main --json number --jq 'length')
           if [[ "$vp_count" -gt 0 ]]; then
-            echo "::error::There are ${vp_count} open Version Packages PR(s). Merge or close them before running the flip."
+            echo "::error::There are ${vp_count} open Version Packages PR(s) (head branch changeset-release/main). Merge or close them before running the flip."
             exit 1
           fi
 
@@ -196,7 +201,14 @@ jobs:
       # changeset to produce a non-empty version bump. Rather than requiring
       # the operator to pre-stage one (which has a race with the alpha VP
       # pipeline eating it), this step auto-generates it inside the workflow.
-      # The file is consumed by version-packages and never reaches the repo.
+      # NOTE: in pre-release mode `changeset version` does NOT delete consumed
+      # .md files — it records them in pre.json's `changesets` array and keeps
+      # the file on disk. The kickoff file therefore IS committed to main by
+      # the flip commit, which is required: deleting it while pre.json
+      # references it would recreate the stale-pre.json failure mode
+      # documented in CLAUDE.md (## Changeset Policy, incidents #135/#139).
+      # All accumulated pre-mode .md files get cleaned up together at the
+      # eventual `pre exit` for the next stage (beta → rc).
       - name: Generate kickoff changeset
         if: inputs.mode != 'publish-only'
         run: |
