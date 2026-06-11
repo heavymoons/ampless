@@ -5,14 +5,14 @@
 
 ampless イベントを 1 つ以上の外部 URL に POST で通知します。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 **trusted** Lambda で実行されます — 署名シークレットを admin UI から管理できるため、再デプロイなしでキーローテーションが可能です。
 
 ## インストール
 
 ```bash
-npm install @ampless/plugin-webhook@alpha
+npm install @ampless/plugin-webhook@beta
 ```
 
 ## 設定

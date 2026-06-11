@@ -59,7 +59,7 @@ ampless プラグインは 3 つのいずれかの場所に書きます — コ�
 
 3 つの形式はすべて同じ `definePlugin({...})` ファクトリを呼び出し、同じサーフェスを使います。違いはパッケージング・配布方法、および静的 `package.json#amplessPlugin` マニフェストが有効にするインストール時バリデーションのオプトインです（§3 参照）。
 
-§14 には一行のスキャフォールドコマンド (`npx create-ampless plugin <name>`) があり、後者 2 つのどちらにも即使えるボイラープレートを生成します。
+§14 には一行のスキャフォールドコマンド (`npx create-ampless@beta plugin <name>`) があり、後者 2 つのどちらにも即使えるボイラープレートを生成します。
 
 ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScript モジュールです。以下のうち 1 つ以上のサーフェスにフックします:
 
@@ -101,10 +101,10 @@ ampless プラグインは `AmplessPlugin` オブジェクトを返す TypeScrip
 
 ```bash
 # サイトローカル (現在の ampless サイトに plugins/<name>/index.ts を生成)
-npx create-ampless@latest plugin my-thing
+npx create-ampless@beta plugin my-thing
 
 # スタンドアロン npm パッケージ (`npm publish` 向けの ./<name>/ を生成)
-npx create-ampless@latest plugin @myscope/ampless-plugin-my-thing --standalone
+npx create-ampless@beta plugin @myscope/ampless-plugin-my-thing --standalone
 ```
 
 全体の手順は §14 を参照してください。このセクションの残りでは生成されるファイルの意味を説明します — 手書きしたい場合はここを読めば把握できます。
@@ -813,7 +813,7 @@ export const editorExtension = AmplessYoutubeNode   // tiptap Node または Ext
 
 ### プラグインユーザー（サイトエンジニア）向け
 
-1. `npm i @ampless/plugin-youtube@alpha` — plugin を dependency として追加する。
+1. `npm i @ampless/plugin-youtube@beta` — plugin を dependency として追加する。
 2. `cms.config.ts` に登録してサーバーサイド renderer を有効化する。
 3. `npm run update-ampless` — インストール済み plugin の manifest から `_editor-bootstrap.tsx` を自動再生成する。
 
@@ -1251,7 +1251,7 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
   | 脅威 | 状態 |
   |---|---|
   | PluginSecret テーブルを閲覧する AWS Console オペレータ | ✓ 対策済み — ciphertext のみ、DDB に鍵なし |
-  | ソースリポジトリ / デプロイアーティファクトへのアクセス | ⚠ 対策なし — 鍵は `amplify/secrets/encryption-key.ts` に存在。リポジトリを private にし、アーティファクトアクセスを制限すること |
+  | ソースリポジトリ / デプロイアーティファクトへのアクセス | ⚠ 対策なし — 鍵は `amplify/secrets/encryption-key.ts` に存在。public repo では `npx create-ampless@beta setup-encryption-key --gitignore` などで鍵を version control から外し、デプロイアーティファクトアクセスを制限すること |
   | 同一 Lambda 内の悪意ある trusted plugin | ✗ 対策なし — `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` はプラグインコードから読める。真の分離 = per-plugin Lambda（privileged tier, ロードマップ） |
   | S3 mirror 漏洩 | ✓ 対策済み — PluginSecret テーブルは mirror されない |
 
@@ -1274,7 +1274,7 @@ Secret settings を使うと、trusted プラグインが認証情報 (Webhook �
 2. `capabilities` に `'secretSettings'` を含める（`capabilities` が定義されているとき省略すると console.warn）。
 3. **鍵の初回セットアップ** — プロジェクトルートで実行:
    ```sh
-   npx create-ampless setup-encryption-key
+   npx create-ampless@beta setup-encryption-key
    ```
    32 バイトのランダムな鍵を生成し、`amplify/secrets/encryption-key.ts` に書き込む。AWS 認証情報不要 — ローカルファイル操作のみ。
 
@@ -1629,7 +1629,7 @@ it('admin が空文字保存した場合は空配列', () => {
 - **パッケージ名**: `@your-scope/plugin-foo`。`@ampless/plugin-*` スコープは本モノレポから ship する公式プラグイン用に予約
 - **エントリ**: ESM のみ、default export (factory) + 設定インターフェイス (ユーザの `cms.config.ts` から型付きで引数を渡せるように) を export
 - **`apiVersion`**: 現状は `1` を declare してください — 唯一の有効値で、literal type が他の値を compile-time に reject します。`apiVersion` はプラグイン契約の **breaking-change marker** であって semver 風のチャンネルではありません。additive な追加 (optional field、reserved capability など) は `apiVersion: 1` 内に収まり、bump は不要です。詳細は architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy) を参照
-- **Dist-tag**: ampless 自体が alpha のうちは `@alpha`。`@latest` は ampless v1.0 まで予約
+- **Dist-tag**: ampless 自体が beta のうちは `@beta`。`@latest` は ampless v1.0 まで予約
 
 参考実装:
 
@@ -1670,7 +1670,7 @@ it('admin が空文字保存した場合は空配列', () => {
 ```bash
 # サイトローカル: 現在の ampless サイトのルートで実行
 # plugins/<name>/index.ts を生成する
-npx create-ampless@latest plugin my-thing \
+npx create-ampless@beta plugin my-thing \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings
 
@@ -1678,7 +1678,7 @@ npx create-ampless@latest plugin my-thing \
 # package.json / tsconfig.json / tsup.config.ts / README + .ja /
 # CHANGELOG / .gitignore / src/index.ts + src/index.test.ts を含む
 # 新しいパッケージディレクトリを置きたい場所で実行する
-npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
+npx create-ampless@beta plugin @myscope/ampless-plugin-thing \
   --standalone \
   --trust-level untrusted \
   --capabilities publicHead,adminSettings \
@@ -1687,7 +1687,7 @@ npx create-ampless@latest plugin @myscope/ampless-plugin-thing \
 
 スタンドアロンスキャフォールドには Phase 5 のクロスチェックに必要なものがすべて含まれます: `package.json#amplessPlugin`、`./package.json` サブパスエクスポート、`packageName` ファクトリフィールド、`ampless-plugin` 検索キーワード、そして `pnpm install && pnpm test && pnpm build` が生成直後にクリーンに通る最小の vitest サンプル。
 
-どちらのモードも、フラグなしの位置引数呼び出し (`npx create-ampless@latest plugin`) で @clack のプロンプト UI を使ったインタラクティブモードに切り替えられます。
+どちらのモードも、フラグなしの位置引数呼び出し (`npx create-ampless@beta plugin`) で @clack のプロンプト UI を使ったインタラクティブモードに切り替えられます。
 
 ### スタンドアロンプラグインの公開
 
@@ -1696,12 +1696,12 @@ cd ampless-plugin-thing
 pnpm install
 pnpm test
 pnpm build
-pnpm publish --access public --tag alpha
+pnpm publish --access public --tag beta
 ```
 
-スコープ付き名前 (`@scope/...`) には `--access public` が必須です。`--tag alpha` は現在の ampless プレリリースサイクルに合わせています — 安定 major に達したら外してください。
+スコープ付き名前 (`@scope/...`) には `--access public` が必須です。`--tag beta` は現在の ampless プレリリースサイクルに合わせています — 安定 major に達したら外してください。
 
-`npm publish` が返った直後に `npm install <pkg>@alpha` で 404 が出ることがあります（CDN とレジストリレプリカの伝播遅延）。その場合は 1〜2 分待ってリトライしてください — `npm view <pkg>@alpha version` がレジストリで見えていることは必要条件ですが十分条件ではありません。
+`npm publish` が返った直後に `npm install <pkg>@beta` で 404 が出ることがあります（CDN とレジストリレプリカの伝播遅延）。その場合は 1〜2 分待ってリトライしてください — `npm view <pkg>@beta version` がレジストリで見えていることは必要条件ですが十分条件ではありません。
 
 ### パッケージの命名
 
@@ -1744,4 +1744,4 @@ export default defineConfig({
 - ファーストパーティプラグインの bug → `heavymoons/ampless` にプラグインの package 名つきで issue
 - プラグインランタイム / admin form の bug → 同じレポ、ラベル `area:plugins`
 
-ampless レポは現在 alpha 期間中は非公開です。beta に進む (npm `beta` dist-tag、リポジトリ公開) と上記のリンクが GitHub URL に解決されます。現状でも同じ docs が package tarball 内の `node_modules/ampless/docs/` に同梱されているので、GitHub にアクセスせずローカルで読めます。
+上記の GitHub URL は public beta repo で解決されます。同じ docs は package tarball 内の `node_modules/ampless/docs/` にも同梱されているので、この repo を checkout しなくてもローカルで読めます。

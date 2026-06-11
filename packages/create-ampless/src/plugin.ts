@@ -1,5 +1,5 @@
 /**
- * `npx create-ampless plugin <name>` — scaffold an ampless plugin.
+ * `npx create-ampless@beta plugin <name>` — scaffold an ampless plugin.
  *
  * Two modes:
  *   - `local` (default): writes `plugins/<name>/index.ts` inside the current
@@ -37,14 +37,13 @@ import { validateMountableProject } from './mount.js'
 // ----------------------------------------------------------------------------
 
 /**
- * The `ampless` peer-dep version that generated plugin scaffolds will
- * declare. Update this manually each time `ampless` bumps its alpha
- * version. The changeset workflow does NOT update this automatically —
- * add a reminder comment in the PR body when you bump `ampless`.
+ * The minimum `ampless` dependency version that generated plugin
+ * scaffolds declare. Keep this pinned to the beta line until v1.0; the
+ * caret range in the template lets npm resolve the newest beta build.
  *
- * Current: ampless@1.0.0-alpha.22
+ * Current: ampless@1.0.0-beta.0
  */
-const SCAFFOLD_AMPLESS_VERSION = '1.0.0-alpha.22'
+const SCAFFOLD_AMPLESS_VERSION = '1.0.0-beta.0'
 
 // ----------------------------------------------------------------------------
 // Text extensions (mirrors upgrade.ts + scaffold.ts)
@@ -516,7 +515,7 @@ export async function runCreatePlugin(args: ParsedArgs): Promise<void> {
           `    ${pc.cyan('pnpm install')}\n` +
           `    ${pc.cyan('pnpm test')}\n` +
           `    ${pc.cyan('pnpm build')}\n` +
-          `    ${pc.cyan('pnpm publish --access public --tag alpha')}\n\n` +
+          `    ${pc.cyan('pnpm publish --access public --tag beta')}\n\n` +
           `  Then add the published package to your ampless site:\n` +
           `    ${pc.cyan(`pnpm add ${result.packageName ?? result.pluginName}`)}`,
       )

@@ -5,7 +5,7 @@
 
 Reading-time badge plugin for [ampless](https://github.com/heavymoons/ampless). Estimates the reading time of a post from its body text and injects a configurable label before or after the post content.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 The badge is emitted via the `publicHtmlForPost` capability (Phase 6d). Themes that call `ampless.publicHtmlForPost(post)` automatically render it. The runtime sanitizes the HTML with `sanitize-html` under a strict allowlist before it reaches the page — no `dangerouslySetInnerHTML` needed in the theme.
 
@@ -14,7 +14,7 @@ No AWS data permissions are required — everything runs at request time inside 
 ## Install
 
 ```bash
-npm install @ampless/plugin-reading-time@alpha
+npm install @ampless/plugin-reading-time@beta
 ```
 
 ## Configure

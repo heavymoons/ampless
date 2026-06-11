@@ -4,16 +4,16 @@
 
 ## Supported versions
 
-ampless is in **alpha** — packages publish to npm under the `alpha` dist-tag. Only the latest published `alpha.N` of each package receives security fixes. There are no LTS or back-port branches.
+ampless is in **beta** — packages publish to npm under the `beta` dist-tag. Only the latest published `beta.N` of each package receives security fixes. There are no LTS or back-port branches.
 
-When ampless moves to beta (npm `beta` dist-tag, repo public), the same "latest only" policy applies to the latest published `beta.N`. RC and stable will follow standard semver back-porting.
+Alpha tarballs are legacy snapshots from the closed dogfood period and are not back-ported; fixes land by moving forward to beta. RC and stable will follow standard semver back-porting.
 
 ## Reporting a vulnerability
 
 **Please do not open public issues for security problems.** Use one of the following private channels:
 
-- **Preferred (once enabled): GitHub Private Vulnerability Reporting.** Open a private report at <https://github.com/heavymoons/ampless/security/advisories/new>. Available after the repo goes public (beta) **and** the maintainer enables Private Vulnerability Reporting under repository settings. If the page returns 404 or "not enabled", use the email fallback below instead.
-- **Email: `ishikawa.naoto@heavymoons.net`** with subject prefix `[ampless security]`. This works at any stage including the current alpha (closed repo). If you're unsure whether the PVR form is live, this is always a safe choice.
+- **Preferred (once enabled): GitHub Private Vulnerability Reporting.** Open a private report at <https://github.com/heavymoons/ampless/security/advisories/new>. If the page returns 404 or "not enabled", use the email fallback below instead.
+- **Email: `ishikawa.naoto@heavymoons.net`** with subject prefix `[ampless security]`. If you're unsure whether the PVR form is live, this is always a safe choice.
 
 Please include:
 

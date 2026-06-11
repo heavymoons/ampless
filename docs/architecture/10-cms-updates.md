@@ -45,7 +45,7 @@ pnpm update ampless @ampless/admin @ampless/runtime @ampless/backend \
             @ampless/plugin-seo @ampless/plugin-rss
 
 # 2. Refresh the template-owned files (route shells, admin pages, etc.)
-npx create-ampless@latest --upgrade
+npx create-ampless@beta --upgrade
 ```
 
 `--upgrade` syncs the **ampless-managed paths** in the project (admin routes, internal route shells, API proxy routes) to whatever the current template ships. The list of managed paths is fixed in [`packages/create-ampless/src/upgrade.ts`](../../packages/create-ampless/src/upgrade.ts) (`AMPLESS_MANAGED_APP_PATHS`). User-owned files outside those paths (`themes/`, `app/page.tsx`, `cms.config.ts`, etc.) are never touched.

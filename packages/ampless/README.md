@@ -5,7 +5,7 @@
 
 CMS core library for AWS Amplify.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0. See the [root README](https://github.com/heavymoons/ampless#readme) for full docs.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0. See the [root README](https://github.com/heavymoons/ampless#readme) for full docs.
 
 ## Overview
 
@@ -22,7 +22,7 @@ You usually don't depend on `ampless` directly — it's pulled in transitively b
 ## Installation
 
 ```bash
-npm install ampless@alpha
+npm install ampless@beta
 ```
 
 ## Usage

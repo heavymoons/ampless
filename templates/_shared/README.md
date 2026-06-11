@@ -133,7 +133,7 @@ The shipped [`amplify.yml`](./amplify.yml) runs `npx ampx pipeline-deploy` (Ampl
 From inside this project directory:
 
 ```bash
-npx create-ampless@latest --mount \
+npx create-ampless@beta --mount \
   --github-owner <your-user-or-org> \
   --aws-region <region> \
   --create-iam-role           # first time only; reuse `--iam-service-role <arn>` on later mounts
@@ -153,7 +153,7 @@ Useful extra flags:
 - `--skip-confirm` — non-interactive (good for CI / re-runs)
 - `--aws-profile <name>` — explicit AWS profile when you have multiple
 
-See `npx create-ampless@latest --help` for the full list.
+See `npx create-ampless@beta --help` for the full list.
 
 **Prerequisites for this flow (in addition to the [top-level Requirements](#requirements)):**
 
@@ -216,13 +216,13 @@ See [docs/architecture/04-access-layer-mcp.md](./docs/architecture/04-access-lay
 
 ## Updating ampless
 
-ampless releases on the `alpha` dist-tag. To pick up new features:
+ampless releases on the `beta` dist-tag during the public beta. To pick up new features:
 
 ```bash
 npm run update-ampless
 ```
 
-This runs `npx create-ampless@latest upgrade`, which:
+This runs `npx create-ampless@beta upgrade`, which:
 
 - Bumps the `@ampless/*` and `ampless` dependencies in `package.json`
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.

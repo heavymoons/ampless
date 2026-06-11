@@ -29,7 +29,7 @@
 // convention) continue to work — they just don't participate in the
 // new cross-check.
 //
-// Spec: docs/tmp/plugin-extension-phase5.md §B.
+// Architecture: docs/architecture/08-plugin-architecture.md — static plugin manifests.
 
 import type { PluginPackageManifest, TrustLevel } from 'ampless'
 
@@ -138,9 +138,9 @@ function isValidManifest(value: unknown): value is PluginPackageManifest {
  * Failure modes that resolve to `null`:
  *   - Package not installed at this resolution root
  *     (`ERR_MODULE_NOT_FOUND`)
- *   - `package.json` not in the package's `exports`
- *     (`ERR_PACKAGE_PATH_NOT_EXPORTED`) — see the spec under
- *     `docs/tmp/plugin-extension-phase5.md` §B
+   *   - `package.json` not in the package's `exports`
+   *     (`ERR_PACKAGE_PATH_NOT_EXPORTED`) — see the package manifest
+   *     convention above
  *   - `readFileSync` throws (e.g. ENOENT, permissions)
  *   - JSON parse error
  *   - `amplessPlugin` field absent or not an object

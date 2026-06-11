@@ -5,7 +5,7 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け Google Tag Manager プラグイン。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 descriptor ベースのプラグイン head/body 注入 API を使って、公開ページに GTM 標準の 2 つのスニペットを挿入します。
 
@@ -17,7 +17,7 @@ descriptor ベースのプラグイン head/body 注入 API を使って、公�
 ## インストール
 
 ```bash
-npm install @ampless/plugin-gtm@alpha
+npm install @ampless/plugin-gtm@beta
 ```
 
 ## 設定

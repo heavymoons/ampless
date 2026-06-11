@@ -4,16 +4,16 @@
 
 ## サポートされるバージョン
 
-ampless は現在 **alpha** 段階で、パッケージは npm の `alpha` dist-tag で publish しています。各パッケージで最新の `alpha.N` のみがセキュリティ修正の対象です。LTS / バックポートブランチはありません。
+ampless は現在 **beta** 段階で、パッケージは npm の `beta` dist-tag で publish しています。各パッケージで最新の `beta.N` のみがセキュリティ修正の対象です。LTS / バックポートブランチはありません。
 
-ampless が beta に進むと (npm `beta` dist-tag、リポジトリ公開)、同じ「最新のみ」ポリシーが最新の `beta.N` に適用されます。RC および stable では標準的な semver バックポートに従います。
+Alpha tarball はクローズド dogfood 期間の legacy snapshot として扱い、バックポートはしません。修正は beta へ進めて取り込みます。RC および stable では標準的な semver バックポートに従います。
 
 ## 脆弱性の報告
 
 **セキュリティ問題については public な issue を立てないでください。** 以下の private チャンネルのいずれかを使ってください:
 
-- **推奨 (有効化後): GitHub Private Vulnerability Reporting**。 <https://github.com/heavymoons/ampless/security/advisories/new> から private な脆弱性レポートを open してください。リポジトリが public になった beta 以降で、かつメンテナがリポジトリ Settings で Private Vulnerability Reporting を **明示的に有効化** したあとに利用可能です。ページが 404 / "not enabled" を返す場合は、下記メールにフォールバックしてください。
-- **メール: `ishikawa.naoto@heavymoons.net`** に件名プレフィックス `[ampless security]` をつけて送ってください。現状の alpha (private repo) を含む任意のステージで利用可能で、PVR フォームの状態に関わらず安全な選択肢です。
+- **推奨 (有効化後): GitHub Private Vulnerability Reporting**。 <https://github.com/heavymoons/ampless/security/advisories/new> から private な脆弱性レポートを open してください。ページが 404 / "not enabled" を返す場合は、下記メールにフォールバックしてください。
+- **メール: `ishikawa.naoto@heavymoons.net`** に件名プレフィックス `[ampless security]` をつけて送ってください。PVR フォームの状態に関わらず安全な選択肢です。
 
 報告には以下を含めてください:
 

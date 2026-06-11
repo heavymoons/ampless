@@ -5,14 +5,14 @@
 
 Public-side runtime for [ampless](https://github.com/heavymoons/ampless). Bundles the post-fetching client, site settings, theme resolution, SEO metadata aggregation, middleware, and public route handlers behind a single `createAmpless()` factory.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Splitting this out of the template lets you `npm update @ampless/runtime` without touching scaffolded files — public-site behaviour upgrades come in through the package, not by re-running the scaffolder.
 
 ## Install
 
 ```bash
-npm install @ampless/runtime@alpha ampless@alpha
+npm install @ampless/runtime@beta ampless@beta
 ```
 
 `@ampless/runtime` declares peer dependencies on `next` (15+), `react` (18/19), `aws-amplify` (6+), and `@aws-amplify/adapter-nextjs` (1+). The CLI scaffolder pins compatible versions in the template's `package.json`.

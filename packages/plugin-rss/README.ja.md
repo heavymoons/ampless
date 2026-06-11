@@ -5,14 +5,14 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け RSS 2.0 フィードプラグイン。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 投稿が公開・非公開・更新・削除されるたびに `feed.xml` を S3 に再生成します。Next.js の `/feed.xml` ルートが最新バージョンを配信します。
 
 ## インストール
 
 ```bash
-npm install @ampless/plugin-rss@alpha
+npm install @ampless/plugin-rss@beta
 ```
 
 ## 設定

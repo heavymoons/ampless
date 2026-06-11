@@ -5,14 +5,14 @@
 
 POST ampless events to one or more external URLs.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Runs in the **trusted** Lambda so it can access the admin-managed signing secret for zero-deploy key rotation.
 
 ## Install
 
 ```bash
-npm install @ampless/plugin-webhook@alpha
+npm install @ampless/plugin-webhook@beta
 ```
 
 ## Configure

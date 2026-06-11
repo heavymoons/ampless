@@ -54,7 +54,7 @@ Three groups are declared. The admin app surfaces only the first two as assignab
 #### Initial Setup
 
 ```
-1. Generate project with `npx create-ampless@latest`
+1. Generate project with `npx create-ampless@beta`
 2. Deploy with `npx ampx sandbox` (dev) or via Amplify Hosting (prod)
 3. Sign up on the admin login screen → Cognito emails a confirmation code
 4. Enter the code; the post-confirmation trigger checks whether the admin group is empty

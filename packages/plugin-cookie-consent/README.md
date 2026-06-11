@@ -5,7 +5,7 @@
 
 GDPR/ePrivacy cookie consent banner plugin for [ampless](https://github.com/heavymoons/ampless).
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Installs the `window.amplessConsent` Consent Convention API (§6 of the [plugin architecture docs](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)) in every public page's `<head>`, then appends a configurable consent banner to `<body>` outside the React tree. Analytics and tracking plugins use the API to gate themselves until the visitor grants consent.
 
@@ -14,7 +14,7 @@ No AWS data permissions are required — everything runs at request time inside 
 ## Install
 
 ```bash
-npm install @ampless/plugin-cookie-consent@alpha
+npm install @ampless/plugin-cookie-consent@beta
 ```
 
 ## Configure

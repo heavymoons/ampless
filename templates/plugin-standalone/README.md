@@ -2,12 +2,12 @@
 
 # {{packageName}}
 
-> [Pre-release / alpha] {{description}}
+> [Pre-release / beta] {{description}}
 
 ## Install
 
 ```bash
-npm install {{packageName}}@alpha
+npm install {{packageName}}@beta
 ```
 
 ## Configure
@@ -37,7 +37,7 @@ Then go to `/admin/plugins` to configure.
 pnpm install
 pnpm test
 pnpm build
-pnpm publish --access public --tag alpha
+pnpm publish --access public --tag beta
 ```
 
 See the [ampless plugin author guide](https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md) for the full API.

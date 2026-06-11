@@ -31,4 +31,4 @@ Restart `next dev` and visit `/admin/plugins` to configure.
 - Trust level: `{{trustLevel}}`
 - Capabilities: `{{capabilitiesList}}`
 - When this plugin grows useful for more than one site, lift it into
-  its own npm package via `npx create-ampless plugin <name> --standalone`.
+  its own npm package via `npx create-ampless@beta plugin <name> --standalone`.

@@ -5,7 +5,7 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け [Plausible Analytics](https://plausible.io/) プラグイン。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 descriptor ベースのプラグイン head 注入 API を使って、公開ページに Plausible 標準の `<script>` スニペットを挿入します。Plausible はプライバシー重視・cookie 不使用の解析サービスで、多くの導入で cookie 同意バナーは不要です。
 
@@ -14,7 +14,7 @@ descriptor ベースのプラグイン head 注入 API を使って、公開ペ�
 ## インストール
 
 ```bash
-npm install @ampless/plugin-plausible@alpha
+npm install @ampless/plugin-plausible@beta
 ```
 
 ## 設定

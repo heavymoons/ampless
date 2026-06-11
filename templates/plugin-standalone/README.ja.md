@@ -2,12 +2,12 @@
 
 # {{packageName}}
 
-> [Pre-release / alpha] {{description}}
+> [Pre-release / beta] {{description}}
 
 ## インストール
 
 ```bash
-npm install {{packageName}}@alpha
+npm install {{packageName}}@beta
 ```
 
 ## 設定
@@ -37,7 +37,7 @@ export default defineConfig({
 pnpm install
 pnpm test
 pnpm build
-pnpm publish --access public --tag alpha
+pnpm publish --access public --tag beta
 ```
 
 API 詳細は [ampless plugin author guide](https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md) を参照。

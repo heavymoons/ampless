@@ -7,7 +7,6 @@
 // `window.amplessConsent.on(category, cb)` to fire only after the visitor
 // consents.
 //
-// Spec: docs/tmp/plugin-extension-phase3b.md §6 & §7.
 // Architecture: docs/architecture/08-plugin-architecture.md — Consent Convention.
 
 import { definePlugin, type AmplessPlugin } from 'ampless'

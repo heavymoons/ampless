@@ -6,12 +6,12 @@
 
 ampless は 4 段階のリリースパスを歩んでいます: **alpha → beta → RC → stable**。
 
-- **alpha**（現在）: クローズドな開発、リポジトリ非公開、npm `alpha` dist-tag、ドッグフード駆動の機能開発。判断基準は「自分が運用したい複数のサイトを ampless で動かせるか」。
-- **beta**: リポジトリを **public 化**、npm `beta` dist-tag。破壊的変更はまだあり得る（changesets で明示）が、外部ユーザーはインストール可能、外部プラグイン作者は publish 可能。パブリック化のタイミング。
+- **alpha**（完了）: クローズドな開発、リポジトリ非公開、npm `alpha` dist-tag、ドッグフード駆動の機能開発。判断基準は「自分が運用したい複数のサイトを ampless で動かせるか」でした。
+- **beta**（現在）: リポジトリは **public**、npm `beta` dist-tag。破壊的変更はまだあり得る（changesets で明示）が、外部ユーザーはインストール可能、外部プラグイン作者は publish 可能。
 - **RC**: feature-complete、破壊的変更は予定なし。ドッグフードサイトは最終調整期間中 RC ビルドで運用。
 - **stable**（v1.0）: 公開ローンチ。ampless の紹介ページ（ampless 自身で構築）が同時ローンチ。
 
-v1.0 RC の進級条件（前計画から変更なし）: (a) ドッグフード対象サイトの運用に耐える完成度、(b) ampless 自身で構築した紹介ページが用意できている。Beta 進級条件は別途内部ブロッカーチェックリストで管理。内部バージョン番号は 4 段階すべてを通じて changeset で通常通り bump し続ける。
+v1.0 RC の進級条件（前計画から変更なし）: (a) ドッグフード対象サイトの運用に耐える完成度、(b) ampless 自身で構築した紹介ページが用意できている。Beta 進級条件は public launch 前の private blocker checklist で処理済み。内部バージョン番号は 4 段階すべてを通じて changeset で通常通り bump し続ける。
 
 WordPress 互換性は **WXR データインポートのみスコープに入れ**、プラグイン / テーマ / Gutenberg ブロックの互換は対象外。
 
@@ -41,16 +41,16 @@ ampless はエンジニア向けのカスタマイズベース CMS です — �
 - [ ] 校正 / 要約 プラグイン
 
 #### プラグイン拡張（dogfood 駆動の段階導入）
-進行管理は [docs/tmp/plugin-extension-roadmap.md](../tmp/plugin-extension-roadmap.md)。各 Phase で新 surface を実装で叩く同梱プラグインを 1 つ以上 ship、次 Phase に進む。
+進行管理の要約はこの文書に集約し、公開 contract は [08-plugin-architecture.ja.md](./08-plugin-architecture.ja.md) に置きます。各 Phase で新 surface を実装で叩く同梱プラグインを 1 つ以上 ship、次 Phase に進む。
 
-- [x] Phase 1: descriptor ベースの head/body 注入 + `AmplessPlugin` への `capabilities` / `instanceId` / `displayName` 追加。同梱第 1 弾: `@ampless/plugin-analytics-ga4`（設定は `cms.config.ts` 直書き）。仕様: [docs/tmp/plugin-extension-spec.md](../tmp/plugin-extension-spec.md)
+- [x] Phase 1: descriptor ベースの head/body 注入 + `AmplessPlugin` への `capabilities` / `instanceId` / `displayName` 追加。同梱第 1 弾: `@ampless/plugin-analytics-ga4`（設定は `cms.config.ts` 直書き）。Contract: [08-plugin-architecture.ja.md](./08-plugin-architecture.ja.md)
 - [x] Phase 2: admin 管理の public settings（`/admin/plugins`、S3 cache ミラー）。GA4 の設定を admin UI に移行。プラグイン作者ガイドを新規ドキュメントとして `ampless` tarball + scaffold コピーで配布開始
 - [x] Phase 3: trust-level ドッグフード。Phase 3a 完了 — `@ampless/plugin-gtm` + `@ampless/plugin-plausible`（untrusted）を新規バンドルプラグインとして ship、Phase 1/2 の descriptor + admin 設定 API を実物で叩く。Phase 3c 完了 — `writePublicAsset` を runtime key validation + `instanceId ?? name` namespace 強制付きで正式化し、既存 `seo` / `rss` が新 capability surface を宣言。Phase 3b 完了 — `PluginRepeatableField`（object のリスト型 setting）+ `@ampless/plugin-cookie-consent`（untrusted）+ Consent Convention 規約（`window.amplessConsent` グローバル API + 標準イベント）、GA4 / GTM / Plausible には `consentCategory?: string` で gated mode を実装
 - [x] Phase 4: 投稿単位 body 注入 API（`publicBodyForPost`）+ `schema` capability + JSON-LD 自動 escape（`escapeJsonLdInlineBody`）。同梱第 1 弾：`@ampless/plugin-schema-jsonld`（untrusted）。テーマの post ページテンプレートが `ampless.publicBodyForPost(post)` を呼んで `<script type="application/ld+json">` 要素を描画
-- [x] Phase 5: モノレポ外プラグインの npm install 検証 — 静的 `package.json#amplessPlugin` manifest 規約 + runtime cross-check、`npx create-ampless plugin <name>` scaffold subcommand、プラグイン作者ガイド書き直し。`@ishinao/ampless-plugin-site-verification` を npm 公開して ishinao.net で実装インストール検証済み
+- [x] Phase 5: モノレポ外プラグインの npm install 検証 — 静的 `package.json#amplessPlugin` manifest 規約 + runtime cross-check、`npx create-ampless@beta plugin <name>` scaffold subcommand、プラグイン作者ガイド書き直し。`@ishinao/ampless-plugin-site-verification` を npm 公開して ishinao.net で実装インストール検証済み
 - [x] Phase 6d: `publicHtmlForPost` capability + `PublicPostHtmlDescriptor` 型 + `@ampless/runtime` への `sanitize-html` サニタイズ層。同梱第 1 弾：`@ampless/plugin-reading-time`（untrusted）— 英語語数 + CJK 文字数換算による読了時間バッジ。ラベルテンプレートと位置は admin から編集可能。
 - [x] Phase 6a: `secretSettings` capability + `PluginSecretField` 型（`default` を `Omit` で除去し漏洩を防止）+ `TrustedPluginRuntimeContext.secret<T>(key)` 非同期アクセサ + `PluginSecret` DynamoDB モデル（admin/editor: 書き込みのみ; IAM Lambda: 読み取りのみ）。`@ampless/plugin-webhook` を `trust_level: 'trusted'` に retrofit し、admin 管理の署名シークレットで再デプロイ不要のキーローテーションを実現。
-- [x] Phase 7（embed プラグイン拡張）: `contentFields` capability（予約から昇格）+ `publicPostScript` capability + `Ampless.renderBody(post): Promise<ReactNode>`（alpha breaking）+ raw route 互換のための `renderBodyHtmlString` + admin editor extension installer (`@ampless/admin/editor`) + iframe-srcDoc プレビューパイプライン（`/admin/preview` Route Handler。page factory の `previewEndpoint` オプションで上書き可能）。最初のプラグイン: `@ampless/plugin-youtube` + `@ampless/plugin-x-embed`（両方 `trusted`、`youtube-nocookie.com` および `platform.twitter.com/widgets.js` 経由で配信）。
+- [x] Phase 7（embed プラグイン拡張）: `contentFields` capability（予約から昇格）+ `publicPostScript` capability + `Ampless.renderBody(post): Promise<ReactNode>`（pre-1.0 breaking）+ raw route 互換のための `renderBodyHtmlString` + admin editor extension installer (`@ampless/admin/editor`) + iframe-srcDoc プレビューパイプライン（`/admin/preview` Route Handler。page factory の `previewEndpoint` オプションで上書き可能）。最初のプラグイン: `@ampless/plugin-youtube` + `@ampless/plugin-x-embed`（両方 `trusted`、`youtube-nocookie.com` および `platform.twitter.com/widgets.js` 経由で配信）。
 - [ ] Phase 6+（各々独立 RFP）: developer 拡張 capability (`adminPage` / `serverRoute` / ...)
 
 #### コンテンツ周り
@@ -70,11 +70,11 @@ ampless はエンジニア向けのカスタマイズベース CMS です — �
 
 ---
 
-### Beta（パブリック化）
+### Beta（現在の公開プレリリース）
 
-Beta はリポジトリが公開される段階: GitHub リポジトリが閲覧可能になり、npm `beta` dist-tag でパッケージが公開され、外部ユーザーはインストール可能、外部プラグイン作者は publish 可能になります。破壊的変更はまだあり得る（changesets と dist-tag バンプで明示）; コントラクトは RC でロックされます。
+Beta は現在の公開プレリリース段階: GitHub リポジトリは閲覧可能で、npm `beta` dist-tag でパッケージが公開され、外部ユーザーはインストール可能、外部プラグイン作者は publish 可能です。破壊的変更はまだあり得る（changesets と dist-tag バンプで明示）; コントラクトは RC でロックされます。
 
-Beta の進級条件は内部ブロッカーチェックリストで管理しています（この公開ロードマップとは別）。概要: README / CLAUDE.md / ロードマップ全体の alpha 専用表現の scrub（この scrub）、CI provenance の切り替え、dist-tag ツールの変更（`pnpm changeset pre exit` → `pnpm changeset pre enter beta`）、alpha 期間の changeset の整理。
+Beta 進級条件は public beta として公開できる水準まで完了済みです。残る hardening はこのロードマップと通常の GitHub issue で扱います。
 
 ---
 
@@ -85,7 +85,7 @@ Beta の進級条件は内部ブロッカーチェックリストで管理して
 到達条件:
 - メンテナーが運用したい複数のサイトが ampless 上で動いている（本番負荷でドッグフード済み）
 - ampless 自身の紹介ページ（プロダクトページ）が ampless で構築可能（v1.0 stable で公開できる状態）
-- 素の `npx create-ampless@latest` + 公式プラグインだけでブログ運営できる動線が一本通っている
+- 素の `npx create-ampless@beta` + 公式プラグインだけでブログ運営できる動線が一本通っている
 
 注: GitHub public 化 + npm `beta` dist-tag への **パブリック化** は beta の開始時点（この RC より 1 段階前）。**紹介ページの同時ローンチ** は v1.0 stable（1 段階後）。4 段階の詳細は上記「リリース戦略」を参照。
 

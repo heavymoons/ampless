@@ -224,7 +224,7 @@ export interface Ampless {
    *
    *     <div>{await ampless.renderBody(post)}</div>
    *
-   * Phase 7 alpha breaking: this signature replaced the prior sync
+   * Phase 7 pre-1.0 breaking: this signature replaced the prior sync
    * `string` return shape. The sync string flavour is still available
    * via `renderBodyHtmlString` for routes (raw HTML response) that
    * cannot await — but those callsites bypass the `contentFields`

@@ -15,9 +15,9 @@ ampless runs entirely on AWS Amplify Gen 2 — no external services, no separate
 
 1. **Scaffold the project**:
    ```bash
-   npx create-ampless@alpha my-site
+   npx create-ampless@beta my-site
    ```
-   Creates a Next.js 16 (App Router) project named `my-site` with the Amplify Gen 2 backend wired up. The full CLI flag set is documented in `npx create-ampless@alpha --help`.
+   Creates a Next.js 16 (App Router) project named `my-site` with the Amplify Gen 2 backend wired up. The full CLI flag set is documented in `npx create-ampless@beta --help`.
 
 2. **Install dependencies**:
    ```bash
@@ -31,7 +31,7 @@ ampless runs entirely on AWS Amplify Gen 2 — no external services, no separate
    ```
    The `--once` flag exits the sandbox after a single deploy so the Next.js dev server can start; for continuous deploys during heavy backend work, run `npx ampx sandbox` (watch mode) in a separate terminal and `npm run dev` in another.
 
-> Use the `@alpha` tag while ampless is in alpha — `@latest` is reserved for the eventual v1.0 release. See [the release strategy](./architecture/14-roadmap.md) for the four-stage path.
+> Use the `@beta` tag while ampless is in beta — `@latest` is reserved for the eventual v1.0 release. See [the release strategy](./architecture/14-roadmap.md) for the four-stage path.
 
 ## First admin user
 

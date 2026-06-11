@@ -5,7 +5,7 @@
 
 [ampless](https://github.com/heavymoons/ampless) 向け読了時間バッジプラグイン。投稿本文のテキストから読了時間を推定し、本文の前後に設定可能なラベルを挿入します。
 
-> **プレリリース / アルファ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
+> **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
 バッジは `publicHtmlForPost` capability（Phase 6d）経由で出力されます。`ampless.publicHtmlForPost(post)` を呼ぶテーマなら自動的に描画されます。HTML はランタイムが `sanitize-html` で strict allowlist に沿ってサニタイズするため、テーマ側で `dangerouslySetInnerHTML` を使う必要はありません。
 
@@ -14,7 +14,7 @@ AWS のデータ権限は不要です。すべて公開 Next.js プロセスの�
 ## インストール
 
 ```bash
-npm install @ampless/plugin-reading-time@alpha
+npm install @ampless/plugin-reading-time@beta
 ```
 
 ## 設定

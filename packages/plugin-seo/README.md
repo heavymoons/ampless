@@ -5,12 +5,12 @@
 
 SEO plugin for [ampless](https://github.com/heavymoons/ampless). Generates per-post and per-site metadata (Open Graph, Twitter card, canonical) and keeps a `sitemap.xml` regenerated to S3 whenever the post set changes.
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 ## Install
 
 ```bash
-npm install @ampless/plugin-seo@alpha
+npm install @ampless/plugin-seo@beta
 ```
 
 ## Configure

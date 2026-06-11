@@ -5,9 +5,9 @@
 
 Google Analytics 4 plugin for [ampless](https://github.com/heavymoons/ampless).
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes are still possible before v1.0.
 
-Drops the two standard GA4 snippets into every public page's `<head>` through the descriptor-based plugin head injection API ([docs/tmp/plugin-extension-spec.md](https://github.com/heavymoons/ampless/blob/main/docs/tmp/plugin-extension-spec.md), Phase 1):
+Drops the two standard GA4 snippets into every public page's `<head>` through the descriptor-based plugin head injection API ([plugin architecture](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)):
 
 1. The async `gtag.js` loader (`https://www.googletagmanager.com/gtag/js?id=...`).
 2. An inline `gtag('config', '<measurementId>')` bootstrap.
@@ -17,12 +17,12 @@ No AWS data permissions are required — everything runs at request time inside 
 ## Install
 
 ```bash
-npm install @ampless/plugin-analytics-ga4@alpha
+npm install @ampless/plugin-analytics-ga4@beta
 ```
 
 ## Configure
 
-In `cms.config.ts`:
+Register the plugin in `cms.config.ts`, then edit the live values from `/admin/plugins`. The constructor `measurementId` is an optional fallback for bootstrap and backwards compatibility:
 
 ```ts
 import { defineConfig } from 'ampless'
@@ -38,7 +38,7 @@ export default defineConfig({
 
 | Option | Default | Notes |
 |---|---|---|
-| `measurementId` | required | Your GA4 measurement ID, e.g. `G-XXXXXXXX`. Set to `''` to disable the plugin without removing it from `cms.config.ts`. |
+| `measurementId` | `''` | Optional fallback GA4 measurement ID, e.g. `G-XXXXXXXX`. The admin-managed value wins at runtime. Set to `''` to disable the plugin without removing it from `cms.config.ts`. |
 | `instanceId` | `'analytics-ga4'` | Namespace used for the script element ids. Set distinct values when registering multiple GA4 properties on the same site. |
 | `consentCategory` | `''` | Optional consent category slug. When set, the GA4 loader fires only after `window.amplessConsent.has(<this>)` returns true. See [Consent gating](#consent-gating) below. |
 
@@ -94,7 +94,7 @@ For full details on the Consent Convention and the `window.amplessConsent` API s
 
 ## Multiple instances
 
-Phase 1 ships the type definitions for multi-instance plugins, but full runtime validation lands in Phase 3 ([docs/tmp/plugin-extension-roadmap.md](https://github.com/heavymoons/ampless/blob/main/docs/tmp/plugin-extension-roadmap.md)). The shape today:
+The plugin contract supports multiple instances through distinct `instanceId` values. Use one instance per GA4 property:
 
 ```ts
 plugins: [
@@ -110,5 +110,4 @@ plugins: [
 ## What it does not do (yet)
 
 - **CSP nonce propagation** — Phase 1 emits the inline script without a `nonce`. ampless sites do not enforce a CSP today; once that lands, a dedicated RFP will wire `nonce` end-to-end (middleware → SSR → descriptor).
-- **Admin UI settings** — Phase 1 reads the measurement ID from `cms.config.ts` only. Admin-managed settings come in Phase 2.
 - **Per-route event tagging** — Send any custom events from your own page code (`window.gtag('event', ...)`).

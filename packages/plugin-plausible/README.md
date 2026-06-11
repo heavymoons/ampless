@@ -5,7 +5,7 @@
 
 [Plausible Analytics](https://plausible.io/) plugin for [ampless](https://github.com/heavymoons/ampless).
 
-> **Pre-release / alpha.** Breaking changes possible in any minor version until v1.0.
+> **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
 Drops the standard Plausible `<script>` snippet onto every public page through the descriptor-based plugin head injection API. Plausible is a privacy-focused, cookie-free analytics service — most deployments don't need a cookie-consent banner to use it.
 
@@ -14,7 +14,7 @@ The site domain and the script URL are both **editable from `/admin/plugins`** a
 ## Install
 
 ```bash
-npm install @ampless/plugin-plausible@alpha
+npm install @ampless/plugin-plausible@beta
 ```
 
 ## Configure
