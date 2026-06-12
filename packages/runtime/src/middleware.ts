@@ -37,6 +37,11 @@
 
 import { NextResponse, type NextRequest } from 'next/server'
 import type { CacheConfig, Config, PostMetadata } from 'ampless'
+import {
+  AMPLESS_PATHNAME_HEADER,
+  PREVIEW_THEME_HEADER,
+  PREVIEW_COLOR_SCHEME_HEADER,
+} from './request-headers.js'
 
 // Node.js runtime required: module-scope state (the LRU below) only
 // persists across requests on Node lambdas, not Edge.
@@ -266,6 +271,12 @@ const RESERVED_PREFIXES = new Set<string>([
  *  - `?previewTheme` / `?previewColorScheme` → `x-preview-theme` /
  *    `x-preview-color-scheme` header forwarding for the admin's
  *    iframe-based theme preview.
+ *  - `x-ampless-pathname` marker header set unconditionally on every
+ *    request this middleware handles (public routes only). Server
+ *    components such as `renderHead` / `renderBodyEnd` read this header
+ *    to confirm a public, non-preview request before emitting analytics
+ *    or consent scripts. Routes excluded from the matcher (admin / api /
+ *    login) never receive a runtime-set marker, so those layouts stay clean.
  */
 export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareFn {
   return async function middleware(request: NextRequest): Promise<NextResponse> {
@@ -280,10 +291,21 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
     const previewTheme = url.searchParams.get('previewTheme')
     const previewColorScheme = url.searchParams.get('previewColorScheme')
     const requestHeaders = new Headers(request.headers)
-    if (previewTheme) requestHeaders.set('x-preview-theme', previewTheme)
+    // Treat preview headers as runtime-owned. Incoming client-supplied
+    // values should not put public visitors into admin preview mode; only
+    // the query params below may opt into it.
+    requestHeaders.delete(PREVIEW_THEME_HEADER)
+    requestHeaders.delete(PREVIEW_COLOR_SCHEME_HEADER)
+    if (previewTheme) requestHeaders.set(PREVIEW_THEME_HEADER, previewTheme)
     if (previewColorScheme) {
-      requestHeaders.set('x-preview-color-scheme', previewColorScheme)
+      requestHeaders.set(PREVIEW_COLOR_SCHEME_HEADER, previewColorScheme)
     }
+    // Mark every request that passes through this middleware as a public
+    // route. `set` (not `append`) overwrites any spoofed incoming header —
+    // a client forging x-ampless-pathname on a public path only affects
+    // themselves (middleware can't strip it on admin routes it never runs
+    // on, but those routes are excluded by the matcher anyway).
+    requestHeaders.set(AMPLESS_PATHNAME_HEADER, url.pathname)
     const passthrough = (): NextResponse =>
       NextResponse.next({ request: { headers: requestHeaders } })
 

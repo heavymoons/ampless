@@ -23,6 +23,7 @@
 //
 // Architecture: docs/architecture/08-plugin-architecture.md — public head/body descriptors.
 
+import { headers } from 'next/headers'
 import {
   Fragment,
   createElement,
@@ -54,6 +55,11 @@ import {
   loadPackageManifest,
   SUPPORTED_API_VERSION,
 } from './plugin-package-manifest.js'
+import {
+  AMPLESS_PATHNAME_HEADER,
+  PREVIEW_THEME_HEADER,
+  PREVIEW_COLOR_SCHEME_HEADER,
+} from './request-headers.js'
 
 // Same guard as seo.ts — accept anything that looks like a plugin
 // manifest (`apiVersion` is the cheapest discriminator and exists on
@@ -900,6 +906,47 @@ function collectHtmlForPost(
  * bind a per-plugin `ctx.setting(key)` accessor before invoking
  * either `publicHead` or `publicBodyEnd`.
  */
+
+// ---------------------------------------------------------------------------
+// Public-route guard for renderHead / renderBodyEnd
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns `true` only for public requests processed by the ampless
+ * middleware (i.e. the middleware's `x-ampless-pathname` marker header
+ * is present and the path is not an admin or login route).
+ *
+ * The middleware's matcher already excludes `/admin`, `/api`, and
+ * `/login`, so the marker is absent on those routes by design. This
+ * function adds a belt-and-braces path check for sites whose custom
+ * matcher accidentally reaches those prefixes, and it also filters out
+ * admin theme-preview requests (the `/?previewTheme=` iframe uses a
+ * public URL but is admin-driven and must not fire analytics).
+ *
+ * Build-time pre-rendering and non-request contexts (event handlers,
+ * etc.) throw inside `headers()` — those are caught and return `false`
+ * silently; no log is needed because it's normal Next.js behaviour.
+ */
+async function isPublicRequest(): Promise<boolean> {
+  let h: Awaited<ReturnType<typeof headers>>
+  try {
+    h = await headers()
+  } catch {
+    // Outside request scope (e.g. build-time prerender) — normal, no log needed.
+    return false
+  }
+  const p = h.get(AMPLESS_PATHNAME_HEADER)
+  if (!p) return false // no marker = a route the middleware doesn't run on (admin/api/login)
+  // Belt-and-braces for sites whose custom matcher doesn't exclude admin/login.
+  if (p === '/admin' || p.startsWith('/admin/')) return false
+  if (p === '/login' || p.startsWith('/login/')) return false
+  // Admin theme-settings live preview: the iframe opens /?previewTheme=…
+  // on a public route (so the marker is set), but it's admin-driven.
+  // Don't fire analytics or consent scripts for the admin's own previews.
+  if (h.get(PREVIEW_THEME_HEADER) || h.get(PREVIEW_COLOR_SCHEME_HEADER)) return false
+  return true
+}
+
 export function createPluginHead(
   cmsConfig: Config,
   pluginSettings: PluginSettingsApi
@@ -1058,6 +1105,7 @@ export function createPluginHead(
 
   return {
     async renderHead(): Promise<ReactNode> {
+      if (!(await isPublicRequest())) return null
       const snapshot = await pluginSettings.loadAll()
       return collectFor<PublicHeadDescriptor>(
         validPlugins,
@@ -1068,6 +1116,7 @@ export function createPluginHead(
       )
     },
     async renderBodyEnd(): Promise<ReactNode> {
+      if (!(await isPublicRequest())) return null
       const snapshot = await pluginSettings.loadAll()
       return collectFor<PublicBodyDescriptor>(
         validPlugins,

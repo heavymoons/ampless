@@ -25,6 +25,26 @@ vi.mock('./plugin-package-manifest.js', async (importOriginal) => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Mock next/headers so isPublicRequest() returns a public-route result by
+// default — this keeps ALL existing renderHead/renderBodyEnd tests working
+// as-is (they don't exercise the guard). Individual guard tests below
+// override this mock per case with vi.mocked(...).mockImplementationOnce.
+// ---------------------------------------------------------------------------
+vi.mock('next/headers', () => {
+  const defaultMap = new Map<string, string>([
+    ['x-ampless-pathname', '/hello-world'],
+  ])
+  return {
+    headers: vi.fn(async () => ({
+      get(key: string) { return defaultMap.get(key) ?? null },
+    })),
+  }
+})
+
+import { headers as nextHeaders } from 'next/headers'
+const mockedHeaders = vi.mocked(nextHeaders)
+
 import { loadPackageManifest } from './plugin-package-manifest.js'
 const mockedLoadPackageManifest = vi.mocked(loadPackageManifest)
 
@@ -2017,5 +2037,167 @@ describe('CSP nonce reservation (Phase 1 no-op)', () => {
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]))
     expect(messages.some((m: string) => m.includes('cspReady'))).toBe(false)
     expect(warnSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isPublicRequest guard — renderHead / renderBodyEnd only render on public
+// requests confirmed by the x-ampless-pathname middleware marker.
+// ---------------------------------------------------------------------------
+
+describe('createPluginHead — isPublicRequest guard', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  // A plugin with both publicHead and publicBodyEnd so we can check both.
+  const guardPlugin = definePlugin({
+    name: 'guard-test',
+    apiVersion: 1,
+    trust_level: 'untrusted',
+    capabilities: ['publicHead', 'publicBody'],
+    publicHead() {
+      return [
+        { type: 'script', id: 'guard-script', src: 'https://cdn.example.com/g.js' },
+      ] satisfies PublicHeadDescriptor[]
+    },
+    publicBodyEnd() {
+      return [
+        { type: 'script', id: 'guard-body', src: 'https://cdn.example.com/b.js' },
+      ]
+    },
+  })
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warnSpy.mockRestore()
+    vi.resetAllMocks()
+  })
+
+  it('renders on a public pathname (default mock = /hello-world)', async () => {
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    const els = childrenOf(await head.renderHead())
+    expect(els.length).toBeGreaterThan(0)
+    expect(childrenOf(await head.renderBodyEnd()).length).toBeGreaterThan(0)
+  })
+
+  it('returns null when x-ampless-pathname marker is absent (no middleware)', async () => {
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(_key: string) { return null },
+    }) as never)
+    // renderBodyEnd shares the same guard; test both.
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(_key: string) { return null },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
+  })
+
+  it('returns null for /admin/posts pathname', async () => {
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/admin/posts'
+        return null
+      },
+    }) as never)
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/admin/posts'
+        return null
+      },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
+  })
+
+  it('returns null for /login pathname', async () => {
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/login'
+        return null
+      },
+    }) as never)
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/login'
+        return null
+      },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
+  })
+
+  it('returns null when headers() throws (build-time prerender)', async () => {
+    mockedHeaders.mockImplementationOnce(async () => {
+      throw new Error('not in request context')
+    })
+    mockedHeaders.mockImplementationOnce(async () => {
+      throw new Error('not in request context')
+    })
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
+  })
+
+  it('renders for /hello-world public pathname', async () => {
+    // Default mock already supplies /hello-world; this test is explicit about it.
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        return null
+      },
+    }) as never)
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        return null
+      },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(childrenOf(await head.renderHead()).length).toBeGreaterThan(0)
+    expect(childrenOf(await head.renderBodyEnd()).length).toBeGreaterThan(0)
+  })
+
+  it('returns null when x-preview-theme is set on a public pathname', async () => {
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        if (key === 'x-preview-theme') return 'blog'
+        return null
+      },
+    }) as never)
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        if (key === 'x-preview-theme') return 'blog'
+        return null
+      },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
+  })
+
+  it('returns null when only x-preview-color-scheme is set on a public pathname', async () => {
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        if (key === 'x-preview-color-scheme') return 'dark'
+        return null
+      },
+    }) as never)
+    mockedHeaders.mockImplementationOnce(async () => ({
+      get(key: string) {
+        if (key === 'x-ampless-pathname') return '/hello-world'
+        if (key === 'x-preview-color-scheme') return 'dark'
+        return null
+      },
+    }) as never)
+    const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
+    expect(await head.renderHead()).toBeNull()
+    expect(await head.renderBodyEnd()).toBeNull()
   })
 })

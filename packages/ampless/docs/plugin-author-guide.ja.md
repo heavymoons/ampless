@@ -481,6 +481,15 @@ runtime は `body` を `sanitize-html` の厳格 allowlist で sanitize し（�
 
 `cms.config.plugins` の順序は集約後も保たれます。
 
+> **`publicHead` / `publicBodyEnd` はいつ描画される？**
+> runtime は、ampless middleware が処理した公開リクエストでのみ
+> これらのサーフェスの出力を描画します。`/admin`、`/login`、
+> そして theme preview リクエスト（`?previewTheme=` /
+> `?previewColorScheme=` iframe）では描画されません。これにより、
+> GTM / GA / consent script が admin page view や live preview traffic で
+> analytics を汚染することを防ぎます。この挙動は
+> `@ampless/runtime` の npm update だけで反映され、サイトコードの変更は不要です。
+
 ### `publicBodyForPost` の使用例（Phase 4）
 
 `schema` capability を宣言してサーフェスを実装します：
