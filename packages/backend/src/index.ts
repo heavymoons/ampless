@@ -42,7 +42,7 @@ export { defineAmplessBackend } from './backend.js'
 export type { DefineAmplessBackendOpts, AmplessBackend } from './backend.js'
 
 export { amplessAuthConfig } from './auth/index.js'
-export type { AmplessAuthConfigOpts } from './auth/index.js'
+export type { AmplessAuthConfigOpts, AmplessWebAuthnOption } from './auth/index.js'
 
 export { amplessStorageConfig } from './storage/index.js'
 

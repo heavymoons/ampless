@@ -40,7 +40,8 @@
     "signOut": "サインアウト",
     "site": "サイト",
     "openMenu": "メニューを開く",
-    "closeMenu": "メニューを閉じる"
+    "closeMenu": "メニューを閉じる",
+    "account": "アカウント"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -292,7 +293,8 @@
       "description": "サインインしてサイトを管理します。",
       "submit": "サインイン",
       "forgotPassword": "パスワードをお忘れですか?",
-      "createAccount": "管理者アカウントを作成"
+      "createAccount": "管理者アカウントを作成",
+      "passkeyButton": "パスキーでサインイン"
     },
     "signUp": {
       "title": "管理者アカウントの作成",
@@ -323,6 +325,14 @@
       "invalidCredentials": "メールアドレスまたはパスワードが正しくありません。",
       "passwordTooShort": "パスワードは8文字以上必要です。",
       "userExists": "このメールアドレスのアカウントは既に存在します。"
+    },
+    "passkey": {
+      "emailRequired": "メールアドレスを入力してから、パスキーでサインインしてください。",
+      "noneRegistered": "このアカウントにはまだパスキーが登録されていません。パスワードでサインインし、アカウントページから登録してください。",
+      "cancelled": "パスキーのサインインがキャンセルされました。",
+      "unsupported": "このブラウザはパスキーに対応していません。",
+      "rpMismatch": "このドメインではパスキーが設定されていません。サイトエンジニアに amplify/auth/resource.custom.ts の relyingPartyId 設定を依頼してください。",
+      "failed": "パスキーのサインインに失敗しました。もう一度試すか、パスワードでサインインしてください。"
     }
   },
   "plugins": {
@@ -384,5 +394,22 @@
     "tagLabel": "タグ",
     "permalink": "パーマリンク",
     "shareOnX": "Xで共有"
+  },
+  "account": {
+    "title": "アカウント",
+    "passkeys": {
+      "title": "パスキー",
+      "add": "パスキーを追加",
+      "adding": "追加中...",
+      "added": "パスキーを追加しました。",
+      "loading": "パスキーを読み込み中...",
+      "empty": "パスキーはまだありません。追加すると Face ID・Touch ID・セキュリティキーでサインインできます。",
+      "columnName": "名前",
+      "columnCreated": "作成日",
+      "delete": "削除",
+      "deleteConfirm": "このパスキーを削除しますか? このパスキーではサインインできなくなります。",
+      "loadError": "パスキーの読み込みに失敗しました",
+      "unsupported": "このブラウザはパスキーに対応していません。"
+    }
   }
 }

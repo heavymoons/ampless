@@ -39,6 +39,8 @@ Visit `http://localhost:3000/login` and sign up. The first registered user is au
 
 ⚠️ ampless treats `ampless-editor` as a trusted principal (editors can store HTML / JS in post bodies). Before promoting anyone to `ampless-editor`, see the "Editor trust model" section in the [README](../README.md).
 
+Passkeys are enabled by default: once you're signed in with your password, open the **Account** page (click your email in the sidebar) and add a passkey to sign in with Face ID / Touch ID / a security key from then on. The password flow always stays available as a fallback. See [Passkey sign-in](./passkeys.md) — especially if you serve the admin from a custom domain.
+
 ## What just got provisioned
 
 `npx ampx sandbox` walks CloudFormation through the Amplify Gen 2 stack defined in `amplify/backend.ts`:
@@ -61,6 +63,7 @@ Everything is provisioned in your own AWS account, charged to your own bill. The
 ## Where to go next
 
 - [Architecture overview](./architecture/) — design decisions for the Amplify Gen 2 stack, the plugin sandbox, the MCP HTTP transport
+- [Passkey sign-in](./passkeys.md) — operator + engineer guide to WebAuthn login
 - [Plugin author guide](../packages/ampless/docs/plugin-author-guide.md) — write your own plugin
 - [Themes guide](./THEMES.md) — customize the look or pick a different starter theme
 - [CONTENT.md](./CONTENT.md) — the post / page / media data model

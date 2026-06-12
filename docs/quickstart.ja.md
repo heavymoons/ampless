@@ -39,6 +39,8 @@ ampless は AWS Amplify Gen 2 上で完結します — 外部サービスや別
 
 ⚠️ ampless は `ampless-editor` を信頼済みプリンシパルとして扱います（エディターは投稿本文に HTML / JS を格納できます）。誰かを `ampless-editor` に昇格させる前に、[README](../README.ja.md) の「エディタートラストモデル」セクションを参照してください。
 
+パスキーはデフォルトで有効です。パスワードでサインインしたら、**アカウント**ページ（サイドバーのメールアドレスをクリック）を開いてパスキーを追加すると、以降は Face ID / Touch ID / セキュリティキーでサインインできます。パスワードフローはフォールバックとして常に利用可能なまま残ります。詳しくは[パスキーサインイン](./passkeys.ja.md)を参照してください（特に管理画面をカスタムドメインで配信している場合）。
+
 ## プロビジョニングされたリソース
 
 `npx ampx sandbox` は `amplify/backend.ts` で定義された Amplify Gen 2 スタックを CloudFormation でプロビジョニングします:
@@ -61,6 +63,7 @@ ampless は AWS Amplify Gen 2 上で完結します — 外部サービスや別
 ## さらに詳しく
 
 - [アーキテクチャ概要](./architecture/) — Amplify Gen 2 スタック、プラグインサンドボックス、MCP HTTP トランスポートの設計上の決断
+- [パスキーサインイン](./passkeys.ja.md) — WebAuthn ログインのオペレーター + エンジニア向けガイド
 - [プラグイン作者ガイド](../packages/ampless/docs/plugin-author-guide.ja.md) — 独自プラグインを作成する
 - [テーマガイド](./THEMES.ja.md) — 外観をカスタマイズするか別のスターターテーマを選ぶ
 - [CONTENT.md](./CONTENT.ja.md) — 投稿 / ページ / メディアのデータモデル
