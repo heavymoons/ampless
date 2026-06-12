@@ -447,6 +447,100 @@ describe('createAmplessMiddleware — preview headers', () => {
     )) as unknown as { requestHeaders?: Headers }
     expect(res.requestHeaders?.get('x-preview-theme')).toBe('blog')
   })
+
+  it('drops spoofed preview headers when no preview query is present', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const spoofedHeaders = new Headers({
+      host: 'x.example.com',
+      'x-preview-theme': 'docs',
+      'x-preview-color-scheme': 'dark',
+    })
+    const url = new URL('http://x.example.com/')
+    const req = {
+      headers: spoofedHeaders,
+      nextUrl: { clone() { return new URL(url.toString()) } },
+    }
+    const res = (await mw(req as never)) as unknown as { requestHeaders?: Headers }
+    expect(res.requestHeaders?.get('x-preview-theme')).toBeNull()
+    expect(res.requestHeaders?.get('x-preview-color-scheme')).toBeNull()
+  })
+})
+
+describe('createAmplessMiddleware — x-ampless-pathname marker', () => {
+  it('sets x-ampless-pathname to "/" on home passthrough', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/') as never,
+    )) as unknown as { requestHeaders?: Headers }
+    expect(res.requestHeaders?.get('x-ampless-pathname')).toBe('/')
+  })
+
+  it('sets x-ampless-pathname on a themed post passthrough', async () => {
+    mockFetch(
+      appsyncPayload({
+        format: 'markdown',
+        metadata: null,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/hello-world') as never,
+    )) as unknown as { requestHeaders?: Headers }
+    expect(res.requestHeaders?.get('x-ampless-pathname')).toBe('/hello-world')
+  })
+
+  it('sets x-ampless-pathname on a raw rewrite', async () => {
+    mockFetch(
+      appsyncPayload({
+        format: 'html',
+        metadata: { no_layout: true },
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/promo') as never,
+    )) as unknown as { kind: string; requestHeaders?: Headers }
+    expect(res.kind).toBe('rewrite')
+    expect(res.requestHeaders?.get('x-ampless-pathname')).toBe('/promo')
+  })
+
+  it('sets x-ampless-pathname on a static rewrite', async () => {
+    mockFetch(
+      appsyncPayload({
+        format: 'static',
+        metadata: null,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/site') as never,
+    )) as unknown as { kind: string; requestHeaders?: Headers }
+    expect(res.kind).toBe('rewrite')
+    expect(res.requestHeaders?.get('x-ampless-pathname')).toBe('/site')
+  })
+
+  it('overwrites a spoofed incoming x-ampless-pathname header', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    // Simulate an attacker supplying a spoofed header on the incoming request.
+    const spoofedHeaders = new Headers({ host: 'x.example.com', 'x-ampless-pathname': '/evil' })
+    const url = new URL('http://x.example.com/')
+    const req = {
+      headers: spoofedHeaders,
+      nextUrl: { clone() { return new URL(url.toString()) } },
+    }
+    const res = (await mw(req as never)) as unknown as { requestHeaders?: Headers }
+    // The middleware must overwrite with the real pathname, not the attacker's value.
+    expect(res.requestHeaders?.get('x-ampless-pathname')).toBe('/')
+  })
 })
 
 describe('defaultMatcherConfig', () => {

@@ -1,6 +1,7 @@
 import { headers } from 'next/headers'
 import { type ThemeModule } from 'ampless'
 import type { StorageApi } from './storage.js'
+import { PREVIEW_THEME_HEADER } from './request-headers.js'
 
 export interface ThemesRegistry {
   /** Map of theme name → loaded theme module. */
@@ -86,7 +87,7 @@ export function createThemeActive(
       let previewOverride: string | null = null
       try {
         const h = await headers()
-        previewOverride = h.get('x-preview-theme')
+        previewOverride = h.get(PREVIEW_THEME_HEADER)
       } catch {
         // headers() is unavailable outside a request scope. Ignore.
       }

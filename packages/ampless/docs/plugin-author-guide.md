@@ -603,6 +603,16 @@ interpolates that fragment directly:
 `cms.config.plugins` iteration order is preserved across the
 collected list.
 
+> **When are `publicHead` / `publicBodyEnd` rendered?**
+> The runtime renders output from these surfaces only on public requests
+> that have been processed by the ampless middleware. They are **not**
+> rendered under `/admin`, `/login`, or on theme-preview requests
+> (`?previewTheme=` / `?previewColorScheme=` iframe). This prevents GTM,
+> GA, and consent scripts from polluting analytics with admin page views
+> or live-preview traffic. An npm update to `@ampless/runtime` is
+> sufficient to pick up this behaviour — no changes to site code are
+> required.
+
 ### `publicBodyForPost` example (Phase 4)
 
 Declare the `schema` capability and implement the surface:
