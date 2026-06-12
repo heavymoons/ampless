@@ -134,21 +134,38 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     restrictPublicBuckets: false,
   }
 
-  // CORS so cross-origin asset loads work from the public site —
-  // fonts referenced from CSS, ES modules with `crossorigin`, source
-  // maps, fetch() / XMLHttpRequest reading the response body. Plain
-  // `<link>` / `<script>` / `<img>` already work without CORS (no-CORS
-  // loads), but anything that wants to *read* the bytes cross-origin
-  // needs these headers. AllowedOrigins is `*` because uploads are
-  // already public (the bucket policy grants anonymous s3:GetObject
-  // on `public/*`); CORS just lets the browser read what's already
-  // publicly fetchable.
+  // CORS so the admin browser can call S3 directly for all Amplify
+  // Storage operations (upload, delete, multipart, public reads).
+  //
+  // CORS grants no permissions — IAM and the bucket policy continue to
+  // gate writes to Cognito-authenticated identities exclusively. These
+  // headers only tell the browser it is allowed to *attempt* the
+  // request; S3 still enforces access control independently.
+  //
+  // The old GET/HEAD-only rule clobbered Amplify Storage's default
+  // allowed-methods set and broke:
+  //   • admin browser-direct DELETE (Amplify Storage `remove()`) — CORS
+  //     preflight was rejected, so media deletion always failed
+  //   • multipart upload completion — S3 returns each part's ETag in the
+  //     response header; without `exposedHeaders` the JS SDK cannot read
+  //     them and cannot assemble the final object, breaking uploads of
+  //     large files
   cfnBucket.corsConfiguration = {
     corsRules: [
       {
-        allowedMethods: ['GET', 'HEAD'],
+        allowedMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE'],
         allowedOrigins: ['*'],
         allowedHeaders: ['*'],
+        // multipart upload completion reads part ETags from response
+        // headers; expose them so the Amplify Storage SDK can assemble
+        // the final object. The other headers are standard AWS request
+        // tracing that SDKs may also read.
+        exposedHeaders: [
+          'ETag',
+          'x-amz-server-side-encryption',
+          'x-amz-request-id',
+          'x-amz-id-2',
+        ],
         maxAge: 3000,
       },
     ],

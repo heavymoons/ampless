@@ -4,6 +4,8 @@ import type { PluginSettingField } from 'ampless'
 import {
   setPluginPublicSetting,
   deletePluginPublicSetting,
+  getPluginPublicSetting,
+  collectSettingWrites,
   pluginSettingKey,
 } from './plugin-settings.js'
 
@@ -123,3 +125,128 @@ describe('deletePluginPublicSetting', () => {
 // The settings-snapshot grouping logic lives in
 // `packages/runtime/src/plugin-settings.ts` and is covered by
 // `packages/runtime/src/plugin-settings.test.ts`.
+
+// ---------------------------------------------------------------------------
+// getPluginPublicSetting
+// ---------------------------------------------------------------------------
+
+describe('getPluginPublicSetting', () => {
+  it('returns null when no row exists', async () => {
+    expect(await getPluginPublicSetting('ga4', 'measurementId')).toBeNull()
+  })
+
+  it('delegates to kv.get with the correct pk and sk', async () => {
+    // Pre-populate via setPluginPublicSetting so the key composition matches
+    await setPluginPublicSetting('ga4', measurementId, 'G-XYZ')
+    const result = await getPluginPublicSetting('ga4', 'measurementId')
+    expect(result).toBe('G-XYZ')
+  })
+
+  it('uses pluginSettingKey for sk composition', async () => {
+    await setPluginPublicSetting('myplugin', enabled, true)
+    // Confirm the sk that kv.get uses matches pluginSettingKey output
+    const expectedSk = pluginSettingKey('myplugin', 'enabled')
+    expect(expectedSk).toBe('plugins.myplugin.enabled')
+    const result = await getPluginPublicSetting('myplugin', 'enabled')
+    expect(result).toBe(true)
+  })
+
+  it('returns null after the row is deleted', async () => {
+    await setPluginPublicSetting('ga4', measurementId, 'G-ABC')
+    await deletePluginPublicSetting('ga4', measurementId)
+    expect(await getPluginPublicSetting('ga4', 'measurementId')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// collectSettingWrites
+// ---------------------------------------------------------------------------
+
+// Minimal parse function matching the form's logic for these test fields:
+//   text → return raw string (never null for non-empty)
+//   boolean → 'true' → true, 'false' → false, else null
+//   number → numeric string → number, '' → null, else null
+function testParse(field: PluginSettingField, raw: string): unknown | null {
+  switch (field.type) {
+    case 'boolean':
+      if (raw === 'true') return true
+      if (raw === 'false') return false
+      return null
+    case 'number': {
+      const trimmed = raw.trim()
+      if (trimmed === '') return null
+      const n = Number(trimmed)
+      return Number.isNaN(n) ? null : n
+    }
+    default:
+      return raw
+  }
+}
+
+const textField: PluginSettingField = { type: 'text', key: 'title', label: 'Title' }
+const boolField: PluginSettingField = { type: 'boolean', key: 'enabled', label: 'Enabled' }
+const numField: PluginSettingField = { type: 'number', key: 'count', label: 'Count' }
+
+describe('collectSettingWrites', () => {
+  it('returns empty writes when no fields are touched', () => {
+    const { writes, invalid } = collectSettingWrites(
+      [textField, boolField],
+      { title: 'hello', enabled: 'true' },
+      {},
+      testParse
+    )
+    expect(writes).toHaveLength(0)
+    expect(invalid).toEqual({})
+  })
+
+  it('collects writes only for touched fields', () => {
+    const { writes, invalid } = collectSettingWrites(
+      [textField, boolField],
+      { title: 'hello', enabled: 'true' },
+      { title: true },
+      testParse
+    )
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.field.key).toBe('title')
+    expect(writes[0]?.parsed).toBe('hello')
+    expect(invalid).toEqual({})
+  })
+
+  it('marks touched field as invalid when parse returns null for non-empty raw', () => {
+    const { writes, invalid } = collectSettingWrites(
+      [boolField],
+      { enabled: 'notabool' },
+      { enabled: true },
+      testParse
+    )
+    expect(writes).toHaveLength(0)
+    expect(invalid).toEqual({ enabled: true })
+  })
+
+  it('skips (not in writes, not invalid) when parse returns null for empty non-string field', () => {
+    // number field with '' raw — parse returns null, raw is '' → skip path
+    const { writes, invalid } = collectSettingWrites(
+      [numField],
+      { count: '' },
+      { count: true },
+      testParse
+    )
+    // Must be skipped — not a write (can't save empty number) and not invalid
+    expect(writes).toHaveLength(0)
+    expect(invalid).toEqual({})
+  })
+
+  it('collects multiple touched fields', () => {
+    const { writes, invalid } = collectSettingWrites(
+      [textField, boolField, numField],
+      { title: 'hi', enabled: 'false', count: '5' },
+      { title: true, enabled: true, count: true },
+      testParse
+    )
+    expect(writes).toHaveLength(3)
+    expect(writes.find((w) => w.field.key === 'title')?.parsed).toBe('hi')
+    expect(writes.find((w) => w.field.key === 'enabled')?.parsed).toBe(false)
+    expect(writes.find((w) => w.field.key === 'count')?.parsed).toBe(5)
+    expect(invalid).toEqual({})
+  })
+})

@@ -27,6 +27,8 @@ import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
 import {
   setPluginPublicSetting,
   deletePluginPublicSetting,
+  getPluginPublicSetting,
+  collectSettingWrites,
 } from '../lib/plugin-settings.js'
 import {
   setPluginSecret,
@@ -200,6 +202,71 @@ export function PluginSettingsForm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId])
 
+  // Mount-time refresh: read public-field values directly from DDB (KvStore,
+  // strongly consistent) to bypass the S3 snapshot lag (~60 s). This mirrors
+  // the secretHasValue check above. Only non-touched fields are updated so
+  // in-flight edits are never clobbered.
+  useEffect(() => {
+    if (fields.length === 0) return
+    let cancelled = false
+    async function fetchStoredValues() {
+      const updates: Record<string, string> = {}
+      const newStoredKeys: string[] = []
+      // Fields where DDB authoritatively has NO value. Needed for the
+      // reverse direction of the S3 lag: after a Reset (delete) + reload
+      // within the snapshot window, SSR initialValues still carry the old
+      // stored value — without this, the UI would keep showing the deleted
+      // value and its Reset button.
+      const clearedKeys: string[] = []
+      for (const field of fields) {
+        try {
+          const stored = await getPluginPublicSetting(instanceId, field.key)
+          if (stored !== null && stored !== undefined) {
+            updates[field.key] = stringify(field, stored)
+            newStoredKeys.push(field.key)
+          } else {
+            clearedKeys.push(field.key)
+          }
+        } catch (err) {
+          console.warn('[plugin] mount fetch failed for field', field.key, err)
+        }
+      }
+      if (cancelled) return
+      if (Object.keys(updates).length > 0 || clearedKeys.length > 0) {
+        setState((prev) => {
+          const nextValues = { ...prev.values }
+          for (const [key, val] of Object.entries(updates)) {
+            // Never overwrite a field the user is currently editing
+            if (!prev.touched[key]) {
+              nextValues[key] = val
+            }
+          }
+          for (const key of clearedKeys) {
+            // DDB has no value → revert non-touched fields to the manifest
+            // default (mirrors what the Reset button does locally)
+            if (!prev.touched[key]) {
+              const field = fields.find((f) => f.key === key)
+              if (field) nextValues[key] = defaultDisplay(field)
+            }
+          }
+          return { ...prev, values: nextValues }
+        })
+        setStoredKeys((prev) => {
+          const next = new Set(prev)
+          for (const k of newStoredKeys) next.add(k)
+          for (const k of clearedKeys) next.delete(k)
+          return next
+        })
+      }
+    }
+    void fetchStoredValues()
+    return () => {
+      cancelled = true
+    }
+  // Only run on mount / instanceId change; fields is stable from manifest
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceId])
+
   // Display value priority: stored DDB value → manifest.default →
   // empty string. Showing the default in the input box (when no
   // stored row exists) makes it obvious what the public runtime is
@@ -284,27 +351,12 @@ export function PluginSettingsForm({
     setError(null)
     setInfo(null)
 
-    const newInvalid: Record<string, boolean> = {}
-    const writes: Array<Promise<unknown>> = []
-    const writtenKeys: string[] = []
-
-    for (const field of fields) {
-      if (!state.touched[field.key]) continue
-      const raw = state.values[field.key] ?? ''
-      const parsed = parse(field, raw)
-      if (parsed === null && raw !== '') {
-        newInvalid[field.key] = true
-        continue
-      }
-      // For string-like fields parse() returns the raw string (or
-      // empty string). For non-string fields, parse() of '' is null
-      // — we treat that as "skip this field" rather than "save
-      // empty" since empty isn't a valid value there. Resetting to
-      // default goes through the explicit "Reset" button.
-      if (parsed === null) continue
-      writes.push(setPluginPublicSetting(instanceId, field, parsed))
-      writtenKeys.push(field.key)
-    }
+    const { writes: pendingWrites, invalid: newInvalid } = collectSettingWrites(
+      fields,
+      state.values,
+      state.touched,
+      parse
+    )
 
     if (Object.keys(newInvalid).length > 0) {
       setState((prev) => ({ ...prev, invalid: newInvalid }))
@@ -313,18 +365,38 @@ export function PluginSettingsForm({
       return
     }
 
+    // Honest no-op: nothing touched or all touched fields were skipped
+    // (empty non-string fields that can't be "saved empty"). Tell the user
+    // so they don't think a server round-trip happened.
+    if (pendingWrites.length === 0) {
+      setInfo(t('plugins.noChanges'))
+      setSaving(false)
+      return
+    }
+
     try {
-      await Promise.all(writes)
+      await Promise.all(
+        pendingWrites.map(({ field, parsed }) =>
+          setPluginPublicSetting(instanceId, field, parsed)
+        )
+      )
+      const writtenKeys = pendingWrites.map(({ field }) => field.key)
       setInfo(t('plugins.saved'))
-      // Clear touched so the next save round only writes new edits.
-      setState((prev) => ({ ...prev, touched: {}, invalid: {} }))
-      if (writtenKeys.length > 0) {
-        setStoredKeys((prev) => {
-          const next = new Set(prev)
-          for (const k of writtenKeys) next.add(k)
-          return next
-        })
-      }
+      // Remove only the keys that were actually written from `touched`.
+      // Un-written touched fields (e.g. empty non-string fields that were
+      // skipped by the null-parse path) must stay touched so the next save
+      // can attempt them again — the old wholesale `touched: {}` reset was
+      // silently dropping those edits.
+      setState((prev) => {
+        const nextTouched = { ...prev.touched }
+        for (const k of writtenKeys) delete nextTouched[k]
+        return { ...prev, touched: nextTouched, invalid: {} }
+      })
+      setStoredKeys((prev) => {
+        const next = new Set(prev)
+        for (const k of writtenKeys) next.add(k)
+        return next
+      })
       scheduleCacheInvalidation()
     } catch (err) {
       console.error('[plugin] save failed', err)
