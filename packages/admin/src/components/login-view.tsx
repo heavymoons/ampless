@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Fingerprint } from 'lucide-react'
 import {
   signIn,
   signUp,
@@ -20,6 +21,14 @@ import {
   CardDescription,
 } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
+import {
+  isWebAuthnSupported,
+  signInWithPasskey,
+  classifyPasskeyError,
+} from '../lib/passkey.js'
+
+/** localStorage key remembering the last email used to sign in. */
+const LAST_EMAIL_KEY = 'ampless.lastSignInEmail'
 
 type Mode = 'signIn' | 'signUp' | 'confirm' | 'forgot' | 'reset'
 
@@ -33,6 +42,59 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Resolved client-side in a useEffect so SSR renders the same markup
+  // (the passkey button is gated below) and hydration doesn't mismatch.
+  const [passkeySupported, setPasskeySupported] = useState(false)
+  const emailRef = useRef<HTMLInputElement>(null)
+
+  // Detect WebAuthn support and pre-fill the last-used email so a
+  // returning operator's passkey sign-in is one click.
+  useEffect(() => {
+    setPasskeySupported(isWebAuthnSupported())
+    try {
+      const last = window.localStorage.getItem(LAST_EMAIL_KEY)
+      if (last) setEmail(last)
+    } catch {
+      // localStorage can throw in private-mode / sandboxed contexts;
+      // the email field just stays empty.
+    }
+  }, [])
+
+  function rememberEmail(value: string) {
+    try {
+      window.localStorage.setItem(LAST_EMAIL_KEY, value)
+    } catch {
+      // Non-fatal — see the read above.
+    }
+  }
+
+  async function handlePasskeySignIn() {
+    setError(null)
+    setInfo(null)
+    if (!email) {
+      setError(t('auth.passkey.emailRequired'))
+      emailRef.current?.focus()
+      return
+    }
+    setLoading(true)
+    try {
+      const outcome = await signInWithPasskey(email)
+      if (outcome.status === 'signedIn') {
+        rememberEmail(email)
+        router.push('/admin')
+        router.refresh()
+      } else if (outcome.status === 'noPasskey') {
+        setInfo(t('auth.passkey.noneRegistered'))
+      } else {
+        setError(t('auth.additionalStep', { step: outcome.step }))
+      }
+    } catch (err) {
+      console.error('[login-view] passkey sign-in failed', err)
+      setError(t(`auth.passkey.${classifyPasskeyError(err)}`))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   function go(next: Mode) {
     setMode(next)
@@ -52,6 +114,7 @@ export function LoginPage() {
       if (mode === 'signIn') {
         const result = await signIn({ username: email, password })
         if (result.isSignedIn) {
+          rememberEmail(email)
           router.push('/admin')
           router.refresh()
         } else {
@@ -115,6 +178,7 @@ export function LoginPage() {
                 <Label htmlFor="email">{t('auth.common.email')}</Label>
                 <Input
                   id="email"
+                  ref={emailRef}
                   type="email"
                   required
                   value={email}
@@ -167,6 +231,19 @@ export function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? t('auth.common.working') : t(`auth.${mode}.submit`)}
             </Button>
+
+            {mode === 'signIn' && passkeySupported && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                disabled={loading}
+                onClick={() => void handlePasskeySignIn()}
+              >
+                <Fingerprint className="h-4 w-4" />
+                {t('auth.signIn.passkeyButton')}
+              </Button>
+            )}
 
             <div className="space-y-1 text-center text-sm">
               {mode === 'signIn' && (

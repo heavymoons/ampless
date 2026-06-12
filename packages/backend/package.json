@@ -73,7 +73,7 @@
     "fflate": "^0.8.3"
   },
   "peerDependencies": {
-    "@aws-amplify/backend": "^1",
+    "@aws-amplify/backend": "^1.19.0",
     "aws-cdk-lib": "^2"
   },
   "devDependencies": {

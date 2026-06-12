@@ -39,11 +39,15 @@ function makeProjectPkg(extra: Record<string, unknown> = {}): string {
         '@tiptap/pm': '^2.10.4',
         '@tiptap/react': '^2.10.4',
         '@tiptap/starter-kit': '^2.10.4',
+        'aws-amplify': '^6.10.0',
+        '@aws-amplify/adapter-nextjs': '^1.4.0',
         'react': '^19.0.0',
         'my-own-dep': '^1.0.0',
       },
       devDependencies: {
         typescript: '^5.0.0',
+        '@aws-amplify/backend': '^1.10.0',
+        '@aws-amplify/backend-cli': '^1.4.0',
       },
       ...extra,
     },
@@ -76,10 +80,14 @@ function makeTemplatePkg(): string {
         '@tiptap/pm': '^3.23.6',
         '@tiptap/react': '^3.23.6',
         '@tiptap/starter-kit': '^3.23.6',
+        'aws-amplify': '^6.17.0',
+        '@aws-amplify/adapter-nextjs': '^1.7.3',
         'react': '^19.0.0',
       },
       devDependencies: {
         typescript: '^6.0.0',
+        '@aws-amplify/backend': '^1.22.0',
+        '@aws-amplify/backend-cli': '^1.8.2',
       },
     },
     null,
@@ -500,6 +508,22 @@ describe('runUpgradeIn', () => {
     expect(merged.dependencies['@tiptap/extension-foo']).toBe('^2.0.0')  // unchanged
   })
 
+  // 7d. exact-name managed Amplify deps: synced from template to project.
+  // The webAuthn (passkey) backend prop requires a recent
+  // @aws-amplify/backend, and the client APIs need aws-amplify@^6.17.0 —
+  // an old site's lockfile would otherwise keep stale versions and break
+  // either synth or sign-in.
+  it('syncs the managed aws-amplify deps from template (exact-name)', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    const merged = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    // dependencies side
+    expect(merged.dependencies['aws-amplify']).toBe('^6.17.0')
+    expect(merged.dependencies['@aws-amplify/adapter-nextjs']).toBe('^1.7.3')
+    // devDependencies side (backend toolchain lives there in the template)
+    expect(merged.devDependencies['@aws-amplify/backend']).toBe('^1.22.0')
+    expect(merged.devDependencies['@aws-amplify/backend-cli']).toBe('^1.8.2')
+  })
+
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it
   it('seeds *.custom.ts stubs into projects that do not have them yet', async () => {
     // Pre-2026-05 scaffolds shipped without the extension stubs. The
@@ -595,6 +619,45 @@ export {}
       expect(result.updated).not.toContain('amplify/secrets/encryption-key.ts')
     } finally {
       rmSync(tplWithSecretPlaceholder, { recursive: true, force: true })
+    }
+  })
+
+  // 8d. seed-if-missing auth/resource.custom.ts: the passkey-knob stub.
+  // `amplify/auth/resource.ts` now imports './resource.custom.js', so a
+  // pre-passkeys site needs the stub seeded once; a second upgrade must
+  // preserve whatever the engineer put there (e.g. a custom RP ID).
+  it('seeds amplify/auth/resource.custom.ts once and preserves it on re-run', async () => {
+    const stub =
+      "import type { AmplessAuthConfigOpts } from '@ampless/backend'\n\n" +
+      "export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {}\n"
+    const tplWithAuthCustom = makeTemplateDir({
+      'amplify/auth/resource.custom.ts': stub,
+    })
+    try {
+      const authCustomPath = join(projectDir, 'amplify', 'auth', 'resource.custom.ts')
+      // Sanity: project starts without the stub.
+      expect(existsSync(authCustomPath)).toBe(false)
+
+      // First upgrade seeds it.
+      const first = await runUpgradeIn(projectDir, tplWithAuthCustom, { noInstall: true })
+      expect(existsSync(authCustomPath)).toBe(true)
+      expect(readFileSync(authCustomPath, 'utf-8')).toBe(stub)
+      expect(first.seeded).toContain('amplify/auth/resource.custom.ts')
+
+      // Engineer pins a custom Relying Party ID for a custom domain.
+      const edited =
+        "import type { AmplessAuthConfigOpts } from '@ampless/backend'\n\n" +
+        "export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {\n" +
+        "  webAuthn: { relyingPartyId: 'admin.example.com' },\n}\n"
+      writeFileSync(authCustomPath, edited)
+
+      // Second upgrade must NOT clobber the edit.
+      const second = await runUpgradeIn(projectDir, tplWithAuthCustom, { noInstall: true })
+      expect(readFileSync(authCustomPath, 'utf-8')).toBe(edited)
+      expect(second.seeded).not.toContain('amplify/auth/resource.custom.ts')
+      expect(second.updated).not.toContain('amplify/auth/resource.custom.ts')
+    } finally {
+      rmSync(tplWithAuthCustom, { recursive: true, force: true })
     }
   })
 

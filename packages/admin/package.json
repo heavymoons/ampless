@@ -71,7 +71,7 @@
   },
   "peerDependencies": {
     "@aws-amplify/adapter-nextjs": "^1",
-    "aws-amplify": "^6",
+    "aws-amplify": "^6.17.0",
     "next": "^15 || ^16",
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19"

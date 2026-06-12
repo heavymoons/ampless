@@ -50,6 +50,22 @@ export const auth = defineAuth(amplessAuthConfig({ postConfirmation }))
 
 > `defineAuth` は `amplify/auth/resource.ts` 自体に記述する必要があります。Amplify Gen 2 のインポートパス検証機能が `defineAuth` / `defineData` / `defineStorage` の呼び出し元を検査し、他のファイル（`node_modules/@ampless/backend/...` 配下のラッパーを含む）から呼び出された場合に `Amplify Auth must be defined in amplify/auth/resource.ts` というエラーを投げます。`amplessAuthConfig` は props オブジェクトを返すため、ampless のデフォルト設定を失わずにこのファイルで `defineAuth(...)` を呼び出せます。
 
+#### パスキー（WebAuthn）
+
+`amplessAuthConfig` はデフォルトでパスキーサインインを有効化します。オペレーターは管理画面のアカウントページからパスキーを登録すると、Face ID / Touch ID / セキュリティキーでサインインできます。パスワードフローは初回ブートストラップ兼フォールバックとして常に利用可能なまま残ります。
+
+```ts
+amplessAuthConfig({ postConfirmation })                       // パスキー有効・RP ID は自動解決
+amplessAuthConfig({ postConfirmation, webAuthn: true })       // デフォルトと同じ
+amplessAuthConfig({                                            // カスタムドメイン用に Relying Party ID を固定
+  postConfirmation,
+  webAuthn: { relyingPartyId: 'admin.example.com' },          // プロトコル・パスなしの bare domain
+})
+amplessAuthConfig({ postConfirmation, webAuthn: false })      // パスワードのみのサインイン
+```
+
+デフォルト（`true`）では Amplify がデプロイドメインから WebAuthn の Relying Party ID を自動解決します。これは Amplify Hosting ドメインと `localhost` サンドボックスで動作します。管理画面を **CDN 配下のカスタムドメイン** で配信している場合、自動解決された RP ID がブラウザの見る URL と一致せず、サインインが `SecurityError` で失敗します。その場合はオペレーターがアクセスする bare domain を `relyingPartyId` に固定してください。パスキー登録後に RP ID を変更すると、登録済みの認証情報がすべて無効化されます。テンプレートではこのノブを `amplify/auth/resource.custom.ts`（`webAuthn?: AmplessWebAuthnOption | false`）経由で設定します。[docs/passkeys.ja.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.ja.md) を参照してください。
+
 ### `amplify/data/resource.ts`
 
 ```ts

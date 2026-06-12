@@ -1,5 +1,25 @@
 import type { defineAuth } from '@aws-amplify/backend'
 
+/**
+ * WebAuthn (passkey) login knob. `true` lets Amplify auto-resolve the
+ * Relying Party ID from the deployment domain (works on Amplify Hosting
+ * domains and `localhost` sandboxes); the object form pins the RP ID
+ * explicitly, which is required when the admin is served from a custom
+ * domain behind a CDN (the auto-resolved RP ID would be the Amplify
+ * Hosting domain and the browser raises `SecurityError`).
+ *
+ * Changing the RP ID after passkeys exist invalidates every registered
+ * credential — operators have to re-register. The password flow always
+ * stays available as the fallback.
+ *
+ * Derived from `defineAuth`'s `loginWith.webAuthn` so it tracks the
+ * underlying Amplify type. The non-`undefined` branch is the shape we
+ * accept (`true | { relyingPartyId; userVerification? }`).
+ */
+export type AmplessWebAuthnOption = NonNullable<
+  NonNullable<Parameters<typeof defineAuth>[0]['loginWith']>['webAuthn']
+>
+
 export interface AmplessAuthConfigOpts {
   /**
    * The `post-confirmation` Cognito Lambda trigger that promotes the
@@ -13,6 +33,14 @@ export interface AmplessAuthConfigOpts {
    * through without losing functionality.
    */
   postConfirmation?: unknown
+
+  /**
+   * Passkey (WebAuthn) login. Defaults to `true` (auto RP ID) so new
+   * sites get passkeys out of the box. Pass the object form to pin the
+   * Relying Party ID on a custom domain, or `false` to opt out entirely
+   * (the `webAuthn` key is then omitted from the Cognito config).
+   */
+  webAuthn?: AmplessWebAuthnOption | false
 }
 
 /**
@@ -46,6 +74,9 @@ export function amplessAuthConfig(
   return {
     loginWith: {
       email: true,
+      // Passkeys are on by default; `webAuthn: false` drops the key so
+      // Cognito provisions a password-only sign-in policy.
+      ...(opts.webAuthn === false ? {} : { webAuthn: opts.webAuthn ?? true }),
     },
     groups: ['ampless-admin', 'ampless-editor', 'ampless-reader'],
     triggers: opts.postConfirmation

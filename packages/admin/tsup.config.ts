@@ -246,6 +246,7 @@ export default defineConfig({
     'src/components/posts-list-view.tsx',
     'src/components/users-list-view.tsx',
     'src/components/mcp-tokens-view.tsx',
+    'src/components/account-view.tsx',
     // Same rationale as the *-view.tsx entries: the form is a client
     // component imported by `src/pages/plugins.tsx` (a server-side
     // factory). Without a dedicated entry, esbuild inlines the form

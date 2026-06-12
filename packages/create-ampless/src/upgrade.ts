@@ -88,8 +88,32 @@ const AMPLESS_PACKAGES = new Set([
  */
 const AMPLESS_MANAGED_TRANSITIVE_PREFIXES: readonly string[] = ['@tiptap/'] as const
 
+/**
+ * Exact-name non-`@ampless/*` packages whose version ampless pins on
+ * behalf of the consumer — same rationale as the `@tiptap/*` prefix
+ * list, but for the Amplify SDK + backend toolchain rather than the
+ * editor. Listed exactly (not by prefix) so unrelated `@aws-amplify/*`
+ * transitives a site might add stay untouched.
+ *
+ * `aws-amplify` / `@aws-amplify/adapter-nextjs` are the client-side
+ * peers `@ampless/admin` declares (passkey sign-in needs the WebAuthn
+ * APIs that shipped in `aws-amplify@6.17.0`). `@aws-amplify/backend` /
+ * `@aws-amplify/backend-cli` are the synth-time deps — passkeys require
+ * `loginWith.webAuthn`, which a stale `@aws-amplify/backend` in the
+ * site's lockfile wouldn't support, so the `npm run sandbox` synth would
+ * fail. Keeping all four in lockstep with `templates/_shared/package.json`
+ * avoids that on `update-ampless`.
+ */
+const AMPLESS_MANAGED_EXACT_DEPS: ReadonlySet<string> = new Set([
+  'aws-amplify',
+  '@aws-amplify/adapter-nextjs',
+  '@aws-amplify/backend',
+  '@aws-amplify/backend-cli',
+])
+
 function isManagedDep(name: string): boolean {
   if (AMPLESS_PACKAGES.has(name)) return true
+  if (AMPLESS_MANAGED_EXACT_DEPS.has(name)) return true
   return AMPLESS_MANAGED_TRANSITIVE_PREFIXES.some((p) => name.startsWith(p))
 }
 

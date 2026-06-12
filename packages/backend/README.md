@@ -50,6 +50,22 @@ export const auth = defineAuth(amplessAuthConfig({ postConfirmation }))
 
 > `defineAuth` must live in `amplify/auth/resource.ts` itself. Amplify Gen 2's import-path verifier inspects the call site of `defineAuth` / `defineData` / `defineStorage` and throws `Amplify Auth must be defined in amplify/auth/resource.ts` if it's invoked from any other file (including a `node_modules/@ampless/backend/...` wrapper). `amplessAuthConfig` returns the props object so you can call `defineAuth(...)` here without losing the ampless defaults.
 
+#### Passkeys (WebAuthn)
+
+`amplessAuthConfig` enables passkey sign-in by default. Operators can register a passkey from the admin account page and then sign in with Face ID / Touch ID / a security key. The password flow always stays available as the bootstrap + fallback.
+
+```ts
+amplessAuthConfig({ postConfirmation })                       // passkeys on, RP ID auto-resolved
+amplessAuthConfig({ postConfirmation, webAuthn: true })       // same as the default
+amplessAuthConfig({                                            // pin the Relying Party ID for a custom domain
+  postConfirmation,
+  webAuthn: { relyingPartyId: 'admin.example.com' },          // bare domain, no protocol or path
+})
+amplessAuthConfig({ postConfirmation, webAuthn: false })      // password-only sign-in
+```
+
+The default (`true`) lets Amplify auto-resolve the WebAuthn Relying Party ID from the deployment domain, which works on Amplify Hosting domains and on a `localhost` sandbox. If the admin is served from a **custom domain behind a CDN**, the auto-resolved RP ID won't match the URL the browser sees and sign-in fails with a `SecurityError` — pin `relyingPartyId` to the bare domain operators visit. Changing the RP ID after passkeys exist invalidates every registered credential. The template wires this knob through `amplify/auth/resource.custom.ts` (`webAuthn?: AmplessWebAuthnOption | false`). See [docs/passkeys.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.md).
+
 ### `amplify/data/resource.ts`
 
 ```ts
