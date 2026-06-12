@@ -185,19 +185,23 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // `defineAuth` defaults to the Cognito-recommended policy: 8+ chars
   // AND uppercase AND lowercase AND number AND symbol. That's stricter
   // than the admin UX warrants for a single-tenant CMS — we want
-  // "minimum 8 characters" full stop. Override directly on the CFN
-  // user pool.
+  // "minimum 8 characters" full stop.
+  //
+  // Must be a path-scoped override on `Policies.PasswordPolicy` — an
+  // assignment to `cfnUserPool.policies` would replace the WHOLE
+  // Policies object, wiping the `SignInPolicy.AllowedFirstAuthFactors`
+  // that the auth construct emits for passkey (webAuthn) sign-in, and
+  // Cognito then rejects passkeys with "WebAuthn not enabled for this
+  // pool" even though the relying-party ID is set.
   const cfnUserPool = backend.auth.resources.cfnResources.cfnUserPool
-  cfnUserPool.policies = {
-    passwordPolicy: {
-      minimumLength: 8,
-      requireLowercase: false,
-      requireUppercase: false,
-      requireNumbers: false,
-      requireSymbols: false,
-      temporaryPasswordValidityDays: 7,
-    },
-  }
+  cfnUserPool.addPropertyOverride('Policies.PasswordPolicy', {
+    MinimumLength: 8,
+    RequireLowercase: false,
+    RequireUppercase: false,
+    RequireNumbers: false,
+    RequireSymbols: false,
+    TemporaryPasswordValidityDays: 7,
+  })
 
   // --- Auth: post-confirmation Lambda permissions ---
   //
