@@ -19,7 +19,9 @@
     "@ampless/plugin-webhook": "0.2.0-alpha.51",
     "@ampless/plugin-x-embed": "1.0.0-alpha.13",
     "@ampless/plugin-youtube": "1.0.0-alpha.13",
-    "@ampless/runtime": "1.0.0-alpha.59"
+    "@ampless/runtime": "1.0.0-alpha.59",
+    "@ampless/plugin-highlight": "0.0.0",
+    "@ampless/plugin-mermaid": "0.0.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -144,6 +146,7 @@
     "phase6d-public-html-for-post",
     "plugin-apiversion-policy-docs",
     "plugin-hook-result-reservation",
+    "plugin-mermaid-highlight",
     "plugin-name-simple-identifier",
     "plugin-namespace-and-key-allowlist",
     "plugin-parsehtml-restores-embed-from-url-link",
