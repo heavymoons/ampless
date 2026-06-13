@@ -1,0 +1,58 @@
+{
+  "name": "@ampless/plugin-highlight",
+  "version": "0.0.0",
+  "description": "Syntax highlighting plugin for ampless — highlights `code.language-*` blocks on the public site via a lazily CDN-loaded highlight.js",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-highlight"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-highlight#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "highlight",
+    "highlight.js",
+    "syntax-highlighting",
+    "cms"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "highlight",
+    "trustLevel": "untrusted",
+    "capabilities": [
+      "publicHead"
+    ],
+    "displayName": {
+      "en": "Syntax highlighting",
+      "ja": "シンタックスハイライト"
+    }
+  }
+}

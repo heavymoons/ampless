@@ -255,6 +255,18 @@ importers:
         specifier: workspace:*
         version: link:../ampless
 
+  packages/plugin-highlight:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
+  packages/plugin-mermaid:
+    dependencies:
+      ampless:
+        specifier: workspace:*
+        version: link:../ampless
+
   packages/plugin-og-image:
     dependencies:
       '@jsquash/avif':
