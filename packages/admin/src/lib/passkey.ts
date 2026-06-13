@@ -13,6 +13,7 @@
  */
 
 import { signIn } from 'aws-amplify/auth'
+import type { AmplessOutputs } from '@ampless/runtime'
 
 /** Cognito sign-in step that signals the account has no passkey yet. */
 const FIRST_FACTOR_SELECTION = 'CONTINUE_SIGN_IN_WITH_FIRST_FACTOR_SELECTION'
@@ -102,4 +103,27 @@ export async function signInWithPasskey(username: string): Promise<PasskeySignIn
     },
   })
   return interpretPasskeySignInResult(result)
+}
+
+/**
+ * Narrow helper — the shape of the auth.passwordless block we care about.
+ * Kept local because `AmplessOutputs` is intentionally open-ended (`[key:
+ * string]: unknown`) and the runtime comment says "narrow at call sites."
+ */
+type OutputsWithWebAuthn = {
+  auth?: { passwordless?: { web_authn?: unknown } }
+}
+
+/**
+ * Returns `true` when the deployed backend has WebAuthn (passkeys) enabled,
+ * determined by the presence of `auth.passwordless.web_authn` in
+ * `amplify_outputs.json`. The key is absent when `webAuthn: false` was set
+ * in `amplify/auth/resource.custom.ts`.
+ *
+ * Use this to gate passkey UI so that disabling passkeys in the backend
+ * removes the buttons entirely — no broken prompts or misleading UI.
+ */
+export function isWebAuthnEnabled(outputs: AmplessOutputs): boolean {
+  const narrowed = outputs as OutputsWithWebAuthn
+  return narrowed.auth?.passwordless?.web_authn != null
 }

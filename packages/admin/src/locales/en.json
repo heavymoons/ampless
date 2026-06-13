@@ -409,7 +409,8 @@
       "delete": "Delete",
       "deleteConfirm": "Delete this passkey? You will no longer be able to sign in with it.",
       "loadError": "Failed to load passkeys",
-      "unsupported": "This browser does not support passkeys."
+      "unsupported": "This browser does not support passkeys.",
+      "disabled": "Passkeys are disabled for this site."
     }
   }
 }

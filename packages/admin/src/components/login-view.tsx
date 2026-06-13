@@ -32,7 +32,7 @@ const LAST_EMAIL_KEY = 'ampless.lastSignInEmail'
 
 type Mode = 'signIn' | 'signUp' | 'confirm' | 'forgot' | 'reset'
 
-export function LoginPage() {
+export function LoginPage({ passkeysEnabled = true }: { passkeysEnabled?: boolean }) {
   const router = useRouter()
   const t = useT()
   const [mode, setMode] = useState<Mode>('signIn')
@@ -232,7 +232,7 @@ export function LoginPage() {
               {loading ? t('auth.common.working') : t(`auth.${mode}.submit`)}
             </Button>
 
-            {mode === 'signIn' && passkeySupported && (
+            {mode === 'signIn' && passkeysEnabled && passkeySupported && (
               <Button
                 type="button"
                 variant="outline"

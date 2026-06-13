@@ -24,11 +24,11 @@ The default works out of the box on:
 - **Amplify Hosting domains** (`*.amplifyapp.com`)
 - **`localhost` sandboxes** (`npm run sandbox` + `localhost:3000`)
 
-In both cases Amplify auto-resolves the WebAuthn **Relying Party (RP) ID** from the domain the browser is on.
+In Amplify Hosting pipeline builds the WebAuthn **Relying Party (RP) ID** is automatically derived from the hostname of `site.url` in `cms.config.ts` — no manual configuration needed for the most common case. In `ampx sandbox` the RP ID stays `localhost` (auto-resolved by Amplify).
 
-### Custom domains behind a CDN
+### Custom domains: different subdomain than site.url
 
-If you serve the admin from a **custom domain fronted by your own CDN** (see [cdn-fronting-tips.md](./cdn-fronting-tips.md)), the auto-resolved RP ID won't match the URL the browser sees, and passkey sign-in fails with a `SecurityError`. The admin surfaces this as *"This site isn't configured for passkeys on this domain"*.
+If the admin is served from a **different subdomain** than `site.url` (e.g. site is `https://example.com` but admin CDN is on `admin.example.com`), the auto-derived RP ID (`example.com`) won't match the URL the browser sees, and passkey sign-in fails with a `SecurityError`. The admin surfaces this as *"This site isn't configured for passkeys on this domain"*.
 
 Pin the RP ID to the **bare domain** operators visit (no protocol, no path) in `amplify/auth/resource.custom.ts`:
 
@@ -52,7 +52,7 @@ export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {
 }
 ```
 
-This drops the `webAuthn` key from the Cognito config so the User Pool gets a password-only sign-in policy.
+This drops the `webAuthn` key from the Cognito config so the User Pool gets a password-only sign-in policy. The passkey button and the passkeys section on the Account page are also removed from the admin UI automatically (they mirror the deployed state from `amplify_outputs.json`).
 
 ### ⚠️ Changing the RP ID invalidates existing passkeys
 
@@ -60,7 +60,7 @@ A WebAuthn credential is bound to the RP ID it was registered under. **Changing 
 
 ## How it's wired
 
-- **Backend** — `amplessAuthConfig({ webAuthn })` (`@ampless/backend`) sets `loginWith.webAuthn`. The template threads the knob through `amplify/auth/resource.custom.ts` (a per-site file `update-ampless` never overwrites). See the [`@ampless/backend` README](../packages/backend/README.md).
+- **Backend** — `amplessAuthConfig({ webAuthn })` (`@ampless/backend`) sets `loginWith.webAuthn`. In pipeline builds `resolveWebAuthn({ siteUrl, isPipeline })` auto-derives the RP ID from `cms.config.ts` `site.url`; sandboxes fall back to `localhost` auto-resolution. The template threads overrides through `amplify/auth/resource.custom.ts` (a per-site file `update-ampless` never overwrites). See the [`@ampless/backend` README](../packages/backend/README.md).
 - **Sign-in** — the login screen runs `signIn({ options: { authFlowType: 'USER_AUTH', preferredChallenge: 'WEB_AUTHN' } })`; Amplify performs the browser WebAuthn ceremony.
 - **Registration / listing / deletion** — the Account page uses `associateWebAuthnCredential` / `listWebAuthnCredentials` / `deleteWebAuthnCredential`. Registration requires a signed-in session, which is why the password login can't be removed.
 

@@ -43,6 +43,40 @@ export interface AmplessAuthConfigOpts {
   webAuthn?: AmplessWebAuthnOption | false
 }
 
+export interface ResolveWebAuthnOpts {
+  /** Explicit override from resource.custom.ts. When present, takes precedence. */
+  override?: AmplessWebAuthnOption | false
+  /** `site.url` from cms.config — used to derive hostname in pipeline builds. */
+  siteUrl: string
+  /** True only in Amplify Hosting pipeline builds (`Boolean(process.env.AWS_BRANCH)`). */
+  isPipeline: boolean
+}
+
+/**
+ * Single source of truth for the WebAuthn relying-party configuration.
+ *
+ * Priority:
+ *   1. `override !== undefined` → return it verbatim (supports `false` to disable).
+ *   2. Not a pipeline build (sandbox / local) → return `true` so Amplify
+ *      auto-resolves the RP ID from `localhost` (no RP ID needed in dev).
+ *   3. Pipeline build → derive `{ relyingPartyId }` from `siteUrl`.
+ *      Falls back to `true` if `siteUrl` is not a valid URL (logs a warning).
+ */
+export function resolveWebAuthn(opts: ResolveWebAuthnOpts): AmplessWebAuthnOption | false {
+  if (opts.override !== undefined) return opts.override
+  if (!opts.isPipeline) return true
+  try {
+    const hostname = new URL(opts.siteUrl).hostname
+    return { relyingPartyId: hostname }
+  } catch {
+    console.warn(
+      '[ampless] invalid site.url for WebAuthn relying party, falling back to auto:',
+      opts.siteUrl
+    )
+    return true
+  }
+}
+
 /**
  * Build the ampless Cognito configuration (User Pool + Identity Pool
  * with the three role groups and the optional post-confirmation
