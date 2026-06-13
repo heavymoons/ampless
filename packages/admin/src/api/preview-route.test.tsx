@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import React from 'react'
 import type { Post } from 'ampless'
 import type { Admin } from '../index.js'
 import { createPreviewRouteHandler } from './preview-route.js'
@@ -32,6 +33,7 @@ function makeAdmin(overrides: Partial<Admin> = {}): Admin {
     getAmpless: vi.fn().mockResolvedValue({
       renderBody: vi.fn().mockResolvedValue(null),
       publicPostScriptsForPage: vi.fn().mockResolvedValue(null),
+      publicHeadForPreview: vi.fn().mockResolvedValue(null),
     }),
     loadThemeConfig: vi.fn().mockResolvedValue({
       cssVars: { '--color-primary': '#2563eb', '--color-background': '#ffffff' },
@@ -124,6 +126,7 @@ describe('createPreviewRouteHandler', () => {
       getAmpless: vi.fn().mockResolvedValue({
         renderBody: vi.fn().mockResolvedValue(null),
         publicPostScriptsForPage: vi.fn().mockResolvedValue(null),
+        publicHeadForPreview: vi.fn().mockResolvedValue(null),
       }),
     })
 
@@ -179,5 +182,38 @@ describe('createPreviewRouteHandler', () => {
     const text = await res.text()
     expect(text).toContain('<main class="my-custom-wrapper">')
     expect(text).not.toContain('prose prose-neutral')
+  })
+
+  it('plugin publicHead scripts are injected into <head> of the preview document', async () => {
+    // This is the core regression guard for the mermaid/highlight fix:
+    // publicHeadForPreview returns a React element (a <script> tag) and
+    // the handler must render it into the <head> section of the HTML.
+    const admin = makeAdmin({
+      getAmpless: vi.fn().mockResolvedValue({
+        renderBody: vi.fn().mockResolvedValue(null),
+        publicPostScriptsForPage: vi.fn().mockResolvedValue(null),
+        publicHeadForPreview: vi.fn().mockResolvedValue(
+          React.createElement('script', {
+            id: 'ampless-mermaid',
+            dangerouslySetInnerHTML: { __html: '/*mermaid-marker*/' },
+          })
+        ),
+      }),
+    })
+    const handler = createPreviewRouteHandler(admin)
+    const res = await handler(makeRequest())
+    expect(res.status).toBe(200)
+    const text = await res.text()
+
+    // The marker script must appear in the output
+    expect(text).toContain('ampless-mermaid')
+    expect(text).toContain('mermaid-marker')
+
+    // It must appear within the <head> section (before </head>)
+    const headEndIdx = text.indexOf('</head>')
+    const markerIdx = text.indexOf('mermaid-marker')
+    expect(headEndIdx).toBeGreaterThan(-1)
+    expect(markerIdx).toBeGreaterThan(-1)
+    expect(markerIdx).toBeLessThan(headEndIdx)
   })
 })

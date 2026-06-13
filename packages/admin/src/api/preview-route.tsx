@@ -303,10 +303,16 @@ export function createPreviewRouteHandler(
         {await ampless.publicPostScriptsForPage([draft])}
       </>
     )
+    // Collect plugin publicHead for the preview <head>. Uses the non-gated
+    // renderHeadForPreview so content-decoration plugins (mermaid, highlight)
+    // are included even though this is an admin route (isPublicRequest() would
+    // otherwise return null and suppress them).
+    const headNode = await ampless.publicHeadForPreview()
     // Dynamic import: see factory TSDoc. The module is server-only and
     // resolved at request time to avoid Turbopack's static-import-graph check.
     const { renderToStaticMarkup } = await import('react-dom/server')
     const fragment = renderToStaticMarkup(node)
+    const headMarkup = headNode ? renderToStaticMarkup(<>{headNode}</>) : ''
 
     // Resolve theme CSS vars for the preview document. Falls back to an empty
     // object on error (no vars = preview still works, just without theme
@@ -333,6 +339,7 @@ export function createPreviewRouteHandler(
       `<meta charset="utf-8">` +
       (themeCssBlock ? `<style>${themeCssBlock}</style>` : '') +
       `<style id="ampless-preview-base">${PREVIEW_BASE_CSS}</style>` +
+      headMarkup +
       `</head>` +
       `<body class="ampless-preview">` +
       `<main class="${bodyClassName}">${fragment}</main>` +

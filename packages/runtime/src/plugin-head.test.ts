@@ -946,6 +946,80 @@ describe('createPluginHead', () => {
       expect(schemaWarn).toBe(false)
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // renderHeadForPreview — non-gated head collector
+  // ---------------------------------------------------------------------------
+
+  describe('renderHeadForPreview()', () => {
+    it('returns a ReactNode containing inlineScript from a publicHead plugin without mocking next/headers', async () => {
+      // KEY TEST: renderHeadForPreview() does NOT call isPublicRequest() so it
+      // works without any request context — the existing next/headers mock above
+      // is irrelevant (this test does not depend on it). The important assertion
+      // is that plugin publicHead descriptors are collected and rendered even
+      // though we are not in a "public request" context.
+      const plugin = definePlugin({
+        name: 'mermaid',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead() {
+          return [
+            {
+              type: 'inlineScript',
+              id: 'preview-head-marker',
+              body: '/*marker*/',
+            },
+          ] satisfies PublicHeadDescriptor[]
+        },
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+      const node = await head.renderHeadForPreview()
+
+      // The returned node must contain the inlineScript element
+      const els = childrenOf(node)
+      expect(els).toHaveLength(1)
+      expect(els[0]!.type).toBe('script')
+      expect(els[0]!.props).toMatchObject({
+        id: 'preview-head-marker',
+        dangerouslySetInnerHTML: { __html: '/*marker*/' },
+      })
+    })
+
+    it('collects publicHead even when isPublicRequest would return false', async () => {
+      // Override headers mock to simulate an admin route (no x-ampless-pathname
+      // marker) — renderHead() would return null here, but renderHeadForPreview
+      // must still return the plugin descriptors.
+      mockedHeaders.mockImplementationOnce(async () => ({
+        get(_key: string) {
+          return null // no marker header = renderHead() returns null
+        },
+      }) as never)
+
+      const plugin = definePlugin({
+        name: 'highlight',
+        apiVersion: 1,
+        trust_level: 'untrusted',
+        capabilities: ['publicHead'],
+        publicHead() {
+          return [
+            { type: 'inlineScript', id: 'highlight-init', body: '/*highlight*/' },
+          ] satisfies PublicHeadDescriptor[]
+        },
+      })
+      const head = createPluginHead(makeConfig([plugin]), emptySettings)
+
+      // renderHead() is gated — would return null on admin routes
+      const gatedResult = await head.renderHead()
+      expect(gatedResult).toBeNull()
+
+      // renderHeadForPreview() bypasses the gate — always collects
+      const previewResult = await head.renderHeadForPreview()
+      const els = childrenOf(previewResult)
+      expect(els).toHaveLength(1)
+      expect(els[0]!.props).toMatchObject({ id: 'highlight-init' })
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
