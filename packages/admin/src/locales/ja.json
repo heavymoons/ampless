@@ -277,6 +277,10 @@
       "deleteColumn": "列を削除",
       "toggleHeaderRow": "ヘッダー行を切替",
       "deleteTable": "テーブルを削除"
+    },
+    "codeBlock": {
+      "languageLabel": "言語",
+      "languagePlaceholder": "例: mermaid, ts"
     }
   },
   "auth": {

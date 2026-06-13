@@ -277,6 +277,10 @@
       "deleteColumn": "Delete column",
       "toggleHeaderRow": "Toggle header row",
       "deleteTable": "Delete table"
+    },
+    "codeBlock": {
+      "languageLabel": "Language",
+      "languagePlaceholder": "e.g. mermaid, ts"
     }
   },
   "auth": {
