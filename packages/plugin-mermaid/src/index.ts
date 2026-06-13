@@ -24,11 +24,11 @@ import { definePlugin, type AmplessPlugin, type PublicHeadDescriptor } from 'amp
 /** Pinned default mermaid version. Floating tags are the user's
  *  supply-chain responsibility (see README). */
 const DEFAULT_VERSION = '11.15.0'
-const DEFAULT_THEME = 'default'
+const DEFAULT_THEME = 'auto'
 const DEFAULT_SECURITY_LEVEL = 'strict'
 
 const VERSION_RE = /^[0-9]+(\.[0-9]+){0,2}$/
-const THEMES = ['default', 'dark', 'forest', 'neutral', 'base'] as const
+const THEMES = ['auto', 'default', 'dark', 'forest', 'neutral', 'base'] as const
 const SECURITY_LEVELS = ['strict', 'loose', 'antiscript', 'sandbox'] as const
 
 export type MermaidTheme = (typeof THEMES)[number]
@@ -43,7 +43,18 @@ export interface MermaidPluginOptions {
    * responsibility.
    */
   version?: string
-  /** mermaid theme. One of default / dark / forest / neutral / base. */
+  /**
+   * mermaid theme. One of `auto` / `default` / `dark` / `forest` /
+   * `neutral` / `base`. Default `'auto'`.
+   *
+   * `'auto'` (the default) adapts to the site's color scheme at runtime:
+   * it renders with `'dark'` on a dark scheme and `'default'` (mermaid's
+   * light theme) otherwise, and live-re-renders when the scheme changes.
+   * The scheme is read from the `<html data-color-scheme>` attribute
+   * (`'light'` / `'dark'`); when the attribute is absent (site setting
+   * `auto`) it follows the OS `prefers-color-scheme`. Any explicit theme
+   * pins that theme regardless of the site scheme.
+   */
   theme?: MermaidTheme
   /**
    * mermaid `securityLevel`. Default `'strict'`. `'loose'` enables
@@ -90,13 +101,47 @@ function pickVersion(value: string | undefined): string {
  */
 function buildBody(version: string, theme: string, securityLevel: string): string {
   const SEC = JSON.stringify(securityLevel)
-  const THEME = JSON.stringify(theme)
+  const CONFIGURED = JSON.stringify(theme)
   const SRC = JSON.stringify(
     `https://cdn.jsdelivr.net/npm/mermaid@${version}/dist/mermaid.esm.min.mjs`
   )
   return `(function () {
+  var configured = ${CONFIGURED};
   var modPromise;
   var counter = 0;
+  // Which theme the (singleton) mermaid library was last initialized with —
+  // not the per-SVG render state. Each rendered wrap remembers its own theme
+  // via the data-mermaid-theme attribute.
+  var initedTheme;
+  // Resolve the active color scheme: explicit data-color-scheme wins;
+  // otherwise follow the OS preference, guarded so a missing matchMedia
+  // (older / non-browser environments) just means "light".
+  function isDark() {
+    var attr = document.documentElement.getAttribute('data-color-scheme');
+    if (attr === 'dark') return true;
+    if (attr === 'light') return false;
+    return typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false;
+  }
+  // Mirror of chooseMermaidTheme (src/theme.ts): explicit theme pins;
+  // 'auto' maps dark->'dark' / light->'default'.
+  function effectiveTheme() {
+    return configured === 'auto' ? (isDark() ? 'dark' : 'default') : configured;
+  }
+  function ensureMermaidTheme(mermaid, t) {
+    if (initedTheme !== t) {
+      mermaid.initialize({ startOnLoad: false, securityLevel: ${SEC}, theme: t });
+      initedTheme = t;
+    }
+  }
+  function freshId() {
+    var uuid = globalThis.crypto && globalThis.crypto.randomUUID
+      ? globalThis.crypto.randomUUID() : undefined;
+    return uuid ? 'm' + uuid : 'ampless-mmd-' + (counter++);
+  }
+  // Initial pass: turn each <pre><code class="language-mermaid"> into a
+  // rendered <div class="ampless-mermaid"> carrying its source + theme.
   function scan() {
     var blocks = Array.prototype.slice.call(
       document.querySelectorAll('pre > code.language-mermaid:not([data-ampless-done])')
@@ -108,18 +153,29 @@ function buildBody(version: string, theme: string, securityLevel: string): strin
     if (!modPromise) modPromise = import(${SRC});
     modPromise.then(function (mod) {
       var mermaid = mod.default;
-      mermaid.initialize({ startOnLoad: false, securityLevel: ${SEC}, theme: ${THEME} });
+      ensureMermaidTheme(mermaid, effectiveTheme());
       blocks.forEach(function (code) {
         var pre = code.closest('pre');
-        var uuid = globalThis.crypto && globalThis.crypto.randomUUID
-          ? globalThis.crypto.randomUUID() : undefined;
-        var id = uuid ? 'm' + uuid : 'ampless-mmd-' + (counter++);
+        var src = code.textContent || '';
+        var t = effectiveTheme();
+        var id = freshId();
         Promise.resolve()
-          .then(function () { return mermaid.render(id, code.textContent || ''); })
+          .then(function () { return mermaid.render(id, src); })
           .then(function (res) {
+            if (effectiveTheme() !== t) {
+              // Stale: the scheme changed mid-render. Discard this SVG and
+              // re-run scan() — the block is still a <pre><code>, so
+              // rerenderAll() (which only sees div.ampless-mermaid) cannot
+              // pick it up. Unmark so scan() processes it again.
+              code.removeAttribute('data-ampless-done');
+              scan();
+              return;
+            }
             var wrap = document.createElement('div');
             wrap.className = 'ampless-mermaid';
             wrap.innerHTML = res.svg;
+            wrap.setAttribute('data-mermaid-src', src);
+            wrap.setAttribute('data-mermaid-theme', t);
             (pre || code).replaceWith(wrap);
           })
           .catch(function (e) {
@@ -136,6 +192,49 @@ function buildBody(version: string, theme: string, securityLevel: string): strin
       console.warn('[ampless-mermaid] load failed', e);
     });
   }
+  // Re-render already-rendered diagrams whose baked-in theme no longer
+  // matches the active scheme (mermaid bakes the theme into the SVG, so it
+  // cannot be re-tinted — only re-rendered from the saved source).
+  function rerenderAll() {
+    var theme = effectiveTheme();
+    var wraps = Array.prototype.slice
+      .call(document.querySelectorAll('div.ampless-mermaid[data-mermaid-src]'))
+      .filter(function (w) { return w.getAttribute('data-mermaid-theme') !== theme; });
+    // No stale diagram on this page -> do NOT import mermaid (preserves the
+    // "no Mermaid block -> never download the library" property).
+    if (!wraps.length) return;
+    if (!modPromise) modPromise = import(${SRC});
+    modPromise.then(function (mod) {
+      var mermaid = mod.default;
+      var t = effectiveTheme();
+      ensureMermaidTheme(mermaid, t);
+      wraps.forEach(function (wrap) {
+        var id = freshId();
+        var src = wrap.getAttribute('data-mermaid-src') || '';
+        Promise.resolve()
+          .then(function () { return mermaid.render(id, src); })
+          .then(function (res) {
+            if (effectiveTheme() !== t) {
+              // Stale: leave the old SVG + old data-mermaid-theme in place
+              // (so it is still seen as out-of-date) and re-kick rerenderAll
+              // to converge on the current theme.
+              rerenderAll();
+              return;
+            }
+            wrap.innerHTML = res.svg;
+            wrap.setAttribute('data-mermaid-theme', t);
+          })
+          .catch(function (e) {
+            // Leave old SVG + old data-mermaid-theme so the next scheme
+            // change re-attempts this wrap (its theme still won't match).
+            console.warn('[ampless-mermaid] re-render failed', e);
+          });
+      });
+    }).catch(function (e) {
+      modPromise = undefined;
+      console.warn('[ampless-mermaid] load failed', e);
+    });
+  }
   function init() {
     scan();
     // SPA / App Router client navigation: the head script runs once but new
@@ -147,6 +246,28 @@ function buildBody(version: string, theme: string, securityLevel: string): strin
         t = setTimeout(scan, 100);
       });
       obs.observe(document.body, { childList: true, subtree: true });
+      // In-site theme toggle: watch the <html> data-color-scheme attribute
+      // (body childList mutations never reflect this) and re-render.
+      var schemeObs = new MutationObserver(function () { rerenderAll(); });
+      schemeObs.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-color-scheme'],
+      });
+    }
+    // OS scheme change in 'auto' mode (site setting 'auto' -> no attribute).
+    // No-op while data-color-scheme pins the scheme; fires once the attribute
+    // is removed (fixed -> auto) so the OS preference takes over again.
+    if (configured === 'auto' && typeof window.matchMedia === 'function') {
+      var mql = window.matchMedia('(prefers-color-scheme: dark)');
+      var onChange = function () {
+        if (document.documentElement.getAttribute('data-color-scheme')) return;
+        rerenderAll();
+      };
+      if (typeof mql.addEventListener === 'function') {
+        mql.addEventListener('change', onChange);
+      } else if (typeof mql.addListener === 'function') {
+        mql.addListener(onChange); // Safari < 14
+      }
     }
   }
   if (document.readyState === 'loading') {

@@ -35,16 +35,34 @@ export default defineConfig({
 ```ts
 mermaidPlugin({
   version: '11.15.0', // pinned default
-  theme: 'default', // default | dark | forest | neutral | base
+  theme: 'auto', // auto | default | dark | forest | neutral | base
   securityLevel: 'strict', // strict | loose | antiscript | sandbox
 })
 ```
 
-| Option          | Default     | Notes                                                                                                                                  |
-| --------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`       | `'11.15.0'` | mermaid version loaded from jsDelivr. Must match `x` / `x.y` / `x.y.z`. Invalid values fall back to the default with a `console.warn`. |
-| `theme`         | `'default'` | One of `default` / `dark` / `forest` / `neutral` / `base`. Anything else falls back to `default`.                                      |
-| `securityLevel` | `'strict'`  | One of `strict` / `loose` / `antiscript` / `sandbox`. Anything else falls back to `strict`. See [Security](#security--cdn-notes).      |
+| Option          | Default     | Notes                                                                                                                                                                                               |
+| --------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`       | `'11.15.0'` | mermaid version loaded from jsDelivr. Must match `x` / `x.y` / `x.y.z`. Invalid values fall back to the default with a `console.warn`.                                                              |
+| `theme`         | `'auto'`    | One of `auto` / `default` / `dark` / `forest` / `neutral` / `base`. `'auto'` (the default) follows the site color scheme — see [Color scheme](#color-scheme). Anything else falls back to `'auto'`. |
+| `securityLevel` | `'strict'`  | One of `strict` / `loose` / `antiscript` / `sandbox`. Anything else falls back to `strict`. See [Security](#security--cdn-notes).                                                                   |
+
+## Color scheme
+
+With the default `theme: 'auto'`, the diagram theme adapts to the site's light/dark color scheme so the diagram text stays readable on a dark background (mermaid bakes its theme colors into the rendered SVG, so a light theme on a dark page is otherwise low-contrast):
+
+| Site scheme | mermaid theme used |
+| ----------- | ------------------ |
+| light       | `default`          |
+| dark        | `dark`             |
+
+The scheme is detected at runtime, in this order:
+
+1. The `<html data-color-scheme>` attribute — ampless sets `'light'` / `'dark'` here when the site pins a scheme (including an in-site toggle).
+2. When the attribute is absent (site setting `auto`), the OS `prefers-color-scheme` is used (guarded — a missing `matchMedia` is treated as light).
+
+**Live switching.** Diagrams re-render in place when the scheme changes — both when an in-site toggle flips `data-color-scheme`, and (in `auto` mode, when no attribute pins the scheme) when the OS preference changes. Because mermaid cannot re-tint an existing SVG, each rendered diagram keeps its source on a `data-mermaid-src` attribute and is re-rendered from it; pages with no diagram never download the library on a scheme change.
+
+**Pinning.** Pass an explicit theme (e.g. `theme: 'dark'`) to pin that theme regardless of the site scheme and disable the live re-render. Light-page output with the previous `'default'` default is unchanged.
 
 ## How code blocks are detected
 
@@ -77,7 +95,8 @@ The two plugins are designed to run together in any order. `@ampless/plugin-high
 
 - **Idempotent re-scan** — processed blocks are marked with `data-ampless-done`, so the scan never double-renders.
 - **SPA / App Router navigation** — the head script runs once, but a debounced `MutationObserver` on `document.body` re-scans when client navigation injects new post content.
-- **Failure recovery** — if the dynamic import fails, the cached import promise is cleared and the block marks are removed so a later scan retries; failures are reported via `console.warn` rather than swallowed. A per-diagram render failure leaves the original code block visible.
+- **Live scheme switching** — a `MutationObserver` on `<html>` (`data-color-scheme`) plus, in `auto` mode, a `matchMedia('(prefers-color-scheme: dark)')` listener re-render the diagrams when the scheme changes. A short burst of switches converges on the final scheme: a render that resolves against a now-stale scheme is discarded and re-kicked.
+- **Failure recovery** — if the dynamic import fails, the cached import promise is cleared and the block marks are removed so a later scan retries; failures are reported via `console.warn` rather than swallowed. A per-diagram render failure leaves the original code block visible (and a re-render failure leaves the previous SVG, retried on the next scheme change).
 
 ## Security / CDN notes
 
