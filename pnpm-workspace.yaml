@@ -12,3 +12,10 @@ allowBuilds:
   core-js: false
   esbuild: true
   sharp: true
+
+# Force esbuild past the ranges declared by tsup / vite, which cap at
+# 0.27.x. Dependabot alerts GHSA-gv7w-rqvm-qjhr (high) and
+# GHSA-g7r4-m6w7-qqqr (low) are fixed in 0.28.1; drop this once tsup
+# and vite bump their own esbuild dependency.
+overrides:
+  esbuild: ^0.28.1
