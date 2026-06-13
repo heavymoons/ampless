@@ -9,21 +9,22 @@
 //
 // ── Passkeys (WebAuthn) ──────────────────────────────────────────────
 //
-// Passkeys are ENABLED BY DEFAULT (the empty object below). With the
-// default, Amplify auto-resolves the WebAuthn Relying Party ID from the
-// deployment domain, which works on Amplify Hosting domains and on a
-// `localhost` sandbox.
+// Passkeys are ENABLED BY DEFAULT. `amplify/auth/resource.ts` auto-
+// derives the WebAuthn Relying Party ID from `cms.config.ts` `site.url`
+// in Amplify Hosting pipeline builds, and uses `localhost` (auto-
+// resolved by Amplify) in `ampx sandbox`. This file is usually unneeded
+// for passkeys.
 //
-// If you serve the admin from a CUSTOM DOMAIN behind a CDN, the
-// auto-resolved RP ID won't match the URL the browser sees and passkey
-// sign-in fails with a `SecurityError`. Pin the RP ID to the bare
-// domain (no protocol, no path) the operators visit:
+// Set `webAuthn: { relyingPartyId: 'admin.example.com' }` ONLY when the
+// admin is served from a different subdomain than `site.url` (e.g. site
+// is at `example.com` but the admin CDN origin is `admin.example.com`).
 //
 //   export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {
 //     webAuthn: { relyingPartyId: 'admin.example.com' },
 //   }
 //
-// To turn passkeys off entirely (password-only sign-in):
+// To turn passkeys off entirely (password-only sign-in AND removes the
+// passkey UI from the admin completely):
 //
 //   export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {
 //     webAuthn: false,
@@ -33,6 +34,9 @@
 // invalidates every existing credential — they'll have to register
 // again from the account page. The password flow always stays available
 // as the fallback. See `docs/passkeys.md`.
+//
+// ⚠️ cms.config.ts must not import theme CSS or browser-only modules —
+// it is loaded at CDK synth time when deriving the RP ID.
 
 import type { AmplessAuthConfigOpts } from '@ampless/backend'
 

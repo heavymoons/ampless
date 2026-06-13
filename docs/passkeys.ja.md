@@ -24,11 +24,11 @@ ampless は管理画面のパスキーサインインに対応しています。
 - **Amplify Hosting ドメイン**（`*.amplifyapp.com`）
 - **`localhost` サンドボックス**（`npm run sandbox` + `localhost:3000`）
 
-いずれの場合も、Amplify がブラウザのドメインから WebAuthn の **Relying Party (RP) ID** を自動解決します。
+Amplify Hosting パイプラインビルドでは、WebAuthn の **Relying Party (RP) ID** が `cms.config.ts` の `site.url` ホスト名から自動導出されます。最も一般的なケースでは手動設定不要です。`ampx sandbox` では RP ID は `localhost` のまま（Amplify が自動解決）です。
 
-### CDN 配下のカスタムドメイン
+### カスタムドメイン：site.url と異なるサブドメインの場合
 
-管理画面を**独自 CDN 配下のカスタムドメイン**で配信している場合（[cdn-fronting-tips.ja.md](./cdn-fronting-tips.ja.md) 参照）、自動解決された RP ID がブラウザの見る URL と一致せず、パスキーサインインが `SecurityError` で失敗します。管理画面では「このドメインではパスキーが設定されていません」と表示されます。
+管理画面を `site.url` と**異なるサブドメイン**で配信している場合（例：サイトが `https://example.com` だが管理画面 CDN は `admin.example.com`）、自動導出された RP ID（`example.com`）がブラウザの見る URL と一致せず、パスキーサインインが `SecurityError` で失敗します。管理画面では「このドメインではパスキーが設定されていません」と表示されます。
 
 `amplify/auth/resource.custom.ts` で、オペレーターがアクセスする **bare domain**（プロトコル・パスなし）を RP ID に固定してください:
 
@@ -52,7 +52,7 @@ export const authCustomizations: Pick<AmplessAuthConfigOpts, 'webAuthn'> = {
 }
 ```
 
-これにより Cognito 設定から `webAuthn` キーが除外され、User Pool はパスワードのみのサインインポリシーになります。
+これにより Cognito 設定から `webAuthn` キーが除外され、User Pool はパスワードのみのサインインポリシーになります。パスキーボタンとアカウントページのパスキーセクションも管理画面から自動的に削除されます（`amplify_outputs.json` のデプロイ状態を反映するため）。
 
 ### ⚠️ RP ID の変更は既存パスキーを無効化します
 
@@ -60,7 +60,7 @@ WebAuthn の認証情報は登録時の RP ID に紐づきます。**オペレ�
 
 ## 仕組み
 
-- **バックエンド** — `amplessAuthConfig({ webAuthn })`（`@ampless/backend`）が `loginWith.webAuthn` を設定します。テンプレートはこのノブを `amplify/auth/resource.custom.ts`（`update-ampless` が上書きしないサイト固有ファイル）経由で設定します。[`@ampless/backend` README](../packages/backend/README.ja.md) を参照してください。
+- **バックエンド** — `amplessAuthConfig({ webAuthn })`（`@ampless/backend`）が `loginWith.webAuthn` を設定します。パイプラインビルドでは `resolveWebAuthn({ siteUrl, isPipeline })` が `cms.config.ts` の `site.url` から RP ID を自動導出し、サンドボックスは `localhost` 自動解決にフォールバックします。オーバーライドはテンプレートの `amplify/auth/resource.custom.ts`（`update-ampless` が上書きしないサイト固有ファイル）経由で設定します。[`@ampless/backend` README](../packages/backend/README.ja.md) を参照してください。
 - **サインイン** — ログイン画面は `signIn({ options: { authFlowType: 'USER_AUTH', preferredChallenge: 'WEB_AUTHN' } })` を実行し、Amplify がブラウザの WebAuthn セレモニーを行います。
 - **登録 / 一覧 / 削除** — アカウントページは `associateWebAuthnCredential` / `listWebAuthnCredentials` / `deleteWebAuthnCredential` を使用します。登録にはサインイン済みセッションが必要なため、パスワードログインは削除できません。
 

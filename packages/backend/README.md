@@ -64,7 +64,7 @@ amplessAuthConfig({                                            // pin the Relyin
 amplessAuthConfig({ postConfirmation, webAuthn: false })      // password-only sign-in
 ```
 
-The default (`true`) lets Amplify auto-resolve the WebAuthn Relying Party ID from the deployment domain, which works on Amplify Hosting domains and on a `localhost` sandbox. If the admin is served from a **custom domain behind a CDN**, the auto-resolved RP ID won't match the URL the browser sees and sign-in fails with a `SecurityError` — pin `relyingPartyId` to the bare domain operators visit. Changing the RP ID after passkeys exist invalidates every registered credential. The template wires this knob through `amplify/auth/resource.custom.ts` (`webAuthn?: AmplessWebAuthnOption | false`). See [docs/passkeys.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.md).
+In Amplify Hosting pipeline builds the template auto-derives the Relying Party ID from `site.url` in `cms.config.ts` via `resolveWebAuthn({ override, siteUrl, isPipeline })` — no manual configuration needed for the common case. In `ampx sandbox` the RP ID stays `localhost` (auto-resolved by Amplify). If the admin is served from a **different subdomain** than `site.url`, pin `relyingPartyId` to the bare domain operators visit in `amplify/auth/resource.custom.ts`. Changing the RP ID after passkeys exist invalidates every registered credential. See [docs/passkeys.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.md).
 
 ### `amplify/data/resource.ts`
 
@@ -127,7 +127,7 @@ export { handler } from '@ampless/backend/functions/api-key-renewer'
 
 ## Sub-paths
 
-- `@ampless/backend` — `defineAmplessBackend`, `amplessAuthConfig`, `amplessStorageConfig`, `amplessSchemaModels`, `extendAmplessSchema`, `defaultAuthorizationModes`
+- `@ampless/backend` — `defineAmplessBackend`, `amplessAuthConfig`, `resolveWebAuthn`, `amplessStorageConfig`, `amplessSchemaModels`, `extendAmplessSchema`, `defaultAuthorizationModes`
 - `@ampless/backend/auth/post-confirmation` — Lambda handler
 - `@ampless/backend/events/dispatcher` — Lambda handler
 - `@ampless/backend/events/processor-trusted` — `createProcessorTrustedHandler({ plugins, site })`

@@ -18,6 +18,7 @@ import {
   classifyPasskeyError,
   interpretPasskeySignInResult,
   signInWithPasskey,
+  isWebAuthnEnabled,
 } from './passkey.js'
 
 beforeEach(() => {
@@ -107,5 +108,32 @@ describe('signInWithPasskey', () => {
     await expect(signInWithPasskey('operator@example.com')).rejects.toMatchObject({
       name: 'NotAllowedError',
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isWebAuthnEnabled
+// ---------------------------------------------------------------------------
+
+describe('isWebAuthnEnabled', () => {
+  it('returns true when web_authn object is present', () => {
+    expect(
+      isWebAuthnEnabled({
+        auth: { passwordless: { web_authn: { relying_party_id: 'example.com', user_verification: 'required' } } },
+      })
+    ).toBe(true)
+  })
+
+  it('returns false when passwordless key is absent', () => {
+    expect(isWebAuthnEnabled({ auth: {} })).toBe(false)
+    expect(isWebAuthnEnabled({})).toBe(false)
+  })
+
+  it('returns false when web_authn is null', () => {
+    expect(isWebAuthnEnabled({ auth: { passwordless: { web_authn: null } } })).toBe(false)
+  })
+
+  it('returns false when auth is absent', () => {
+    expect(isWebAuthnEnabled({ storage: { bucket_name: 'foo', aws_region: 'us-east-1' } })).toBe(false)
   })
 })

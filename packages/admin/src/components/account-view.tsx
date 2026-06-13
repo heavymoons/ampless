@@ -21,7 +21,7 @@ function formatDate(iso: string | null): string {
   return d.toLocaleString()
 }
 
-export function AccountView({ currentUserEmail }: { currentUserEmail: string }) {
+export function AccountView({ currentUserEmail, passkeysEnabled }: { currentUserEmail: string; passkeysEnabled: boolean }) {
   const t = useT()
 
   // WebAuthn support is resolved client-side (SSR has no `window`), so
@@ -50,12 +50,17 @@ export function AccountView({ currentUserEmail }: { currentUserEmail: string }) 
   }
 
   useEffect(() => {
+    if (!passkeysEnabled) {
+      setSupportResolved(true)
+      setLoading(false)
+      return
+    }
     const ok = isWebAuthnSupported()
     setSupported(ok)
     setSupportResolved(true)
     if (ok) void loadPasskeys()
     else setLoading(false)
-  }, [])
+  }, [passkeysEnabled])
 
   async function handleAdd() {
     // Call register() directly inside the click handler — Safari only
@@ -99,7 +104,7 @@ export function AccountView({ currentUserEmail }: { currentUserEmail: string }) 
           <div>
             <h2 className="text-lg font-semibold">{t('account.passkeys.title')}</h2>
           </div>
-          {supportResolved && supported && (
+          {passkeysEnabled && supportResolved && supported && (
             <Button type="button" disabled={adding} onClick={() => void handleAdd()}>
               {adding ? t('account.passkeys.adding') : t('account.passkeys.add')}
             </Button>
@@ -108,7 +113,9 @@ export function AccountView({ currentUserEmail }: { currentUserEmail: string }) 
 
         {addError && <p className="text-sm text-destructive">{addError}</p>}
 
-        {supportResolved && !supported ? (
+        {!passkeysEnabled ? (
+          <p className="text-sm text-muted-foreground">{t('account.passkeys.disabled')}</p>
+        ) : supportResolved && !supported ? (
           <p className="text-sm text-muted-foreground">{t('account.passkeys.unsupported')}</p>
         ) : loading ? (
           <p className="text-sm text-muted-foreground">{t('account.passkeys.loading')}</p>
