@@ -26,6 +26,7 @@ import { Button, cn } from '@ampless/runtime/ui'
 import { MediaPicker } from '../components/media-picker.js'
 import { useT } from '../components/i18n-provider.js'
 import { TableControls } from './table-controls.js'
+import { CodeBlockLanguageControl } from './code-block-language-control.js'
 
 interface ToolbarProps {
   editor: Editor | null
@@ -105,6 +106,7 @@ export function Toolbar({ editor }: ToolbarProps) {
         }
       />
       <TableControls editor={editor} />
+      <CodeBlockLanguageControl editor={editor} />
     </div>
   )
 }
