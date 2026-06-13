@@ -1,0 +1,1 @@
+# @ampless/plugin-mermaid

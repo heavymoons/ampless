@@ -1,0 +1,58 @@
+{
+  "name": "@ampless/plugin-mermaid",
+  "version": "0.0.0",
+  "description": "Mermaid diagram plugin for ampless — renders `code.language-mermaid` blocks on the public site as diagrams via a lazily CDN-loaded mermaid.js",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heavymoons/ampless.git",
+    "directory": "packages/plugin-mermaid"
+  },
+  "homepage": "https://github.com/heavymoons/ampless/tree/main/packages/plugin-mermaid#readme",
+  "bugs": "https://github.com/heavymoons/ampless/issues",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ampless": "workspace:*"
+  },
+  "keywords": [
+    "ampless",
+    "plugin",
+    "ampless-plugin",
+    "mermaid",
+    "diagram",
+    "flowchart",
+    "cms"
+  ],
+  "amplessPlugin": {
+    "apiVersion": 1,
+    "name": "mermaid",
+    "trustLevel": "untrusted",
+    "capabilities": [
+      "publicHead"
+    ],
+    "displayName": {
+      "en": "Mermaid diagrams",
+      "ja": "Mermaid ダイアグラム"
+    }
+  }
+}
