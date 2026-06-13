@@ -123,6 +123,20 @@ export interface PluginHeadApi {
    * `pluginSettings.loadAll()`.
    */
   contextForPlugins(): Promise<(plugin: AmplessPlugin) => PluginPublicRenderContext>
+  /**
+   * Non-gated variant of `renderHead()` for use by the admin post preview.
+   *
+   * WHY this bypasses `isPublicRequest()`: the preview iframe is editor-only
+   * and must faithfully show what the published article looks like — including
+   * content-decoration plugins like mermaid/highlight that only register their
+   * scripts via `publicHead`. The `isPublicRequest()` gate correctly blocks
+   * analytics on public pages served to the admin or login routes, but for the
+   * preview we intentionally collect ALL publicHead descriptors so diagrams and
+   * syntax highlighting render. Analytics scripts (GA4/GTM/Plausible) also fire
+   * on preview as a side-effect; this is accepted (preview is not end-user
+   * traffic). Do NOT use this from public layouts — use `renderHead()` there.
+   */
+  renderHeadForPreview(): Promise<ReactNode>
 }
 
 /**
@@ -1143,6 +1157,19 @@ export function createPluginHead(
       const snapshot = await pluginSettings.loadAll()
       return (plugin: AmplessPlugin) =>
         makeCtx(plugin, cmsConfig.site, snapshot)
+    },
+    async renderHeadForPreview(): Promise<ReactNode> {
+      // Does NOT call isPublicRequest() — see PluginHeadApi.renderHeadForPreview
+      // for the full rationale. Always collects all publicHead descriptors so
+      // content-decoration plugins (mermaid, highlight) render in preview.
+      const snapshot = await pluginSettings.loadAll()
+      return collectFor<PublicHeadDescriptor>(
+        validPlugins,
+        cmsConfig.site,
+        snapshot,
+        (p) => p.publicHead,
+        renderHeadDescriptor,
+      )
     },
   }
 }

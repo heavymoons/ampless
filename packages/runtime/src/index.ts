@@ -180,6 +180,13 @@ export interface Ampless {
   // `<head>` / before `</body>` in the root layout — see
   // templates/_shared/app/layout.tsx.
   publicHead(): Promise<ReactNode>
+  /**
+   * Non-gated head collector for the admin post preview. Collects ALL
+   * `publicHead` descriptors without calling `isPublicRequest()` so
+   * content-decoration plugins (mermaid, highlight) render in preview.
+   * Do NOT call from public layouts — use `publicHead()` there.
+   */
+  publicHeadForPreview(): Promise<ReactNode>
   publicBodyEnd(): Promise<ReactNode>
   /**
    * Per-post body descriptors (Phase 4 `schema` capability). Theme
@@ -296,6 +303,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
     siteMetadata: () => seo.siteMetadata(),
 
     publicHead: () => pluginHead.renderHead(),
+    publicHeadForPreview: () => pluginHead.renderHeadForPreview(),
     publicBodyEnd: () => pluginHead.renderBodyEnd(),
     publicBodyForPost: (post) => pluginHead.renderBodyForPost(post),
     publicHtmlForPost: (post) => pluginHead.renderHtmlForPost(post),
