@@ -37,7 +37,7 @@
     "@ampless/plugin-seo": "^0.2.0-beta.52",
     "@ampless/plugin-webhook": "^0.2.0-beta.53",
     "@ampless/admin": "^1.0.0-beta.91",
-    "@ampless/backend": "^1.0.0-beta.76",
+    "@ampless/backend": "^1.0.0-beta.77",
     "@ampless/runtime": "^1.0.0-beta.61",
     "@digital-go-jp/tailwind-theme-plugin": "^0.3.4",
     "ampless": "^1.0.0-beta.52",
