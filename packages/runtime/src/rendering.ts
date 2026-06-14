@@ -285,8 +285,21 @@ function htmlPassthrough(html: string): ReactNode {
 // Block-safe wrapper for markdown walker non-embed batches, format='html',
 // and tiptap string-body fallback. Using <div> instead of <span> avoids
 // invalid block-inside-inline markup (e.g. <span><h1>...</h1></span>).
+//
+// `suppressHydrationWarning`: the post body is server-authoritative HTML
+// that client-side plugins legitimately rewrite after load — e.g.
+// @ampless/plugin-mermaid replaces `<pre>` blocks with rendered SVG and
+// @ampless/plugin-highlight injects spans into `<code>`. Those run before
+// React finishes hydrating, so without this React would warn that the
+// hydrated DOM no longer matches the SSR HTML. There is no React-managed
+// state inside this `dangerouslySetInnerHTML` subtree, so suppressing the
+// mismatch here is correct (and keeps React from discarding the enhanced
+// DOM). React strips this prop from the rendered output.
 function htmlPassthroughBlock(html: string, key?: string): ReactNode {
-  const props: Record<string, unknown> = { dangerouslySetInnerHTML: { __html: html } }
+  const props: Record<string, unknown> = {
+    dangerouslySetInnerHTML: { __html: html },
+    suppressHydrationWarning: true,
+  }
   if (key !== undefined) props.key = key
   return createElement('div', props)
 }
@@ -326,6 +339,18 @@ function renderTiptapNode(
     return htmlPassthrough(renderTiptapString(node))
   }
 
+  // Code blocks render as an opaque dangerouslySetInnerHTML island (like
+  // text/markdown/html) so client plugins can mutate them without React
+  // hydration regenerating the subtree: mermaid replaces the <pre>,
+  // highlight injects spans into <code>. suppressHydrationWarning only
+  // covers same-element attr/text diffs — not element replacement / deep
+  // child injection — so an island React never traverses is the real fix.
+  // Early-return before child recursion; the <pre><code> string already
+  // carries the escaped content.
+  if (node.type === 'codeBlock') {
+    return htmlPassthroughBlock(renderTiptapString(node), key)
+  }
+
   // Recurse into children producing ReactNode list, threading keys.
   const childNodes = node.content ?? []
   const children: ReactNode[] = childNodes.map((c, i) =>
@@ -351,17 +376,6 @@ function renderTiptapNode(
       return createElement('ol', { key }, ...children)
     case 'listItem':
       return createElement('li', { key }, ...children)
-    case 'codeBlock': {
-      const codeProps: Record<string, unknown> = {}
-      if (node.attrs?.language) {
-        codeProps.className = `language-${String(node.attrs.language)}`
-      }
-      return createElement(
-        'pre',
-        { key },
-        createElement('code', codeProps, ...children),
-      )
-    }
     case 'blockquote':
       return createElement('blockquote', { key }, ...children)
     case 'hardBreak':
