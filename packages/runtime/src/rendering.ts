@@ -285,8 +285,21 @@ function htmlPassthrough(html: string): ReactNode {
 // Block-safe wrapper for markdown walker non-embed batches, format='html',
 // and tiptap string-body fallback. Using <div> instead of <span> avoids
 // invalid block-inside-inline markup (e.g. <span><h1>...</h1></span>).
+//
+// `suppressHydrationWarning`: the post body is server-authoritative HTML
+// that client-side plugins legitimately rewrite after load — e.g.
+// @ampless/plugin-mermaid replaces `<pre>` blocks with rendered SVG and
+// @ampless/plugin-highlight injects spans into `<code>`. Those run before
+// React finishes hydrating, so without this React would warn that the
+// hydrated DOM no longer matches the SSR HTML. There is no React-managed
+// state inside this `dangerouslySetInnerHTML` subtree, so suppressing the
+// mismatch here is correct (and keeps React from discarding the enhanced
+// DOM). React strips this prop from the rendered output.
 function htmlPassthroughBlock(html: string, key?: string): ReactNode {
-  const props: Record<string, unknown> = { dangerouslySetInnerHTML: { __html: html } }
+  const props: Record<string, unknown> = {
+    dangerouslySetInnerHTML: { __html: html },
+    suppressHydrationWarning: true,
+  }
   if (key !== undefined) props.key = key
   return createElement('div', props)
 }
@@ -356,9 +369,13 @@ function renderTiptapNode(
       if (node.attrs?.language) {
         codeProps.className = `language-${String(node.attrs.language)}`
       }
+      // suppressHydrationWarning: client plugins rewrite code blocks after
+      // load (mermaid replaces the <pre>, highlight injects spans into the
+      // <code>) before hydration completes; suppress the resulting SSR/DOM
+      // mismatch warning. See htmlPassthroughBlock for the rationale.
       return createElement(
         'pre',
-        { key },
+        { key, suppressHydrationWarning: true },
         createElement('code', codeProps, ...children),
       )
     }
