@@ -62,6 +62,8 @@ highlightPlugin({
 
 **固定。** 明示テーマ（例: `theme: 'github-dark'`）を渡すと、サイトのスキームに関わらずそのスタイルシートに固定され、ライブ切替も無効になります。
 
+> **カスタムダークテーマの注意。** `'auto'` は `data-color-scheme` / `prefers-color-scheme` のシグナルで判定し、テーマの見た目の暗さは見ません。テーマがダークなデザインでも `<html>` に `data-color-scheme="dark"` を設定していない場合、`'auto'` は light と判定して明テーマの `github` を読み込み、ダーク背景で低コントラストになります。その場合は `theme: 'github-dark'` を固定してください（またはテーマ側で `data-color-scheme="dark"` を設定）。
+
 ## コードブロックの検出方法
 
 描画後の投稿 HTML から `<pre><code class="language-xxx">` を探し、`language-mermaid` は除外します。ampless のツールバーにあるコードブロック単位の **言語エディタ**が `language-*` クラスを付与し、どの本文フォーマットでも同じ形に着地します:

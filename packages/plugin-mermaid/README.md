@@ -64,6 +64,8 @@ The scheme is detected at runtime, in this order:
 
 **Pinning.** Pass an explicit theme (e.g. `theme: 'dark'`) to pin that theme regardless of the site scheme and disable the live re-render. Light-page output with the previous `'default'` default is unchanged.
 
+> **Custom dark themes:** `'auto'` keys off the `data-color-scheme` / `prefers-color-scheme` signal, **not** the theme's visual darkness. If your theme renders a dark design but doesn't set `data-color-scheme="dark"` on `<html>`, `'auto'` resolves to light and mermaid uses its dark-text light theme, which clashes with the dark background. Pin `theme: 'dark'` in that case (or have the theme set `data-color-scheme="dark"`).
+
 ## How code blocks are detected
 
 The plugin looks for `<pre><code class="language-mermaid">` in the rendered post HTML. The ampless toolbar's per-code-block **language editor** writes the `language-*` class, and all body formats land on the same shape:
