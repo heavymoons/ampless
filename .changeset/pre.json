@@ -128,6 +128,7 @@
     "mcp-token-admin-only-model",
     "mcp-token-last-used-at",
     "mcp-tools-metadata-no-layout",
+    "mermaid-highlight-color-scheme",
     "middleware-driven-routing-with-cache",
     "middleware-to-proxy",
     "noscript-descriptor-spec",
