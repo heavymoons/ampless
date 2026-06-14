@@ -35,14 +35,32 @@ export default defineConfig({
 ```ts
 highlightPlugin({
   version: '11.11.1', // pinned default
-  theme: 'github', // any highlight.js stylesheet name
+  theme: 'auto', // 'auto' or any highlight.js stylesheet name
 })
 ```
 
-| Option    | Default     | Notes                                                                                                                                                                                                                                                                                                                                               |
-| --------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version` | `'11.11.1'` | highlight.js version loaded from jsDelivr. Must match `x` / `x.y` / `x.y.z`. Invalid values fall back to the default with a `console.warn`.                                                                                                                                                                                                         |
-| `theme`   | `'github'`  | A highlight.js stylesheet name (e.g. `github`, `github-dark`, `atom-one-dark`, `monokai`). Must match `/^[a-z0-9][a-z0-9-]{0,40}$/`; anything else falls back to `github`. The corresponding `styles/<theme>.min.css` is loaded from the CDN. See the [highlight.js styles list](https://github.com/highlightjs/highlight.js/tree/main/src/styles). |
+| Option    | Default     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version` | `'11.11.1'` | highlight.js version loaded from jsDelivr. Must match `x` / `x.y` / `x.y.z`. Invalid values fall back to the default with a `console.warn`.                                                                                                                                                                                                                                                                                                                      |
+| `theme`   | `'auto'`    | `'auto'` (the default) follows the site color scheme — see [Color scheme](#color-scheme) — or a highlight.js stylesheet name (e.g. `github`, `github-dark`, `atom-one-dark`, `monokai`). Explicit names must match `/^[a-z0-9][a-z0-9-]{0,40}$/`; anything else falls back to `'auto'`. The corresponding `styles/<theme>.min.css` is loaded from the CDN. See the [highlight.js styles list](https://github.com/highlightjs/highlight.js/tree/main/src/styles). |
+
+## Color scheme
+
+With the default `theme: 'auto'`, the stylesheet adapts to the site's light/dark color scheme so highlighted code stays readable on a dark background:
+
+| Site scheme | highlight.js stylesheet used |
+| ----------- | ---------------------------- |
+| light       | `github`                     |
+| dark        | `github-dark`                |
+
+The scheme is detected at runtime, in this order:
+
+1. The `<html data-color-scheme>` attribute — ampless sets `'light'` / `'dark'` here when the site pins a scheme (including an in-site toggle).
+2. When the attribute is absent (site setting `auto`), the OS `prefers-color-scheme` is used (guarded — a missing `matchMedia` is treated as light).
+
+**Live switching.** The theme stylesheet swaps in place when the scheme changes — both when an in-site toggle flips `data-color-scheme`, and (in `auto` mode, when no attribute pins the scheme) when the OS preference changes. highlight.js leaves its `hljs` classes on the blocks, so only the `<link>` is swapped (no re-highlight). The swap is flash-free (the new stylesheet is loaded before the old one is removed) and converges on the final scheme during a burst of switches; a page with no code block never loads a stylesheet on a scheme change.
+
+**Pinning.** Pass an explicit theme (e.g. `theme: 'github-dark'`) to pin that stylesheet regardless of the site scheme and disable the live swap.
 
 ## How code blocks are detected
 
@@ -72,7 +90,8 @@ The two plugins are designed to run together in any order. This plugin's selecto
 
 - **Idempotent re-scan** — highlight.js adds the `hljs` class to processed blocks, and the selector guards on `:not(.hljs)`, so the scan never re-highlights.
 - **SPA / App Router navigation** — the head script runs once, but a debounced `MutationObserver` on `document.body` re-scans when client navigation injects new post content.
-- **Failure recovery** — if the dynamic import fails, the cached import promise is cleared so a later scan retries; failures are reported via `console.warn` rather than swallowed.
+- **Live scheme switching** — a `MutationObserver` on `<html>` (`data-color-scheme`) plus, in `auto` mode, a `matchMedia('(prefers-color-scheme: dark)')` listener swap the stylesheet when the scheme changes. The swap is serialized (a single in-flight `<link>`) and flash-free, and is a no-op on pages with no code block.
+- **Failure recovery** — if the dynamic import fails, the cached import promise is cleared so a later scan retries; failures are reported via `console.warn` rather than swallowed. A stylesheet that fails to load keeps the previous theme.
 - **Theme stylesheet** — injected once with id `ampless-hljs-theme`, only when a highlightable block is present.
 
 ## Security / CDN notes

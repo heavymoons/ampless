@@ -39,6 +39,29 @@ describe('mermaidPlugin publicHead', () => {
     expect(body).toContain('strict')
     expect(body).toContain('MutationObserver')
   })
+
+  it('body wires up color-scheme detection and live re-render', () => {
+    const d = descriptors[0]!
+    if (d.type !== 'inlineScript') throw new Error('expected inlineScript')
+    const body = d.body
+    // Reads the <html> data-color-scheme attribute...
+    expect(body).toContain('data-color-scheme')
+    expect(body).toContain('document.documentElement')
+    // ...with a matchMedia guard for the OS preference fallback.
+    expect(body).toContain('typeof window.matchMedia')
+    expect(body).toContain('prefers-color-scheme: dark')
+    // Watches <html> attribute mutations to drive a live re-render.
+    expect(body).toContain("attributeFilter: ['data-color-scheme']")
+    expect(body).toContain('rerenderAll')
+    // Re-render path re-initializes mermaid for the new theme.
+    expect(body).toContain('ensureMermaidTheme')
+    expect(body).toContain('mermaid.initialize')
+    // Default theme is the 'auto' sentinel embedded as configured.
+    expect(body).toContain('var configured = "auto"')
+    // Per-wrap source/theme persisted instead of a global sources array.
+    expect(body).toContain('data-mermaid-src')
+    expect(body).toContain('data-mermaid-theme')
+  })
 })
 
 function bodyOf(opts: Parameters<typeof mermaidPlugin>[0]): string {
@@ -63,10 +86,10 @@ describe('mermaidPlugin option injection safety', () => {
     expect(body).toContain('"strict"')
   })
 
-  it('drops an out-of-allowlist theme and falls back to default', () => {
+  it('drops an out-of-allowlist theme and falls back to the auto sentinel', () => {
     const body = bodyOf({ theme: "a'b" as never })
     expect(body).not.toContain("a'b")
-    expect(body).toContain('"default"')
+    expect(body).toContain('var configured = "auto"')
   })
 
   it('reflects valid options into the body', () => {
@@ -76,7 +99,14 @@ describe('mermaidPlugin option injection safety', () => {
       securityLevel: 'sandbox',
     })
     expect(body).toContain('mermaid@11.4.1/')
-    expect(body).toContain('"forest"')
+    expect(body).toContain('var configured = "forest"')
     expect(body).toContain('"sandbox"')
+  })
+
+  it('an explicit theme is embedded as configured so the auto branch is bypassed', () => {
+    const body = bodyOf({ theme: 'dark' })
+    // The runtime guard `configured === 'auto'` is now false, so the diagram
+    // is pinned to the explicit theme regardless of the site scheme.
+    expect(body).toContain('var configured = "dark"')
   })
 })
