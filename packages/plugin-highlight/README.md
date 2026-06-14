@@ -62,6 +62,8 @@ The scheme is detected at runtime, in this order:
 
 **Pinning.** Pass an explicit theme (e.g. `theme: 'github-dark'`) to pin that stylesheet regardless of the site scheme and disable the live swap.
 
+> **Custom dark themes:** `'auto'` keys off the `data-color-scheme` / `prefers-color-scheme` signal, **not** the theme's visual darkness. If your theme renders a dark design but doesn't set `data-color-scheme="dark"` on `<html>`, `'auto'` resolves to light and loads the light `github` stylesheet, which is low-contrast on the dark background. Pin `theme: 'github-dark'` in that case (or have the theme set `data-color-scheme="dark"`).
+
 ## How code blocks are detected
 
 The plugin looks for `<pre><code class="language-xxx">` in the rendered post HTML and skips `language-mermaid`. The ampless toolbar's per-code-block **language editor** writes the `language-*` class, and all body formats land on the same shape:
