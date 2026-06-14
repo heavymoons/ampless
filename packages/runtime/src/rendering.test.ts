@@ -82,7 +82,13 @@ describe('renderBody suppresses hydration warnings on client-enhanced body', () 
     expect(someElement(renderBody(p('markdown', '# Hi')), hasSuppressedInnerHtml)).toBe(true)
   })
 
-  it('tiptap code block <pre> carries suppressHydrationWarning', () => {
+  it('tiptap code block renders as a suppressed dangerouslySetInnerHTML island', () => {
+    // The codeBlock is now an opaque island (a <div> with
+    // dangerouslySetInnerHTML + suppressHydrationWarning) rather than a
+    // React-managed <pre>, so client plugins (mermaid replacing the <pre>,
+    // highlight injecting spans) can mutate it without React regenerating
+    // the subtree. The inner <pre><code class="language-…"> source is
+    // preserved verbatim inside the island's __html.
     const doc = {
       type: 'doc',
       content: [
@@ -93,10 +99,16 @@ describe('renderBody suppresses hydration warnings on client-enhanced body', () 
         },
       ],
     }
-    const found = someElement(
-      renderBody(p('tiptap', doc)),
-      (el) => el.type === 'pre' && (el.props as Record<string, unknown>).suppressHydrationWarning === true,
-    )
+    const found = someElement(renderBody(p('tiptap', doc)), (el) => {
+      const props = el.props as Record<string, unknown>
+      const dsi = props.dangerouslySetInnerHTML as { __html?: string } | undefined
+      return (
+        Boolean(dsi) &&
+        props.suppressHydrationWarning === true &&
+        typeof dsi?.__html === 'string' &&
+        dsi.__html.includes('<pre><code class="language-mermaid">')
+      )
+    })
     expect(found).toBe(true)
   })
 })

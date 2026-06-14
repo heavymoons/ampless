@@ -339,6 +339,18 @@ function renderTiptapNode(
     return htmlPassthrough(renderTiptapString(node))
   }
 
+  // Code blocks render as an opaque dangerouslySetInnerHTML island (like
+  // text/markdown/html) so client plugins can mutate them without React
+  // hydration regenerating the subtree: mermaid replaces the <pre>,
+  // highlight injects spans into <code>. suppressHydrationWarning only
+  // covers same-element attr/text diffs — not element replacement / deep
+  // child injection — so an island React never traverses is the real fix.
+  // Early-return before child recursion; the <pre><code> string already
+  // carries the escaped content.
+  if (node.type === 'codeBlock') {
+    return htmlPassthroughBlock(renderTiptapString(node), key)
+  }
+
   // Recurse into children producing ReactNode list, threading keys.
   const childNodes = node.content ?? []
   const children: ReactNode[] = childNodes.map((c, i) =>
@@ -364,21 +376,6 @@ function renderTiptapNode(
       return createElement('ol', { key }, ...children)
     case 'listItem':
       return createElement('li', { key }, ...children)
-    case 'codeBlock': {
-      const codeProps: Record<string, unknown> = {}
-      if (node.attrs?.language) {
-        codeProps.className = `language-${String(node.attrs.language)}`
-      }
-      // suppressHydrationWarning: client plugins rewrite code blocks after
-      // load (mermaid replaces the <pre>, highlight injects spans into the
-      // <code>) before hydration completes; suppress the resulting SSR/DOM
-      // mismatch warning. See htmlPassthroughBlock for the rationale.
-      return createElement(
-        'pre',
-        { key, suppressHydrationWarning: true },
-        createElement('code', codeProps, ...children),
-      )
-    }
     case 'blockquote':
       return createElement('blockquote', { key }, ...children)
     case 'hardBreak':
