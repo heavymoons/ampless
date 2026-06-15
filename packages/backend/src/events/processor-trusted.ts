@@ -85,15 +85,6 @@ export function decryptSecret(rawKey: Buffer, b64: string): string {
   return plaintext.toString('utf8')
 }
 
-function safeParse(s: string): unknown {
-  try {
-    return JSON.parse(s)
-  } catch (err) {
-    console.warn('[trusted-processor] post.body is not valid JSON; passing through as string', err)
-    return s
-  }
-}
-
 /**
  * SQS-driven trusted plugin executor. Trusted plugins get a runtime
  * context with `listPublishedPosts` (one Query against the byStatus
@@ -226,7 +217,15 @@ export function createProcessorTrustedHandler(
           title: row.title,
           excerpt: row.excerpt ?? undefined,
           format: row.format ?? 'markdown',
-          body: typeof row.body === 'string' ? safeParse(row.body) : row.body,
+          // DynamoDBDocumentClient unmarshals AWSJSON-backed attributes
+          // into native JS types (S→string, N→number, BOOL→boolean,
+          // M→object), so `row.body` is already correctly typed here and
+          // must NOT be re-parsed. Re-running JSON.parse on a pure-numeric
+          // or JSON-looking string body (e.g. a markdown/html body of
+          // "1470" or "123") double-decodes it into a number and corrupts
+          // the post. Only the Amplify GraphQL-client read path returns an
+          // AWSJSON wire string and needs decodeAwsJson.
+          body: row.body,
           status: row.status ?? 'published',
           publishedAt: row.publishedAt ?? undefined,
           tags: Array.isArray(row.tags) ? row.tags : [],
@@ -429,10 +428,15 @@ export function createProcessorTrustedHandler(
       for (const row of res.Items ?? []) {
         const sk = row.sk as string | undefined
         if (!sk) continue
-        // `value` is stored as AWSJSON (a string holding serialized JSON);
-        // decode for consumers, fall back to the raw value for resilience.
+        // DynamoDBDocumentClient unmarshals AWSJSON-backed attributes into
+        // native JS types (S→string, N→number, BOOL→boolean, M→object), so
+        // `row.value` is ALREADY correctly typed here and must NOT be
+        // re-parsed. Re-running JSON.parse on a native scalar string would
+        // double-decode it (e.g. "1470" → number 1470), corrupting
+        // numeric-looking string settings. Only the Amplify GraphQL-client
+        // read path returns an AWSJSON wire string and needs decodeAwsJson.
         const raw = row.value
-        settings[sk] = typeof raw === 'string' ? safeParse(raw) : raw
+        settings[sk] = raw
       }
       exclusiveStartKey = res.LastEvaluatedKey
     } while (exclusiveStartKey)
@@ -470,7 +474,10 @@ export function createProcessorTrustedHandler(
         try {
           await rebuildSiteSettingsCache()
         } catch (err) {
-          console.error('[trusted-processor] site-settings-cache rebuild failed', err)
+          // Stable grep/alarm token. Keep the full `err` object as the
+          // second arg so the stack trace is preserved in CloudWatch.
+          console.error('[trusted-processor][ALERT] site-settings-cache rebuild failed', err)
+          // Re-throw → SQS retry → DLQ after maxReceiveCount. Must be kept.
           throw err
         }
       }
