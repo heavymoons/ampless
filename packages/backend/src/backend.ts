@@ -86,6 +86,23 @@ export interface DefineAmplessBackendOpts {
 export type AmplessBackend = any
 
 /**
+ * S3 ARNs the trusted processor must be able to PutObject/DeleteObject to.
+ *
+ * - `public/plugins/*` — bucket-wide grant for plugin-written assets
+ *   (per-plugin isolation is enforced in code, not IAM; see the inline
+ *   comment at the call site for the full rationale).
+ * - `public/site-settings.json` — EXACT-MATCH single-file key written by
+ *   the built-in rebuildSiteSettingsCache. A wildcard like
+ *   `public/site-settings/*` would NOT match this single-file key, and
+ *   the PutObject would fail silently with AccessDenied, so the public
+ *   site would never see admin-side theme / settings changes. The
+ *   regression test in backend.test.ts asserts the exact ARN is present.
+ */
+export function siteSettingsCacheS3Resources(bucketArn: string): string[] {
+  return [`${bucketArn}/public/plugins/*`, `${bucketArn}/public/site-settings.json`]
+}
+
+/**
  * The end-to-end ampless backend wiring, parameterised on the resource
  * objects so users only have to compose the imports.
  *
@@ -385,17 +402,15 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['s3:PutObject', 's3:DeleteObject'],
-      resources: [
-        `${backend.storage.resources.bucket.bucketArn}/public/plugins/*`,
-        // Built-in cache: rebuildSiteSettingsCache writes the single
-        // JSON file the public site reads. Exact-match resource — a
-        // wildcard like `public/site-settings/*` would NOT match the
-        // single-file key `public/site-settings.json` and the
-        // PutObject would fail silently with AccessDenied, so the
-        // public site would never see admin-side theme / settings
-        // changes.
-        `${backend.storage.resources.bucket.bucketArn}/public/site-settings.json`,
-      ],
+      // Built-in cache: rebuildSiteSettingsCache writes the single JSON
+      // file the public site reads. The resource list MUST contain the
+      // exact-match key `public/site-settings.json` — a wildcard like
+      // `public/site-settings/*` would NOT match the single-file key and
+      // the PutObject would fail silently with AccessDenied, so the public
+      // site would never see admin-side theme / settings changes. Extracted
+      // into siteSettingsCacheS3Resources() so backend.test.ts can guard
+      // the exact ARN against this regression.
+      resources: siteSettingsCacheS3Resources(backend.storage.resources.bucket.bucketArn),
     })
   )
   // PluginSecret: trusted processor reads + decrypts ciphertext via

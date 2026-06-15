@@ -40,7 +40,7 @@ export function createSeo(cmsConfig: Config, settingsApi: SiteSettingsApi): SeoA
     async siteMetadata(): Promise<Metadata> {
       const settings = await settingsApi.loadSiteSettings()
       const accum: Metadata = {
-        title: settings.site.name,
+        title: String(settings.site.name ?? ''),
         description: settings.site.description,
       }
       for (const plugin of plugins) {

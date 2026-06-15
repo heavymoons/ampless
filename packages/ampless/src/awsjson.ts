@@ -17,17 +17,31 @@
  *
  *     Variable 'body' has an invalid value.
  *
- * On the read side two wire shapes coexist:
+ * On the read side there are two FUNDAMENTALLY DIFFERENT paths, and they
+ * must be handled differently — the value's runtime shape is NOT enough
+ * to disambiguate them:
  *
- *   - JSON-encoded string — what the auto-generated CRUD resolver and
- *     custom resolvers usually return.
- *   - Native object / Map — DynamoDBDocumentClient unmarshals
- *     AWSJSON-stored maps straight into JS objects when read directly
- *     from DynamoDB (the path used by the trusted processor and the
- *     MCP Lambda).
+ *   1. GraphQL wire read (auto-generated CRUD resolver, custom resolvers,
+ *      raw GraphQL fetch) — the value arrives as a JSON-encoded string,
+ *      regardless of the underlying type. Use `decodeAwsJson` to parse it
+ *      back into the native JS value.
  *
- * `decodeAwsJson` handles both: pass strings through `JSON.parse`,
- * everything else as-is.
+ *   2. Direct DynamoDBDocumentClient read (the trusted processor and the
+ *      MCP Lambda read straight from DynamoDB) — DocumentClient already
+ *      unmarshals AWSJSON-backed attributes into native JS types
+ *      (S→string, N→number, BOOL→boolean, M→object). The value is ALREADY
+ *      the correct JS type and must be used AS-IS. Do NOT run
+ *      `decodeAwsJson` / `JSON.parse` on it.
+ *
+ * Why the distinction is load-bearing: a native scalar STRING from path 2
+ * is indistinguishable, by type alone, from a wire string on path 1. But
+ * `decodeAwsJson("1470")` === `JSON.parse("1470")` === the number `1470`,
+ * so running the decoder on a DocumentClient scalar string silently
+ * double-decodes numeric-looking settings/bodies (this caused a
+ * site-wide 500). The "non-strings pass through unchanged" tolerance of
+ * `decodeAwsJson` does NOT make it safe on DocumentClient reads — scalar
+ * strings are exactly the case it corrupts. Pick the decoder by read PATH,
+ * never by the value's runtime shape.
  */
 
 /**
@@ -40,9 +54,14 @@ export function encodeAwsJson(value: unknown): string {
 }
 
 /**
- * Deserialise an AWSJSON value from a GraphQL / DynamoDB read.
- * Tolerates both the wire-string shape and the auto-unmarshalled
- * native value. Throws if the string is not valid JSON.
+ * Deserialise an AWSJSON value from a GraphQL wire read (path 1 above).
+ * Non-string inputs pass through unchanged; strings go through
+ * `JSON.parse` and throw if not valid JSON.
+ *
+ * Only call this on values read over the GraphQL wire. Do NOT call it on
+ * values read directly via DynamoDBDocumentClient — those are already
+ * native JS types, and a native scalar string (e.g. "1470") would be
+ * double-decoded into a number. See the module doc block above.
  */
 export function decodeAwsJson(value: unknown): unknown {
   if (typeof value !== 'string') return value
