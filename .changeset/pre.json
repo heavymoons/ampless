@@ -213,6 +213,7 @@
     "split-underscore-route",
     "static-bundle-storage-access",
     "static-content-format",
+    "static-skip-trailing-slash-redirect",
     "static-trailing-slash-redirect-host",
     "static-uploader-filelist-clear",
     "stream-back-media-static",
