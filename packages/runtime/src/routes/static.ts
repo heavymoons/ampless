@@ -70,10 +70,16 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
     if (restSegments.length === 0) {
       const url = new URL(request.url)
       if (!url.pathname.endsWith('/')) {
-        // Anchor relative paths inside the bundle to `/<slug>/...`.
-        const next = new URL(url)
-        next.pathname = `${url.pathname}/`
-        return Response.redirect(next.toString(), 308)
+        // Anchor relative paths inside the bundle to `/<slug>/...`. Use a
+        // host-relative Location so the browser resolves it against the
+        // public origin. `request.url` reports the internal origin (e.g.
+        // localhost:3000) under Amplify SSR / behind a proxy, so an
+        // absolute Location built from it would bounce the visitor to
+        // localhost — which also trips Chrome's local-network prompt.
+        return new Response(null, {
+          status: 308,
+          headers: { Location: `${url.pathname}/${url.search}` },
+        })
       }
       const body = (post.body ?? null) as { entrypoint?: string } | null
       const entrypoint =
