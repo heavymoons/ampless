@@ -88,7 +88,7 @@
       "excerpt": "抜粋",
       "body": "本文",
       "format": "フォーマット",
-      "formatHint": "Tiptap はリッチエディタ。Markdown / HTML はプレーンテキストエリア。ヒント: スラッグの末尾が .html (例: promo.html) の場合、テーマchrome無しで本文 HTML を直接返します。",
+      "formatHint": "Tiptap はリッチエディタ。Markdown / HTML はプレーンテキストエリア。",
       "insertMedia": "メディアを挿入",
       "tabEdit": "編集",
       "tabPreview": "プレビュー",
