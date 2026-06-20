@@ -88,7 +88,7 @@
       "excerpt": "Excerpt",
       "body": "Body",
       "format": "Format",
-      "formatHint": "Tiptap is the rich editor. Markdown / HTML use a plain textarea. Tip: a slug ending in .html (e.g. promo.html) serves the post as a bare HTML response with no theme chrome.",
+      "formatHint": "Tiptap is the rich editor. Markdown / HTML use a plain textarea.",
       "insertMedia": "Insert media",
       "tabEdit": "Edit",
       "tabPreview": "Preview",
