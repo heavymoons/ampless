@@ -5,6 +5,8 @@
 // and is not yet wired to plugins. `after:*` events flow through
 // DynamoDB Streams → SQS → trust_level Lambdas.
 
+import type { ContentFormat } from './types.js'
+
 export type ContentEventType =
   | 'content.created'
   | 'content.updated'
@@ -36,12 +38,20 @@ export type EventType =
   | SiteSettingsEventType
   | PostIndexEventType
 
-/** Minimal projection of a Post item carried in events (no body, to keep payloads small). */
+/**
+ * Minimal projection of a Post item carried in events (no body, to keep
+ * payloads small). `format` / `excerpt` are included so the denormalized
+ * PostTag index can render tag-page summaries faithfully — without them the
+ * `listPostsByTag` resolver can't know a post's real format and would
+ * mislabel non-markdown posts.
+ */
 export interface ContentEventPayload {
   postId: string
   slug: string
   title: string
   status: 'draft' | 'published'
+  format?: ContentFormat
+  excerpt?: string
   publishedAt?: string
   tags?: string[]
 }

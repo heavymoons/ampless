@@ -1,10 +1,14 @@
-import type { ContentEventPayload, PostIndexEventPayload } from 'ampless'
+import type { ContentEventPayload, ContentFormat, PostIndexEventPayload } from 'ampless'
 
 /**
  * Single row in the denormalized PostTag index. The (tag,
  * publishedAtPostId) pair is the table's composite primary key;
  * remaining fields exist for the listPostsByTag resolver to render
  * without a second Post lookup.
+ *
+ * `format` / `excerpt` are optional: the PostTag row is written by a direct
+ * DynamoDB put (no `removeUndefinedValues`), so absent values must be omitted
+ * rather than set to `undefined` (see `postTagItemsFromPost`).
  */
 export interface PostTagItem {
   tag: string
@@ -14,6 +18,8 @@ export interface PostTagItem {
   slug: string
   title: string
   tags: string[]
+  format?: ContentFormat
+  excerpt?: string
 }
 
 /**
@@ -72,6 +78,11 @@ function postTagItemsFromPost(p: ContentEventPayload | null): PostTagItem[] {
       slug: p.slug,
       title: p.title,
       tags,
+      // Omit when absent — PostTag rows are written via a direct DynamoDB put
+      // with no `removeUndefinedValues`, so an `undefined` attribute would
+      // throw "Unsupported type passed: undefined".
+      ...(p.format !== undefined && { format: p.format }),
+      ...(p.excerpt !== undefined && { excerpt: p.excerpt }),
     }))
 }
 

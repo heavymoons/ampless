@@ -222,6 +222,10 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         slug: a.string().required(),
         title: a.string().required(),
         excerpt: a.string(),
+        // Denormalized from the source Post so tag pages render the real
+        // format without a second lookup. Maintained by the trusted
+        // processor (posttag-sync) on every Post mutation.
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
         // Full tag list of the post (for chip rendering on tag pages).
         tags: a.string().array(),
       })

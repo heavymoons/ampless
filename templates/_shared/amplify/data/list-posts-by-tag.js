@@ -47,7 +47,11 @@ export function response(ctx) {
     slug: row.slug,
     title: row.title,
     excerpt: row.excerpt ?? null,
-    format: 'markdown',
+    // `format` is denormalized onto the PostTag row by the trusted processor
+    // (posttag-sync), so tag pages get the post's real format. `?? null`
+    // guards rows written before the field existed — the runtime then applies
+    // its documented `?? 'markdown'` fallback for those.
+    format: row.format ?? null,
     body: null,
     status: 'published',
     publishedAt: row.publishedAt,

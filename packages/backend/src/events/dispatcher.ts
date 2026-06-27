@@ -46,17 +46,19 @@ interface RawPost {
   slug?: string
   title?: string
   status?: 'draft' | 'published'
+  // Small enough to carry in the body-less projection; needed so the
+  // PostTag index can record a post's real format / excerpt.
+  format?: string
+  excerpt?: string
   publishedAt?: string
   tags?: string[]
 }
 
 // Full Post new-image projection used for the revision snapshot. Unlike
 // `RawPost` (the body-less SQS projection) this carries the heavy fields —
-// body/excerpt/format/metadata — verbatim from the stream record so the
-// history row is a faithful copy of the saved version.
+// body/metadata — verbatim from the stream record so the history row is a
+// faithful copy of the saved version.
 interface RawPostFull extends RawPost {
-  excerpt?: string
-  format?: string
   body?: unknown
   metadata?: unknown
   updatedAt?: string
@@ -97,6 +99,8 @@ function projectPost(raw: RawPost): ContentEventPayload | null {
     slug: raw.slug,
     title: raw.title,
     status: (raw.status ?? 'draft') as ContentEventPayload['status'],
+    format: raw.format as ContentEventPayload['format'],
+    excerpt: raw.excerpt,
     publishedAt: raw.publishedAt,
     tags: raw.tags,
   }
