@@ -30,27 +30,35 @@ const TTL_DAYS = 364
  * thin shell `amplify/functions/api-key-renewer/handler.ts`.
  */
 export const handler = async () => {
-  const { apiKeys } = await client.send(
-    new ListApiKeysCommand({ apiId: APPSYNC_API_ID })
-  )
-  if (!apiKeys || apiKeys.length === 0) {
-    console.warn('[api-key-renewer] no api keys to renew')
-    return
-  }
-
-  const expires = Math.floor(Date.now() / 1000) + TTL_DAYS * 86400
-  const targetIso = new Date(expires * 1000).toISOString()
-
-  for (const k of apiKeys) {
-    if (!k.id) continue
-    const beforeIso = k.expires ? new Date(k.expires * 1000).toISOString() : '(none)'
-    await client.send(
-      new UpdateApiKeyCommand({
-        apiId: APPSYNC_API_ID,
-        id: k.id,
-        expires,
-      })
+  try {
+    const { apiKeys } = await client.send(
+      new ListApiKeysCommand({ apiId: APPSYNC_API_ID })
     )
-    console.log(`[api-key-renewer] ${k.id}: ${beforeIso} -> ${targetIso}`)
+    if (!apiKeys || apiKeys.length === 0) {
+      console.warn('[api-key-renewer] no api keys to renew')
+      return
+    }
+
+    const expires = Math.floor(Date.now() / 1000) + TTL_DAYS * 86400
+    const targetIso = new Date(expires * 1000).toISOString()
+
+    for (const k of apiKeys) {
+      if (!k.id) continue
+      const beforeIso = k.expires ? new Date(k.expires * 1000).toISOString() : '(none)'
+      await client.send(
+        new UpdateApiKeyCommand({
+          apiId: APPSYNC_API_ID,
+          id: k.id,
+          expires,
+        })
+      )
+      console.log(`[api-key-renewer] ${k.id}: ${beforeIso} -> ${targetIso}`)
+    }
+  } catch (err) {
+    // Scheduled (EventBridge) invocation: surface the failure in logs and
+    // rethrow so Lambda marks the run failed and alarms can fire. A silent
+    // swallow here would let API keys expire and 401 the public site.
+    console.error('[api-key-renewer] failed to renew API keys:', err)
+    throw err
   }
 }

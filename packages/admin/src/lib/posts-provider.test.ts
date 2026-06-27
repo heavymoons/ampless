@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const postListMock = vi.hoisted(() => vi.fn())
+const postGetMock = vi.hoisted(() => vi.fn())
 
 vi.mock('aws-amplify/api', () => {
   function generateClient() {
@@ -8,9 +9,7 @@ vi.mock('aws-amplify/api', () => {
       models: {
         Post: {
           list: postListMock,
-          async get() {
-            return { data: null, errors: null }
-          },
+          get: postGetMock,
           async create() {
             return { data: null, errors: null }
           },
@@ -72,6 +71,8 @@ beforeEach(() => {
   vi.resetModules()
   vi.restoreAllMocks()
   postListMock.mockReset()
+  postGetMock.mockReset()
+  postGetMock.mockResolvedValue({ data: null, errors: null })
 })
 
 describe('admin posts provider listSummaries', () => {
@@ -141,6 +142,47 @@ describe('admin posts provider listSummaries', () => {
     expect(postListMock).toHaveBeenCalledTimes(2)
     expect(errorSpy).toHaveBeenCalled()
     expectSummaryProjection()
+  })
+})
+
+describe('admin posts provider read paths surface AppSync errors', () => {
+  it('list() throws instead of silently dropping the AppSync errors array', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    postListMock.mockResolvedValueOnce({
+      data: [],
+      errors: [{ message: 'Post.list denied' }],
+    })
+
+    const { listPosts } = await installProvider()
+
+    await expect(listPosts()).rejects.toThrow('Post.list denied')
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  it('get(slug) throws instead of returning null on AppSync errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    postListMock.mockResolvedValueOnce({
+      data: [],
+      errors: [{ message: 'Post.get by slug denied' }],
+    })
+
+    const { getPost } = await installProvider()
+
+    await expect(getPost('some-slug')).rejects.toThrow('Post.get by slug denied')
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  it('getById() throws instead of returning null on AppSync errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    postGetMock.mockResolvedValueOnce({
+      data: null,
+      errors: [{ message: 'Post.get denied' }],
+    })
+
+    const { getPostById } = await installProvider()
+
+    await expect(getPostById('post-1')).rejects.toThrow('Post.get denied')
+    expect(errorSpy).toHaveBeenCalled()
   })
 })
 
