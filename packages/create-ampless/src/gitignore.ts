@@ -19,6 +19,9 @@ next-env.d.ts
 .amplify/
 amplify_outputs.json
 
+# Ampless plugin-secret encryption key — NEVER commit (decrypts all stored secrets)
+amplify/secrets/encryption-key.ts
+
 # TypeScript build artifacts
 *.tsbuildinfo
 
