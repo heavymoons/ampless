@@ -106,9 +106,10 @@ beforeEach(() => {
 
 // URLs in these tests use the public surface (`/<slug>(/<path>)`). The
 // handler is invoked by Next.js after middleware rewrites
-// `/<slug>(/<path>)` → `/static/<slug>(/<path>)` internally —
-// `request.url` surfaces the original public URL, which is what the
-// trailing-slash redirect logic operates on.
+// `/<slug>(/<path>)` → `/static/<slug>(/<path>)` internally. The
+// trailing-slash redirect only relies on `request.url`'s *pathname*, not
+// its host — under Amplify SSR / behind a proxy the host can be the
+// internal origin (localhost:3000), so the Location must stay relative.
 
 describe('createStaticRouteHandler — entrypoint', () => {
   it('308 redirects /<slug> (no trailing slash) to /<slug>/', async () => {
@@ -118,7 +119,33 @@ describe('createStaticRouteHandler — entrypoint', () => {
       makeCtx({ slug: 'site' }),
     )
     expect(res.status).toBe(308)
-    expect(res.headers.get('Location')).toBe('https://x.example.com/site/')
+    // Host-relative Location so the public origin is preserved.
+    expect(res.headers.get('Location')).toBe('/site/')
+  })
+
+  it('308 Location stays host-relative even when request.url is the internal origin', async () => {
+    // Under Amplify SSR / behind a proxy, `request.url` surfaces the
+    // internal origin (localhost:3000). An absolute Location built from
+    // it would bounce the visitor off the public host — regression guard.
+    const handler = createStaticRouteHandler(makeAmpless({ post: STATIC_POST }))
+    const res = await handler(
+      makeRequest('http://localhost:3000/site'),
+      makeCtx({ slug: 'site' }),
+    )
+    expect(res.status).toBe(308)
+    const location = res.headers.get('Location')
+    expect(location).toBe('/site/')
+    expect(location).not.toContain('localhost')
+  })
+
+  it('308 preserves the query string in the relative Location', async () => {
+    const handler = createStaticRouteHandler(makeAmpless({ post: STATIC_POST }))
+    const res = await handler(
+      makeRequest('https://x.example.com/site?utm=1'),
+      makeCtx({ slug: 'site' }),
+    )
+    expect(res.status).toBe(308)
+    expect(res.headers.get('Location')).toBe('/site/?utm=1')
   })
 
   it('200 streams /<slug>/ (trailing slash) entrypoint bytes back via Lambda', async () => {

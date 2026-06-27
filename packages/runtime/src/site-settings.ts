@@ -67,9 +67,11 @@ export function createSiteSettings(
 
       return {
         site: {
-          name: remote?.site?.name ?? baseSite.name,
-          url: remote?.site?.url ?? baseSite.url,
-          description: remote?.site?.description ?? baseSite.description,
+          name: String(remote?.site?.name ?? baseSite.name ?? ''),
+          url: String(remote?.site?.url ?? baseSite.url ?? ''),
+          description: (remote?.site?.description ?? baseSite.description) != null
+            ? String(remote?.site?.description ?? baseSite.description)
+            : undefined,
         },
         media: {
           imageDisplay: remote?.media?.imageDisplay ?? cmsConfig.media?.imageDisplay,

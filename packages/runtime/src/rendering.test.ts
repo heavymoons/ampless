@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { isValidElement, type ReactNode } from 'react'
 import type { Post } from 'ampless'
 import {
   renderBody,
@@ -51,6 +52,64 @@ describe('renderBody (ReactNode)', () => {
 
   it('renders a string tiptap body defensively (format-switch save path)', () => {
     expect(renderToHtml(p('tiptap', '<p>hi</p>'))).toContain('<p>hi</p>')
+  })
+})
+
+// `suppressHydrationWarning` is stripped by renderToStaticMarkup, so assert
+// it on the React element tree instead of the markup string. It lets
+// client plugins (mermaid/highlight) rewrite the post body after load
+// without React warning about an SSR/DOM mismatch.
+function someElement(node: ReactNode, test: (el: React.ReactElement) => boolean): boolean {
+  if (Array.isArray(node)) return node.some((n) => someElement(n as ReactNode, test))
+  if (!isValidElement(node)) return false
+  const el = node as React.ReactElement<{ children?: ReactNode }>
+  if (test(el)) return true
+  const children = el.props?.children
+  return children !== undefined ? someElement(children, test) : false
+}
+
+describe('renderBody suppresses hydration warnings on client-enhanced body', () => {
+  const hasSuppressedInnerHtml = (el: React.ReactElement) => {
+    const props = el.props as Record<string, unknown>
+    return Boolean(props.dangerouslySetInnerHTML) && props.suppressHydrationWarning === true
+  }
+
+  it('html passthrough body carries suppressHydrationWarning', () => {
+    expect(someElement(renderBody(p('html', '<p>hi</p>')), hasSuppressedInnerHtml)).toBe(true)
+  })
+
+  it('markdown passthrough body carries suppressHydrationWarning', () => {
+    expect(someElement(renderBody(p('markdown', '# Hi')), hasSuppressedInnerHtml)).toBe(true)
+  })
+
+  it('tiptap code block renders as a suppressed dangerouslySetInnerHTML island', () => {
+    // The codeBlock is now an opaque island (a <div> with
+    // dangerouslySetInnerHTML + suppressHydrationWarning) rather than a
+    // React-managed <pre>, so client plugins (mermaid replacing the <pre>,
+    // highlight injecting spans) can mutate it without React regenerating
+    // the subtree. The inner <pre><code class="language-…"> source is
+    // preserved verbatim inside the island's __html.
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'codeBlock',
+          attrs: { language: 'mermaid' },
+          content: [{ type: 'text', text: 'graph TD; A-->B' }],
+        },
+      ],
+    }
+    const found = someElement(renderBody(p('tiptap', doc)), (el) => {
+      const props = el.props as Record<string, unknown>
+      const dsi = props.dangerouslySetInnerHTML as { __html?: string } | undefined
+      return (
+        Boolean(dsi) &&
+        props.suppressHydrationWarning === true &&
+        typeof dsi?.__html === 'string' &&
+        dsi.__html.includes('<pre><code class="language-mermaid">')
+      )
+    })
+    expect(found).toBe(true)
   })
 })
 

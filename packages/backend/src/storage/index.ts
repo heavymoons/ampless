@@ -4,6 +4,7 @@ import type { defineStorage } from '@aws-amplify/backend'
  * Build the ampless S3 bucket configuration as a plain options object
  * suitable for `defineStorage(...)`. Access map:
  *   - `public/media/*`   — guest read, admin/editor full
+ *   - `public/static/*`  — guest read, admin/editor full (static-bundle posts)
  *   - `public/plugins/*` — guest read, admin full
  *
  * Bucket-level overrides (PublicAccessBlock, CORS, IAM policies for
@@ -30,6 +31,16 @@ export function amplessStorageConfig(): Parameters<typeof defineStorage>[0] {
     name: 'amplessMedia',
     access: (allow) => ({
       'public/media/*': [
+        allow.guest.to(['read']),
+        allow.groups(['ampless-admin', 'ampless-editor']).to(['read', 'write', 'delete']),
+      ],
+      // Static-bundle posts (`format: 'static'`) upload their files to
+      // `public/static/<slug>/...` from the browser admin via Cognito
+      // identity-pool credentials. Without this rule the admin group's
+      // role is denied `s3:PutObject` and saving the post fails. Mirrors
+      // the media grant; the MCP/Lambda upload path is granted separately
+      // on the function role in `defineAmplessBackend`.
+      'public/static/*': [
         allow.guest.to(['read']),
         allow.groups(['ampless-admin', 'ampless-editor']).to(['read', 'write', 'delete']),
       ],

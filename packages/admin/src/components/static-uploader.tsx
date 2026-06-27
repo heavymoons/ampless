@@ -69,7 +69,7 @@ export function StaticUploader({ initial, onFilesReady, onClear }: Props) {
     }
   }
 
-  async function handleLooseFiles(files: FileList) {
+  async function handleLooseFiles(files: File[]) {
     setBusy(true)
     setError(null)
     try {
@@ -80,8 +80,12 @@ export function StaticUploader({ initial, onFilesReady, onClear }: Props) {
         // `webkitRelativePath` when the user selects a directory.
         // Falling back to plain `name` keeps single-file selection
         // working (no nested dirs needed for trivial bundles).
+        // `webkitRelativePath` is `''` (not undefined) for plain multi-file
+        // selection, so `??` would keep the empty string and every file
+        // would fail validation as a "directory entry". `||` falls back to
+        // the bare filename, which is the intended path for loose files.
         const rel =
-          (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name
+          (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
         // Strip the wrapper folder (`MyBundle/...`) so the bundle root
         // is the entrypoint's directory — same convention extractZip
         // applies for zipped folders.
@@ -113,13 +117,20 @@ export function StaticUploader({ initial, onFilesReady, onClear }: Props) {
   }
 
   function onPickerChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const fl = e.target.files
-    if (!fl || fl.length === 0) return
+    const picked = e.target.files
+    if (!picked || picked.length === 0) return
+    // Snapshot the FileList into a stable array *before* clearing the
+    // input. `e.target.files` is a live FileList: setting `value = ''`
+    // (so the same file can be re-picked) empties it, and any reference
+    // still pointing at it goes to length 0 — which previously sent a
+    // single .zip down the loose-files branch and surfaced as
+    // "emptyBundle". The File objects themselves stay valid once copied.
+    const files = Array.from(picked)
     e.target.value = '' // allow re-picking the same file
-    if (fl.length === 1 && fl[0]!.name.toLowerCase().endsWith('.zip')) {
-      void handleZip(fl[0]!)
+    if (files.length === 1 && files[0]!.name.toLowerCase().endsWith('.zip')) {
+      void handleZip(files[0]!)
     } else {
-      void handleLooseFiles(fl)
+      void handleLooseFiles(files)
     }
   }
 

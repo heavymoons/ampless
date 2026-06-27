@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-mermaid",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.3",
   "description": "Mermaid diagram plugin for ampless — renders `code.language-mermaid` blocks on the public site as diagrams via a lazily CDN-loaded mermaid.js",
   "license": "MIT",
   "type": "module",

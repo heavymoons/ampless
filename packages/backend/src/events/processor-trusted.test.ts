@@ -25,6 +25,15 @@ import { createProcessorTrustedHandler, decryptSecret } from './processor-truste
 const s3Commands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown> }>)
 const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown> }>)
 
+// Per-test DocumentClient query responses, keyed by `TableName`.
+// REMEMBER: DynamoDBDocumentClient returns ALREADY-UNMARSHALLED items, so
+// the registered items are PLAIN JS objects with native-typed values
+// (e.g. `{ pk: 'siteconfig', sk: 'site.name', value: '1470' }`,
+// `{ ..., value: 2400 }`, `{ ..., value: { foo: 'bar' } }`). Do NOT wrap
+// values in attribute descriptors like `{ N: ... }`. Default (no entry
+// for a table) is `{ Items: [] }`, so existing tests are unaffected.
+const ddbQueryResponses = vi.hoisted(() => new Map<string, unknown[]>())
+
 // Simulate PluginSecret table rows for ctx.secret tests.
 // Map key: `sk` → value string (single-id identifier — no `siteId`
 // partition column after the `remove-siteid-from-schema` migration).
@@ -146,7 +155,9 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
       return {
         async send(command: { input: Record<string, unknown> }) {
           ddbCommands.push(command)
-          return { Items: [] }
+          const tableName = command.input.TableName as string | undefined
+          const items = (tableName && ddbQueryResponses.get(tableName)) || []
+          return { Items: items }
         },
       }
     },
@@ -204,6 +215,7 @@ describe('createProcessorTrustedHandler writePublicAsset', () => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -371,6 +383,7 @@ describe('createProcessorTrustedHandler hook return value handling', () => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -438,6 +451,7 @@ describe('createProcessorTrustedHandler ctx.secret', () => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -609,6 +623,7 @@ describe('S3 site-settings mirror excludes PluginSecret table', () => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -724,6 +739,7 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
     setEnv(/* withEncKey= */ true)
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -832,6 +848,7 @@ describe('listPublished — scheduled-publish now-clamp', () => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -890,6 +907,7 @@ describe('createProcessorTrustedHandler — privileged plugin hook visibility', 
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
+    ddbQueryResponses.clear()
     pluginSecretRows.clear()
   })
 
@@ -948,5 +966,173 @@ describe('createProcessorTrustedHandler — privileged plugin hook visibility', 
       msg?.includes('privileged')
     )
     expect(privilegedWarns).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// rebuildSiteSettingsCache — type preservation (regression for the
+// double-decode bug that caused a site-wide 500)
+// ---------------------------------------------------------------------------
+//
+// DynamoDBDocumentClient returns ALREADY-UNMARSHALLED items, so `row.value`
+// is already the correct native JS type and must NOT be re-parsed. The old
+// `safeParse(raw)` ran JSON.parse on native scalar strings, double-decoding
+// numeric-looking settings like "1470" → 1470. These tests register native
+// KV items and assert the type survives into `public/site-settings.json`.
+
+describe('rebuildSiteSettingsCache type preservation', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    ddbQueryResponses.clear()
+    pluginSecretRows.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** Run the cache rebuild and return the parsed site-settings.json body. */
+  async function rebuildAndReadSettings(): Promise<Record<string, unknown>> {
+    const handler = createProcessorTrustedHandler({ site })
+    await handler(event('site.settings.updated'), {} as never, vi.fn() as never)
+    const cmd = s3Commands.find(
+      (c) => (c.input.Key as string) === 'public/site-settings.json'
+    )
+    expect(cmd).toBeDefined()
+    return JSON.parse(cmd!.input.Body as string) as Record<string, unknown>
+  }
+
+  it('keeps a numeric-looking string as a string (acceptance #1: "1470" stays "1470")', async () => {
+    // KV_TABLE is 'kv' (see setEnv). Items are plain JS objects with
+    // native-typed values — NOT attribute descriptors.
+    ddbQueryResponses.set('kv', [{ pk: 'siteconfig', sk: 'site.name', value: '1470' }])
+
+    const settings = await rebuildAndReadSettings()
+
+    expect(settings['site.name']).toBe('1470')
+    expect(typeof settings['site.name']).toBe('string')
+  })
+
+  it('keeps a real number as a number (acceptance #2: type not broken)', async () => {
+    ddbQueryResponses.set('kv', [{ pk: 'siteconfig', sk: 'site.postsPerPage', value: 2400 }])
+
+    const settings = await rebuildAndReadSettings()
+
+    expect(settings['site.postsPerPage']).toBe(2400)
+    expect(typeof settings['site.postsPerPage']).toBe('number')
+  })
+
+  it('keeps a string that merely starts numeric ("1470.net") intact', async () => {
+    ddbQueryResponses.set('kv', [{ pk: 'siteconfig', sk: 'site.domain', value: '1470.net' }])
+
+    const settings = await rebuildAndReadSettings()
+
+    expect(settings['site.domain']).toBe('1470.net')
+    expect(typeof settings['site.domain']).toBe('string')
+  })
+
+  it('keeps an object value as an object', async () => {
+    ddbQueryResponses.set('kv', [{ pk: 'siteconfig', sk: 'site.theme', value: { a: 1 } }])
+
+    const settings = await rebuildAndReadSettings()
+
+    expect(settings['site.theme']).toEqual({ a: 1 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// listPublished — post.body type preservation (same double-decode bug)
+// ---------------------------------------------------------------------------
+//
+// listPublished()'s output is observed via ctx.listPublishedPosts(): a
+// trusted plugin hook calls it and we capture the returned posts in a
+// closure (the same forcing pattern used by the scheduled-publish test
+// above). A pure-numeric string body must stay a string; a tiptap object
+// body must stay an object.
+
+describe('listPublished — post.body type preservation', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    ddbQueryResponses.clear()
+    pluginSecretRows.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** Force listPublished() to run and capture the posts it returns. */
+  async function listPublishedViaHook(): Promise<
+    Array<Awaited<ReturnType<TrustedPluginRuntimeContext['listPublishedPosts']>>[number]>
+  > {
+    let captured: Array<
+      Awaited<ReturnType<TrustedPluginRuntimeContext['listPublishedPosts']>>[number]
+    > = []
+    const handler = createProcessorTrustedHandler({
+      site,
+      plugins: [
+        {
+          name: 'feed-writer',
+          apiVersion: 1,
+          trust_level: 'trusted',
+          capabilities: ['eventHooks'],
+          hooks: {
+            'content.published': async (_evt, ctx) => {
+              captured = await ctx.listPublishedPosts()
+            },
+          },
+        },
+      ],
+    })
+    await handler(event('content.published'), {} as never, vi.fn() as never)
+    return captured
+  }
+
+  it('keeps a pure-numeric string body as a string (NOT a number)', async () => {
+    // POST_TABLE is 'posts' (see setEnv). DocumentClient returns native
+    // values — body is already the string "123", not an attribute map.
+    ddbQueryResponses.set('posts', [
+      {
+        postId: 'p1',
+        slug: 'numeric-body',
+        title: 'Numeric body',
+        format: 'markdown',
+        body: '123',
+        status: 'published',
+        publishedAt: '2020-01-01T00:00:00.000Z',
+        tags: [],
+      },
+    ])
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts).toHaveLength(1)
+    expect(posts[0]!.body).toBe('123')
+    expect(typeof posts[0]!.body).toBe('string')
+  })
+
+  it('keeps a tiptap object body as an object', async () => {
+    ddbQueryResponses.set('posts', [
+      {
+        postId: 'p2',
+        slug: 'tiptap-body',
+        title: 'Tiptap body',
+        format: 'tiptap',
+        body: { type: 'doc', content: [] },
+        status: 'published',
+        publishedAt: '2020-01-01T00:00:00.000Z',
+        tags: [],
+      },
+    ])
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts).toHaveLength(1)
+    expect(posts[0]!.body).toEqual({ type: 'doc', content: [] })
+    expect(typeof posts[0]!.body).toBe('object')
   })
 })
