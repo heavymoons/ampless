@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-highlight",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "description": "Syntax highlighting plugin for ampless — highlights `code.language-*` blocks on the public site via a lazily CDN-loaded highlight.js",
   "license": "MIT",
   "type": "module",
