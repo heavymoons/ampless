@@ -320,6 +320,15 @@ export function validateThemeValue(field: ThemeField, raw: unknown): string | nu
       const sanitized = v.replace(/[\x00-\x1f<>]/g, '')
       return sanitized.length <= max ? sanitized : sanitized.slice(0, max)
     }
+    default: {
+      // Exhaustiveness guard: adding a (non-linkList) ThemeFieldType without
+      // a case here is a compile error. At runtime, reject the value rather
+      // than returning undefined, which callers would treat as `string | null`
+      // and silently drop the stored override.
+      const _exhaustive: never = field
+      void _exhaustive
+      return null
+    }
   }
 }
 
