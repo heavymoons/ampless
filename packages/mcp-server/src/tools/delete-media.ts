@@ -9,11 +9,19 @@ const GET_BY_ID = /* GraphQL */ `
   }
 `
 
-const GET_BY_SRC = /* GraphQL */ `
-  query GetMediaBySrc($src: String!) {
-    getMediaBySrc(src: $src) {
-      mediaId
-      src
+// Resolve src → mediaId against the Media model itself. The public
+// `getMediaBySrc` custom query returns the PublicMedia projection, which
+// intentionally omits `mediaId`, so it cannot drive a Media row delete
+// (asking for `mediaId` there is a schema error / always absent). `src` is
+// unique, so page through `listMedia` filtered by src until the row is found.
+const FIND_BY_SRC = /* GraphQL */ `
+  query FindMediaBySrc($filter: ModelMediaFilterInput!, $nextToken: String) {
+    listMedia(filter: $filter, limit: 100, nextToken: $nextToken) {
+      items {
+        mediaId
+        src
+      }
+      nextToken
     }
   }
 `
@@ -163,15 +171,28 @@ export async function deleteMedia(
       assertMediaPrefix(src)
     }
   } else {
-    const data = await graphql.query<{
-      getMediaBySrc: { mediaId: string; src: string } | null
-    }>(GET_BY_SRC, { src: args.src! })
-    if (data.getMediaBySrc) {
-      mediaId = data.getMediaBySrc.mediaId
-      src = data.getMediaBySrc.src
-      // Guard against rows with corrupt / unexpected src values.
-      assertMediaPrefix(src)
-    }
+    // Page through listMedia filtered by src (unique) until the row is
+    // found. A bySrc-GSI query would be O(1), but delete is a rare
+    // maintenance op so the filtered read is acceptable and avoids
+    // depending on the exact generated GSI query name.
+    let cursor: string | undefined
+    do {
+      const data = await graphql.query<{
+        listMedia: {
+          items: Array<{ mediaId: string; src: string }>
+          nextToken: string | null
+        }
+      }>(FIND_BY_SRC, { filter: { src: { eq: args.src! } }, nextToken: cursor })
+      const row = data.listMedia.items[0]
+      if (row) {
+        mediaId = row.mediaId
+        src = row.src
+        // Guard against rows with corrupt / unexpected src values.
+        assertMediaPrefix(src)
+        break
+      }
+      cursor = data.listMedia.nextToken ?? undefined
+    } while (cursor)
   }
 
   // Orphan case: row not found. Still delete the S3 object if `src`
