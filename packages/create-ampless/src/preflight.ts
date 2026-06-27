@@ -1,8 +1,8 @@
 import { execa } from 'execa'
 import { basename } from 'node:path'
 import pc from 'picocolors'
-import type { DeployOptions } from './deploy.js'
-import { extractRegistrableDomain } from './deploy.js'
+import type { DeployOptions } from './deploy-shared.js'
+import { extractRegistrableDomain } from './deploy-shared.js'
 
 /**
  * Pre-flight checks for `create-ampless --deploy`.

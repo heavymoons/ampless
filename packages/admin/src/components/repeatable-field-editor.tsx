@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react'
 import { resolveLocalized, type PluginRepeatableField } from 'ampless'
 import { Label } from '@ampless/runtime/ui'
 import { useLocale } from './i18n-provider.js'
-import { renderScalarInput } from './plugin-settings-form.js'
+import { renderScalarInput } from './scalar-input.js'
 import {
   parseRepeatableValue,
   serializeRepeatableValue,

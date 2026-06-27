@@ -40,11 +40,33 @@ export const uploadMediaSchema = {
   },
 } as const
 
+// Conservative IANA media-type check (type/subtype with allowed token chars,
+// length-capped). The media bucket is served publicly, so a stored text/html
+// or application/javascript object fetched directly could enable phishing /
+// XSS — reject active-content types.
+const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
+const BLOCKED_MIME_TYPES = new Set([
+  'text/html',
+  'application/xhtml+xml',
+  'application/javascript',
+  'text/javascript',
+])
+
+function assertSafeMimeType(mimeType: string): void {
+  if (!MIME_TYPE_RE.test(mimeType)) {
+    throw new Error(`upload_media: invalid mimeType: ${JSON.stringify(mimeType)}`)
+  }
+  if (BLOCKED_MIME_TYPES.has(mimeType.toLowerCase())) {
+    throw new Error(`upload_media: mimeType not allowed for public media: ${mimeType}`)
+  }
+}
+
 export async function uploadMedia(
   graphql: GraphqlClient,
   storage: StorageClient,
   args: UploadMediaArgs
 ) {
+  assertSafeMimeType(args.mimeType)
   const body = Buffer.from(args.base64Data, 'base64')
   const key = buildMediaKey(args.filename)
   const putResult = await storage.putObject(key, body, args.mimeType)

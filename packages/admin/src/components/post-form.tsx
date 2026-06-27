@@ -529,16 +529,21 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       }
 
       if (isEdit) {
+        // This is a full-document save, not a partial patch: provider.update
+        // omits `undefined` fields, so clearing excerpt / emptying metadata
+        // must send an explicit value or the stored value would survive.
+        // Send `excerpt` verbatim ('' clears it) and `metadata ?? {}` ('{}'
+        // clears stale keys like a leftover `no_layout`).
         await updatePost(post!.postId, {
           title,
           slug: finalSlug,
-          excerpt: excerpt || undefined,
+          excerpt,
           format,
           body: nextBody,
           status,
           publishedAt,
           tags,
-          metadata,
+          metadata: metadata ?? {},
         })
       } else {
         await createPost({

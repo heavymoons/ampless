@@ -46,17 +46,19 @@ interface RawPost {
   slug?: string
   title?: string
   status?: 'draft' | 'published'
+  // Small enough to carry in the body-less projection; needed so the
+  // PostTag index can record a post's real format / excerpt.
+  format?: string
+  excerpt?: string
   publishedAt?: string
   tags?: string[]
 }
 
 // Full Post new-image projection used for the revision snapshot. Unlike
 // `RawPost` (the body-less SQS projection) this carries the heavy fields —
-// body/excerpt/format/metadata — verbatim from the stream record so the
-// history row is a faithful copy of the saved version.
+// body/metadata — verbatim from the stream record so the history row is a
+// faithful copy of the saved version.
 interface RawPostFull extends RawPost {
-  excerpt?: string
-  format?: string
   body?: unknown
   metadata?: unknown
   updatedAt?: string
@@ -97,6 +99,8 @@ function projectPost(raw: RawPost): ContentEventPayload | null {
     slug: raw.slug,
     title: raw.title,
     status: (raw.status ?? 'draft') as ContentEventPayload['status'],
+    format: raw.format as ContentEventPayload['format'],
+    excerpt: raw.excerpt,
     publishedAt: raw.publishedAt,
     tags: raw.tags,
   }
@@ -175,7 +179,18 @@ function emitKvEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[]
 async function sendBatch(queueUrl: string, entries: SendMessageBatchRequestEntry[]) {
   for (let i = 0; i < entries.length; i += 10) {
     const chunk = entries.slice(i, i + 10)
-    await sqs.send(new SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: chunk }))
+    // SendMessageBatch returns HTTP 200 even when individual messages fail
+    // (reported in `Failed`). Surface that so the stream processor retries
+    // rather than silently dropping events that never reached the queue.
+    const res = await sqs.send(
+      new SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: chunk })
+    )
+    if (res.Failed && res.Failed.length > 0) {
+      console.error('[event-dispatcher] SQS SendMessageBatch partial failure:', res.Failed)
+      throw new Error(
+        `SendMessageBatch: ${res.Failed.length}/${chunk.length} message(s) failed for ${queueUrl}`
+      )
+    }
   }
 }
 

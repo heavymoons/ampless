@@ -117,9 +117,19 @@ export async function uploadBundle(opts: UploadOptions): Promise<UploadBundleRes
     throw new Error(`Entrypoint "${entrypoint}" is not present in the bundle.`)
   }
 
-  // Clear the existing prefix so removed files vanish. Best-effort — if
-  // the listing fails (no prior bundle), proceed with the upload anyway.
-  await deleteBundle(opts.slug).catch(() => undefined)
+  // Clear the existing prefix so removed files vanish. A missing prior
+  // bundle is not an error (list() returns empty); a genuine failure here
+  // means stale objects could survive the replace, leaving the S3 prefix
+  // inconsistent with the new manifest — surface it instead of swallowing.
+  try {
+    await deleteBundle(opts.slug)
+  } catch (err) {
+    console.error(
+      '[ampless static-bundle] failed to clear existing bundle before replace:',
+      err,
+    )
+    throw err
+  }
 
   const prefix = bundlePrefix(opts.slug)
   let uploaded = 0

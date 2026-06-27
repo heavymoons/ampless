@@ -199,10 +199,14 @@ export function installAdminPostsProvider(): void {
       const filter: Record<string, unknown> = {}
       if (status !== 'all') filter.status = { eq: status }
       const hasFilter = Object.keys(filter).length > 0
-      const { data } = await client.models.Post.list({
+      const { data, errors } = await client.models.Post.list({
         filter: hasFilter ? filter : undefined,
         limit: opts.limit ?? 100,
       })
+      if (errors && errors.length > 0) {
+        console.error('[ampless admin] Post.list failed:', errors)
+        throw new Error(errors[0]?.message ?? 'Post.list failed')
+      }
       return data.map(toCorePost)
     },
 
@@ -240,15 +244,23 @@ export function installAdminPostsProvider(): void {
     },
 
     async get(slug) {
-      const { data } = await client.models.Post.list({
+      const { data, errors } = await client.models.Post.list({
         filter: { slug: { eq: slug } },
         limit: 1,
       })
+      if (errors && errors.length > 0) {
+        console.error('[ampless admin] Post.get (by slug) failed:', errors)
+        throw new Error(errors[0]?.message ?? 'Post.get failed')
+      }
       return data[0] ? toCorePost(data[0]) : null
     },
 
     async getById(postId) {
-      const { data } = await client.models.Post.get({ postId })
+      const { data, errors } = await client.models.Post.get({ postId })
+      if (errors && errors.length > 0) {
+        console.error('[ampless admin] Post.get failed:', errors)
+        throw new Error(errors[0]?.message ?? 'Post.get failed')
+      }
       return data ? toCorePost(data) : null
     },
 

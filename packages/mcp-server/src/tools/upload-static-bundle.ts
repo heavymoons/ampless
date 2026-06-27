@@ -121,12 +121,18 @@ export async function uploadStaticBundle(
     )
   }
 
-  // 4. Wipe the existing prefix so removed files vanish. Best-effort:
-  // if there's no prior bundle, ListObjects returns empty.
+  // 4. Wipe the existing prefix so removed files vanish. A missing prior
+  // bundle is not an error (ListObjects returns empty); a genuine listing
+  // failure means stale files could survive the wipe, violating the
+  // full-prefix-replace contract — surface it instead of proceeding with [].
   const prefix = bundlePrefix(slug)
   const existing = await storage.listObjects(prefix).catch((err) => {
-    console.error('[upload_static_bundle] listObjects failed (proceeding)', err)
-    return []
+    console.error('[upload_static_bundle] listObjects failed', err)
+    throw new Error(
+      `upload_static_bundle: failed to list existing bundle objects for full-prefix wipe: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
   })
   for (const obj of existing) {
     await storage.deleteObject(obj.key)

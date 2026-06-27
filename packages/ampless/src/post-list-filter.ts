@@ -67,6 +67,14 @@ function compareRows(a: PostSummary, b: PostSummary, sort: PostListSort): number
       return b.title.localeCompare(a.title)
     case 'title-asc':
       return a.title.localeCompare(b.title)
+    default: {
+      // Exhaustiveness guard: adding a PostListSort value without a case
+      // here is a compile error. At runtime, fall back to a stable order
+      // (0) rather than returning undefined → NaN → silently broken sort.
+      const _exhaustive: never = sort
+      void _exhaustive
+      return 0
+    }
   }
 }
 

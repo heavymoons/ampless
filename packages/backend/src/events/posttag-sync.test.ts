@@ -8,6 +8,8 @@ function published(opts: Partial<ContentEventPayload> = {}): ContentEventPayload
     slug: 'hello',
     title: 'Hello',
     status: 'published',
+    format: 'markdown',
+    excerpt: 'A summary',
     publishedAt: '2026-05-01T00:00:00.000Z',
     tags: ['news', 'tech'],
     ...opts,
@@ -27,7 +29,30 @@ describe('computePostTagDiff', () => {
       expect(p.publishedAtPostId).toBe('2026-05-01T00:00:00.000Z#p1')
       expect(p.postId).toBe('p1')
       expect(p.slug).toBe('hello')
+      // format / excerpt are denormalized so listPostsByTag renders them
+      // without a second lookup.
+      expect(p.format).toBe('markdown')
+      expect(p.excerpt).toBe('A summary')
     }
+  })
+
+  it('carries a non-markdown format onto every PostTag row', () => {
+    const { puts } = computePostTagDiff({
+      previous: null,
+      next: published({ format: 'html', tags: ['news'] }),
+    })
+    expect(puts).toHaveLength(1)
+    expect(puts[0]!.format).toBe('html')
+  })
+
+  it('omits format / excerpt when absent (no undefined attributes for the DDB put)', () => {
+    const { puts } = computePostTagDiff({
+      previous: null,
+      next: published({ format: undefined, excerpt: undefined, tags: ['news'] }),
+    })
+    expect(puts).toHaveLength(1)
+    expect('format' in puts[0]!).toBe(false)
+    expect('excerpt' in puts[0]!).toBe(false)
   })
 
   it('INSERT of a draft → no puts, no deletes', () => {

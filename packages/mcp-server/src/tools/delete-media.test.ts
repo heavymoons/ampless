@@ -23,10 +23,13 @@ function makeGraphql(rows: MediaRow[]): {
           const found = state.rows.find((r) => r.mediaId === mediaId) ?? null
           return { getMedia: found } as unknown as T
         }
-        if (operation.includes('query GetMediaBySrc(')) {
-          const src = String(variables?.src ?? '')
+        if (operation.includes('query FindMediaBySrc(')) {
+          const filter = variables?.filter as { src?: { eq?: string } } | undefined
+          const src = String(filter?.src?.eq ?? '')
           const found = state.rows.find((r) => r.src === src) ?? null
-          return { getMediaBySrc: found } as unknown as T
+          return {
+            listMedia: { items: found ? [found] : [], nextToken: null },
+          } as unknown as T
         }
         if (operation.includes('mutation DeleteMedia(')) {
           const input = variables?.input as { mediaId?: string } | undefined
@@ -94,7 +97,7 @@ describe('delete_media', () => {
     ])
   })
 
-  it('deletes by src: looks up via getMediaBySrc, S3 delete, then DDB delete', async () => {
+  it('deletes by src: resolves mediaId via listMedia, S3 delete, then DDB delete', async () => {
     const g = makeGraphql([ROW])
     const s = makeStorage([{ key: ROW.src, size: 1000 }])
 
@@ -102,7 +105,7 @@ describe('delete_media', () => {
 
     expect(result).toEqual({ deleted: true, mediaId: ROW.mediaId, src: ROW.src })
     expect(s.deletes).toEqual([ROW.src])
-    expect(g.calls[0]?.op).toMatch(/GetMediaBySrc/)
+    expect(g.calls[0]?.op).toMatch(/FindMediaBySrc/)
   })
 
   it('with mediaId not found and no src: returns deleted:false, no S3 call', async () => {
