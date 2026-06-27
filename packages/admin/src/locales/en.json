@@ -7,6 +7,7 @@
     "edit": "Edit",
     "back": "Back",
     "loading": "Loading...",
+    "loadError": "Failed to load.",
     "default": "Default",
     "remove": "Remove",
     "create": "Create",

@@ -18,7 +18,13 @@ export function getSchema() {
           slug: { type: 'string', required: true, description: 'URL slug, unique' },
           title: { type: 'string', required: true },
           excerpt: { type: 'string' },
-          format: { type: 'enum', values: ['tiptap', 'markdown', 'html'], required: true },
+          format: {
+            type: 'enum',
+            values: ['tiptap', 'markdown', 'html', 'static'],
+            required: true,
+            description:
+              '`static` is read-only here — get_post / list_posts can return it, but it is created/edited only via the static-bundle tools (upload_static_bundle, upload_static_file, delete_static_file, commit_static_post), NOT create_post / update_post. See notes.staticFormat.',
+          },
           body: {
             type: 'json',
             description:
@@ -59,7 +65,7 @@ export function getSchema() {
         },
       },
     ],
-    formats: ['tiptap', 'markdown', 'html'],
+    formats: ['tiptap', 'markdown', 'html', 'static'],
     notes: {
       editorTrust:
         'editor stores arbitrary HTML/JS verbatim — same trust shape as WordPress unfiltered_html capability. See docs/architecture/04-access-layer-mcp.md §"editor の信頼モデル".',

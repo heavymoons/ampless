@@ -22,6 +22,7 @@ export function EditPostPage({ params, previewEndpoint }: EditPostPageProps) {
   const [post, setPost] = useState<Post | null>(null)
   const [loading, setLoading] = useState(true)
   const [missing, setMissing] = useState(false)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     getPostById(postId)
@@ -29,11 +30,20 @@ export function EditPostPage({ params, previewEndpoint }: EditPostPageProps) {
         if (!p) setMissing(true)
         else setPost(p)
       })
+      .catch((err) => {
+        // A fetch failure is distinct from "not found": surface it instead
+        // of leaving an unhandled rejection (getPostById throws on AppSync
+        // errors) that would strand the page on the loading state.
+        console.error('[ampless admin] failed to load post for editing:', err)
+        setError(true)
+      })
       .finally(() => setLoading(false))
   }, [postId])
 
   if (loading)
     return <div className="mx-auto max-w-7xl p-4 md:p-8">{t('common.loading')}</div>
+  if (error)
+    return <div className="mx-auto max-w-7xl p-4 md:p-8">{t('common.loadError')}</div>
   if (missing) notFound()
 
   return (
