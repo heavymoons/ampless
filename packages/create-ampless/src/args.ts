@@ -83,10 +83,10 @@ export const VALID_PLUGIN_TRUST_LEVELS = [
 
 /**
  * Capabilities a `plugin <name>` scaffold may declare. Mirrors the
- * active members of the `PluginCapability` union in `ampless`. We
- * intentionally exclude reserved capabilities (`contentFields`,
- * `adminPage`, etc.) — the scaffold shouldn't produce a plugin that
- * declares a surface the runtime doesn't yet implement.
+ * active members of the `PluginCapability` union in `ampless`. Reserved
+ * capabilities (`adminPage`, `serverRoute`, …) are intentionally excluded —
+ * the scaffold shouldn't produce a plugin that declares a surface the
+ * runtime doesn't yet implement.
  */
 export const VALID_PLUGIN_CAPABILITIES = [
   'publicHead',
@@ -96,6 +96,10 @@ export const VALID_PLUGIN_CAPABILITIES = [
   'adminSettings',
   'writePublicAsset',
   'schema',
+  'publicHtmlForPost',
+  'secretSettings',
+  'contentFields',
+  'publicPostScript',
 ] as const
 
 const STRING_FLAGS = new Set([
