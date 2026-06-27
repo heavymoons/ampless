@@ -147,10 +147,28 @@ interface UserAdminEvent {
   typeName: string
   fieldName: string
   arguments: Partial<SetArgs>
-  identity?: unknown
+  // Cognito user token / IAM role context set by AppSync. When a Cognito
+  // user calls via AppSync, identity is { sub, username, groups: [...], ... }.
+  identity?: {
+    sub?: string
+    username?: string
+    groups?: string[]
+    [k: string]: unknown
+  }
   source?: unknown
   request?: unknown
   prev?: unknown
+}
+
+/**
+ * Belt-and-suspenders authorization. AppSync already gates listAdminUsers /
+ * setAdminUserRole to the `ampless-admin` group at the schema level, but if
+ * this Lambda is ever invoked directly (e.g. a misconfigured IAM policy that
+ * bypasses AppSync) the re-check ensures only admins can list users or change
+ * roles. Mirrors plugin-secret-handler.ts's isAllowedGroup pattern.
+ */
+function isAdmin(identity: UserAdminEvent['identity']): boolean {
+  return (identity?.groups ?? []).includes(ADMIN_GROUP)
 }
 
 export const handler: Handler<UserAdminEvent, AdminUserDto | AdminUserDto[] | null> = async (
@@ -160,6 +178,10 @@ export const handler: Handler<UserAdminEvent, AdminUserDto | AdminUserDto[] | nu
   const field = event.fieldName
 
   try {
+    if (!isAdmin(event.identity)) {
+      console.error('[user-admin] caller is not in the ampless-admin group')
+      throw new Error('Unauthorized: ampless-admin group required')
+    }
     if (field === 'listAdminUsers') {
       return await listAdminUsers(userPoolId)
     }

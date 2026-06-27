@@ -179,7 +179,18 @@ function emitKvEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[]
 async function sendBatch(queueUrl: string, entries: SendMessageBatchRequestEntry[]) {
   for (let i = 0; i < entries.length; i += 10) {
     const chunk = entries.slice(i, i + 10)
-    await sqs.send(new SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: chunk }))
+    // SendMessageBatch returns HTTP 200 even when individual messages fail
+    // (reported in `Failed`). Surface that so the stream processor retries
+    // rather than silently dropping events that never reached the queue.
+    const res = await sqs.send(
+      new SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: chunk })
+    )
+    if (res.Failed && res.Failed.length > 0) {
+      console.error('[event-dispatcher] SQS SendMessageBatch partial failure:', res.Failed)
+      throw new Error(
+        `SendMessageBatch: ${res.Failed.length}/${chunk.length} message(s) failed for ${queueUrl}`
+      )
+    }
   }
 }
 
