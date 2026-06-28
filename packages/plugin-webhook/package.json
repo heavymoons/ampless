@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-webhook",
-  "version": "0.2.0-beta.54",
+  "version": "0.2.0-beta.55",
   "description": "Webhook plugin for ampless — POST events to external URLs",
   "license": "MIT",
   "type": "module",
