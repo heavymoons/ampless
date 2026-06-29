@@ -100,9 +100,9 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         slug: a.string().required(),
         title: a.string().required(),
         excerpt: a.string(),
-        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']).required(),
         body: a.json(),
-        status: a.enum(['draft', 'published']),
+        status: a.enum(['draft', 'published']).required(),
         publishedAt: a.datetime(),
         tags: a.string().array(),
         // Free-form per-post metadata (JSON). Reserved well-known keys
@@ -153,9 +153,9 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         pageId: a.id().required(),
         slug: a.string().required(),
         title: a.string().required(),
-        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']).required(),
         body: a.json(),
-        status: a.enum(['draft', 'published']),
+        status: a.enum(['draft', 'published']).required(),
         publishedAt: a.datetime(),
       })
       .identifier(['pageId'])
@@ -170,7 +170,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         src: a.string().required(),
         mimeType: a.string().required(),
         size: a.integer(),
-        delivery: a.string(),
+        delivery: a.enum(['nextjs', 's3-direct']).required(),
         // Free-form per-asset metadata (JSON). Currently used to
         // memoise the S3 ETag for stream-back routes; future use
         // for image dimensions, EXIF strip status, etc. Kept loose
