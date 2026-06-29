@@ -100,9 +100,13 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         slug: a.string().required(),
         title: a.string().required(),
         excerpt: a.string(),
-        format: a.enum(['tiptap', 'markdown', 'html', 'static']).required(),
+        // Amplify enum fields are always nullable — `a.enum(...).required()`
+        // is not a runtime function (it throws at CDK synth). The app layer
+        // always populates format/status; the TS `Post` interface treats them
+        // as non-optional, but the GraphQL schema cannot enforce required here.
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
         body: a.json(),
-        status: a.enum(['draft', 'published']).required(),
+        status: a.enum(['draft', 'published']),
         publishedAt: a.datetime(),
         tags: a.string().array(),
         // Free-form per-post metadata (JSON). Reserved well-known keys
@@ -153,9 +157,10 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         pageId: a.id().required(),
         slug: a.string().required(),
         title: a.string().required(),
-        format: a.enum(['tiptap', 'markdown', 'html', 'static']).required(),
+        // See the note on Post.format/status — enum fields cannot be required.
+        format: a.enum(['tiptap', 'markdown', 'html', 'static']),
         body: a.json(),
-        status: a.enum(['draft', 'published']).required(),
+        status: a.enum(['draft', 'published']),
         publishedAt: a.datetime(),
       })
       .identifier(['pageId'])
@@ -170,7 +175,10 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         src: a.string().required(),
         mimeType: a.string().required(),
         size: a.integer(),
-        delivery: a.enum(['nextjs', 's3-direct']).required(),
+        // Bare string (nullable). Enum fields can't be `.required()`, and
+        // making this an enum without required would still be a String→enum
+        // GraphQL type change; keep the original loose string for now.
+        delivery: a.string(),
         // Free-form per-asset metadata (JSON). Currently used to
         // memoise the S3 ETag for stream-back routes; future use
         // for image dimensions, EXIF strip status, etc. Kept loose
