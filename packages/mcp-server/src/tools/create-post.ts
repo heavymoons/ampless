@@ -43,8 +43,9 @@ export const createPostSchema = {
         'tiptap = rich text JSON tree; markdown = source string (GFM extensions enabled); html = raw HTML string (rendered verbatim, no sanitization).',
     },
     body: {
+      type: ['object', 'array', 'string'],
       description:
-        'tiptap JSON (when format=tiptap), markdown source string (format=markdown), or raw HTML string (format=html).',
+        'tiptap JSON (when format=tiptap; pass a JSON object/array, NOT a stringified string), markdown source string (format=markdown), or raw HTML string (format=html).',
     },
     status: { type: 'string', enum: ['draft', 'published'], default: 'draft' },
     excerpt: { type: 'string' },
