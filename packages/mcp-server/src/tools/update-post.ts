@@ -44,7 +44,11 @@ export const updatePostSchema = {
       description:
         'tiptap = rich text JSON tree; markdown = source string; html = raw HTML string (no sanitization).',
     },
-    body: { description: 'tiptap JSON, markdown source, or raw HTML string' },
+    body: {
+      type: ['object', 'array', 'string'],
+      description:
+        'tiptap JSON (when format=tiptap; pass a JSON object/array, NOT a stringified string), markdown source, or raw HTML string',
+    },
     status: { type: 'string', enum: ['draft', 'published'] },
     publishedAt: { type: 'string', description: 'ISO 8601 timestamp' },
     tags: { type: 'array', items: { type: 'string' } },
