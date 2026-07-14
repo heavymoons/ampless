@@ -241,6 +241,140 @@ describe('createAmplessMiddleware — routing by post flags', () => {
   })
 })
 
+describe('createAmplessMiddleware — .md markdown routes', () => {
+  it('rewrites /<slug>.md → /md/<slug> and sets Cache-Control', async () => {
+    mockFetch(
+      appsyncPayload({
+        format: 'markdown',
+        metadata: null,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/foo.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL; headers: Headers }
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/md/foo')
+    expect(res.headers.get('Cache-Control')).toMatch(/max-age=300/)
+  })
+
+  it('rewrites regardless of post format (tiptap / markdown / html / static)', async () => {
+    for (const format of ['tiptap', 'markdown', 'html', 'static'] as const) {
+      _resetFlagCache()
+      mockFetch(
+        appsyncPayload({
+          format,
+          metadata: null,
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        }),
+      )
+      const mw = createAmplessMiddleware(OPTS)
+      const res = (await mw(
+        makeReq('x.example.com', '/foo.md') as never,
+      )) as unknown as { kind: string; rewrittenTo?: URL }
+      expect(res.kind).toBe('rewrite')
+      expect(res.rewrittenTo?.pathname).toBe('/md/foo')
+    }
+  })
+
+  it('returns an explicit 404 for /<slug>.md when the stripped slug has no post (no themed passthrough)', async () => {
+    mockFetch(appsyncPayload(null))
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/nope.md') as never,
+    )) as unknown as { kind?: string; status: number }
+    expect(res.status).toBe(404)
+    expect(res.kind).not.toBe('next')
+  })
+
+  it('a post whose real slug is literally "foo.md" is unreachable at /foo.md while markdownRoutes is enabled (spec, not a bug)', async () => {
+    // The AppSync lookup uses the *stripped* slug ('foo'), never the
+    // literal 'foo.md' slug, so a post that really is slugged
+    // 'foo.md' can't be found this way — the middleware 404s instead
+    // of falling back to a themed resolution of the untouched URL.
+    mockFetch(appsyncPayload(null))
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/foo.md') as never,
+    )) as unknown as { kind?: string; status: number }
+    expect(res.status).toBe(404)
+    expect(res.kind).not.toBe('next')
+  })
+
+  it('markdownRoutes: false — /<slug>.md is not special-cased; slug "foo.md" resolves normally (themed passthrough)', async () => {
+    // Regression: a real post slugged 'foo.md' still renders themed
+    // at /foo.md once markdownRoutes is disabled — pre-.md-feature
+    // behaviour, unchanged.
+    const disabledOpts = {
+      ...OPTS,
+      cmsConfig: { ...BASE_CONFIG, ai: { markdownRoutes: false } },
+    }
+    mockFetch(
+      appsyncPayload({
+        format: 'markdown',
+        metadata: null,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(disabledOpts)
+    const res = (await mw(
+      makeReq('x.example.com', '/foo.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(res.kind).toBe('next')
+    expect(res.rewrittenTo).toBeUndefined()
+  })
+
+  it('markdownRoutes: false — a missing post at /<slug>.md falls through to themed 404 handling (not middleware 404)', async () => {
+    const disabledOpts = {
+      ...OPTS,
+      cmsConfig: { ...BASE_CONFIG, ai: { markdownRoutes: false } },
+    }
+    mockFetch(appsyncPayload(null))
+    const mw = createAmplessMiddleware(disabledOpts)
+    const res = (await mw(
+      makeReq('x.example.com', '/nope.md') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+  })
+
+  it('passes /md/<slug> direct hits through via RESERVED_PREFIXES (no AppSync call)', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/md/foo') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('multi-segment /<slug>/file.md still resolves as a static-bundle sub-path (regression)', async () => {
+    mockFetch(
+      appsyncPayload({
+        format: 'static',
+        metadata: null,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      }),
+    )
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/site/file.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/static/site/file.md')
+  })
+
+  it('a bare "/.md" path (slug === ".md") is not treated as a markdown request (length guard) and falls through to themed 404 handling', async () => {
+    mockFetch(appsyncPayload(null))
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/.md') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+  })
+})
+
 describe('createAmplessMiddleware — missing post handling', () => {
   it('passes /<slug> through when AppSync returns null (themed handles 404)', async () => {
     mockFetch(appsyncPayload(null))

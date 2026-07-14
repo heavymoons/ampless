@@ -140,6 +140,29 @@ export default defineConfig({
 | タグ一覧 | `/tag/<tag-name>` | テーマのタグページ |
 | `format: 'html'` + `no_layout: true` | `/<slug>` | ベア HTML ルート（レイアウトなし、クロームなし） |
 | `format: 'static'` | `/<slug>/` | S3 の presigned URL 経由で配信される静的バンドル |
+| 任意のフォーマット | `/<slug>.md` | 投稿の Markdown 投影（`ampless.postToMarkdown()`） |
+
+## AI 可読な Markdown（`/<slug>.md`）
+
+`format` を問わず、公開済みの投稿はすべて `/<slug>.md` でも Markdown
+として取得できます。レスポンスは `ampless.postToMarkdown()` が生成し、
+YAML frontmatter（title / slug / publishedAt / updatedAt / tags /
+excerpt / canonical）に続けて、フォーマットに応じた本文を出力しま
+す — `markdown` はそのまま、`tiptap` は `tiptapToMarkdown`（plugin の
+embed adapter 込み）経由、`html` は近似変換の `htmlToMarkdown` 経由、
+`static` はエントリポイントへのリンクと抜粋です。
+
+サイト全体でこのルートを無効化するには:
+
+```ts
+export default defineConfig({
+  // ...
+  ai: { markdownRoutes: false },
+})
+```
+
+他の公開ルートと同様、`/<slug>.md` も `published` の投稿のみを配信
+します — draft は `/<slug>` と同じく 404 になります。
 
 ## ホームページのフィーチャード / ピン留めコンテンツ
 

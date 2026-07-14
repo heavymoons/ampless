@@ -29,6 +29,7 @@ export type {
   CacheStrategy,
   CacheConfig,
   HistoryConfig,
+  AiConfig,
   StaticPostBody,
   Page,
   Media,
