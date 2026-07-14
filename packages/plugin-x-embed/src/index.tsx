@@ -13,6 +13,7 @@
 
 import { definePlugin, type AmplessPlugin } from 'ampless'
 import { TweetEmbed, TWEET_URL, hasTweetIn } from './shared.js'
+import { tiptapNodeToMarkdown } from './adapters.js'
 
 export interface XEmbedPluginOptions {
   /**
@@ -43,7 +44,7 @@ export default function xEmbedPlugin(
         // Opt into the public html walker so `format: 'html'` posts expand
         // the canonical placeholder div (emitted by the admin's tiptap→html
         // switch) into the same `<TweetEmbed>` the tiptap / markdown walkers
-        // render. Attribute names match `placeholderAttrs()` in ./editor.tsx
+        // render. Attribute names match `placeholderAttrs()` in ./adapters.ts
         // (the canonical definition site). The page-level widgets.js is
         // injected via `publicPostScript` + the `hasTweetIn` html branch.
         htmlPlaceholder: {
@@ -72,6 +73,7 @@ export default function xEmbedPlugin(
         },
       ]
     },
+    tiptapNodeToMarkdown,
   })
 }
 

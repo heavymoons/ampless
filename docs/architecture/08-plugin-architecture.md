@@ -265,6 +265,8 @@ Renderers run server-side during `ampless.renderBody(post)` and receive the same
 
 `publicPostScript(post, ctx)` returns page-level `<script>` descriptors deduped by stable `id`. Themes call `{await ampless.publicPostScriptsForPage(posts)}` after rendering post bodies so widget scripts (e.g. x.com `widgets.js`) load exactly once per page that needs them. CSP enforcement is left to the site engineer (`next.config.ts` / middleware) — the runtime drops descriptors with non-http(s) `src` but does not enforce a host allowlist.
 
+A plugin that registers a `contentFields` `kind: 'tiptap'` entry for an embed node should also declare `AmplessPlugin.tiptapNodeToMarkdown` (a `TiptapNodeMarkdownAdapters` map keyed by `nodeType`) so the public runtime can serialise that node when exporting a post to markdown. This manifest field is the **server-side canonical** location for the adapter — `definePlugin()` emits a soft `console.warn` when a `tiptap` `contentFields` entry has no matching key in `tiptapNodeToMarkdown`. It is a distinct concept from the admin's `./editor` module `tiptapNodeToMarkdown` named export described below (Editor extension auto-wiring): the admin export feeds the `tiptap → markdown` format-switch inside the editor UI, while the manifest field feeds server-side rendering. A plugin author implements the adapter once in a tiptap-free module (e.g. `./adapters.ts`) and wires it into both places — see `@ampless/plugin-youtube` / `@ampless/plugin-x-embed` for the pattern.
+
 ### Server-render fetch admin preview (Phase 7)
 
 `ampless.renderBody(post)` now returns `Promise<ReactNode>` so `contentFields` renderers can run server-side. That makes the previous client-side preview rendering in `<PostForm>` impossible — the admin no longer can inline-call `renderBody`.
@@ -313,6 +315,14 @@ codegen runs inside `packages/create-ampless/src/upgrade.ts` as step 9 of
 - Export `editorExtension` as a named symbol (tiptap `Node` or `Extension`) from
   the `./editor` subpath.
 - Declare `"./editor"` in `package.json#exports`.
+- The codegen also reads `tiptapNodeToMarkdown` / `tiptapNodeToHtml` named
+  exports from the same `./editor` namespace import (see 6d in the plugin
+  author guide). Since `./editor` carries `'use client'` and imports
+  `@tiptap/core`, plugins should implement these adapters in a separate
+  tiptap-free module (e.g. `./adapters.ts`) and have `./editor` re-export
+  them — that keeps the same module reachable from the server entry via
+  `AmplessPlugin.tiptapNodeToMarkdown` (see `contentFields` + `publicPostScript`
+  above) without pulling tiptap into the public runtime bundle.
 
 **Active source and full disable:**
 

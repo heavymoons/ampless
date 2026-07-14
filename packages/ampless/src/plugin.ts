@@ -854,6 +854,10 @@ export interface TiptapRenderNode {
 // `update-ampless` reads `tiptapNodeToMarkdown ?? {}` from each
 // plugin's editor namespace import and wires the combined map into the
 // admin via `installAdminTiptapNodeMarkdown`.
+//
+// Server side, `AmplessPlugin.tiptapNodeToMarkdown` (below) is the
+// canonical way to reach the same map — the admin's `./editor` re-export
+// exists only to satisfy the codegen contract above.
 
 /**
  * Adapter that converts a single tiptap node back to its markdown form.
@@ -1228,6 +1232,12 @@ export interface AmplessPlugin {
     ctx: PluginPublicRenderContext,
   ): readonly PublicPostScriptDescriptor[]
   /**
+   * Server-safe map of TipTap nodeType -> markdown serialiser, used by the
+   * public runtime (postToMarkdown) — same shape the admin registry consumes.
+   * Keep implementations free of '@tiptap/*' imports and 'use client'.
+   */
+  tiptapNodeToMarkdown?: TiptapNodeMarkdownAdapters
+  /**
    * Dynamic OG image renderer. The dispatcher route (e.g.
    * `app/og/[slug]/route.ts`) reads this and feeds the element into
    * Next.js `ImageResponse`. Only one plugin should set this — the
@@ -1264,6 +1274,27 @@ export function definePlugin(p: AmplessPlugin): AmplessPlugin {
           `not in capabilities. Add "secretSettings" to capabilities so admin UI and future ` +
           `capability gates can see the declaration.`
       )
+    }
+  }
+  // --- Manifest validation for tiptapNodeToMarkdown coverage ---
+  //
+  // A `contentFields` `kind: 'tiptap'` entry without a matching
+  // `tiptapNodeToMarkdown` adapter still works (public tiptap / html
+  // rendering is unaffected), but the future `postToMarkdown` public
+  // runtime falls back to the default switch for that nodeType — soft
+  // warning only, same pattern as the secretSettings mismatch above.
+  if (p.contentFields) {
+    for (const field of p.contentFields) {
+      if (field.kind !== 'tiptap') continue
+      if (typeof p.tiptapNodeToMarkdown?.[field.nodeType] !== 'function') {
+        console.warn(
+          `[ampless] Plugin "${p.name}": contentFields declares tiptap nodeType ` +
+            `"${field.nodeType}" but tiptapNodeToMarkdown has no adapter for it. ` +
+            `The public runtime's markdown export will fall back to the default ` +
+            `switch for this node. Add an adapter to tiptapNodeToMarkdown or ` +
+            `ignore this if the fallback output is acceptable.`
+        )
+      }
     }
   }
   if (p.trust_level === 'privileged') {

@@ -186,6 +186,7 @@ interface AmplessPlugin {
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
+  tiptapNodeToMarkdown?: TiptapNodeMarkdownAdapters  // server-safe markdown export adapters
   ogImage?: OgImageConfig
   settings?: {
     public?: readonly PluginSettingField[]
@@ -875,6 +876,48 @@ export function EditorBootstrap({ children }: { children: React.ReactNode }) {
 }
 ```
 
+### アダプターの置き場所: `./editor.tsx` ではなく `./adapters.ts`
+
+`./editor.tsx` は `'use client'` かつ `@tiptap/core` を import している —
+admin バンドルには問題ないが、server コード（や将来の `postToMarkdown`
+public runtime）からこれを import すると両方を巻き込んでしまう。アダプター
+（および `Node.renderHTML` と共有する `placeholderAttrs` のような plain
+object ヘルパ）は、tiptap 非依存の別モジュール `./adapters.ts` に置き、
+`./editor.tsx` からは 2 つの named symbol を **re-export** する:
+
+```ts
+// packages/plugin-youtube/src/adapters.ts — 'use client' なし、@tiptap/* import なし
+export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = { /* ... */ }
+export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = { /* ... */ }
+```
+
+```ts
+// packages/plugin-youtube/src/editor.tsx
+export { tiptapNodeToMarkdown, tiptapNodeToHtml } from './adapters.js'
+```
+
+この re-export により `update-ampless` の codegen 契約は無改修で維持される
+（下記「配線」の通り、`./editor` の namespace import から `ns.tiptapNodeToMarkdown ?? {}` /
+`ns.tiptapNodeToHtml ?? {}` を読む挙動は変わらない）。同時に server 側
+entry（`./index.tsx`）も同じアダプターを `./adapters.js` から import して
+manifest に設定できる:
+
+```ts
+// packages/plugin-youtube/src/index.tsx
+import { tiptapNodeToMarkdown } from './adapters.js'
+
+export default function youtubePlugin(opts = {}) {
+  return definePlugin({
+    // ...
+    tiptapNodeToMarkdown,   // AmplessPlugin.tiptapNodeToMarkdown — server 側 canonical
+  })
+}
+```
+
+`definePlugin()` は `contentFields` の `kind: 'tiptap'` エントリの
+`nodeType` に対応する `tiptapNodeToMarkdown` のキーが無い場合に warn する
+— 両方をセットで宣言し、warning が出ない状態を保つ。
+
 ### フォーマット切り替えの可逆アダプター（`tiptapNodeToMarkdown` + `tiptapNodeToHtml`）
 
 operator が admin UI でポストのフォーマットを切り替える場合（例: `tiptap → markdown`、`tiptap → html`）、admin はボディコンテンツを変換する必要がある。通常の prose node は tiptap の built-in レンダラーで処理されるが、**atom node**（`amplessYoutube` のような embed ブロック）は子要素を持たず、children が空のまま fallthrough し、embed が無音で消えてしまう。
@@ -911,6 +954,7 @@ embed node を持つが `htmlPlaceholder` を**宣言しない** plugin は従�
 **文字列**（空文字 `''` も含む）を返すと、その出力を使う。**`null`** を返すとデフォルトの switch へ fallthrough する（対応しない node や video id が欠損している場合などに使う）。
 
 ```ts
+// packages/plugin-youtube/src/adapters.ts
 import type { TiptapNodeMarkdownAdapters, TiptapNodeHtmlAdapters } from 'ampless'
 
 export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = {
@@ -939,7 +983,7 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
 
 #### 配線
 
-`update-ampless` が各プラグインの `./editor` モジュールから `tiptapNodeToMarkdown` と `tiptapNodeToHtml` の named export を読み取り、両方の install に自動で配線する。**手動での配線は不要。** プラグインがいずれかのマップを export しない場合、生成ファイルの `?? {}` fallback が no-op になる。
+`update-ampless` が各プラグインの `./editor` モジュールから `tiptapNodeToMarkdown` と `tiptapNodeToHtml` の named export を読み取り、両方の install に自動で配線する。**手動での配線は不要。** プラグインがいずれかのマップを export しない場合、生成ファイルの `?? {}` fallback が no-op になる。上記の通り、`./editor` が re-export するこれらの export は通常 `./adapters.ts` に実装されている — codegen は `./editor` の namespace から到達可能であることだけを見ており、定義場所は問わない。
 
 #### `markdown → html` 2-hop
 

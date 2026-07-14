@@ -263,6 +263,8 @@ renderer は server-side で `ampless.renderBody(post)` 内で実行され、`pu
 
 `publicPostScript(post, ctx)` は安定 `id` で dedupe される page-level `<script>` descriptor を返す。テーマは投稿本文を出した後に `{await ampless.publicPostScriptsForPage(posts)}` を呼び、widget script（例: x.com `widgets.js`）が必要なページで 1 回だけ読み込まれるようにする。CSP の強制はサイトエンジニアの責任（`next.config.ts` / middleware）— runtime は非 http(s) `src` を drop するがホスト allowlist は強制しない。
 
+embed ノード用に `contentFields` の `kind: 'tiptap'` エントリを登録するプラグインは、`AmplessPlugin.tiptapNodeToMarkdown`（`nodeType` をキーとする `TiptapNodeMarkdownAdapters` map）も併せて宣言すべきである。これは投稿を markdown へ export する際に public runtime がそのノードをシリアライズするための入り口になる。この manifest field は **server 側の canonical** な置き場所であり、`tiptap` の `contentFields` エントリに対応する `tiptapNodeToMarkdown` のキーが無い場合 `definePlugin()` がソフトな `console.warn` を出す。これは後述（エディタ拡張の auto-wiring）の admin `./editor` モジュールの `tiptapNodeToMarkdown` named export とは別概念である — admin 側の export はエディタ UI 内の `tiptap → markdown` format-switch に使われ、manifest field は server-side レンダリングに使われる。プラグイン著者は adapter を tiptap 非依存のモジュール（例: `./adapters.ts`）に一度だけ実装し、両方の場所へ配線する — パターンは `@ampless/plugin-youtube` / `@ampless/plugin-x-embed` を参照。
+
 ### Server-render fetch admin preview (Phase 7)
 
 `ampless.renderBody(post)` は Phase 7 で `Promise<ReactNode>` を返すようになった（`contentFields` renderer を server-side で動かすため）。これにより `<PostForm>` 内での client-side `renderBody` 呼び出しは不可能になった — admin は inline で `renderBody` を呼べない。
@@ -302,6 +304,7 @@ handler はテンプレート側に置き、`@ampless/admin` には持ち込ま�
 - `package.json#amplessPlugin` に `"editorExports": "./editor"` を宣言する。
 - `./editor` subpath から `editorExtension` を named export する（tiptap `Node` または `Extension`）。
 - `package.json#exports` に `"./editor"` を宣言する。
+- codegen は同じ `./editor` namespace import から `tiptapNodeToMarkdown` / `tiptapNodeToHtml` named export も読む（plugin author guide の 6d 節を参照）。`./editor` は `'use client'` かつ `@tiptap/core` を import しているため、これらの adapter は tiptap 非依存の別モジュール（例: `./adapters.ts`）に実装し、`./editor` からは re-export するのが望ましい — そうすれば同じモジュールを server 側 entry からも `AmplessPlugin.tiptapNodeToMarkdown`（上記の `contentFields` + `publicPostScript` 節参照）経由で参照でき、public runtime のバンドルに tiptap を巻き込まずに済む。
 
 **active source と完全無効化:**
 

@@ -3,7 +3,9 @@
 import { describe, it, expect } from 'vitest'
 import { generateJSON, Mark, Node } from '@tiptap/core'
 import xEmbedPlugin from './index.js'
-import { AmplessTweetNode, tiptapNodeToMarkdown, tiptapNodeToHtml } from './editor.js'
+import { AmplessTweetNode } from './editor.js'
+import * as editorNs from './editor.js'
+import { tiptapNodeToMarkdown, tiptapNodeToHtml } from './adapters.js'
 
 const TestDocument = Node.create({
   name: 'doc',
@@ -62,6 +64,16 @@ const htmlParseExtensions = [
   TestLink,
   AmplessTweetNode,
 ]
+
+describe('./editor re-export of adapters (codegen contract)', () => {
+  it('re-exports the same adapter references as ./adapters.js', () => {
+    // `update-ampless` reads `ns.tiptapNodeToMarkdown ?? {}` /
+    // `ns.tiptapNodeToHtml ?? {}` from a namespace import of `./editor` —
+    // this locks in that the re-export is the identical object, not a copy.
+    expect(editorNs.tiptapNodeToMarkdown).toBe(tiptapNodeToMarkdown)
+    expect(editorNs.tiptapNodeToHtml).toBe(tiptapNodeToHtml)
+  })
+})
 
 describe('xEmbedPlugin name', () => {
   it('uses simple identifier as default name', () => {
