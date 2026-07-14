@@ -6,6 +6,9 @@
 //                           static-bundle entrypoint, depending on
 //                           the post's `format` / `metadata.no_layout`
 //   /<slug>/<path>        — static-bundle internal file
+//   /<slug>.md            — Markdown projection of the post (any
+//                           format), when `cms.config.ai.markdownRoutes`
+//                           is not explicitly disabled
 //   /feed.xml, /sitemap.xml, /og/<slug>, /tag/<tag>
 //                         — direct route handlers (no rewrite)
 //
@@ -18,17 +21,23 @@
 //   no_layout HTML    → /raw/<slug>, served by app/raw/[slug]/route.ts
 //   static bundle     → /static/<slug>(/<path>), served by
 //                       app/static/[slug]/[[...path]]/route.ts
+//   markdown (.md)    → /md/<slug>, served by app/md/[slug]/route.ts
 //
-// `raw` and `static` are Next.js implementation details — the
+// `raw`, `static`, and `md` are Next.js implementation details — the
 // literal folders need a name that doesn't start with `_` (the App
 // Router skips any path part starting with `_` during route
-// discovery). The browser URL stays `/<slug>(/<path>)` throughout.
+// discovery). The browser URL stays `/<slug>(/<path>)` (or
+// `/<slug>.md`) throughout.
 //
-// Side effect: the two internal folder names are reserved — a user
-// post with slug `raw` or `static` would collide with the internal
-// rewrite target. Both names are added to `RESERVED_PREFIXES` so
+// Side effect: the internal folder names are reserved — a user post
+// with slug `raw`, `static`, or `md` would collide with the internal
+// rewrite target. All three names are added to `RESERVED_PREFIXES` so
 // middleware short-circuits before the lookup, and direct hits on
-// `/raw` or `/static` 404 instead of leaking the wrong content.
+// `/raw`, `/static`, or `/md` 404 instead of leaking the wrong
+// content. Likewise, a post whose slug itself ends in `.md` (e.g.
+// slug `foo.md`) can't be reached at its themed URL while
+// `markdownRoutes` is enabled — `.md` URL interpretation wins; see the
+// `isMdRequest` handling below.
 //
 // Cache-Control is computed from `post.metadata.cache` (auto/deep/hot)
 // + `post.updatedAt` + `cms.config.cache.*` and set on the response.
@@ -253,6 +262,7 @@ const RESERVED_PREFIXES = new Set<string>([
   // internal rewrite targets — direct hits should not be middleware-driven
   'raw',
   'static',
+  'md',
 ])
 
 /**
@@ -266,6 +276,8 @@ const RESERVED_PREFIXES = new Set<string>([
  *  - Rewrite to `/static/<slug>(/<path>)` when the post is a static
  *    bundle (`format='static'`). Themed posts (default) get no
  *    rewrite — `app/[slug]/page.tsx` serves them directly.
+ *  - Rewrite `/<slug>.md` → `/md/<slug>` (any format) unless
+ *    `cms.config.ai.markdownRoutes` is explicitly `false`.
  *  - `Cache-Control` header computed from `post.metadata.cache` +
  *    `post.updatedAt` + `cms.config.cache.*` and set on the response.
  *  - `?previewTheme` / `?previewColorScheme` → `x-preview-theme` /
@@ -323,14 +335,30 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
     }
     const restPath = segments.slice(1)
 
-    const flags = await getCachedFlags(opts, slug)
+    // `.md` detection happens before the flags lookup so the AppSync
+    // query — and the LRU key — use the stripped slug. That way a
+    // themed visit to `/foo` and a Markdown visit to `/foo.md` share
+    // the same cache entry instead of costing two AppSync queries.
+    const isMdRequest =
+      restPath.length === 0 &&
+      slug.endsWith('.md') &&
+      slug.length > 3 &&
+      opts.cmsConfig.ai?.markdownRoutes !== false
+    const lookupSlug = isMdRequest ? slug.slice(0, -3) : slug
+
+    const flags = await getCachedFlags(opts, lookupSlug)
 
     if (!flags) {
       // Post not found. Multi-segment paths can only be static; bare
-      // 404. Single-segment falls through to the themed route so its
-      // own `notFound()` handles it (Next.js renders the not-found
-      // UI rather than the default Response 404).
-      if (restPath.length > 0) {
+      // 404. `.md` requests also 404 directly rather than passing
+      // through — passthrough would let the themed `[slug]` page
+      // re-resolve the untouched URL against slug `'foo.md'`, which
+      // contradicts the "slug ending in .md is unreachable while
+      // markdownRoutes is enabled" rule below. Single-segment,
+      // non-`.md` paths fall through to the themed route so its own
+      // `notFound()` handles it (Next.js renders the not-found UI
+      // rather than the default Response 404).
+      if (restPath.length > 0 || isMdRequest) {
         return new NextResponse('Not Found', { status: 404 }) as NextResponse
       }
       return passthrough()
@@ -339,11 +367,18 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
     const cacheControl = computeCacheControl(flags, opts.cmsConfig)
     let response: NextResponse
     if (restPath.length === 0) {
-      // Single-segment `/<slug>`. Three sub-cases:
-      //   - no_layout HTML  → rewrite to /raw/<slug>
-      //   - static bundle   → rewrite to /static/<slug>
-      //   - anything else   → themed render
-      if (flags.format === 'html' && flags.metadata?.no_layout === true) {
+      // Single-segment `/<slug>` (or `/<slug>.md`). Four sub-cases,
+      // `.md` checked first so it wins over the other formats:
+      //   - markdown request → rewrite to /md/<lookupSlug>
+      //   - no_layout HTML   → rewrite to /raw/<slug>
+      //   - static bundle    → rewrite to /static/<slug>
+      //   - anything else    → themed render
+      if (isMdRequest) {
+        url.pathname = `/md/${lookupSlug}`
+        response = NextResponse.rewrite(url, {
+          request: { headers: requestHeaders },
+        })
+      } else if (flags.format === 'html' && flags.metadata?.no_layout === true) {
         url.pathname = `/raw/${slug}`
         response = NextResponse.rewrite(url, {
           request: { headers: requestHeaders },

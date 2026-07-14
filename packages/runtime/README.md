@@ -92,6 +92,9 @@ rewrites the request to the right internal handler:
   `app/raw/[slug]/route.ts`
 - `format: 'static'` → `/static/<slug>(/<path>)`, served by
   `app/static/[slug]/[[...path]]/route.ts`
+- `/<slug>.md` (any format) → `/md/<slug>`, served by
+  `app/md/[slug]/route.ts` — Markdown projection via
+  `ampless.postToMarkdown()`. Disable with `cms.config.ai.markdownRoutes: false`.
 
 It also computes `Cache-Control` from `post.metadata.cache` (auto /
 deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
@@ -102,7 +105,7 @@ See `docs/CONTENT.md` for the cache strategy contract.
 
 - `@ampless/runtime` — `createAmpless`, runtime types, and re-exports of `renderBody`, `renderThemeCss`, format converters
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`, `defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`, `createMarkdownRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`, `createThemePostDispatcher`, `createThemeTagDispatcher` (each with a matching `*Metadata` factory)
 
 ## What's still in the template

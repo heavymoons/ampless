@@ -44,6 +44,9 @@ export default defineConfig({
   // Post revision history. Every post save is snapshotted into the
   // PostHistory table by the event-dispatcher Lambda.
   // history: { retentionDays: 0 }, // 0 = keep every revision forever; e.g. 365 to expire after a year
+  // AI-readable publishing. `/<slug>.md` serves a markdown projection of
+  // each published post (default: enabled).
+  // ai: { markdownRoutes: false }, // disable the /<slug>.md route
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
   //

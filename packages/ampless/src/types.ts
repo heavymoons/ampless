@@ -221,6 +221,12 @@ export interface Config {
    * those snapshots are retained.
    */
   history?: HistoryConfig
+  /**
+   * AI-readable publishing switches (`/<slug>.md`, and future
+   * `llms.txt` / public MCP surfaces). Each field defaults to its
+   * documented value when the section is omitted.
+   */
+  ai?: AiConfig
 }
 
 /**
@@ -260,6 +266,15 @@ export interface HistoryConfig {
    * written afterward — existing rows keep their original expiry.
    */
   retentionDays?: number
+}
+
+/**
+ * AI-readable publishing switches. All features default to their
+ * documented value when the section is omitted.
+ */
+export interface AiConfig {
+  /** Serve the per-post markdown projection at `/<slug>.md`. Default: true. */
+  markdownRoutes?: boolean
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

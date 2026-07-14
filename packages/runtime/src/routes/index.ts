@@ -3,3 +3,4 @@ export { createSitemapRouteHandler, type SitemapRouteHandler } from './sitemap.j
 export { createFeedRouteHandler, type FeedRouteHandler } from './feed.js'
 export { createRawRouteHandler, type RawRouteHandler } from './raw.js'
 export { createStaticRouteHandler, type StaticRouteHandler } from './static.js'
+export { createMarkdownRouteHandler, type MarkdownRouteHandler } from './md.js'

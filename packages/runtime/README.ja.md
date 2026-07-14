@@ -92,6 +92,9 @@ middleware はリクエストごとに AppSync から `post.format` /
   `app/raw/[slug]/route.ts` で配信
 - `format: 'static'` → `/static/<slug>(/<path>)`、
   `app/static/[slug]/[[...path]]/route.ts` で配信
+- `/<slug>.md`（フォーマット不問） → `/md/<slug>`、
+  `app/md/[slug]/route.ts` で配信 — `ampless.postToMarkdown()` による
+  Markdown 投影。`cms.config.ai.markdownRoutes: false` で無効化できます。
 
 また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
 `cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
@@ -102,7 +105,7 @@ middleware はリクエストごとに AppSync から `post.format` /
 
 - `@ampless/runtime` — `createAmpless`、ランタイム型、`renderBody`・`renderThemeCss`・フォーマットコンバーターの再エクスポート
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`、`defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`、`createMarkdownRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`、`createThemePostDispatcher`、`createThemeTagDispatcher`（それぞれ対応する `*Metadata` ファクトリーあり）
 
 ## テンプレートに残るもの
