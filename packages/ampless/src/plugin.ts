@@ -1286,7 +1286,7 @@ export function definePlugin(p: AmplessPlugin): AmplessPlugin {
   if (p.contentFields) {
     for (const field of p.contentFields) {
       if (field.kind !== 'tiptap') continue
-      if (!p.tiptapNodeToMarkdown || !(field.nodeType in p.tiptapNodeToMarkdown)) {
+      if (typeof p.tiptapNodeToMarkdown?.[field.nodeType] !== 'function') {
         console.warn(
           `[ampless] Plugin "${p.name}": contentFields declares tiptap nodeType ` +
             `"${field.nodeType}" but tiptapNodeToMarkdown has no adapter for it. ` +

@@ -418,6 +418,26 @@ describe('definePlugin — contentFields tiptap vs tiptapNodeToMarkdown coverage
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('warns when the adapter entry is not a function (untyped JS config)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-embed-plugin',
+      apiVersion: 1,
+      trust_level: 'trusted',
+      capabilities: ['contentFields'],
+      contentFields: [
+        {
+          kind: 'tiptap',
+          nodeType: 'myEmbed',
+          render: () => null,
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tiptapNodeToMarkdown: { myEmbed: 'not-a-function' } as any,
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('myEmbed'))
+  })
+
   it('does NOT warn when contentFields is not declared', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     definePlugin({
