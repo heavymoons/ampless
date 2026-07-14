@@ -18,6 +18,7 @@
 
 import { definePlugin, type AmplessPlugin } from 'ampless'
 import { YouTubeEmbed, YOUTUBE_URL } from './shared.js'
+import { tiptapNodeToMarkdown } from './adapters.js'
 
 export interface YoutubePluginOptions {
   /**
@@ -56,7 +57,7 @@ export default function youtubePlugin(
         // the canonical placeholder div (emitted by the admin's tiptap→html
         // switch) into the same `<YouTubeEmbed>` the tiptap / markdown
         // walkers render. Attribute names match `placeholderAttrs()` in
-        // ./editor.tsx (the canonical definition site).
+        // ./adapters.ts (the canonical definition site).
         htmlPlaceholder: {
           flagAttr: 'data-ampless-youtube',
           attrsFromElement: (attribs) => {
@@ -79,6 +80,7 @@ export default function youtubePlugin(
         },
       },
     ],
+    tiptapNodeToMarkdown,
   })
 }
 

@@ -377,3 +377,72 @@ describe('definePlugin — privileged trust_level hook visibility warning', () =
     expect(warn).not.toHaveBeenCalled()
   })
 })
+
+describe('definePlugin — contentFields tiptap vs tiptapNodeToMarkdown coverage warning', () => {
+  it('warns when a contentFields tiptap entry has no matching tiptapNodeToMarkdown adapter', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-embed-plugin',
+      apiVersion: 1,
+      trust_level: 'trusted',
+      capabilities: ['contentFields'],
+      contentFields: [
+        {
+          kind: 'tiptap',
+          nodeType: 'myEmbed',
+          render: () => null,
+        },
+      ],
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('myEmbed'))
+  })
+
+  it('does NOT warn when the tiptap nodeType has a matching tiptapNodeToMarkdown adapter', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-embed-plugin',
+      apiVersion: 1,
+      trust_level: 'trusted',
+      capabilities: ['contentFields'],
+      contentFields: [
+        {
+          kind: 'tiptap',
+          nodeType: 'myEmbed',
+          render: () => null,
+        },
+      ],
+      tiptapNodeToMarkdown: {
+        myEmbed: () => null,
+      },
+    })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does NOT warn when contentFields is not declared', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-plain-plugin',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+    })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does NOT warn when contentFields only has kind: "markdown-url" entries', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    definePlugin({
+      name: 'my-markdown-url-plugin',
+      apiVersion: 1,
+      trust_level: 'trusted',
+      capabilities: ['contentFields'],
+      contentFields: [
+        {
+          kind: 'markdown-url',
+          pattern: /^https:\/\/example\.com\/(\d+)$/,
+          render: () => null,
+        },
+      ],
+    })
+    expect(warn).not.toHaveBeenCalled()
+  })
+})

@@ -214,6 +214,7 @@ interface AmplessPlugin {
   publicBodyEnd?(ctx): readonly PublicBodyDescriptor[]
   publicBodyForPost?(post: Post, ctx): readonly PublicPostBodyDescriptor[]
   publicHtmlForPost?(post: Post, ctx): readonly PublicPostHtmlDescriptor[]
+  tiptapNodeToMarkdown?: TiptapNodeMarkdownAdapters  // server-safe markdown export adapters
   ogImage?: OgImageConfig
   settings?: {
     public?: readonly PluginSettingField[]
@@ -1132,6 +1133,48 @@ export function EditorBootstrap({ children }: { children: React.ReactNode }) {
 }
 ```
 
+### Where the adapters live: `./adapters.ts`, not `./editor.tsx`
+
+`./editor.tsx` carries `'use client'` and imports `@tiptap/core` — fine for
+the admin bundle, but importing it from server code (or the future
+`postToMarkdown` public runtime) would drag both along. Put the adapters
+(and any plain-object helpers they share with `Node.renderHTML`, like
+`placeholderAttrs`) in a separate, tiptap-free module — `./adapters.ts` —
+and have `./editor.tsx` **re-export** the two named symbols:
+
+```ts
+// packages/plugin-youtube/src/adapters.ts — no 'use client', no @tiptap/* import
+export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = { /* ... */ }
+export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = { /* ... */ }
+```
+
+```ts
+// packages/plugin-youtube/src/editor.tsx
+export { tiptapNodeToMarkdown, tiptapNodeToHtml } from './adapters.js'
+```
+
+The re-export keeps `update-ampless`'s codegen contract intact (it still
+reads `ns.tiptapNodeToMarkdown ?? {}` / `ns.tiptapNodeToHtml ?? {}` from a
+namespace import of `./editor` — see Wiring below) while also letting your
+server entry (`./index.tsx`) import the same adapter from `./adapters.js`
+and set it on the manifest:
+
+```ts
+// packages/plugin-youtube/src/index.tsx
+import { tiptapNodeToMarkdown } from './adapters.js'
+
+export default function youtubePlugin(opts = {}) {
+  return definePlugin({
+    // ...
+    tiptapNodeToMarkdown,   // AmplessPlugin.tiptapNodeToMarkdown — server-side canonical
+  })
+}
+```
+
+`definePlugin()` warns if a `contentFields` `kind: 'tiptap'` entry's
+`nodeType` has no matching key in `tiptapNodeToMarkdown` — declare both
+together so the warning stays silent.
+
 ### Lossless format-switch adapters (`tiptapNodeToMarkdown` + `tiptapNodeToHtml`)
 
 When the operator switches the post format in the admin UI (e.g. `tiptap →
@@ -1196,7 +1239,7 @@ Return **`null`** to fall through to the default switch (useful for nodes
 you don't handle or for degenerate inputs like a missing video id).
 
 ```ts
-// packages/plugin-youtube/src/editor.tsx
+// packages/plugin-youtube/src/adapters.ts
 import type { TiptapNodeMarkdownAdapters, TiptapNodeHtmlAdapters } from 'ampless'
 
 export const tiptapNodeToMarkdown: TiptapNodeMarkdownAdapters = {
@@ -1232,7 +1275,10 @@ export const tiptapNodeToHtml: TiptapNodeHtmlAdapters = {
 named exports from each plugin's `./editor` module (via namespace import `*
 as`) and wires them into both installs automatically — **no hand-wiring
 required**. If your plugin does not export one of the maps, the `?? {}`
-fallback in the generated file is a no-op.
+fallback in the generated file is a no-op. As noted above, the exports
+`./editor` re-exports normally live in `./adapters.ts` — the codegen only
+cares that they're reachable from the `./editor` namespace, not where
+they're defined.
 
 #### `markdown → html` 2-hop
 
