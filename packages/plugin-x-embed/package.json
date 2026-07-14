@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-x-embed",
-  "version": "1.0.0-beta.16",
+  "version": "1.0.0-beta.17",
   "description": "x.com (Twitter) embed plugin for ampless — renders tweet URLs inline as blockquotes hydrated by widgets.js",
   "license": "MIT",
   "type": "module",
