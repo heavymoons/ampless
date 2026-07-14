@@ -40,6 +40,14 @@ Features needed to run dogfood sites on ampless, in priority order. Each changes
 - [ ] AI provider abstraction layer
 - [ ] Proofreading / summarization plugins
 
+#### AI-readable publishing (planned)
+Human- and AI-readable delivery of published content (adopted from [AI_FRIENDLY.md](../AI_FRIENDLY.md) §3–4, plus a public read-only MCP endpoint). The CMS stays the source of truth; Markdown, `llms.txt`, and public MCP tool responses are derived public representations of the same posts (MCP Resources / Resource Templates are deferred — tools only at first). Published-only by construction (custom published-only queries), zero behavior change for sites that disable the `ai` config section.
+
+- [ ] Phase A — canonical Markdown: server-safe `tiptapNodeToMarkdown` adapters on the `AmplessPlugin` manifest + `ampless.postToMarkdown(post)` in `@ampless/runtime` + public `/<slug>.md` route (middleware rewrite to internal `/md/<slug>`, published-only, unsupported nodes emit placeholders instead of silently dropping)
+- [ ] Phase B — AI index + on-page affordances: `/llms.txt` runtime route (site map with Markdown URLs, capped with explicit truncation note) + `@ampless/plugin-ai-actions` (copy/view as Markdown, open-in-AI links); `/llms-full.txt` deferred until needed (event-driven S3 generation, rss/seo pattern)
+- [ ] Phase C — public read-only MCP: anonymous JSON-RPC endpoint served by the Next.js runtime at `/api/mcp` (route factory, so plugin Markdown adapters and `cms.config` are directly available); tools (`list_posts` / `get_post` / `search_posts` / `list_tags`) call only the published-only custom queries and reuse `postToMarkdown`; read-only annotations, paging + body-size limits; admin MCP (Lambda Function URL + Bearer) unchanged
+- [ ] Phase D — MCP discovery: `server.json` generation + on-site/admin connection instructions + MCP Registry publishing guide; `/.well-known/mcp.json` stays experimental until the Server Card spec stabilizes
+
 #### Plugin Extension (dogfood-driven, phased)
 Phased work is summarized here; the public contract lives in [08-plugin-architecture.md](./08-plugin-architecture.md). Each phase ships at least one bundled plugin that exercises the new surface, then the next phase starts.
 
