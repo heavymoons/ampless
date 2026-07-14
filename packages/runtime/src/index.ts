@@ -61,7 +61,7 @@ import {
   type EffectiveThemeConfig,
   renderThemeCss,
 } from './theme-config.js'
-import { renderBody, renderBodyHtmlString } from './rendering.js'
+import { renderBody, renderBodyHtmlString, postToMarkdown } from './rendering.js'
 
 export type {
   AmplessOutputs,
@@ -117,11 +117,14 @@ export {
   markdownToHtml,
   tiptapToMarkdown,
   htmlToMarkdown,
+  postToMarkdown,
   buildContentFieldRegistry,
+  buildMarkdownAdapterRegistry,
 } from './rendering.js'
 export type {
   ContentFieldRegistry,
   RenderBodyOptions,
+  PostToMarkdownOptions,
 } from './rendering.js'
 export {
   streamS3Object,
@@ -245,6 +248,20 @@ export interface Ampless {
    * complete HTML documents that don't expand embed shortcuts.
    */
   renderBodyHtmlString(post: Post): string
+  /**
+   * Convert a post into its canonical Markdown representation (YAML
+   * frontmatter + body). This is the **single conversion point** for
+   * every AI-readable surface — the `/<slug>.md` route, llms-full, and
+   * the public MCP `get_post` all go through here rather than
+   * reimplementing the format branches. Plugin embed nodes are
+   * serialised via `pluginHead.markdownAdapters` (bare URL lines);
+   * `format: 'html'` bodies go through the regex-based `htmlToMarkdown`
+   * and are approximate. Async because the frontmatter's `canonical`
+   * line needs the effective `site.url` from the S3 site-settings
+   * cache; with `frontmatter: false` that read is skipped entirely and
+   * only the body is returned.
+   */
+  postToMarkdown(post: Post, opts?: { frontmatter?: boolean }): Promise<string>
   renderThemeCss(cssVars: Record<string, string>): string
 
   // storage
@@ -317,6 +334,21 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
       })
     },
     renderBodyHtmlString: (post) => renderBodyHtmlString(post),
+    postToMarkdown: async (post, o) => {
+      if (o?.frontmatter === false) {
+        // No frontmatter → no canonical line → the effective site.url
+        // isn't needed; skip the site-settings read entirely.
+        return postToMarkdown(post, {
+          nodeAdapters: pluginHead.markdownAdapters,
+          frontmatter: false,
+        })
+      }
+      const { site } = await settings.loadSiteSettings()
+      return postToMarkdown(post, {
+        nodeAdapters: pluginHead.markdownAdapters,
+        siteUrl: site.url || undefined,
+      })
+    },
     renderThemeCss: (cssVars) => renderThemeCss(cssVars),
 
     publicAssetUrl: (key) => storage.publicAssetUrl(key),
