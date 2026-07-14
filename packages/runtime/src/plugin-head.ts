@@ -45,10 +45,12 @@ import {
   type PublicPostHtmlDescriptor,
   type PublicPostHtmlPosition,
   type PublicPostScriptDescriptor,
+  type TiptapNodeMarkdownAdapters,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
 import {
   buildContentFieldRegistry,
+  buildMarkdownAdapterRegistry,
   type ContentFieldRegistry,
 } from './rendering.js'
 import {
@@ -115,6 +117,15 @@ export interface PluginHeadApi {
    * `contentFields`.
    */
   readonly contentFieldsRegistry: ContentFieldRegistry
+  /**
+   * Merged tiptap→markdown adapter registry across all valid plugins
+   * (server-safe `tiptapNodeToMarkdown` manifests). Built once at
+   * `createPluginHead` construction time so duplicate `nodeType`
+   * registrations across plugins throw eagerly (config error).
+   * Threaded into `rendering.ts:postToMarkdown()` via
+   * `Ampless.postToMarkdown`.
+   */
+  readonly markdownAdapters: TiptapNodeMarkdownAdapters
   /**
    * Resolve the per-plugin `PluginPublicRenderContext` snapshot used by
    * `contentFields` renderers. Same `settings()` binding the public
@@ -1086,6 +1097,13 @@ export function createPluginHead(
   // conflicting node.
   const contentFieldsRegistry = buildContentFieldRegistry(validPlugins)
 
+  // AI-readable publishing: merged tiptap→markdown adapter registry.
+  // Built eagerly alongside contentFieldsRegistry, and from the same
+  // `validPlugins` list, so adapters from dropped plugin instances
+  // (invalid instanceId) never leak in and duplicate nodeType
+  // registrations throw at config / startup time.
+  const markdownAdapters = buildMarkdownAdapterRegistry(validPlugins)
+
   // Phase 7 capability mismatch warnings — emitted once at startup,
   // alongside the existing publicHead/publicBody/schema/publicHtmlForPost
   // checks.
@@ -1153,6 +1171,7 @@ export function createPluginHead(
       return collectPostScriptsForPage(validPlugins, cmsConfig.site, snapshot, posts)
     },
     contentFieldsRegistry,
+    markdownAdapters,
     async contextForPlugins() {
       const snapshot = await pluginSettings.loadAll()
       return (plugin: AmplessPlugin) =>

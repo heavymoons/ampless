@@ -17,6 +17,7 @@ import type {
   MarkdownEmbedMatch,
   PluginPublicRenderContext,
   Post,
+  TiptapNodeToMarkdown,
   TiptapNodeMarkdownAdapters,
   TiptapNodeHtmlAdapters,
   TiptapRenderNode,
@@ -263,6 +264,47 @@ export function buildContentFieldRegistry(
     }
   }
   return { tiptap, markdownUrl, htmlPlaceholder }
+}
+
+/**
+ * Merge every plugin's server-safe `tiptapNodeToMarkdown` map into a
+ * single `TiptapNodeMarkdownAdapters` registry. Eagerly errors on
+ * duplicate `nodeType` registration across plugins (two different
+ * functions) so the misuse surfaces at config time, not at the first
+ * markdown conversion that happens to walk the conflicting node. The
+ * exact same function registered twice (e.g. one shared adapter map
+ * reused by two plugin instances) is tolerated.
+ *
+ * Non-function entries are skipped with a warning rather than thrown:
+ * `definePlugin` already warns about them at definition time, and one
+ * broken plugin shouldn't take the whole site's markdown output down
+ * (a nodeType conflict, by contrast, is a config error — that throws).
+ */
+export function buildMarkdownAdapterRegistry(
+  plugins: readonly AmplessPlugin[],
+): TiptapNodeMarkdownAdapters {
+  const merged: Record<string, TiptapNodeToMarkdown> = {}
+  for (const plugin of plugins) {
+    const adapters = plugin.tiptapNodeToMarkdown
+    if (!adapters) continue
+    for (const [nodeType, adapter] of Object.entries(adapters)) {
+      if (typeof adapter !== 'function') {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[ampless markdownAdapters] plugin "${plugin.instanceId ?? plugin.name}" declares a non-function tiptapNodeToMarkdown entry for nodeType "${nodeType}". Skipping the entry.`,
+        )
+        continue
+      }
+      const existing = merged[nodeType]
+      if (existing && existing !== adapter) {
+        throw new Error(
+          `[ampless markdownAdapters] duplicate tiptap nodeType "${nodeType}" — already registered by another plugin. Each nodeType may be claimed by at most one plugin.`,
+        )
+      }
+      merged[nodeType] = adapter
+    }
+  }
+  return merged
 }
 
 export interface RenderBodyOptions {
@@ -978,8 +1020,30 @@ function tiptapNodeToMarkdown(
       return `- [${checked}] ${first ?? ''}${cont ? '\n' + cont : ''}\n`
     }
     default:
-      return children
+      // Unknown node with children: pass the children through, same as
+      // the HTML walker. Unknown ATOM node (no children rendered):
+      // previously dropped silently — emit a visible placeholder comment
+      // instead so the omission is auditable in the markdown output, and
+      // warn so plugin authors notice the missing adapter.
+      if (children) return children
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ampless] tiptapToMarkdown: no adapter for node type "${String(node.type)}" — emitting placeholder`,
+      )
+      // Same blank-line wrapping as the adapter path above, so the
+      // comment survives as a standalone paragraph.
+      return `\n<!-- ampless:unsupported-node type="${sanitizeNodeTypeForComment(node.type)}" -->\n\n`
   }
+}
+
+/**
+ * Normalise a node type for embedding inside the unsupported-node HTML
+ * comment. A broken body could carry `-->`, quotes, or newlines in
+ * `type`, any of which would break out of the comment — restrict to a
+ * conservative charset and cap the length.
+ */
+function sanitizeNodeTypeForComment(type: unknown): string {
+  return String(type).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)
 }
 
 function tiptapTableToMarkdown(
@@ -1167,4 +1231,121 @@ function convertHtmlTaskList(items: string): string {
     out.push(`- [${checked}] ${inner}`)
   }
   return out.join('\n')
+}
+
+// ---- AI-readable publishing: post -> canonical Markdown ----
+
+export interface PostToMarkdownOptions {
+  /**
+   * Per-nodeType tiptap→markdown serialisers (plugin embed nodes →
+   * bare URL lines). `createAmpless` injects
+   * `pluginHead.markdownAdapters`; a raw direct caller can omit this
+   * to fall back to the built-in switch (unknown atom nodes then emit
+   * unsupported-node placeholder comments).
+   */
+  nodeAdapters?: TiptapNodeMarkdownAdapters
+  /** Prepend YAML frontmatter (default: true). */
+  frontmatter?: boolean
+  /**
+   * Absolute site origin used to build the frontmatter's `canonical`
+   * line (`<siteUrl>/<slug>`). Omitted → no canonical line.
+   */
+  siteUrl?: string
+}
+
+/**
+ * Convert a public post into its canonical Markdown representation:
+ * YAML frontmatter + format-dependent body. This is the single
+ * conversion point for every AI-readable surface (the `/<slug>.md`
+ * route, llms-full, public MCP `get_post`) — new surfaces should call
+ * this rather than reimplementing the format branches.
+ *
+ * Frontmatter carries **public fields only** (title / slug /
+ * publishedAt / updatedAt / tags / excerpt / canonical) — never
+ * postId, status, or metadata. Values are encoded with
+ * `JSON.stringify`: a JSON string is a valid YAML double-quoted
+ * scalar and a JSON array is a valid YAML flow sequence, so quoting /
+ * escaping is correct without a YAML library.
+ *
+ * Body quality varies by format:
+ *   - `markdown`: the stored source, verbatim.
+ *   - `tiptap`: `tiptapToMarkdown` with `opts.nodeAdapters` (plugin
+ *     embeds become bare URL lines; unknown atom nodes emit an
+ *     `ampless:unsupported-node` placeholder comment).
+ *   - `html`: `htmlToMarkdown` — regex-based and approximate; complex
+ *     markup may not fully survive (see htmlToMarkdown's limits).
+ *   - `static`: no body conversion (the bundle bytes live in S3) — a
+ *     markdown link to the served entrypoint, plus the excerpt when
+ *     present.
+ *
+ * Pure, synchronous, and node-safe — same tier as `tiptapToMarkdown` /
+ * `htmlToMarkdown`. Themes / routes should usually call it through
+ * `ampless.postToMarkdown(post)`, which injects the plugin adapter
+ * registry and the effective site URL.
+ */
+export function postToMarkdown(post: Post, opts: PostToMarkdownOptions = {}): string {
+  const frontmatter = opts.frontmatter !== false ? postFrontmatter(post, opts.siteUrl) : ''
+  return frontmatter + postBodyToMarkdown(post, opts)
+}
+
+function postFrontmatter(post: Post, siteUrl: string | undefined): string {
+  const lines: string[] = []
+  lines.push(`title: ${JSON.stringify(post.title)}`)
+  lines.push(`slug: ${JSON.stringify(post.slug)}`)
+  if (post.publishedAt) lines.push(`publishedAt: ${JSON.stringify(post.publishedAt)}`)
+  if (post.updatedAt) lines.push(`updatedAt: ${JSON.stringify(post.updatedAt)}`)
+  if (post.tags && post.tags.length > 0) lines.push(`tags: ${JSON.stringify(post.tags)}`)
+  if (post.excerpt) lines.push(`excerpt: ${JSON.stringify(post.excerpt)}`)
+  if (siteUrl) {
+    // Normalise trailing slashes so `site.url: "https://example.com/"`
+    // doesn't produce a `//slug` canonical.
+    const origin = siteUrl.replace(/\/+$/, '')
+    lines.push(`canonical: ${JSON.stringify(`${origin}/${post.slug}`)}`)
+  }
+  return `---\n${lines.join('\n')}\n---\n\n`
+}
+
+function postBodyToMarkdown(post: Post, opts: PostToMarkdownOptions): string {
+  switch (post.format) {
+    case 'markdown':
+      return typeof post.body === 'string' ? post.body : String(post.body ?? '')
+    case 'tiptap':
+      // string body falls through to htmlToMarkdown inside
+      // tiptapToMarkdown (format-switch save path).
+      return tiptapToMarkdown(post.body, { nodeAdapters: opts.nodeAdapters })
+    case 'html':
+      return htmlToMarkdown(String(post.body))
+    case 'static': {
+      const link = `[${staticEntrypoint(post.body)}](/${post.slug}/)`
+      return post.excerpt ? `${link}\n\n${post.excerpt}\n` : `${link}\n`
+    }
+    default:
+      return ''
+  }
+}
+
+/**
+ * Resolve the entrypoint out of a `format: 'static'` body manifest.
+ * The body is usually an already-decoded `StaticPostBody` object, but a
+ * raw JSON string (or a broken body) is tolerated — anything that
+ * doesn't parse into a manifest falls back to the default entrypoint.
+ */
+function staticEntrypoint(body: unknown): string {
+  let manifest: unknown = body
+  if (typeof manifest === 'string') {
+    try {
+      manifest = JSON.parse(manifest)
+    } catch {
+      return 'index.html'
+    }
+  }
+  if (
+    typeof manifest === 'object' &&
+    manifest !== null &&
+    typeof (manifest as { entrypoint?: unknown }).entrypoint === 'string' &&
+    (manifest as { entrypoint: string }).entrypoint.length > 0
+  ) {
+    return (manifest as { entrypoint: string }).entrypoint
+  }
+  return 'index.html'
 }

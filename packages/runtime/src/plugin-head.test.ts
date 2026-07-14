@@ -468,6 +468,37 @@ describe('createPluginHead', () => {
     ).toBe(true)
   })
 
+  it('exposes the merged tiptap→markdown adapter registry as markdownAdapters', () => {
+    const tweetAdapter = () => 'https://x.com/a/status/1'
+    const plugin = definePlugin({
+      name: 'x-embed',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      tiptapNodeToMarkdown: { amplessTweet: tweetAdapter },
+    })
+    const head = createPluginHead(makeConfig([plugin]), emptySettings)
+    expect(head.markdownAdapters.amplessTweet).toBe(tweetAdapter)
+  })
+
+  it('excludes adapters from plugins dropped for an invalid instanceId', () => {
+    const good = definePlugin({
+      name: 'youtube-embed',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      tiptapNodeToMarkdown: { amplessYoutube: () => 'https://youtu.be/x' },
+    })
+    const bad = definePlugin({
+      name: 'x-embed',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      instanceId: 'foo.bar', // invalid → plugin dropped from validPlugins
+      tiptapNodeToMarkdown: { amplessTweet: () => 'https://x.com/a/status/1' },
+    })
+    const head = createPluginHead(makeConfig([good, bad]), emptySettings)
+    expect(head.markdownAdapters.amplessYoutube).toBeTypeOf('function')
+    expect(head.markdownAdapters.amplessTweet).toBeUndefined()
+  })
+
   it('warns when settings.public field key violates pattern', () => {
     const plugin = definePlugin({
       name: 'demo',
