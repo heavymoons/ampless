@@ -40,6 +40,14 @@ ampless はエンジニア向けのカスタマイズベース CMS です — �
 - [ ] AI プロバイダ抽象レイヤー
 - [ ] 校正 / 要約 プラグイン
 
+#### AI-readable publishing（計画中）
+公開済みコンテンツを人間と AI の両方が読みやすい形で配信する（[AI_FRIENDLY.ja.md](../AI_FRIENDLY.ja.md) §3–4 の採用 + 公開読み取り専用 MCP endpoint の追加）。CMS を原本とし、Markdown / `llms.txt` / 公開 MCP tool のレスポンスは同じ投稿から導出する公開表現として扱う（MCP Resources / Resource Template は後回し — 初期は tool のみ）。published-only を構造的に強制（published 専用 custom query のみ使用）し、`ai` 設定セクションを無効にしたサイトの挙動は変えない。
+
+- [ ] Phase A — canonical Markdown: `AmplessPlugin` manifest への server-safe な `tiptapNodeToMarkdown` adapter + `@ampless/runtime` の `ampless.postToMarkdown(post)` + 公開 `/<slug>.md` ルート（middleware で内部 `/md/<slug>` へ rewrite、published のみ、変換不能ノードは黙って消さずプレースホルダを出力）
+- [ ] Phase B — AI 向けインデックスと画面導線: `/llms.txt` runtime ルート（Markdown URL つきサイトマップ、上限つき・切り詰めは明記）+ `@ampless/plugin-ai-actions`（Markdown コピー/表示、AI で開くリンク）。`/llms-full.txt` は必要になるまで後回し（event 駆動 S3 生成、rss/seo パターン）
+- [ ] Phase C — 公開読み取り専用 MCP: Next.js runtime が `/api/mcp` で提供する匿名 JSON-RPC endpoint（route factory 方式。plugin の Markdown adapter と `cms.config` に直接アクセスできる）。tool（`list_posts` / `get_post` / `search_posts` / `list_tags`）は published 専用 custom query のみを呼び、`postToMarkdown` を再利用。read-only annotations、paging + 本文サイズ上限。既存 admin MCP（Lambda Function URL + Bearer）は不変
+- [ ] Phase D — MCP discovery: `server.json` 生成 + サイト/admin 上の接続手順 + MCP Registry 公開手順。`/.well-known/mcp.json` は Server Card 仕様確定まで実験扱い
+
 #### プラグイン拡張（dogfood 駆動の段階導入）
 進行管理の要約はこの文書に集約し、公開 contract は [08-plugin-architecture.ja.md](./08-plugin-architecture.ja.md) に置きます。各 Phase で新 surface を実装で叩く同梱プラグインを 1 つ以上 ship、次 Phase に進む。
 

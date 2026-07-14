@@ -3,9 +3,9 @@
 
 # AIフレンドリーCMS案
 
-Status: proposal, not implemented.
+Status: 一部採用。machine-readable exports のサブセット — `/<slug>.md`（§3）と `/llms.txt`（§4）— および公開読み取り専用 MCP endpoint をロードマップに採用済み。[14-roadmap.ja.md の AI-readable publishing 節](./architecture/14-roadmap.ja.md) を参照。それ以外の節は引き続き未採用の proposal。
 
-Last reviewed: 2026-05-30
+Last reviewed: 2026-07-14
 
 このメモは、ampless のコンテンツを AI 検索、AI エージェント、RAG（retrieval-augmented generation）システムから理解しやすくするためのプロダクト・アーキテクチャ案をまとめたもの。JSON-LD は重要だが、それだけでは足りない。AIフレンドリーなCMSでは、正規コンテンツ、メタデータ、関係性、鮮度、権利、運用ポリシーを明示できることが重要になる。
 
