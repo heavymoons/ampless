@@ -48,6 +48,7 @@ import {
   type TiptapNodeMarkdownAdapters,
 } from 'ampless'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+import type { SiteSettingsApi } from './site-settings.js'
 import {
   buildContentFieldRegistry,
   buildMarkdownAdapterRegistry,
@@ -129,9 +130,13 @@ export interface PluginHeadApi {
   /**
    * Resolve the per-plugin `PluginPublicRenderContext` snapshot used by
    * `contentFields` renderers. Same `settings()` binding the public
-   * surfaces (`publicHead` / `publicBodyEnd`) use. Async because it
-   * reads the S3 site-settings cache once per request via
-   * `pluginSettings.loadAll()`.
+   * surfaces (`publicHead` / `publicBodyEnd`) use. Async because it reads
+   * the S3 site-settings cache once per request — both plugin settings
+   * (`pluginSettings.loadAll()`) AND, when `siteSettings` was passed to
+   * `createPluginHead`, the effective `site` block
+   * (`siteSettings.loadSiteSettings()`, admin overrides included; falls
+   * back to `cmsConfig.site` on fetch failure or when `siteSettings` was
+   * not supplied).
    */
   contextForPlugins(): Promise<(plugin: AmplessPlugin) => PluginPublicRenderContext>
   /**
@@ -650,6 +655,63 @@ function makeCtx(
   }
 }
 
+/**
+ * Resolve the `site` block handed to `ctx.site` across every plugin
+ * public-render surface.
+ *
+ *   - `siteSettings` supplied (the `createAmpless` wiring passes the
+ *     runtime's `SiteSettingsApi`): read the effective site settings
+ *     (admin `settings.public` override merged over `cms.config.ts`
+ *     defaults — same value the `.md` route's canonical line uses) via
+ *     `siteSettings.loadSiteSettings()`. A fetch failure (S3 down,
+ *     malformed cache JSON, ...) falls back to `cmsConfig.site` — this
+ *     is the ONLY failure mode caught here; plugin settings errors are
+ *     an entirely separate code path with their own existing contract.
+ *   - `siteSettings` omitted (any direct `createPluginHead(cmsConfig,
+ *     pluginSettings)` two-arg caller — the pre-existing public export
+ *     contract): return `cmsConfig.site` synchronously-equivalent
+ *     (wrapped in a resolved Promise so callers can `await` either
+ *     branch uniformly). This is the backward-compatible path; see
+ *     `plugin-head.test.ts` for the coverage that pins it.
+ */
+async function resolveEffectiveSite(
+  cmsConfig: Config,
+  siteSettings: SiteSettingsApi | undefined
+): Promise<Config['site']> {
+  if (!siteSettings) return cmsConfig.site
+  try {
+    const { site } = await siteSettings.loadSiteSettings()
+    return site
+  } catch (err) {
+    warn(
+      `effective site settings fetch failed — falling back to cms.config.ts site block: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    )
+    return cmsConfig.site
+  }
+}
+
+/**
+ * Shared per-render resolution: the plugin settings snapshot (S3
+ * site-settings cache, `pluginSettings.loadAll()`) and the effective
+ * `site` block (see `resolveEffectiveSite`), fetched in parallel. Every
+ * `PluginPublicRenderContext`-producing surface in `createPluginHead`
+ * goes through this one function so there is a single place that knows
+ * how to combine the two.
+ */
+async function resolveRenderContext(
+  cmsConfig: Config,
+  pluginSettings: PluginSettingsApi,
+  siteSettings: SiteSettingsApi | undefined
+): Promise<{ snapshot: PluginSettingsSnapshot; site: Config['site'] }> {
+  const [snapshot, site] = await Promise.all([
+    pluginSettings.loadAll(),
+    resolveEffectiveSite(cmsConfig, siteSettings),
+  ])
+  return { snapshot, site }
+}
+
 function collectFor<D>(
   plugins: readonly AmplessPlugin[],
   site: Config['site'],
@@ -974,7 +1036,8 @@ async function isPublicRequest(): Promise<boolean> {
 
 export function createPluginHead(
   cmsConfig: Config,
-  pluginSettings: PluginSettingsApi
+  pluginSettings: PluginSettingsApi,
+  siteSettings?: SiteSettingsApi
 ): PluginHeadApi {
   const plugins = (cmsConfig.plugins ?? []).filter(isPlugin)
 
@@ -1137,54 +1200,58 @@ export function createPluginHead(
 
   return {
     async renderHead(): Promise<ReactNode> {
+      // Gate BEFORE the S3 site-settings read — non-public requests must
+      // not pay for (or trigger) a `loadSiteSettings()` fetch.
       if (!(await isPublicRequest())) return null
-      const snapshot = await pluginSettings.loadAll()
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
       return collectFor<PublicHeadDescriptor>(
         validPlugins,
-        cmsConfig.site,
+        site,
         snapshot,
         (p) => p.publicHead,
         renderHeadDescriptor
       )
     },
     async renderBodyEnd(): Promise<ReactNode> {
+      // Gate BEFORE the S3 site-settings read — same ordering constraint
+      // as renderHead().
       if (!(await isPublicRequest())) return null
-      const snapshot = await pluginSettings.loadAll()
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
       return collectFor<PublicBodyDescriptor>(
         validPlugins,
-        cmsConfig.site,
+        site,
         snapshot,
         (p) => p.publicBodyEnd,
         renderBodyDescriptor
       )
     },
     async renderBodyForPost(post: Post): Promise<ReactNode> {
-      const snapshot = await pluginSettings.loadAll()
-      return collectForPost(validPlugins, cmsConfig.site, snapshot, post)
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
+      return collectForPost(validPlugins, site, snapshot, post)
     },
     async renderHtmlForPost(post: Post): Promise<PublicHtmlForPostResult> {
-      const snapshot = await pluginSettings.loadAll()
-      return collectHtmlForPost(validPlugins, cmsConfig.site, snapshot, post)
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
+      return collectHtmlForPost(validPlugins, site, snapshot, post)
     },
     async renderPostScriptsForPage(posts: readonly Post[]): Promise<ReactNode> {
-      const snapshot = await pluginSettings.loadAll()
-      return collectPostScriptsForPage(validPlugins, cmsConfig.site, snapshot, posts)
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
+      return collectPostScriptsForPage(validPlugins, site, snapshot, posts)
     },
     contentFieldsRegistry,
     markdownAdapters,
     async contextForPlugins() {
-      const snapshot = await pluginSettings.loadAll()
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
       return (plugin: AmplessPlugin) =>
-        makeCtx(plugin, cmsConfig.site, snapshot)
+        makeCtx(plugin, site, snapshot)
     },
     async renderHeadForPreview(): Promise<ReactNode> {
       // Does NOT call isPublicRequest() — see PluginHeadApi.renderHeadForPreview
       // for the full rationale. Always collects all publicHead descriptors so
       // content-decoration plugins (mermaid, highlight) render in preview.
-      const snapshot = await pluginSettings.loadAll()
+      const { snapshot, site } = await resolveRenderContext(cmsConfig, pluginSettings, siteSettings)
       return collectFor<PublicHeadDescriptor>(
         validPlugins,
-        cmsConfig.site,
+        site,
         snapshot,
         (p) => p.publicHead,
         renderHeadDescriptor,

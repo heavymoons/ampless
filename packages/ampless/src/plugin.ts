@@ -80,6 +80,20 @@ export type ScriptStrategy = 'afterInteractive' | 'lazyOnload'
  * per-post context lands in Phase 4 (`plugin-per-post-rfp.md`).
  */
 export interface PluginPublicRenderContext {
+  /**
+   * The site's `name` / `url` / `description` block. When the caller
+   * wires `@ampless/runtime`'s `createPluginHead(cmsConfig, pluginSettings,
+   * siteSettings)` with its third argument (as `createAmpless` does), this
+   * is the **effective** site settings — the S3-cached admin
+   * `settings.public` override merged over the `cms.config.ts` defaults,
+   * the same value the `/<slug>.md` route's canonical line uses — not
+   * merely a static passthrough of `cms.config.ts`. It falls back to the
+   * `cms.config.ts` block on a site-settings fetch failure, or entirely
+   * when the caller omits `siteSettings` (the two-argument
+   * `createPluginHead` call, kept for backward compatibility). The type
+   * shape (`{ name, url, description? }`) does not change either way —
+   * only which value populates it.
+   */
   site: Config['site']
   /**
    * Resolve a public setting value for the active plugin instance.
