@@ -3,6 +3,7 @@ import seoPlugin from '@ampless/plugin-seo'
 import rssPlugin from '@ampless/plugin-rss'
 // import schemaJsonLdPlugin from '@ampless/plugin-schema-jsonld'
 // import readingTimePlugin from '@ampless/plugin-reading-time'
+// import aiActionsPlugin from '@ampless/plugin-ai-actions'
 // import cookieConsentPlugin from '@ampless/plugin-cookie-consent'
 // import analyticsGa4Plugin from '@ampless/plugin-analytics-ga4'
 // import gtmPlugin from '@ampless/plugin-gtm'
@@ -103,6 +104,21 @@ export default defineConfig({
     // Label template and position are editable from `/admin/plugins`.
     //
     // readingTimePlugin(),
+    //
+    // AI actions: adds a "View as Markdown" link (default on) after the
+    // post content, plus opt-in "Open in Claude" / "Open in ChatGPT"
+    // links. REQUIRES `ai.markdownRoutes` to stay enabled (the default
+    // above) — every link this plugin renders points at the post's
+    // /<slug>.md route. Do not register this plugin if you set
+    // `ai: { markdownRoutes: false }`. See packages/ampless/docs/plugin-author-guide.md
+    // and the package README for why the external links default OFF
+    // (unofficial URL prefill convention) and why there's no "Copy
+    // Markdown" button (no inline-script capability yet).
+    //
+    // aiActionsPlugin({
+    //   showClaude: false, // opt-in — verify the ?q= prefill on your site first
+    //   showChatgpt: false, // opt-in — same caveat
+    // }),
     //
     // Google Analytics 4. Once registered here, the measurement ID can be
     // edited from `/admin/plugins` without a redeploy — the constructor

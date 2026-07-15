@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { isValidElement, Fragment, type ReactElement, type ReactNode } from 'react'
 import {
   definePlugin,
+  type AmplessPlugin,
   type Config,
   type PublicHeadDescriptor,
   type PublicPostHtmlDescriptor,
   type Post,
 } from 'ampless'
 import { createPluginHead, escapeJsonLdInlineBody } from './plugin-head.js'
+import type { PluginHeadApi } from './plugin-head.js'
 import type { PluginSettingsApi, PluginSettingsSnapshot } from './plugin-settings.js'
+import type { SiteSettingsApi } from './site-settings.js'
 import type { PluginPackageManifest } from 'ampless'
 
 // ---------------------------------------------------------------------------
@@ -2304,5 +2307,152 @@ describe('createPluginHead — isPublicRequest guard', () => {
     const head = createPluginHead(makeConfig([guardPlugin]), emptySettings)
     expect(await head.renderHead()).toBeNull()
     expect(await head.renderBodyEnd()).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P1 (AI-readable publishing plan, PR-5): createPluginHead's optional third
+// argument (`siteSettings: SiteSettingsApi`) resolves the EFFECTIVE site
+// settings (admin override merged over cms.config.ts defaults) into
+// `ctx.site` on every PluginPublicRenderContext-producing surface. Table-
+// driven across all 7 surfaces named in the plan: renderHead /
+// renderBodyEnd / renderBodyForPost / renderHtmlForPost /
+// renderPostScriptsForPage / contextForPlugins / renderHeadForPreview.
+//
+// Every existing `createPluginHead(config, settings)` call above this
+// block intentionally keeps the two-argument form — that is itself the
+// backward-compatibility regression test for the omitted-third-arg path.
+// ---------------------------------------------------------------------------
+
+describe('createPluginHead — siteSettings (effective site) wiring', () => {
+  const effectiveSite: Config['site'] = {
+    name: 'Effective Site',
+    url: 'https://effective.example.com/',
+  }
+
+  const samplePost: Post = {
+    postId: 'p1',
+    slug: 'hello',
+    title: 'Hello',
+    format: 'markdown',
+    body: '',
+    status: 'published',
+  }
+
+  function makeSiteSettingsApi(result: Config['site'] | 'throw'): SiteSettingsApi {
+    return {
+      async loadSiteSettings() {
+        if (result === 'throw') throw new Error('site-settings fetch failed')
+        return { site: result, media: {} }
+      },
+    }
+  }
+
+  // A plugin implementing every surface that produces a
+  // PluginPublicRenderContext, pushing the `ctx.site` it was handed onto
+  // a shared array so each test can assert on it.
+  function makeCapturePlugin(): { plugin: AmplessPlugin; captured: Config['site'][] } {
+    const captured: Config['site'][] = []
+    const plugin = definePlugin({
+      name: 'capture',
+      apiVersion: 1,
+      trust_level: 'untrusted',
+      capabilities: ['publicHead', 'publicBody', 'schema', 'publicHtmlForPost', 'publicPostScript'],
+      publicHead(ctx) {
+        captured.push(ctx.site)
+        return []
+      },
+      publicBodyEnd(ctx) {
+        captured.push(ctx.site)
+        return []
+      },
+      publicBodyForPost(_post, ctx) {
+        captured.push(ctx.site)
+        return []
+      },
+      publicHtmlForPost(_post, ctx) {
+        captured.push(ctx.site)
+        return []
+      },
+      publicPostScript(_post, ctx) {
+        captured.push(ctx.site)
+        return []
+      },
+    })
+    return { plugin, captured }
+  }
+
+  interface Surface {
+    name: string
+    run(head: PluginHeadApi, plugin: AmplessPlugin, captured: Config['site'][]): Promise<void>
+  }
+
+  const surfaces: readonly Surface[] = [
+    { name: 'renderHead', run: async (head) => { await head.renderHead() } },
+    { name: 'renderBodyEnd', run: async (head) => { await head.renderBodyEnd() } },
+    {
+      name: 'renderBodyForPost',
+      run: async (head) => { await head.renderBodyForPost(samplePost) },
+    },
+    {
+      name: 'renderHtmlForPost',
+      run: async (head) => { await head.renderHtmlForPost(samplePost) },
+    },
+    {
+      name: 'renderPostScriptsForPage',
+      run: async (head) => { await head.renderPostScriptsForPage([samplePost]) },
+    },
+    {
+      name: 'contextForPlugins',
+      run: async (head, plugin, captured) => {
+        const ctxForPlugin = await head.contextForPlugins()
+        captured.push(ctxForPlugin(plugin).site)
+      },
+    },
+    { name: 'renderHeadForPreview', run: async (head) => { await head.renderHeadForPreview() } },
+  ]
+
+  describe('siteSettings provided: ctx.site is the effective site', () => {
+    for (const surface of surfaces) {
+      it(`${surface.name} receives the effective site from siteSettings.loadSiteSettings()`, async () => {
+        const { plugin, captured } = makeCapturePlugin()
+        const head = createPluginHead(
+          makeConfig([plugin]),
+          emptySettings,
+          makeSiteSettingsApi(effectiveSite)
+        )
+        await surface.run(head, plugin, captured)
+        expect(captured).toHaveLength(1)
+        expect(captured[0]).toEqual(effectiveSite)
+      })
+    }
+  })
+
+  describe('siteSettings omitted: falls back to cms.config.ts site (2-arg backward compat)', () => {
+    for (const surface of surfaces) {
+      it(`${surface.name} receives cms.config.ts's site when siteSettings is not passed`, async () => {
+        const { plugin, captured } = makeCapturePlugin()
+        const head = createPluginHead(makeConfig([plugin]), emptySettings)
+        await surface.run(head, plugin, captured)
+        expect(captured).toHaveLength(1)
+        expect(captured[0]).toEqual(site)
+      })
+    }
+  })
+
+  describe('siteSettings.loadSiteSettings() throws: falls back to cms.config.ts site', () => {
+    for (const surface of surfaces) {
+      it(`${surface.name} falls back to cms.config.ts's site on fetch failure`, async () => {
+        const { plugin, captured } = makeCapturePlugin()
+        const head = createPluginHead(
+          makeConfig([plugin]),
+          emptySettings,
+          makeSiteSettingsApi('throw')
+        )
+        await surface.run(head, plugin, captured)
+        expect(captured).toHaveLength(1)
+        expect(captured[0]).toEqual(site)
+      })
+    }
   })
 })

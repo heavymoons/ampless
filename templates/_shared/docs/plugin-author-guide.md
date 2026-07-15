@@ -434,6 +434,19 @@ The `ctx` object carries:
 `ctx.setting()` is the Phase 2 admin-managed values accessor — see
 §8.
 
+**`ctx.site` is the effective site settings, not a static passthrough of
+`cms.config.ts`.** When the host app wires `@ampless/runtime`'s
+`createPluginHead(cmsConfig, pluginSettings, siteSettings)` with its third
+argument (as `createAmpless` does — this is the standard wiring, no site
+code changes needed), `ctx.site` reflects admin `settings.public`
+overrides merged over the `cms.config.ts` defaults — the same effective
+value the `/<slug>.md` route's canonical line uses. It falls back to the
+`cms.config.ts` block on a site-settings fetch failure. The shape
+(`{ name, url, description? }`) is unchanged; only which value populates
+it. Plugins that build absolute URLs from `ctx.site.url` (e.g.
+`@ampless/plugin-ai-actions`'s external AI links) automatically track
+admin-edited site URL changes without a redeploy.
+
 ---
 
 ## 6. Descriptor reference
@@ -2296,6 +2309,8 @@ Worked examples to crib from:
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — trusted hook with outbound HTTP + `secretSettings` (admin-managed signing secret, Phase 6a).
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` route renderer.
 - [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability; per-post Article JSON-LD. (Phase 4)
+- [`packages/plugin-reading-time`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-reading-time) — `publicHtmlForPost`; word-count estimate rendered as a `<p>` badge before/after the post body. (Phase 6d)
+- [`packages/plugin-ai-actions`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-ai-actions) — `publicHtmlForPost`; "View as Markdown" + opt-in "Open in Claude" / "Open in ChatGPT" links built from `ctx.site.url` (effective site settings) and the post's `/<slug>.md` URL. (AI-readable publishing roadmap, Phase B)
 
 ---
 

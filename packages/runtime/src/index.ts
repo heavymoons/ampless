@@ -300,7 +300,11 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
   const settings = createSiteSettings(cmsConfig, storage)
   const seo = createSeo(cmsConfig, settings)
   const pluginSettings = createPluginSettings(storage)
-  const pluginHead = createPluginHead(cmsConfig, pluginSettings)
+  // Third arg wires the effective (admin-override-aware) site settings
+  // into every PluginPublicRenderContext.site — same value the `.md`
+  // route's canonical line resolves. See plugin-head.ts
+  // resolveEffectiveSite() for the fallback-to-cms.config.ts contract.
+  const pluginHead = createPluginHead(cmsConfig, pluginSettings, settings)
   const themeActive = createThemeActive(themes, storage)
   const themeConfig = createThemeConfig(themeActive, storage)
 

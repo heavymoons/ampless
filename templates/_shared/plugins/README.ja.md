@@ -122,6 +122,7 @@ export default defineConfig({
 
 **`publicHtmlForPost` を使うファーストパーティプラグイン:**
 - `@ampless/plugin-reading-time` — 投稿本文から読了時間を推定し、本文の前後に設定可能なバッジを注入します。
+- `@ampless/plugin-ai-actions` — 「Markdown で表示」リンク（デフォルトオン）と、opt-in の「Claude で開く」「ChatGPT で開く」リンクを本文の後（または前）に追加します。`ai.markdownRoutes` の有効化が前提です。
 
 [guide]: https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md
 

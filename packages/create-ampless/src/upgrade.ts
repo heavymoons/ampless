@@ -60,6 +60,7 @@ const AMPLESS_PACKAGES = new Set([
   'ampless',
   '@ampless/admin',
   '@ampless/backend',
+  '@ampless/plugin-ai-actions',
   '@ampless/plugin-analytics-ga4',
   '@ampless/plugin-cookie-consent',
   '@ampless/plugin-gtm',

@@ -125,6 +125,7 @@ Capabilities currently active:
 
 **First-party plugins that use `publicHtmlForPost`:**
 - `@ampless/plugin-reading-time` — estimates read time from the post body and injects a configurable badge before or after the content.
+- `@ampless/plugin-ai-actions` — adds a "View as Markdown" link (default on) plus opt-in "Open in Claude" / "Open in ChatGPT" links after (or before) the content. Requires `ai.markdownRoutes` to stay enabled.
 
 [guide]: https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md
 

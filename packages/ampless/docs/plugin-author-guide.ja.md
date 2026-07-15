@@ -351,6 +351,8 @@ SSR がデッドラインなしでブロックします。ネットワーク呼�
 
 `ctx.setting()` は Phase 2 で追加された admin 管理値アクセッサ — §8 参照。
 
+**`ctx.site` は `cms.config.ts` の静的な値そのままではなく、実効 site 設定です。** ホストアプリが `@ampless/runtime` の `createPluginHead(cmsConfig, pluginSettings, siteSettings)` を第 3 引数つきで配線している場合（`createAmpless` は標準でこう配線しており、サイト側のコード変更は不要）、`ctx.site` は admin の `settings.public` override を `cms.config.ts` のデフォルトにマージした値 — `/<slug>.md` ルートの canonical 行が使うのと同じ実効値 — を反映します。site settings の取得に失敗した場合は `cms.config.ts` の値にフォールバックします。型の形（`{ name, url, description? }`）は変わらず、値の意味だけが変わります。`ctx.site.url` から絶対 URL を組み立てるプラグイン（例: `@ampless/plugin-ai-actions` の外部 AI リンク）は、再デプロイなしで admin が編集した site URL の変更を自動的に反映します。
+
 ---
 
 ## 6. Descriptor リファレンス
@@ -1693,6 +1695,8 @@ it('admin が空文字保存した場合は空配列', () => {
 - [`packages/plugin-webhook`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-webhook) — trusted hook + 外向き HTTP + `secretSettings` (admin 管理の signing secret、Phase 6a)
 - [`packages/plugin-og-image`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-og-image) — `ogImage` ルートレンダラ
 - [`packages/plugin-schema-jsonld`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-schema-jsonld) — `publicBodyForPost` + `schema` capability、投稿単位 Article JSON-LD。（Phase 4）
+- [`packages/plugin-reading-time`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-reading-time) — `publicHtmlForPost`、語数推定を本文の前後に `<p>` バッジとして描画。（Phase 6d）
+- [`packages/plugin-ai-actions`](https://github.com/heavymoons/ampless/tree/main/packages/plugin-ai-actions) — `publicHtmlForPost`、`ctx.site.url`（実効 site 設定）と投稿の `/<slug>.md` URL から「Markdown で表示」+ opt-in の「Claude で開く」/「ChatGPT で開く」リンクを組み立てる。（AI-readable publishing ロードマップ Phase B）
 
 ---
 
