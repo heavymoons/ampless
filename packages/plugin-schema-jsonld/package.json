@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-schema-jsonld",
-  "version": "0.1.1-beta.36",
+  "version": "0.1.1-beta.37",
   "description": "JSON-LD structured data (Article schema) for ampless posts.",
   "license": "MIT",
   "type": "module",

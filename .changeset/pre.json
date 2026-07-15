@@ -21,7 +21,8 @@
     "@ampless/plugin-youtube": "1.0.0-alpha.13",
     "@ampless/runtime": "1.0.0-alpha.59",
     "@ampless/plugin-highlight": "0.0.0",
-    "@ampless/plugin-mermaid": "0.0.0"
+    "@ampless/plugin-mermaid": "0.0.0",
+    "@ampless/plugin-ai-actions": "0.0.0"
   },
   "changesets": [
     "admin-ampless-thunk",
@@ -77,6 +78,7 @@
     "auto-sync-create-ampless-1784023320785",
     "auto-sync-create-ampless-1784033660541",
     "auto-sync-create-ampless-1784084481272",
+    "auto-sync-create-ampless-1784112287664",
     "awsjson-shared-utils",
     "backend-revert-enum-required",
     "backend-tighten-model-constraints",
@@ -171,6 +173,7 @@
     "phase6a-webhook-retrofit",
     "phase6d-plugin-reading-time",
     "phase6d-public-html-for-post",
+    "plugin-ai-actions",
     "plugin-apiversion-policy-docs",
     "plugin-hook-result-reservation",
     "plugin-markdown-adapters-manifest",
