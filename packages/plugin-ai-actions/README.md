@@ -97,5 +97,5 @@ Without an inline-script capability or a plugin asset delivery mechanism, there'
 
 - **Copy Markdown (clipboard)** — see [Why no "Copy Markdown" button](#why-no-copy-markdown-button) above.
 - **MCP connection info** — a link/QR code pointing readers at the site's MCP endpoint is planned for a later phase, once the public read-only MCP server ships.
-- **Theme CSS** — stable class names are provided, and a modest default style (pill-shaped links) ships in the site template's `globals.css`; the rule is zero-specificity (`:where()`) so themes can freely override it.
+- **Theme-specific CSS** — the plugin ships no per-theme styling. A neutral default (pill-shaped links) comes from the site template's `globals.css` at zero specificity (`:where()`); anything beyond that is up to theme CSS via the stable class names.
 - **Locale-aware labels** — not supported. Link text is a fixed English string, and registering the plugin multiple times does not help: all instances render into the same position bucket, so themes cannot pick a per-locale slot. Deferred until requested.
