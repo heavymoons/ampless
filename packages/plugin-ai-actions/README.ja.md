@@ -13,7 +13,7 @@ AWS のデータ権限は不要です。すべて公開 Next.js プロセスの�
 
 ## `ai.markdownRoutes` が前提
 
-**このプラグインが出力する全リンクは投稿の `/<slug>.md` Markdown 投影に依存します** — 2 つの外部 AI リンクも、prompt の `?q=` に絶対 `.md` URL を渡します。`cms.config.ts` で `ai.markdownRoutes: false` を設定しているサイトでは、3 リンクすべてが 404 になります。**`ai.markdownRoutes` を無効化したサイトではこのプラグインを登録しないでください** — `ai.markdownRoutes` はデフォルトで有効なのでほとんどのサイトでは意識不要ですが、インストール前に確認してください。
+**このプラグインが出力する全アクションは投稿の `/<slug>.md` Markdown 投影に依存します** — 2 つの外部 AI リンクも、prompt の `?q=` に絶対 `.md` URL を渡します。`cms.config.ts` で `ai.markdownRoutes: false` を設定しているサイトでは、「View as Markdown」リンクは 404 になり、Claude/ChatGPT リンク自体は開くものの、AI に渡る `.md` URL が存在しないため機能しません。**`ai.markdownRoutes` を無効化したサイトではこのプラグインを登録しないでください** — `ai.markdownRoutes` はデフォルトで有効なのでほとんどのサイトでは意識不要ですが、インストール前に確認してください。
 
 ## インストール
 
@@ -46,7 +46,7 @@ export default defineConfig({
 | `position` | `'afterContent'` | `'beforeContent'` または `'afterContent'`。`@ampless/plugin-reading-time` とは逆のデフォルト — 記事を読んでから AI アクションを提示する意図。 |
 | `instanceId` | `'ai-actions'` | ランタイムのキー解決に使う namespace。同じサイトで 2 回登録する場合のみ変更する。 |
 
-すべてのオプションはデプロイなしで `/admin/plugins → AI アクション` から編集できます。コンストラクタの値は初期デフォルトに過ぎません。
+`instanceId` を除く表示設定はデプロイなしで `/admin/plugins → AI アクション` から編集できます。コンストラクタの値は初期デフォルトに過ぎません。`instanceId` は `settings.public` に含まれないため、`cms.config.ts` でのみ設定できます。
 
 ## 外部 AI リンク（opt-in）
 
@@ -98,4 +98,4 @@ inline-script capability の新設か plugin asset 配信の仕組みが無い�
 - **Copy Markdown（クリップボード）** — 上記[「Copy Markdown」ボタンが無い理由](#copy-markdown-ボタンが無い理由)を参照。
 - **MCP 接続情報** — サイトの MCP endpoint を案内するリンク / QR コードは、将来の公開読み取り専用 MCP サーバーの提供後に検討予定です。
 - **テーマ CSS** — 安定したクラス名は提供しますが、デフォルト CSS は注入しません。
-- **ロケール別ラベル** — リンクテキストは英語固定です。多言語サイトでは `instanceId` を別にしてプラグインを 2 回登録し、テーマ側でスロットを条件分岐させることで対応できます。
+- **ロケール別ラベル** — 未対応です。リンクテキストは英語固定で、プラグインを複数回登録しても解決になりません（全 instance が同じ position バケットに描画されるため、テーマがロケール別のスロットを選べません）。要望が出た時点で検討します。

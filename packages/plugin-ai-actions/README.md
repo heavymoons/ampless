@@ -13,7 +13,7 @@ No AWS data permissions are required — everything runs at request time inside 
 
 ## Requires `ai.markdownRoutes`
 
-**Every link this plugin renders points at the post's `/<slug>.md` markdown projection** — including the two external AI links, which pass the absolute `.md` URL in the `?q=` prompt. If `ai.markdownRoutes: false` is set in `cms.config.ts`, all three links 404. **Do not register this plugin on a site with `ai.markdownRoutes` disabled** — `ai.markdownRoutes` defaults to enabled, so most sites don't need to think about this, but double-check before installing.
+**Every action this plugin renders depends on the post's `/<slug>.md` markdown projection** — including the two external AI links, which pass the absolute `.md` URL in the `?q=` prompt. If `ai.markdownRoutes: false` is set in `cms.config.ts`, the "View as Markdown" link 404s, and the Claude/ChatGPT links still open but hand the AI a `.md` URL that doesn't exist. **Do not register this plugin on a site with `ai.markdownRoutes` disabled** — `ai.markdownRoutes` defaults to enabled, so most sites don't need to think about this, but double-check before installing.
 
 ## Install
 
@@ -46,7 +46,7 @@ export default defineConfig({
 | `position` | `'afterContent'` | `'beforeContent'` or `'afterContent'`. Opposite default of `@ampless/plugin-reading-time` — read the article, *then* offer the AI actions. |
 | `instanceId` | `'ai-actions'` | Namespace used for runtime key resolution. Change only if registering the plugin twice. |
 
-All options are also editable from `/admin/plugins → AI actions` without a redeploy — the constructor values above are just the initial defaults.
+All display options except `instanceId` are also editable from `/admin/plugins → AI actions` without a redeploy — the constructor values above are just the initial defaults. `instanceId` is not part of `settings.public`, so it can only be set in `cms.config.ts`.
 
 ## External AI links (opt-in)
 
@@ -98,4 +98,4 @@ Without an inline-script capability or a plugin asset delivery mechanism, there'
 - **Copy Markdown (clipboard)** — see [Why no "Copy Markdown" button](#why-no-copy-markdown-button) above.
 - **MCP connection info** — a link/QR code pointing readers at the site's MCP endpoint is planned for a later phase, once the public read-only MCP server ships.
 - **Theme CSS** — stable class names are provided; no default CSS is injected.
-- **Locale-aware labels** — link text is a fixed English string. Multi-locale setups can register the plugin twice with distinct `instanceId` values and theme-side conditionally render the correct slot.
+- **Locale-aware labels** — not supported. Link text is a fixed English string, and registering the plugin multiple times does not help: all instances render into the same position bucket, so themes cannot pick a per-locale slot. Deferred until requested.
