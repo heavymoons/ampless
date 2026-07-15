@@ -141,6 +141,7 @@ export default defineConfig({
 | `format: 'html'` + `no_layout: true` | `/<slug>` | ベア HTML ルート（レイアウトなし、クロームなし） |
 | `format: 'static'` | `/<slug>/` | S3 の presigned URL 経由で配信される静的バンドル |
 | 任意のフォーマット | `/<slug>.md` | 投稿の Markdown 投影（`ampless.postToMarkdown()`） |
+| サイト全体 | `/llms.txt` | 直近の公開投稿の AI 向け索引。`ai.llmsTxt: false` で無効化 |
 
 ## AI 可読な Markdown（`/<slug>.md`）
 
@@ -163,6 +164,33 @@ export default defineConfig({
 
 他の公開ルートと同様、`/<slug>.md` も `published` の投稿のみを配信
 します — draft は `/<slug>` と同じく 404 になります。
+
+## サイト全体の AI 索引（`/llms.txt`）
+
+`/llms.txt` は [llms.txt](https://llmstxt.org/) の慣習に従い、サイト
+名 / 説明の短い front matter に続けて、直近に公開された投稿を
+`/<slug>.md` 投影（`markdownRoutes: false` の場合はテーマの HTML ペー
+ジ）へのリンク一覧として返します。`/<slug>.md` と異なり middleware の
+書き換えを経由せず直接マウントされ、`text/plain` と自前計算の
+`Cache-Control`（ブラウザ 5 分 / CDN 1 時間、stale-while-revalidate 1
+時間）で配信されます。
+
+一覧はデフォルトで 100 件までです。公開済みインデックスは軽量な要約
+ではなく投稿本文を丸ごと返す実装のため、数百件を一覧化しようとする
+とページングされた比較的コストの高い読み取りを何度も行うことになり
+ます — 投稿本文が十分小さいと分かった上で、意図的に上限を上げてくだ
+さい:
+
+```ts
+export default defineConfig({
+  // ...
+  ai: { llmsTxt: { limit: 200 } }, // デフォルト 100、1..1000 にクランプ
+})
+```
+
+`ai: { llmsTxt: false }` でルート自体を無効化できます。どちらの設定
+でも **`llms.txt` は予約 slug になります** — slug が `llms.txt` の投稿
+は `raw` / `static` / `md` と同様、テーマページに到達できなくなります。
 
 ## ホームページのフィーチャード / ピン留めコンテンツ
 

@@ -137,6 +137,17 @@ describe('createAmplessMiddleware — passthroughs', () => {
     }
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  it('passes /llms.txt through as a reserved prefix (no AppSync flag fetch)', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/llms.txt') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('createAmplessMiddleware — routing by post flags', () => {
@@ -259,6 +270,37 @@ describe('createAmplessMiddleware — .md markdown routes', () => {
     expect(res.headers.get('Cache-Control')).toMatch(/max-age=300/)
   })
 
+  it('a post slugged "foo.md" (public URL /foo.md.md, as emitted by llms.txt) is queried and rewritten with the slug intact', async () => {
+    // llms.txt links to `/<slug>.md`; for a post whose slug is itself
+    // `foo.md` that produces `/foo.md.md`. Middleware strips exactly
+    // one trailing `.md`, leaving `foo.md` as both the AppSync flags
+    // lookup key and the `/md/<slug>` rewrite target — the md route
+    // handler must NOT strip a second time (see md.ts / md.test.ts).
+    const fetchSpy = vi.fn(async (_url: unknown, init: { body?: string }) => {
+      const body = JSON.parse(init.body ?? '{}') as { variables?: { slug?: string } }
+      expect(body.variables?.slug).toBe('foo.md')
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return appsyncPayload({
+            format: 'markdown',
+            metadata: null,
+            updatedAt: '2020-01-01T00:00:00.000Z',
+          })
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/foo.md.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/md/foo.md')
+  })
+
   it('rewrites regardless of post format (tiptap / markdown / html / static)', async () => {
     for (const format of ['tiptap', 'markdown', 'html', 'static'] as const) {
       _resetFlagCache()
@@ -372,6 +414,61 @@ describe('createAmplessMiddleware — .md markdown routes', () => {
       makeReq('x.example.com', '/.md') as never,
     )) as unknown as { kind: string }
     expect(res.kind).toBe('next')
+  })
+})
+
+describe('createAmplessMiddleware — .md non-ASCII slug decoding', () => {
+  it('decodes a percent-encoded slug for the flags lookup, but rewrites using the still-encoded segment', async () => {
+    // llms.txt emits `.md` links with the slug percent-encoded
+    // (`fixedEncodeURIComponent`). `URL#pathname` doesn't decode that,
+    // so the raw stripped segment reaching middleware is `caf%C3%A9` —
+    // the flags query must decode it to `café` to find the post, while
+    // the rewrite target keeps the encoded form (Next.js decodes the
+    // `[slug]` route param for the `/md/[slug]` handler).
+    const fetchSpy = vi.fn(async (_url: unknown, init: { body?: string }) => {
+      const body = JSON.parse(init.body ?? '{}') as { variables?: { slug?: string } }
+      expect(body.variables?.slug).toBe('café')
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return appsyncPayload({
+            format: 'markdown',
+            metadata: null,
+            updatedAt: '2020-01-01T00:00:00.000Z',
+          })
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/caf%C3%A9.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/md/caf%C3%A9')
+  })
+
+  it('malformed percent-encoding falls back to the raw slug (no throw) and 404s when nothing matches', async () => {
+    const fetchSpy = vi.fn(async (_url: unknown, init: { body?: string }) => {
+      const body = JSON.parse(init.body ?? '{}') as { variables?: { slug?: string } }
+      expect(body.variables?.slug).toBe('%E0%A4')
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return appsyncPayload(null)
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/%E0%A4.md') as never,
+    )) as unknown as { status: number; kind?: string }
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(404)
   })
 })
 

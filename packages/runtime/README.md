@@ -96,6 +96,14 @@ rewrites the request to the right internal handler:
   `app/md/[slug]/route.ts` — Markdown projection via
   `ampless.postToMarkdown()`. Disable with `cms.config.ai.markdownRoutes: false`.
 
+`/llms.txt` isn't rewritten — it's mounted directly at
+`app/llms.txt/route.ts` and lists the site's most recent published
+posts (default 100, configurable via `cms.config.ai.llmsTxt.limit`,
+clamped to 1..1000) as `.md` links, for AI agents / crawlers that want
+a single-file index. Disable with `cms.config.ai.llmsTxt: false`. Note
+that `llms.txt` becomes a reserved slug either way — a post whose slug
+happens to be `llms.txt` can no longer reach the themed route.
+
 It also computes `Cache-Control` from `post.metadata.cache` (auto /
 deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
 freshTtlSeconds, deepTtlSeconds}` and sets the header on the response.
@@ -105,7 +113,7 @@ See `docs/CONTENT.md` for the cache strategy contract.
 
 - `@ampless/runtime` — `createAmpless`, runtime types, and re-exports of `renderBody`, `renderThemeCss`, format converters
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`, `defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`, `createMarkdownRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`, `createMarkdownRouteHandler`, `createLlmsTxtRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`, `createThemePostDispatcher`, `createThemeTagDispatcher` (each with a matching `*Metadata` factory)
 
 ## What's still in the template

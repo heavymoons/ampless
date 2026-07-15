@@ -190,6 +190,7 @@ static posts.
 | `format: 'html'` + `no_layout: true` | `/<slug>` | bare HTML route (no layout, no chrome) |
 | `format: 'static'` | `/<slug>/` | static bundle served from S3 via presigned URL |
 | Any format | `/<slug>.md` | Markdown projection of the post (`ampless.postToMarkdown()`) |
+| Site-wide | `/llms.txt` | AI index of recent published posts, disable with `ai.llmsTxt: false` |
 
 ## AI-readable Markdown (`/<slug>.md`)
 
@@ -213,6 +214,34 @@ export default defineConfig({
 
 Like every other public route, `/<slug>.md` only ever serves
 `published` posts — drafts 404 the same way `/<slug>` does.
+
+## Site-wide AI index (`/llms.txt`)
+
+`/llms.txt` follows the [llms.txt](https://llmstxt.org/) convention: a
+short site name / description front matter followed by a flat list of
+the most recently published posts, each linking to its `/<slug>.md`
+projection (or the themed HTML page when `markdownRoutes: false`).
+It's mounted directly — unlike `/<slug>.md` it isn't reached through a
+middleware rewrite — and served with `text/plain` plus a self-computed
+`Cache-Control` (5 min browser / 1h CDN, 1h stale-while-revalidate).
+
+The list is capped at 100 posts by default. The underlying published
+index returns full post bodies rather than a lightweight summary, so
+listing hundreds of posts means walking several paginated,
+comparatively expensive reads; raise the cap deliberately once you
+know your post bodies are small enough that it's worth it:
+
+```ts
+export default defineConfig({
+  // ...
+  ai: { llmsTxt: { limit: 200 } }, // default 100, clamped to 1..1000
+})
+```
+
+Disable the route entirely with `ai: { llmsTxt: false }`. Either way,
+**`llms.txt` becomes a reserved slug** — a post whose slug happens to
+be `llms.txt` can no longer reach the themed route, the same as
+`raw` / `static` / `md`.
 
 ## Featured / pinned content on the home page
 

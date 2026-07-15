@@ -123,14 +123,53 @@ describe('createMarkdownRouteHandler', () => {
     }
   })
 
-  it('strips a defensive trailing .md from the slug param (direct /md/<slug>.md hit)', async () => {
-    const ampless = makeAmpless({ post: POST })
+  it('looks up the decoded slug for a non-ASCII post (Next.js decodes the [slug] route param before invoking the handler)', async () => {
+    // llms.txt links to `/caf%C3%A9.md`; middleware rewrites to
+    // `/md/caf%C3%A9` (still encoded — see middleware.ts). Next.js's
+    // dynamic route resolution decodes that segment before this
+    // handler ever sees it, so `slug` here arrives already decoded.
+    const post: Post = { ...POST, slug: 'café', title: 'Café' }
+    const ampless = makeAmpless({ post })
     const handler = createMarkdownRouteHandler(ampless)
     await handler(
-      makeRequest('https://x.example.com/md/hello.md'),
-      makeCtx({ slug: 'hello.md' }),
+      makeRequest('https://x.example.com/caf%C3%A9.md'),
+      makeCtx({ slug: 'café' }),
     )
-    expect(ampless.getPublishedPost).toHaveBeenCalledWith('hello')
+    expect(ampless.getPublishedPost).toHaveBeenCalledWith('café')
+  })
+
+  it('does NOT strip a trailing .md from the slug param (direct /md/<slug> hit looks up the param as-is)', async () => {
+    // `/md/` is an internal rewrite target, not a public URL — the
+    // param arrives exactly as middleware computed `lookupSlug`.
+    // A slug that itself ends in `.md` (post slug `foo.md`, public URL
+    // `/foo.md.md`) is reached here as param `foo.md` after
+    // middleware's single strip; re-stripping would look up `foo`
+    // instead and 404 (or serve the wrong post).
+    const post: Post = { ...POST, slug: 'foo.md' }
+    const ampless = makeAmpless({ post })
+    const handler = createMarkdownRouteHandler(ampless)
+    await handler(
+      makeRequest('https://x.example.com/md/foo.md'),
+      makeCtx({ slug: 'foo.md' }),
+    )
+    expect(ampless.getPublishedPost).toHaveBeenCalledWith('foo.md')
+  })
+
+  it('end-to-end: a post whose slug ends in .md (public URL /foo.md.md, middleware rewrites to /md/foo.md) is served correctly', async () => {
+    // Simulates middleware's rewrite target for slug `foo.md`: the
+    // public URL is `/foo.md.md`, middleware strips exactly one
+    // trailing `.md` and rewrites to `/md/foo.md`, so this handler
+    // receives param `foo.md`.
+    const post: Post = { ...POST, slug: 'foo.md', title: 'Foo' }
+    const ampless = makeAmpless({ post, markdown: '# Foo\n\nBody' })
+    const handler = createMarkdownRouteHandler(ampless)
+    const res = await handler(
+      makeRequest('https://x.example.com/md/foo.md'),
+      makeCtx({ slug: 'foo.md' }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('# Foo\n\nBody')
+    expect(ampless.getPublishedPost).toHaveBeenCalledWith('foo.md')
   })
 
   it('serves any post format (tiptap / markdown / html / static)', async () => {
