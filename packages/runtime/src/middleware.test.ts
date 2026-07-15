@@ -137,6 +137,17 @@ describe('createAmplessMiddleware — passthroughs', () => {
     }
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  it('passes /llms.txt through as a reserved prefix (no AppSync flag fetch)', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/llms.txt') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('createAmplessMiddleware — routing by post flags', () => {

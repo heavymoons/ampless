@@ -275,6 +275,12 @@ export interface HistoryConfig {
 export interface AiConfig {
   /** Serve the per-post markdown projection at `/<slug>.md`. Default: true. */
   markdownRoutes?: boolean
+  /** Serve a site-wide AI index at `/llms.txt`. `false` disables the
+   *  route; an object caps how many recent posts are listed (the
+   *  underlying published index returns full bodies, so large limits
+   *  are comparatively expensive for now).
+   *  Default: enabled with `{ limit: 100 }` (clamped to 1..1000). */
+  llmsTxt?: boolean | { limit?: number }
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

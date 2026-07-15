@@ -257,6 +257,7 @@ const RESERVED_PREFIXES = new Set<string>([
   // route handler folders that live alongside `app/[slug]/page.tsx`
   'feed.xml',
   'sitemap.xml',
+  'llms.txt',
   'og',
   'tag',
   // internal rewrite targets — direct hits should not be middleware-driven

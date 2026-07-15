@@ -14,6 +14,7 @@ export default defineConfig({
   site: {
     name: '{{siteName}}',
     url: 'http://localhost:3000',
+    // description: 'One-line description of this site (used by SEO and /llms.txt).',
   },
   // Admin UI language. Built-in dictionaries: 'ja', 'en'. Add more by
   // dropping `locales/<code>.json` and registering it in `lib/i18n.ts`.
@@ -45,8 +46,9 @@ export default defineConfig({
   // PostHistory table by the event-dispatcher Lambda.
   // history: { retentionDays: 0 }, // 0 = keep every revision forever; e.g. 365 to expire after a year
   // AI-readable publishing. `/<slug>.md` serves a markdown projection of
-  // each published post (default: enabled).
-  // ai: { markdownRoutes: false }, // disable the /<slug>.md route
+  // each published post and `/llms.txt` serves a site-wide AI index
+  // (both default: enabled).
+  // ai: { markdownRoutes: false, llmsTxt: { limit: 100 } },
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
   //

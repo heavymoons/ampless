@@ -96,6 +96,15 @@ middleware はリクエストごとに AppSync から `post.format` /
   `app/md/[slug]/route.ts` で配信 — `ampless.postToMarkdown()` による
   Markdown 投影。`cms.config.ai.markdownRoutes: false` で無効化できます。
 
+`/llms.txt` は書き換えを経由せず、`app/llms.txt/route.ts` に直接マウ
+ントされます。直近の公開投稿（デフォルト 100 件、
+`cms.config.ai.llmsTxt.limit` で設定可能、1..1000 にクランプ）を
+`.md` リンクの一覧として返し、サイト全体を 1 ファイルで把握したい AI
+エージェント / クローラー向けの索引になります。
+`cms.config.ai.llmsTxt: false` で無効化できます。どちらの設定でも
+`llms.txt` は予約 slug になります — slug が `llms.txt` の投稿はテーマ
+ページに到達できなくなります。
+
 また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
 `cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
 `Cache-Control` を算出してレスポンスに付与します。キャッシュ戦略の
@@ -105,7 +114,7 @@ middleware はリクエストごとに AppSync から `post.format` /
 
 - `@ampless/runtime` — `createAmpless`、ランタイム型、`renderBody`・`renderThemeCss`・フォーマットコンバーターの再エクスポート
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`、`defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`、`createMarkdownRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`、`createMarkdownRouteHandler`、`createLlmsTxtRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`、`createThemePostDispatcher`、`createThemeTagDispatcher`（それぞれ対応する `*Metadata` ファクトリーあり）
 
 ## テンプレートに残るもの
