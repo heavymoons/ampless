@@ -128,3 +128,35 @@ body {
   margin-top: 0;
   margin-bottom: 0;
 }
+
+/* Default styling for first-party plugin hooks. publicHtmlForPost output
+   renders OUTSIDE .prose (sibling of the post body), so it inherits no
+   typography. Zero-specificity :where() so any theme tokens.css or site
+   CSS override always wins. */
+:where(.ampless-reading-time) {
+  margin: 1.25rem 0; /* symmetric margin — works for either beforeContent or afterContent placement */
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+:where(.ampless-ai-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.5rem 0; /* symmetric margin — works for either beforeContent or afterContent placement */
+  font-size: 0.8125rem;
+}
+:where(.ampless-ai-actions a) {
+  color: var(--muted-foreground);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 9999px; /* pill shape. Themes that want --radius instead can override in one line. */
+  padding: 0.25em 0.85em;
+  white-space: nowrap;
+}
+:where(.ampless-ai-actions a:hover) {
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+:where(.ampless-ai-actions .ampless-ai-actions-sep) {
+  display: none; /* separators are redundant once links are rendered as pills */
+}

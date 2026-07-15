@@ -83,7 +83,7 @@ Without an inline-script capability or a plugin asset delivery mechanism, there'
 
 (Whitespace added above for readability — the actual output has no whitespace between elements.)
 
-- The class names (`ampless-ai-actions`, `ampless-ai-actions-md`, `ampless-ai-actions-claude`, `ampless-ai-actions-chatgpt`, `ampless-ai-actions-sep`) are stable hooks for theme CSS. No default styling is injected.
+- The class names (`ampless-ai-actions`, `ampless-ai-actions-md`, `ampless-ai-actions-claude`, `ampless-ai-actions-chatgpt`, `ampless-ai-actions-sep`) are stable hooks for theme CSS. A modest default style (pill-shaped links) ships in the site template's `globals.css`, at zero specificity (`:where()`) so theme CSS can freely override it.
 - Labels ("View as Markdown", "Open in Claude", "Open in ChatGPT") are fixed English strings in v1 — locale-aware labels are deferred until requested.
 - The "View as Markdown" link is always **relative** (`/<slug>.md`), even when `site.url` is configured — it works regardless of the domain the page is served from.
 - The Claude/ChatGPT links require an **absolute** `.md` URL (external services need a full URL). When the effective `site.url` is empty, those two links are omitted even if enabled — only "View as Markdown" renders.
@@ -97,5 +97,5 @@ Without an inline-script capability or a plugin asset delivery mechanism, there'
 
 - **Copy Markdown (clipboard)** — see [Why no "Copy Markdown" button](#why-no-copy-markdown-button) above.
 - **MCP connection info** — a link/QR code pointing readers at the site's MCP endpoint is planned for a later phase, once the public read-only MCP server ships.
-- **Theme CSS** — stable class names are provided; no default CSS is injected.
+- **Theme-specific CSS** — the plugin ships no per-theme styling. A neutral default (pill-shaped links) comes from the site template's `globals.css` at zero specificity (`:where()`); anything beyond that is up to theme CSS via the stable class names.
 - **Locale-aware labels** — not supported. Link text is a fixed English string, and registering the plugin multiple times does not help: all instances render into the same position bucket, so themes cannot pick a per-locale slot. Deferred until requested.

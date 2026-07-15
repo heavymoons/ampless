@@ -62,7 +62,7 @@ The plugin emits a single `<p>` element:
 
 - `data-words` — raw word count (after CJK normalization).
 - `data-minutes` — computed reading time in minutes (always ≥ 1).
-- The class `ampless-reading-time` is stable and suitable for CSS targeting.
+- The class `ampless-reading-time` is stable and suitable for CSS targeting. A modest default style (muted, smaller text) ships in the site template's `globals.css`, at zero specificity (`:where()`) so theme CSS can freely override it.
 
 ## Word counting
 
@@ -89,6 +89,6 @@ The label string is HTML-escaped after placeholder substitution. Characters `< >
 
 ## What it does not do (v1)
 
-- **Theme CSS** — The `<p>` element carries a stable class name (`ampless-reading-time`) for theme authors to style. No default CSS is injected.
-- **Locale-aware labels** — The `labelTemplate` is a single string shared across all locales. Multi-locale setups can register the plugin twice with distinct `instanceId` values and theme-side conditionally render the correct slot.
+- **Theme-specific CSS** — the plugin ships no per-theme styling. A neutral default (muted, smaller text) comes from the site template's `globals.css` at zero specificity (`:where()`); anything beyond that is up to theme CSS via the stable `ampless-reading-time` class.
+- **Locale-aware labels** — The `labelTemplate` is a single string shared across all locales. Registering multiple instances does not help: all instances render into the same position bucket, so themes cannot pick a per-locale slot.
 - **Custom WPM per script** — The `wordsPerMinute` setting applies uniformly. Fine-grained per-script tuning (e.g. different rates for Arabic vs. Latin) is deferred.
