@@ -23,13 +23,21 @@ export type MarkdownRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
 export function createMarkdownRouteHandler(ampless: Ampless): MarkdownRouteHandler {
   return async function GET(_request: Request, { params }: Ctx): Promise<Response> {
     const { slug } = await params
-    // Defensive: normalize a direct `/md/<slug>.md` hit the same way
-    // middleware's rewrite target is named (bare slug, no extension).
-    const cleanSlug = slug.replace(/\.md$/, '')
+    // No defensive `.md` stripping here: `/md/` is an internal rewrite
+    // target, not a public URL a crawler can hit with an arbitrary
+    // suffix. Middleware (`middleware.ts` `isMdRequest`) has already
+    // stripped exactly one trailing `.md` from the public `/<slug>.md`
+    // URL before computing `lookupSlug`, so `slug` here is already the
+    // exact stored slug. Stripping again would break posts whose slug
+    // itself ends in `.md` (slug `foo.md` → public URL `/foo.md.md` →
+    // middleware strips one `.md` → this handler receives `foo.md`,
+    // which must be looked up as-is). This differs from `og.ts`'s
+    // `.png` strip, which defends a public URL that crawlers hit
+    // directly with extensions of their own choosing.
     if (ampless.cmsConfig.ai?.markdownRoutes === false) {
       return new Response('Not Found', { status: 404 })
     }
-    const post = await ampless.getPublishedPost(cleanSlug)
+    const post = await ampless.getPublishedPost(slug)
     if (!post) {
       return new Response('Not Found', { status: 404 })
     }

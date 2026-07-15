@@ -174,13 +174,22 @@ function truncationNote(truncated: Truncation, limit: number): string | null {
  */
 export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler {
   return async function GET(request: Request): Promise<Response> {
+    // `ai.llmsTxt: false` disables the route entirely — checked before
+    // the query-string redirect below so `llmsTxt: false` + a junk
+    // query still 404s (the contract is "disabled means 404 for the
+    // whole route"), not a 308 pointing at a route that itself 404s.
+    const limit = resolveLimit(ampless)
+    if (limit === false) {
+      return new Response('Not Found', { status: 404 })
+    }
+
     // Amplify's managed cache policy keys the CDN cache on the full
     // query string, so an arbitrary `?x=<random>` would otherwise
     // bypass the cache and trigger a fresh (up to `MAX_PAGES`-page)
     // AppSync walk per request. `/llms.txt` never takes query
-    // parameters, so redirect to the bare path before touching config
-    // or the database — the redirect itself is cacheable, so repeat
-    // hits with the same junk query still cost only one redirect.
+    // parameters, so redirect to the bare path before touching the
+    // database — the redirect itself is cacheable, so repeat hits with
+    // the same junk query still cost only one redirect.
     const url = new URL(request.url)
     if (url.search) {
       return new Response(null, {
@@ -190,11 +199,6 @@ export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler
           'Cache-Control': 'public, max-age=3600',
         },
       })
-    }
-
-    const limit = resolveLimit(ampless)
-    if (limit === false) {
-      return new Response('Not Found', { status: 404 })
     }
 
     const [{ items, truncated }, settings] = await Promise.all([

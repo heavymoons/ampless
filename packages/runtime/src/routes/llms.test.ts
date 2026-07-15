@@ -478,6 +478,18 @@ describe('createLlmsTxtRouteHandler', () => {
       const res = await handler(makeRequest('https://x.example.com/llms.txt'), makeCtx())
       expect(res.status).toBe(200)
     })
+
+    it('404s (not 308) when ai.llmsTxt is false, even with a query string present', async () => {
+      const ampless = makeAmpless({
+        cmsConfig: { ...BASE_CONFIG, ai: { llmsTxt: false } },
+        list: sequentialPages([{ items: [], nextToken: null }]),
+      })
+      const handler = createLlmsTxtRouteHandler(ampless)
+      const res = await handler(makeRequest('https://x.example.com/llms.txt?x=1'), makeCtx())
+      expect(res.status).toBe(404)
+      expect(res.status).not.toBe(308)
+      expect(ampless.listPublishedPosts).not.toHaveBeenCalled()
+    })
   })
 
   describe('real-parser structural validation (marked.lexer)', () => {
