@@ -123,6 +123,21 @@ describe('createMarkdownRouteHandler', () => {
     }
   })
 
+  it('looks up the decoded slug for a non-ASCII post (Next.js decodes the [slug] route param before invoking the handler)', async () => {
+    // llms.txt links to `/caf%C3%A9.md`; middleware rewrites to
+    // `/md/caf%C3%A9` (still encoded — see middleware.ts). Next.js's
+    // dynamic route resolution decodes that segment before this
+    // handler ever sees it, so `slug` here arrives already decoded.
+    const post: Post = { ...POST, slug: 'café', title: 'Café' }
+    const ampless = makeAmpless({ post })
+    const handler = createMarkdownRouteHandler(ampless)
+    await handler(
+      makeRequest('https://x.example.com/caf%C3%A9.md'),
+      makeCtx({ slug: 'café' }),
+    )
+    expect(ampless.getPublishedPost).toHaveBeenCalledWith('café')
+  })
+
   it('strips a defensive trailing .md from the slug param (direct /md/<slug>.md hit)', async () => {
     const ampless = makeAmpless({ post: POST })
     const handler = createMarkdownRouteHandler(ampless)

@@ -242,6 +242,22 @@ export function computeCacheControl(
   return `public, max-age=${freshTtl}, s-maxage=${freshTtl}`
 }
 
+// llms.txt emits `.md` links with the slug percent-encoded (see
+// `routes/llms.ts` `fixedEncodeURIComponent`). `URL#pathname` does not
+// decode percent-escapes, so the `.md`-stripped slug segment reaching
+// the flags lookup is still encoded (e.g. `caf%C3%A9`) — decode it
+// before querying AppSync so non-ASCII slugs resolve. Malformed
+// percent-encoding (`decodeURIComponent` throws `URIError`) falls back
+// to the raw string rather than failing the request; the flags lookup
+// then simply misses and 404s like any other unknown slug.
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
+
 // Reserved first-path-segments that middleware should never treat as a
 // post slug. The matcher (`defaultMatcherConfig`) excludes most of
 // these from invocation entirely; the runtime check is defence in
@@ -345,9 +361,16 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
       slug.endsWith('.md') &&
       slug.length > 3 &&
       opts.cmsConfig.ai?.markdownRoutes !== false
+    // `lookupSlug` stays percent-encoded — it's what the rewrite target
+    // uses (`/md/<lookupSlug>`; Next.js decodes the `[slug]` route param
+    // for the handler, so the encoded form must survive the rewrite).
+    // `flagsSlug` is the safe-decoded form used for the AppSync flags
+    // query and its cache key, so non-ASCII `.md` slugs actually match
+    // the stored (decoded) slug.
     const lookupSlug = isMdRequest ? slug.slice(0, -3) : slug
+    const flagsSlug = isMdRequest ? safeDecodeURIComponent(lookupSlug) : lookupSlug
 
-    const flags = await getCachedFlags(opts, lookupSlug)
+    const flags = await getCachedFlags(opts, flagsSlug)
 
     if (!flags) {
       // Post not found. Multi-segment paths can only be static; bare

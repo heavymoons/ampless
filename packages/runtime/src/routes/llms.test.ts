@@ -170,6 +170,19 @@ describe('createLlmsTxtRouteHandler', () => {
     expect(text).toContain('- [Bare Post](https://x.example.com/bare.md)\n')
   })
 
+  it('tags-only (no excerpt): still leads with ": " so the description separator is present', async () => {
+    const post = makePost({
+      slug: 'tags-only',
+      title: 'Tags Only',
+      excerpt: undefined,
+      tags: ['a', 'b'],
+    })
+    const ampless = makeAmpless({ list: sequentialPages([{ items: [post], nextToken: null }]) })
+    const handler = createLlmsTxtRouteHandler(ampless)
+    const text = await (await handler(makeRequest(), makeCtx())).text()
+    expect(text).toContain('- [Tags Only](https://x.example.com/tags-only.md): (tags: a, b)')
+  })
+
   it('normalizes newlines/control characters and collapses whitespace in title, excerpt, tags, site name/description', async () => {
     const post = makePost({
       slug: 'ctrl',
@@ -356,6 +369,62 @@ describe('createLlmsTxtRouteHandler', () => {
     expect(calls[0]?.[0]?.limit).toBe(50)
   })
 
+  it('normalizes limit: NaN -> default 100', async () => {
+    const posts = Array.from({ length: 101 }, () => makePost())
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { llmsTxt: { limit: NaN } } },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const handler = createLlmsTxtRouteHandler(ampless)
+    const text = await (await handler(makeRequest(), makeCtx())).text()
+    expect(text).toContain(
+      'Note: only the 100 most recent posts are listed; older posts are omitted.',
+    )
+  })
+
+  it('normalizes limit: 1.5 -> floor 1', async () => {
+    const posts = [makePost(), makePost()]
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { llmsTxt: { limit: 1.5 } } },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const handler = createLlmsTxtRouteHandler(ampless)
+    const text = await (await handler(makeRequest(), makeCtx())).text()
+    expect(text).toContain(
+      'Note: only the 1 most recent posts are listed; older posts are omitted.',
+    )
+    expect(text).toContain(`[${posts[0]!.title}]`)
+    expect(text).not.toContain(`[${posts[1]!.title}]`)
+  })
+
+  it('normalizes limit: Infinity -> default 100', async () => {
+    const posts = Array.from({ length: 101 }, () => makePost())
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { llmsTxt: { limit: Infinity } } },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const handler = createLlmsTxtRouteHandler(ampless)
+    const text = await (await handler(makeRequest(), makeCtx())).text()
+    expect(text).toContain(
+      'Note: only the 100 most recent posts are listed; older posts are omitted.',
+    )
+  })
+
+  it('normalizes limit: -5 -> 1', async () => {
+    const posts = [makePost(), makePost()]
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { llmsTxt: { limit: -5 } } },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const handler = createLlmsTxtRouteHandler(ampless)
+    const text = await (await handler(makeRequest(), makeCtx())).text()
+    expect(text).toContain(
+      'Note: only the 1 most recent posts are listed; older posts are omitted.',
+    )
+    expect(text).toContain(`[${posts[0]!.title}]`)
+    expect(text).not.toContain(`[${posts[1]!.title}]`)
+  })
+
   it('markdownRoutes: false -> links to the HTML URL and omits the .md intro line', async () => {
     const post = makePost({ slug: 'hello', title: 'Hello' })
     const ampless = makeAmpless({
@@ -391,11 +460,32 @@ describe('createLlmsTxtRouteHandler', () => {
     expect(text).not.toContain('.com//hello')
   })
 
+  describe('query-string redirect (CDN cache-key bypass defense)', () => {
+    it('redirects to the bare path with 308 when any query string is present, without touching the database', async () => {
+      const ampless = makeAmpless({ list: sequentialPages([{ items: [], nextToken: null }]) })
+      const handler = createLlmsTxtRouteHandler(ampless)
+      const res = await handler(makeRequest('https://x.example.com/llms.txt?x=random'), makeCtx())
+      expect(res.status).toBe(308)
+      expect(res.headers.get('Location')).toBe('/llms.txt')
+      expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600')
+      expect(ampless.listPublishedPosts).not.toHaveBeenCalled()
+      expect(ampless.loadSiteSettings).not.toHaveBeenCalled()
+    })
+
+    it('does not redirect when there is no query string', async () => {
+      const ampless = makeAmpless({ list: sequentialPages([{ items: [], nextToken: null }]) })
+      const handler = createLlmsTxtRouteHandler(ampless)
+      const res = await handler(makeRequest('https://x.example.com/llms.txt'), makeCtx())
+      expect(res.status).toBe(200)
+    })
+  })
+
   describe('real-parser structural validation (marked.lexer)', () => {
     it('parses as: depth-1 heading, blockquote/paragraphs, then a single H2 + list with one link per item', async () => {
       const posts = [
         makePost({ slug: 'a-b', title: 'Post [A] (one)' }),
         makePost({ slug: "c'd", title: 'Post & two' }),
+        makePost({ slug: 'tags-only', title: 'Post three', excerpt: undefined, tags: ['x'] }),
       ]
       const ampless = makeAmpless({
         settings: { name: 'Site', description: 'Desc' },

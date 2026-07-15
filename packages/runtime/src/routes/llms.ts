@@ -41,7 +41,12 @@ const EXCERPT_MAX = 200
 
 function clampLimit(raw: number | undefined): number {
   const n = raw ?? DEFAULT_LIMIT
-  return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, n))
+  // Reject NaN / +-Infinity outright (they'd otherwise survive the
+  // min/max clamp below and reach AppSync's Int argument as-is) and
+  // floor anything else so a fractional config value can't slip
+  // through either.
+  if (!Number.isFinite(n)) return DEFAULT_LIMIT
+  return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.floor(n)))
 }
 
 // Resolves the effective limit, or `false` when the route is disabled.
@@ -168,7 +173,25 @@ function truncationNote(truncated: Truncation, limit: number): string | null {
  * `llms.txt` can never reach the themed route.
  */
 export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler {
-  return async function GET(_request: Request): Promise<Response> {
+  return async function GET(request: Request): Promise<Response> {
+    // Amplify's managed cache policy keys the CDN cache on the full
+    // query string, so an arbitrary `?x=<random>` would otherwise
+    // bypass the cache and trigger a fresh (up to `MAX_PAGES`-page)
+    // AppSync walk per request. `/llms.txt` never takes query
+    // parameters, so redirect to the bare path before touching config
+    // or the database — the redirect itself is cacheable, so repeat
+    // hits with the same junk query still cost only one redirect.
+    const url = new URL(request.url)
+    if (url.search) {
+      return new Response(null, {
+        status: 308,
+        headers: {
+          Location: url.pathname,
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
+    }
+
     const limit = resolveLimit(ampless)
     if (limit === false) {
       return new Response('Not Found', { status: 404 })
@@ -206,9 +229,18 @@ export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler
         const excerpt = post.excerpt ? truncateExcerpt(normalizeText(post.excerpt)) : ''
         const tags = (post.tags ?? []).map((t) => normalizeText(t)).filter(Boolean)
 
+        // The description separator (`: `) must lead whenever there's
+        // any description content — excerpt, tags, or both — so a
+        // tags-only entry doesn't read as `[title](url) (tags: ...)`
+        // (no `:`, which llmstxt.org readers parse as "no description").
         let line = `- [${title}](${href})`
-        if (excerpt) line += `: ${excerpt}`
-        if (tags.length > 0) line += ` (tags: ${tags.join(', ')})`
+        if (excerpt && tags.length > 0) {
+          line += `: ${excerpt} (tags: ${tags.join(', ')})`
+        } else if (excerpt) {
+          line += `: ${excerpt}`
+        } else if (tags.length > 0) {
+          line += `: (tags: ${tags.join(', ')})`
+        }
         return line
       })
       blocks.push(`## Posts\n\n${lines.join('\n')}`)

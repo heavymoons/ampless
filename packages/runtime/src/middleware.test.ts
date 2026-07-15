@@ -386,6 +386,61 @@ describe('createAmplessMiddleware — .md markdown routes', () => {
   })
 })
 
+describe('createAmplessMiddleware — .md non-ASCII slug decoding', () => {
+  it('decodes a percent-encoded slug for the flags lookup, but rewrites using the still-encoded segment', async () => {
+    // llms.txt emits `.md` links with the slug percent-encoded
+    // (`fixedEncodeURIComponent`). `URL#pathname` doesn't decode that,
+    // so the raw stripped segment reaching middleware is `caf%C3%A9` —
+    // the flags query must decode it to `café` to find the post, while
+    // the rewrite target keeps the encoded form (Next.js decodes the
+    // `[slug]` route param for the `/md/[slug]` handler).
+    const fetchSpy = vi.fn(async (_url: unknown, init: { body?: string }) => {
+      const body = JSON.parse(init.body ?? '{}') as { variables?: { slug?: string } }
+      expect(body.variables?.slug).toBe('café')
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return appsyncPayload({
+            format: 'markdown',
+            metadata: null,
+            updatedAt: '2020-01-01T00:00:00.000Z',
+          })
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/caf%C3%A9.md') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/md/caf%C3%A9')
+  })
+
+  it('malformed percent-encoding falls back to the raw slug (no throw) and 404s when nothing matches', async () => {
+    const fetchSpy = vi.fn(async (_url: unknown, init: { body?: string }) => {
+      const body = JSON.parse(init.body ?? '{}') as { variables?: { slug?: string } }
+      expect(body.variables?.slug).toBe('%E0%A4')
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return appsyncPayload(null)
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/%E0%A4.md') as never,
+    )) as unknown as { status: number; kind?: string }
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('createAmplessMiddleware — missing post handling', () => {
   it('passes /<slug> through when AppSync returns null (themed handles 404)', async () => {
     mockFetch(appsyncPayload(null))
