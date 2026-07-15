@@ -62,7 +62,7 @@ export default defineConfig({
 
 - `data-words` — 生の語数（CJK 正規化後）。
 - `data-minutes` — 推定読了時間（分）。常に 1 以上。
-- クラス名 `ampless-reading-time` は安定しており、CSS によるスタイリングに利用できます。
+- クラス名 `ampless-reading-time` は安定しており、CSS によるスタイリングに利用できます。site テンプレートの `globals.css` に控えめな既定スタイル（muted な小さめテキスト）が同梱されます。ゼロ詳細度（`:where()`）なので、テーマ CSS で自由に上書きできます。
 
 ## 語数カウント
 
@@ -89,6 +89,6 @@ export default defineConfig({
 
 ## v1 では対応しないこと
 
-- **テーマ CSS** — `<p>` 要素には安定したクラス名（`ampless-reading-time`）が付与されるのでテーマ側でスタイリングできます。デフォルト CSS は注入しません。
+- **テーマ CSS** — `<p>` 要素には安定したクラス名（`ampless-reading-time`）が付与されるのでテーマ側でスタイリングできます。site テンプレートの `globals.css` に控えめな既定スタイル（muted な小さめテキスト）が同梱されます。ゼロ詳細度（`:where()`）なので、テーマ側で自由に上書きできます。
 - **ロケール別ラベル** — `labelTemplate` は全ロケール共通の単一文字列です。多言語サイトでは `instanceId` を別にしてプラグインを 2 回登録し、テーマ側でスロットを条件分岐させることで対応できます。
 - **文字種別 WPM のカスタマイズ** — `wordsPerMinute` 設定は一律適用されます。アラビア語とラテン語で別レートを設定するなど、文字種別の細かな調整は deferred です。

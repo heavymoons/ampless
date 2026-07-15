@@ -83,7 +83,7 @@ inline-script capability の新設か plugin asset 配信の仕組みが無い�
 
 （読みやすさのために改行・インデントを加えています。実際の出力に要素間の空白はありません。）
 
-- クラス名（`ampless-ai-actions` / `ampless-ai-actions-md` / `ampless-ai-actions-claude` / `ampless-ai-actions-chatgpt` / `ampless-ai-actions-sep`）はテーマ CSS のための安定したフックです。デフォルト CSS は注入しません。
+- クラス名（`ampless-ai-actions` / `ampless-ai-actions-md` / `ampless-ai-actions-claude` / `ampless-ai-actions-chatgpt` / `ampless-ai-actions-sep`）はテーマ CSS のための安定したフックです。site テンプレートの `globals.css` に控えめな既定スタイル（ピル型リンク）が同梱されます。ゼロ詳細度（`:where()`）なので、テーマ CSS で自由に上書きできます。
 - ラベル（"View as Markdown" / "Open in Claude" / "Open in ChatGPT"）は v1 では英語固定です。ロケール対応は要望が出てから検討します。
 - 「Markdown で表示」リンクは `site.url` が設定されていても常に**相対パス**（`/<slug>.md`）です — ページがどのドメインで配信されていても機能します。
 - Claude/ChatGPT リンクは外部サービスに渡すため**絶対 URL** が必要です。実効 `site.url` が空の場合、有効化していてもこの 2 リンクは省略され、「Markdown で表示」のみ描画されます。
@@ -97,5 +97,5 @@ inline-script capability の新設か plugin asset 配信の仕組みが無い�
 
 - **Copy Markdown（クリップボード）** — 上記[「Copy Markdown」ボタンが無い理由](#copy-markdown-ボタンが無い理由)を参照。
 - **MCP 接続情報** — サイトの MCP endpoint を案内するリンク / QR コードは、将来の公開読み取り専用 MCP サーバーの提供後に検討予定です。
-- **テーマ CSS** — 安定したクラス名は提供しますが、デフォルト CSS は注入しません。
+- **テーマ CSS** — 安定したクラス名を提供するほか、site テンプレートの `globals.css` に控えめな既定スタイル（ピル型リンク）が同梱されます。ゼロ詳細度（`:where()`）なので、テーマ側で自由に上書きできます。
 - **ロケール別ラベル** — 未対応です。リンクテキストは英語固定で、プラグインを複数回登録しても解決になりません（全 instance が同じ position バケットに描画されるため、テーマがロケール別のスロットを選べません）。要望が出た時点で検討します。
