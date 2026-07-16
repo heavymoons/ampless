@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-youtube",
-  "version": "1.0.0-beta.18",
+  "version": "1.0.0-beta.19",
   "description": "YouTube embed plugin for ampless — renders youtube.com / youtu.be URLs inline as iframes in tiptap + markdown posts",
   "license": "MIT",
   "type": "module",
