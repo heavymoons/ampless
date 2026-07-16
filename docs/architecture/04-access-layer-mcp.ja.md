@@ -119,7 +119,7 @@ MCP は **HTTP 専用**。構成は 2 パッケージに分かれる：
 
 ```
 packages/
-  mcp-server/         — ツールレジストリ（private、Lambda にバンドル）
+  mcp-server/         — ツールレジストリ + 共有 JSON-RPC dispatch + 公開ツール（npm に公開）
   backend/
     src/functions/
       mcp-handler.ts          — Lambda エントリ。HTTP + JSON-RPC + Bearer 認証
@@ -171,11 +171,29 @@ MCP クライアント → Lambda Function URL に HTTPS POST
 
 #### ツールレジストリ ([`packages/mcp-server`](../../packages/mcp-server))
 
-`@ampless/mcp-server` は **internal library**（`private: true`、npm 公開なし）。ツール定義のレジストリと `dispatchToolCall(name, args, ctx)` を公開する。Lambda 側が `ToolContext`（GraphQL クライアント、S3 クライアント、site context）を注入する設計なので、レジストリはトランスポートを知らない。
+`@ampless/mcp-server` は **npm に公開されている**（public access）。`@ampless/admin` / `@ampless/backend` / `@ampless/runtime` 経由で推移的に入るため、直接インストールは不要。3 つのサブパスエントリを公開する：
+
+| サブパス | 内容 |
+|---|---|
+| `@ampless/mcp-server/tools` | admin ツールレジストリ（`tools` / `getTools` / `dispatchToolCall` / `ToolDefinition`） |
+| `@ampless/mcp-server/jsonrpc` | トランスポート非依存の JSON-RPC 2.0 dispatch（`dispatchJsonRpc`）。admin（backend）と公開（runtime）の両 MCP エンドポイントで共有 — protocolVersion ネゴシエーション、`tools/list` annotations、notification 処理 |
+| `@ampless/mcp-server/public` | 読み取り専用の公開ツール（`publicTools`）+ runtime が注入する `PublicToolContext` |
+
+レジストリはトランスポートを知らない — 各トランスポートが context（admin: GraphQL + S3 の `ToolContext`、公開: `PublicToolContext`）を注入し、共有の `dispatchJsonRpc` に流す。
 
 ```typescript
-import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
+import { tools } from '@ampless/mcp-server/tools'
+import { dispatchJsonRpc } from '@ampless/mcp-server/jsonrpc'
+import { publicTools } from '@ampless/mcp-server/public'
 ```
+
+##### JSON-RPC プロトコル挙動（共有）
+
+両エンドポイントは同じ `dispatchJsonRpc` を通る：
+
+- **`initialize` のバージョンネゴシエーション**: サポート版は `2025-03-26`（tool annotations を定義した最初の版）と `2024-11-05`。サポート内の要求版はそのまま返し、サポート外なら `2025-03-26` に落とす。`protocolVersion` **欠落**は `INVALID_PARAMS` エラー。`2025-06-18` は意図的に名乗らない（stateless な JSON-POST エンドポイントが実装しないトランスポート要件を伴うため）。
+- **`tools/list` annotations**: 各ツールに `{ readOnlyHint, destructiveHint }` を付与。単一フラグからの導出ではなく明示分類（read / 追加 write / 上書き write / destructive）— 既存状態を上書きする update 系は `destructiveHint: true`。
+- **notification**（`id` を持たない JSON-RPC リクエスト、例 `notifications/initialized`）は本文を返さない — admin HTTP ハンドラは `202 Accepted` にマップする。
 
 #### MCP ツール
 
@@ -199,6 +217,24 @@ import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
 | `commit_static_post` | S3 プレフィックスを再スキャンして Post の manifest を再構築（差分編集後の "save" ステップ） |
 
 `create_post` / `update_post` は `format=static` を**意図的に拒否**して manifest と S3 のズレを防ぎ、static 系のエントリポイントはバンドル系ツールに一本化している。
+
+#### 公開読み取り専用 MCP ([`@ampless/mcp-server/public`](../../packages/mcp-server/src/public))
+
+トークン不要の **匿名・読み取り専用** MCP surface が、公開済みコンテンツを AI クライアントに提供する。Next.js runtime の `/api/mcp` ルートから配信され（route の配線・config トグル・per-IP レート制限は後続 PR）、同じ共有 `dispatchJsonRpc` を、runtime が apiKey モードの `listPublishedPosts` / `getPublishedPost`（draft はサーバ側で除去）+ `postToMarkdown` で backing した `PublicToolContext` とともに通す。
+
+| ツール | 説明 |
+|---|---|
+| `list_posts` | 新しい順の公開投稿サマリー 1 ページ + 不透明な `nextCursor`（単一ページ read、走査なし） |
+| `get_post` | slug で公開投稿 1 件、本文を `markdown` にレンダリング。10 万字超は切り詰め（`truncated: true`） |
+| `search_posts` | 直近投稿の有界走査に対する title / slug / tags / excerpt への大小無視部分一致（`scanTruncated` で走査打ち切りを通知） |
+| `list_tags` | 同じ有界走査でタグ出現数を集計（降順） |
+
+設計上の制約：
+
+- **公開済みのみ。** 全ツールが公開インデックス resolver を通す。draft には到達不能。
+- **フィールド allowlist。** サマリーは `slug` / `title` / `excerpt` / `tags` / `publishedAt` / `updatedAt` / `format` のみ。`postId` / `status` / `metadata` / 生 `body` は決して出力しない（`Post` の spread ではなく明示的な pick）。
+- **有界走査。** `search_posts` / `list_tags` は最大 5 AppSync ページ（≈直近 200 件）まで。匿名の body 込み read は CDN で吸収できないため、ツール層で件数・ページ数を有界化する。リクエスト頻度制限は route の責務。
+- 4 ツールとも `readOnlyHint: true, destructiveHint: false` を annotation で持つ。
 
 ### 方針
 

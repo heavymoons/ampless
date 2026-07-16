@@ -1,0 +1,216 @@
+// Shared JSON-RPC 2.0 dispatch for MCP transports.
+//
+// Previously this logic lived inline in the backend `mcp-handler`
+// Lambda. It is lifted here (parameterised over the tool registry and
+// its context type) so both the admin HTTP transport (backend) and the
+// public read-only transport (runtime, PR-8) run the exact same wire
+// behaviour — `initialize` / `notifications/initialized` / `tools/list`
+// / `tools/call` — over different tool registries.
+//
+// This module owns the JSON-RPC envelope and MCP method semantics only.
+// HTTP framing (base64 body decode, status codes, CORS/OPTIONS, auth)
+// stays in each transport's handler.
+
+import type { ToolDefinition } from '../tools/index.js'
+
+// Standard JSON-RPC 2.0 error codes
+// https://www.jsonrpc.org/specification#error_object
+export const JSON_RPC_PARSE_ERROR = -32700
+export const JSON_RPC_INVALID_REQUEST = -32600
+export const JSON_RPC_METHOD_NOT_FOUND = -32601
+export const JSON_RPC_INVALID_PARAMS = -32602
+export const JSON_RPC_INTERNAL_ERROR = -32603
+
+// Protocol versions we can negotiate on `initialize`, newest first.
+//
+// `2025-03-26` is the first spec revision to define tool annotations
+// (`readOnlyHint` / `destructiveHint`), which `tools/list` emits below.
+// `2024-11-05` is retained for older clients; annotations are a
+// forward-compatible JSON field they simply ignore.
+//
+// We deliberately do NOT advertise `2025-06-18`: that revision adds
+// transport-level obligations (e.g. echoing the negotiated
+// `MCP-Protocol-Version` on subsequent HTTP requests) that these
+// stateless JSON-POST transports don't implement. Annotations do not
+// require it.
+export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-03-26', '2024-11-05'] as const
+// Version we fall back to when the client requests an unsupported one.
+export const LATEST_SUPPORTED_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
+
+export interface JsonRpcRequest {
+  jsonrpc: '2.0'
+  /**
+   * Absent (`undefined`) marks a JSON-RPC *notification*: per spec the
+   * server must not send any response. `null` is a (discouraged but
+   * valid) request id, not a notification.
+   */
+  id?: number | string | null
+  method: string
+  params?: Record<string, unknown>
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0'
+  id: number | string | null
+  result?: unknown
+  error?: { code: number; message: string; data?: unknown }
+}
+
+export function jsonRpcResult(id: JsonRpcResponse['id'], result: unknown): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, result }
+}
+
+export function jsonRpcError(
+  id: JsonRpcResponse['id'],
+  code: number,
+  message: string,
+  data?: unknown,
+): JsonRpcResponse {
+  const error: JsonRpcResponse['error'] = { code, message }
+  if (data !== undefined) error.data = data
+  return { jsonrpc: '2.0', id, error }
+}
+
+export interface JsonRpcDispatchOptions<TCtx> {
+  tools: readonly ToolDefinition<TCtx>[]
+  /**
+   * Resolves the tool context. Called lazily — only on a valid
+   * `tools/call` for a known tool — so `initialize` / `tools/list`
+   * never pay for client construction.
+   */
+  getContext: () => TCtx
+  serverInfo: { name: string; version: string }
+  /**
+   * Converts a tool handler exception into the string surfaced to the
+   * client. Omit to expose the raw error message (admin transport).
+   * The public transport passes a fixed message here and logs the
+   * detail server-side instead.
+   */
+  formatToolError?: (err: unknown) => string
+}
+
+/** A JSON-RPC notification (id absent) gets no response. */
+function isNotification(req: JsonRpcRequest): boolean {
+  return req.id === undefined
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+// Build the MCP tool annotations. Only emit a hint when the tool has
+// been explicitly classified — an unclassified `destructive`
+// (undefined) omits `destructiveHint`, letting the spec default (true,
+// the safe side) apply. The annotations object is always present; a
+// pre-2025-03-26 client harmlessly ignores the unknown field.
+function toolAnnotations(t: {
+  readOnly?: boolean
+  destructive?: boolean
+}): Record<string, boolean> {
+  const annotations: Record<string, boolean> = {}
+  if (typeof t.readOnly === 'boolean') annotations.readOnlyHint = t.readOnly
+  if (typeof t.destructive === 'boolean') annotations.destructiveHint = t.destructive
+  return annotations
+}
+
+/**
+ * Dispatch one parsed JSON-RPC request against a tool registry.
+ * Returns the response envelope, or `null` for a notification (the
+ * caller maps that to an empty 202/no-body HTTP response).
+ */
+export async function dispatchJsonRpc<TCtx>(
+  req: JsonRpcRequest,
+  opts: JsonRpcDispatchOptions<TCtx>,
+): Promise<JsonRpcResponse | null> {
+  const notification = isNotification(req)
+  const id = req.id ?? null
+
+  switch (req.method) {
+    case 'initialize': {
+      const requested = (req.params as { protocolVersion?: unknown } | undefined)?.protocolVersion
+      // `protocolVersion` is a required `initialize` parameter — a
+      // missing one is a malformed request, not a version we silently
+      // default.
+      if (requested === undefined) {
+        return jsonRpcError(
+          id,
+          JSON_RPC_INVALID_PARAMS,
+          'initialize requires a `protocolVersion` parameter',
+        )
+      }
+      const protocolVersion =
+        typeof requested === 'string' &&
+        (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
+          ? requested
+          : LATEST_SUPPORTED_PROTOCOL_VERSION
+      return jsonRpcResult(id, {
+        protocolVersion,
+        capabilities: { tools: {} },
+        serverInfo: opts.serverInfo,
+      })
+    }
+
+    case 'notifications/initialized':
+      // One-way notification: MCP clients fire this after `initialize`.
+      // The spec says the server must not respond.
+      return null
+
+    case 'tools/list':
+      return jsonRpcResult(id, {
+        tools: opts.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+          annotations: toolAnnotations(t),
+        })),
+      })
+
+    case 'tools/call': {
+      const params = req.params as { name?: unknown; arguments?: unknown } | undefined
+      if (!params || typeof params.name !== 'string') {
+        return jsonRpcError(id, JSON_RPC_INVALID_PARAMS, 'tools/call requires a `name` parameter')
+      }
+      const rawArgs = params.arguments
+      if (rawArgs !== undefined && !isPlainObject(rawArgs)) {
+        return jsonRpcError(
+          id,
+          JSON_RPC_INVALID_PARAMS,
+          'tools/call `arguments` must be an object',
+        )
+      }
+      const tool = opts.tools.find((t) => t.name === params.name)
+      if (!tool) {
+        return jsonRpcError(id, JSON_RPC_METHOD_NOT_FOUND, `unknown tool: ${params.name}`)
+      }
+      const ctx = opts.getContext()
+      try {
+        const result = await tool.handler(rawArgs ?? {}, ctx)
+        // MCP tools/call success shape: { content: [{ type, text }] }.
+        return jsonRpcResult(id, {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        })
+      } catch (err) {
+        // Tool errors are reported via isError + content (per MCP), not
+        // as JSON-RPC protocol errors. Always log the raw detail so the
+        // public transport (which masks the client-facing message via
+        // formatToolError) still leaves a trail in CloudWatch.
+        const rawMessage = err instanceof Error ? err.message : String(err)
+        console.error('[mcp-jsonrpc] tool dispatch failed', {
+          tool: params.name,
+          message: rawMessage,
+        })
+        const message = opts.formatToolError ? opts.formatToolError(err) : rawMessage
+        return jsonRpcResult(id, {
+          isError: true,
+          content: [{ type: 'text', text: message }],
+        })
+      }
+    }
+
+    default:
+      // Unknown notification → still no response; unknown request →
+      // method-not-found.
+      if (notification) return null
+      return jsonRpcError(id, JSON_RPC_METHOD_NOT_FOUND, `Method not found: ${req.method}`)
+  }
+}

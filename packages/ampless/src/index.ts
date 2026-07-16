@@ -112,6 +112,13 @@ export {
   resolvePluginSettings,
 } from './plugin-settings.js'
 export { extractFirstImageUrl } from './post-images.js'
+export { collectBounded } from './paging.js'
+export type {
+  BoundedScanResult,
+  BoundedScanTruncation,
+  BoundedScanOptions,
+  BoundedScanPage,
+} from './paging.js'
 export {
   filterSortPostSummaries,
   collectTags,

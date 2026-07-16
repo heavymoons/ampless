@@ -2,7 +2,15 @@ import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { createHash } from 'node:crypto'
 
-import { dispatchToolCall, tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
+import { tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
+import {
+  dispatchJsonRpc,
+  jsonRpcError,
+  JSON_RPC_PARSE_ERROR,
+  JSON_RPC_INVALID_REQUEST,
+  JSON_RPC_INTERNAL_ERROR,
+  type JsonRpcRequest,
+} from '@ampless/mcp-server/jsonrpc'
 import { createMcpGraphqlClient } from './mcp-graphql-client.js'
 import { createMcpStorageClient } from './mcp-storage-client.js'
 
@@ -62,34 +70,10 @@ interface McpTokenRow {
   revokedAt?: string | null
 }
 
-interface JsonRpcRequest {
-  jsonrpc: '2.0'
-  id: number | string | null
-  method: string
-  params?: Record<string, unknown>
-}
-
-interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: number | string | null
-  result?: unknown
-  error?: { code: number; message: string; data?: unknown }
-}
-
-// Standard JSON-RPC 2.0 error codes
-// https://www.jsonrpc.org/specification#error_object
-const JSON_RPC_PARSE_ERROR = -32700
-const JSON_RPC_INVALID_REQUEST = -32600
-const JSON_RPC_METHOD_NOT_FOUND = -32601
-const JSON_RPC_INVALID_PARAMS = -32602
-const JSON_RPC_INTERNAL_ERROR = -32603
-
-// Protocol version we advertise on `initialize`. Picked from
-// SUPPORTED_PROTOCOL_VERSIONS in @modelcontextprotocol/sdk — sticking
-// to a stable older value (2024-11-05) keeps the surface small and
-// avoids tracking spec churn until a tool actually needs a newer
-// capability.
-const MCP_PROTOCOL_VERSION = '2024-11-05'
+// JSON-RPC envelope types, error codes, wire helpers, and the method
+// dispatch (`dispatchJsonRpc`) now live in `@ampless/mcp-server/jsonrpc`
+// so the admin (this Lambda) and public (runtime, PR-8) transports share
+// one implementation. This handler keeps only HTTP framing + auth.
 
 // Minimum gap between `lastUsedAt` writes per token. High-frequency MCP
 // requests (e.g. a tool loop) would otherwise hammer DDB with UpdateItem
@@ -122,21 +106,6 @@ function jsonResponse(statusCode: number, body: unknown): FunctionUrlResult {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }
-}
-
-function jsonRpcResult(id: JsonRpcRequest['id'], result: unknown): JsonRpcResponse {
-  return { jsonrpc: '2.0', id, result }
-}
-
-function jsonRpcError(
-  id: JsonRpcRequest['id'],
-  code: number,
-  message: string,
-  data?: unknown
-): JsonRpcResponse {
-  const error: JsonRpcResponse['error'] = { code, message }
-  if (data !== undefined) error.data = data
-  return { jsonrpc: '2.0', id, error }
 }
 
 /**
@@ -232,65 +201,6 @@ function makeContext(): ToolContext {
   return ctx
 }
 
-async function dispatchJsonRpc(req: JsonRpcRequest): Promise<JsonRpcResponse> {
-  switch (req.method) {
-    case 'initialize':
-      return jsonRpcResult(req.id, {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: { name: 'ampless-mcp', version: '0.2' },
-      })
-
-    case 'notifications/initialized':
-      // MCP clients fire this after `initialize` succeeds. It's a
-      // one-way notification; spec says respond with no result.
-      return jsonRpcResult(req.id, null)
-
-    case 'tools/list':
-      return jsonRpcResult(req.id, {
-        tools: HTTP_TOOLS.map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        })),
-      })
-
-    case 'tools/call': {
-      const params = req.params as { name?: string; arguments?: Record<string, unknown> } | undefined
-      if (!params?.name || typeof params.name !== 'string') {
-        return jsonRpcError(req.id, JSON_RPC_INVALID_PARAMS, 'tools/call requires a `name` parameter')
-      }
-      const tool = HTTP_TOOLS.find((t) => t.name === params.name)
-      if (!tool) {
-        return jsonRpcError(req.id, JSON_RPC_METHOD_NOT_FOUND, `unknown tool: ${params.name}`)
-      }
-      const ctx = makeContext()
-      try {
-        const result = await dispatchToolCall(params.name, params.arguments ?? {}, ctx)
-        // Match the stdio server's response shape: { content: [{ type: 'text', text: ... }] }.
-        return jsonRpcResult(req.id, {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        })
-      } catch (err) {
-        // Tool errors are reported via isError + content (per MCP),
-        // not as JSON-RPC errors. The stdio server uses the same shape.
-        const message = err instanceof Error ? err.message : String(err)
-        console.error('[mcp-handler] tool dispatch failed', {
-          tool: params.name,
-          message,
-        })
-        return jsonRpcResult(req.id, {
-          isError: true,
-          content: [{ type: 'text', text: message }],
-        })
-      }
-    }
-
-    default:
-      return jsonRpcError(req.id, JSON_RPC_METHOD_NOT_FOUND, `Method not found: ${req.method}`)
-  }
-}
-
 export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResult> => {
   // CORS preflight — Function URL CORS config handles most headers, but
   // OPTIONS needs an explicit 204.
@@ -346,7 +256,17 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
   }
 
   try {
-    const response = await dispatchJsonRpc(req)
+    const response = await dispatchJsonRpc(req, {
+      tools: HTTP_TOOLS,
+      getContext: makeContext,
+      serverInfo: { name: 'ampless-mcp', version: '0.2' },
+    })
+    // A notification (JSON-RPC id absent, e.g. notifications/initialized)
+    // gets no body — the shared dispatch returns null. Reply 202 Accepted
+    // with an empty body rather than the old (protocol-violating) result.
+    if (response === null) {
+      return { statusCode: 202, body: '' }
+    }
     return jsonResponse(200, response)
   } catch (err) {
     // Last-ditch catch: dispatchJsonRpc shouldn't throw for normal
