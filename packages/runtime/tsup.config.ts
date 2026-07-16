@@ -28,6 +28,8 @@ export default defineConfig({
     '@aws-amplify/adapter-nextjs',
     '@aws-amplify/adapter-nextjs/api',
     'ampless',
+    '@ampless/mcp-server/jsonrpc',
+    '@ampless/mcp-server/public',
     '@ampless/plugin-og-image',
     '@ampless/plugin-og-image/load-image',
     // UI primitives consume these from the host project so consumers

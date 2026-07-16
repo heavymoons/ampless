@@ -105,6 +105,19 @@ middleware はリクエストごとに AppSync から `post.format` /
 `llms.txt` は予約 slug になります — slug が `llms.txt` の投稿はテーマ
 ページに到達できなくなります。
 
+`/api/mcp` は **匿名・読み取り専用の MCP エンドポイント**（POST での
+JSON-RPC 2.0）で、`createPublicMcpRouteHandler(ampless)` が生成し
+`app/api/mcp/route.ts` にマウントされます。`@ampless/mcp-server/public`
+の 4 ツール（`list_posts` / `get_post` / `search_posts` / `list_tags`）を
+公開投稿のみに対して提供します — 書き込み不可・draft 不可視。既定は
+無効で、`cms.config.ai.publicMcp: true` で有効化します。ルートは open
+CORS（匿名・読み取り専用）、64KB のボディ上限、粗い warm-instance 単位
+の circuit breaker（1 warm lambda あたり 600 req/min。per-IP rate limit
+ではないので、実運用の濫用対策は CloudFront / WAF を併用）を付与します。
+ファクトリは `{ POST, OPTIONS }` を返すので、テンプレートは両方を分割
+代入します（`export const POST = ...` の一括代入だと CORS preflight が
+欠落します）。
+
 また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
 `cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
 `Cache-Control` を算出してレスポンスに付与します。キャッシュ戦略の
@@ -114,7 +127,7 @@ middleware はリクエストごとに AppSync から `post.format` /
 
 - `@ampless/runtime` — `createAmpless`、ランタイム型、`renderBody`・`renderThemeCss`・フォーマットコンバーターの再エクスポート
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`、`defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`、`createMarkdownRouteHandler`、`createLlmsTxtRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`、`createSitemapRouteHandler`、`createFeedRouteHandler`、`createRawRouteHandler`、`createStaticRouteHandler`、`createMarkdownRouteHandler`、`createLlmsTxtRouteHandler`、`createPublicMcpRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`、`createThemePostDispatcher`、`createThemeTagDispatcher`（それぞれ対応する `*Metadata` ファクトリーあり）
 
 ## テンプレートに残るもの

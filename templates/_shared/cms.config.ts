@@ -48,8 +48,13 @@ export default defineConfig({
   // history: { retentionDays: 0 }, // 0 = keep every revision forever; e.g. 365 to expire after a year
   // AI-readable publishing. `/<slug>.md` serves a markdown projection of
   // each published post and `/llms.txt` serves a site-wide AI index
-  // (both default: enabled).
-  // ai: { markdownRoutes: false, llmsTxt: { limit: 100 } },
+  // (both default: enabled). `publicMcp` (default: false) exposes an
+  // anonymous, read-only MCP endpoint at `/api/mcp` — published posts
+  // only, never writes. Because it is unauthenticated it is opt-in, and
+  // its built-in circuit breaker is a coarse warm-instance guard, not a
+  // per-IP rate limiter: pair `publicMcp: true` with CloudFront / WAF for
+  // real abuse protection.
+  // ai: { markdownRoutes: false, llmsTxt: { limit: 100 }, publicMcp: true },
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
   //

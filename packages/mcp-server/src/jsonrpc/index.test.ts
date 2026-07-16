@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   dispatchJsonRpc,
+  dispatchJsonRpcMessage,
+  MAX_BATCH,
   JSON_RPC_INVALID_PARAMS,
   JSON_RPC_INVALID_REQUEST,
   JSON_RPC_METHOD_NOT_FOUND,
   LATEST_SUPPORTED_PROTOCOL_VERSION,
   type JsonRpcRequest,
+  type JsonRpcResponse,
 } from './index.js'
 import type { ToolDefinition } from '../tools/index.js'
 
@@ -301,6 +304,202 @@ describe('dispatchJsonRpc', () => {
         opts()
       )
       expect(res?.error?.code).toBe(JSON_RPC_METHOD_NOT_FOUND)
+    })
+  })
+})
+
+describe('dispatchJsonRpcMessage', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // --- single object ---
+
+  describe('single object', () => {
+    it('a valid request → { status: ok, body: <single response> }', async () => {
+      const res = await dispatchJsonRpcMessage(
+        { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+        opts()
+      )
+      expect(res.status).toBe('ok')
+      const body = (res as { body: JsonRpcResponse }).body
+      expect(Array.isArray(body)).toBe(false)
+      expect(body.id).toBe(1)
+      expect(body.result).toBeDefined()
+    })
+
+    it('a notification → { status: no-content }', async () => {
+      const res = await dispatchJsonRpcMessage(
+        { jsonrpc: '2.0', method: 'notifications/initialized' },
+        opts()
+      )
+      expect(res.status).toBe('no-content')
+    })
+
+    it.each([
+      ['null', null],
+      ['scalar number', 42],
+      ['scalar string', 'hi'],
+    ])('a non-object %s → { status: invalid } INVALID_REQUEST (id:null)', async (_label, input) => {
+      const res = await dispatchJsonRpcMessage(input, opts())
+      expect(res.status).toBe('invalid')
+      const body = (res as { body: JsonRpcResponse }).body
+      expect(body.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+      expect(body.id).toBeNull()
+    })
+
+    it('an object with a bad envelope (jsonrpc !== 2.0) → { status: invalid }', async () => {
+      const res = await dispatchJsonRpcMessage(
+        { jsonrpc: '1.0', id: 1, method: 'tools/list' },
+        opts()
+      )
+      expect(res.status).toBe('invalid')
+      expect((res as { body: JsonRpcResponse }).body.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+    })
+
+    it('an object with id:null → { status: invalid } (MCP forbids null ids)', async () => {
+      const res = await dispatchJsonRpcMessage(
+        { jsonrpc: '2.0', id: null, method: 'tools/list' },
+        opts()
+      )
+      expect(res.status).toBe('invalid')
+      expect((res as { body: JsonRpcResponse }).body.id).toBeNull()
+    })
+
+    it('a single object may contain initialize (only batch elements forbid it)', async () => {
+      const res = await dispatchJsonRpcMessage(
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
+        opts()
+      )
+      expect(res.status).toBe('ok')
+      expect((res as { body: JsonRpcResponse }).body.result).toMatchObject({
+        protocolVersion: '2024-11-05',
+      })
+    })
+  })
+
+  // --- batch ---
+
+  describe('batch', () => {
+    it('empty array → { status: invalid } (top-level)', async () => {
+      const res = await dispatchJsonRpcMessage([], opts())
+      expect(res.status).toBe('invalid')
+      expect((res as { body: JsonRpcResponse }).body.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+    })
+
+    it('array longer than maxBatch → { status: invalid } (top-level)', async () => {
+      const batch = Array.from({ length: 3 }, (_v, i) => ({
+        jsonrpc: '2.0' as const,
+        id: i,
+        method: 'tools/list',
+      }))
+      const res = await dispatchJsonRpcMessage(batch, { ...opts(), maxBatch: 2 })
+      expect(res.status).toBe('invalid')
+    })
+
+    it('mixed valid request + notification → only the request response, order preserved, 200', async () => {
+      const res = await dispatchJsonRpcMessage(
+        [
+          { jsonrpc: '2.0', id: 'a', method: 'tools/list' },
+          { jsonrpc: '2.0', method: 'notifications/initialized' },
+          { jsonrpc: '2.0', id: 'b', method: 'tools/list' },
+        ],
+        opts()
+      )
+      expect(res.status).toBe('ok')
+      const body = (res as { body: JsonRpcResponse[] }).body
+      expect(Array.isArray(body)).toBe(true)
+      expect(body.map((r) => r.id)).toEqual(['a', 'b'])
+    })
+
+    it('all-notification batch → { status: no-content }', async () => {
+      const res = await dispatchJsonRpcMessage(
+        [
+          { jsonrpc: '2.0', method: 'notifications/initialized' },
+          { jsonrpc: '2.0', method: 'some/other/notification' },
+        ],
+        opts()
+      )
+      expect(res.status).toBe('no-content')
+    })
+
+    it('malformed elements mixed in: bad elements become id:null errors, notification excluded, order kept', async () => {
+      const res = await dispatchJsonRpcMessage(
+        [
+          { jsonrpc: '2.0', id: 1, method: 'tools/list' }, // valid request
+          { jsonrpc: '2.0', method: 'notifications/initialized' }, // notification (excluded)
+          null, // non-object
+          { jsonrpc: '2.0', id: 3 }, // method missing
+        ],
+        opts()
+      )
+      expect(res.status).toBe('ok')
+      const body = (res as { body: JsonRpcResponse[] }).body
+      // Three entries: the valid request response + two errors; the
+      // notification produced no response.
+      expect(body.length).toBe(3)
+      // Order preserved: request result first.
+      expect(body[0]!.id).toBe(1)
+      expect(body[0]!.result).toBeDefined()
+      // null element → INVALID_REQUEST with id:null.
+      expect(body[1]!.id).toBeNull()
+      expect(body[1]!.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+      // method-missing element (id:3 present + valid) → error echoes id.
+      expect(body[2]!.id).toBe(3)
+      expect(body[2]!.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+    })
+
+    it('an initialize element inside a batch → that element is INVALID_REQUEST', async () => {
+      const res = await dispatchJsonRpcMessage(
+        [
+          { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
+          { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+        ],
+        opts()
+      )
+      expect(res.status).toBe('ok')
+      const body = (res as { body: JsonRpcResponse[] }).body
+      expect(body[0]!.id).toBe(1)
+      expect(body[0]!.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+      // The sibling tools/list still succeeds.
+      expect(body[1]!.id).toBe(2)
+      expect(body[1]!.result).toBeDefined()
+    })
+
+    it('processes batch elements sequentially (never Promise.all)', async () => {
+      const order: string[] = []
+      let active = 0
+      let maxActive = 0
+      const serialTool: ToolDefinition<FakeCtx> = {
+        name: 'serial',
+        description: 'records concurrency',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async (args) => {
+          active++
+          maxActive = Math.max(maxActive, active)
+          order.push((args as { tag: string }).tag)
+          await new Promise((r) => setTimeout(r, 5))
+          active--
+          return {}
+        },
+      }
+      await dispatchJsonRpcMessage(
+        [
+          { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'serial', arguments: { tag: 'first' } } },
+          { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'serial', arguments: { tag: 'second' } } },
+        ],
+        opts({ tools: [serialTool] })
+      )
+      expect(order).toEqual(['first', 'second'])
+      // Never two handlers in flight simultaneously.
+      expect(maxActive).toBe(1)
+    })
+
+    it('MAX_BATCH default is 50', () => {
+      expect(MAX_BATCH).toBe(50)
     })
   })
 })

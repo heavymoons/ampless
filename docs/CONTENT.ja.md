@@ -142,6 +142,7 @@ export default defineConfig({
 | `format: 'static'` | `/<slug>/` | S3 の presigned URL 経由で配信される静的バンドル |
 | 任意のフォーマット | `/<slug>.md` | 投稿の Markdown 投影（`ampless.postToMarkdown()`） |
 | サイト全体 | `/llms.txt` | 直近の公開投稿の AI 向け索引。`ai.llmsTxt: false` で無効化 |
+| サイト全体 | `/api/mcp` | 匿名・読み取り専用の MCP エンドポイント（POST での JSON-RPC 2.0、公開投稿のみ）。`ai.publicMcp: true` で有効化 |
 
 ## AI 可読な Markdown（`/<slug>.md`）
 

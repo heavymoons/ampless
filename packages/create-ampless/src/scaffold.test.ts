@@ -34,4 +34,41 @@ describe('scaffold', () => {
       await rm(dest, { recursive: true, force: true })
     }
   })
+
+  // The public MCP route factory returns `{ POST, OPTIONS }`; the scaffold
+  // must destructure BOTH handlers. A single
+  // `export const POST = createPublicMcpRouteHandler(ampless)` would drop
+  // OPTIONS and break the CORS preflight — pin the split-export shape so a
+  // future template edit can't regress it.
+  it('scaffolds app/api/mcp/route.ts exporting both POST and OPTIONS from the factory', async () => {
+    const sharedDir = sharedTemplateDir()
+    try {
+      await stat(sharedDir)
+    } catch {
+      return
+    }
+
+    const dest = await mkdtemp(resolve(tmpdir(), 'scaffold-mcp-'))
+    try {
+      await scaffold(sharedDir, templatesDir, dest, {
+        projectName: 'tmp-test',
+        siteName: 'Tmp Test',
+        themes: ['blog'],
+        defaultTheme: 'blog',
+        plugins: ['seo'],
+      })
+
+      const route = await readFile(resolve(dest, 'app', 'api', 'mcp', 'route.ts'), 'utf-8')
+      expect(route).toContain('createPublicMcpRouteHandler')
+      // Destructured (not a single one-shot assignment).
+      expect(route).toContain('export const POST = handlers.POST')
+      expect(route).toContain('export const OPTIONS = handlers.OPTIONS')
+      // Guard against the one-shot mistake (anchored to a real statement
+      // line, so the explanatory comment above doesn't count).
+      expect(route).not.toMatch(/^export const POST = createPublicMcpRouteHandler/m)
+      expect(route).toContain("export const runtime = 'nodejs'")
+    } finally {
+      await rm(dest, { recursive: true, force: true })
+    }
+  })
 })

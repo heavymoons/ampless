@@ -71,13 +71,19 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 ### `./jsonrpc`
 
 ```typescript
-import { dispatchJsonRpc } from '@ampless/mcp-server/jsonrpc'
-import type { JsonRpcRequest, JsonRpcResponse } from '@ampless/mcp-server/jsonrpc'
+import { dispatchJsonRpcMessage, dispatchJsonRpc, MAX_BATCH } from '@ampless/mcp-server/jsonrpc'
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcMessageResult,
+} from '@ampless/mcp-server/jsonrpc'
 ```
 
 | エクスポート | 説明 |
 |---|---|
-| `dispatchJsonRpc(req, opts)` | JSON-RPC リクエストを 1 件ツールレジストリに対して実行（`initialize` のバージョンネゴシエーション、annotations 付き `tools/list`、`tools/call`、notification 処理）。notification（`id` 無し）は method を実行しつつレスポンスの代わりに `null` を返す。`id: null` / 小数 id は `INVALID_REQUEST` で拒否 |
+| `dispatchJsonRpcMessage(input, opts)` | **推奨エントリポイント。** 未検証のデコード済みメッセージ（`unknown` — 単一オブジェクト **または** batch 配列）を受け取り、タグ付き `JsonRpcMessageResult` を返す：`{ status: 'invalid', body }`（HTTP 400 — 非オブジェクト / 空 / 過大 batch）、`{ status: 'ok', body }`（HTTP 200 — 単一レスポンス、または batch のレスポンス配列）、`{ status: 'no-content' }`（HTTP 202 — notification のみ）。エンベロープ検証と batch 処理（逐次・順序維持・batch 内 `initialize` 禁止）をここに集約したので、トランスポートは `JSON.parse` の生の結果をそのまま渡せる。`opts.maxBatch` の既定は `MAX_BATCH` |
+| `dispatchJsonRpc(req, opts)` | **検証済みの** JSON-RPC リクエストを 1 件ツールレジストリに対して実行（`initialize` のバージョンネゴシエーション、annotations 付き `tools/list`、`tools/call`、notification 処理）。notification（`id` 無し）は method を実行しつつレスポンスの代わりに `null` を返す。`id: null` / 小数 id は `INVALID_REQUEST` で拒否。ワイヤから来たものはエンベロープ検証と batch 対応を集約した `dispatchJsonRpcMessage` を使うこと |
+| `MAX_BATCH` | batch 要素数の既定上限（`50`） |
 | `jsonRpcResult` / `jsonRpcError` / `JSON_RPC_*` | エンベロープヘルパ + 標準エラーコード |
 | `SUPPORTED_PROTOCOL_VERSIONS` | `['2025-03-26', '2024-11-05']` |
 
