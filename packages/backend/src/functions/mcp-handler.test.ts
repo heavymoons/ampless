@@ -586,6 +586,94 @@ describe('mcp-handler', () => {
     expect(body.error.code).toBe(-32600)
   })
 
+  it('id: null is rejected as invalid-request (MCP forbids null ids; not a notification)', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: null, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+    expect(body.id).toBeNull()
+  })
+
+  it('id: 1.5 (fractional number) is rejected as invalid-request', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1.5, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+    // An unusable id is not echoed back — the response carries id: null.
+    expect(body.id).toBeNull()
+  })
+
+  it('id: "abc" (string) is a valid request id', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 'abc', method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(body.id).toBe('abc')
+    expect(body.result.tools.length).toBeGreaterThan(0)
+  })
+
+  it('id: 0 (integer) is a valid request id', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 0, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(body.id).toBe(0)
+  })
+
+  it('a tools/list notification (id absent) gets a 202 with an empty body', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(202)
+    expect(res.body).toBe('')
+  })
+
+  it('initialize with a non-string protocolVersion (42) returns invalid-params, not a fallback', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: 42 },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32602)
+  })
+
   it('empty body returns invalid-request (not parse error)', async () => {
     mockValidTokenLookup()
     const res = await handler(makeEvent({ authorization: VALID_TOKEN, rawBody: '' }))

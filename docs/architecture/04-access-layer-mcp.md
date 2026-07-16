@@ -191,9 +191,10 @@ import { publicTools } from '@ampless/mcp-server/public'
 
 Both endpoints run the same `dispatchJsonRpc`:
 
-- **Protocol negotiation** on `initialize`: supported versions are `2025-03-26` (first revision to define tool annotations) and `2024-11-05`. A supported requested version is echoed; an unsupported one negotiates down to `2025-03-26`; a **missing** `protocolVersion` is an `INVALID_PARAMS` error. `2025-06-18` is intentionally not advertised (it adds transport obligations these stateless JSON-POST endpoints don't implement).
+- **Protocol negotiation** on `initialize`: supported versions are `2025-03-26` (first revision to define tool annotations) and `2024-11-05`. A supported requested version is echoed; an unsupported *string* negotiates down to `2025-03-26`; a **missing or non-string** `protocolVersion` (number / null / object) is an `INVALID_PARAMS` error. `2025-06-18` is intentionally not advertised (it adds transport obligations these stateless JSON-POST endpoints don't implement).
 - **`tools/list` annotations**: every tool carries `{ readOnlyHint, destructiveHint }`. Each tool is explicitly classified (read / additive write / overwriting write / destructive) rather than deriving the hints from a single flag — an update that overwrites existing state is `destructiveHint: true`.
-- **Notifications** (JSON-RPC requests with no `id`, e.g. `notifications/initialized`) get no response body — the admin HTTP handler maps that to `202 Accepted`.
+- **Request ids**: a valid `id` is a string or an integer. `id: null` (forbidden by MCP) and fractional numeric ids are rejected as `INVALID_REQUEST` — distinct from an *absent* id, which marks a notification.
+- **Notifications** (JSON-RPC requests with no `id`, e.g. `notifications/initialized`) get no response body for *any* method — the method still executes (including a `tools/call` handler), but the response is suppressed; the admin HTTP handler maps that to `202 Accepted`.
 
 #### MCP Tools
 

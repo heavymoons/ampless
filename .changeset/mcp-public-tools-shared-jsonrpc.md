@@ -16,8 +16,11 @@ walk so the public MCP tools can share the exact semantics.
 **`@ampless/mcp-server`** (minor): two new subpath exports.
 - `./jsonrpc` — transport-agnostic `dispatchJsonRpc` shared by the admin and public
   endpoints: `initialize` protocol-version negotiation
-  (`SUPPORTED_PROTOCOL_VERSIONS = ['2025-03-26', '2024-11-05']`), `tools/list` MCP
-  annotations (`readOnlyHint` / `destructiveHint`), and correct notification handling.
+  (`SUPPORTED_PROTOCOL_VERSIONS = ['2025-03-26', '2024-11-05']`; a missing or non-string
+  `protocolVersion` is `INVALID_PARAMS`), `tools/list` MCP annotations (`readOnlyHint` /
+  `destructiveHint`), strict request-id validation (`hasValidJsonRpcId`: ids must be
+  strings or integers — `id: null` and fractional ids are `INVALID_REQUEST`), and correct
+  notification handling (a request with no `id` executes its method but gets no response).
 - `./public` — four read-only tools (`list_posts` / `get_post` / `search_posts` /
   `list_tags`) over a `PublicToolContext`, published posts only, with a strict field
   allowlist (never emits `postId` / `status` / `metadata` / `body`) and bounded scans.
@@ -26,13 +29,17 @@ walk so the public MCP tools can share the exact semantics.
   tools are explicitly classified read / additive-write / overwriting-write / destructive.
 
 **`@ampless/backend`** (patch): the `mcp-handler` Lambda now delegates to the shared
-`@ampless/mcp-server/jsonrpc` dispatch instead of its own inline copy. Three intended
+`@ampless/mcp-server/jsonrpc` dispatch instead of its own inline copy. Four intended
 wire-behaviour changes on the admin endpoint:
 - `tools/list` now includes MCP `annotations` (`readOnlyHint` / `destructiveHint`) per tool.
-- `initialize` now negotiates `protocolVersion` (echo a supported request, else fall back
-  to `2025-03-26`); a **missing** `protocolVersion` is now an `INVALID_PARAMS` error.
-- `notifications/initialized` (and any JSON-RPC notification with no `id`) now returns
-  `202 Accepted` with an empty body instead of a (protocol-violating) result.
+- `initialize` now negotiates `protocolVersion` (echo a supported string, fall back to
+  `2025-03-26` for an unsupported string); a **missing or non-string** `protocolVersion`
+  is now an `INVALID_PARAMS` error.
+- `notifications/initialized` (and any JSON-RPC notification with no `id`, for *every*
+  method — a `tools/call` notification still executes the tool) now returns `202 Accepted`
+  with an empty body instead of a (protocol-violating) result.
+- `id: null` (forbidden by MCP) and fractional numeric ids are now rejected as
+  `INVALID_REQUEST` (HTTP 400) instead of being treated as valid request ids.
 
 **`@ampless/runtime`** (patch): the `/llms.txt` route's internal post walk now uses the
 shared `collectBounded` helper. Output is byte-for-byte unchanged.

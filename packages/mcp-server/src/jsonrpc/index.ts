@@ -41,10 +41,12 @@ export interface JsonRpcRequest {
   jsonrpc: '2.0'
   /**
    * Absent (`undefined`) marks a JSON-RPC *notification*: per spec the
-   * server must not send any response. `null` is a (discouraged but
-   * valid) request id, not a notification.
+   * server must not send any response (the method still executes). MCP
+   * forbids `id: null`, and JSON-RPC numeric ids SHOULD NOT contain
+   * fractional parts — `hasValidJsonRpcId` rejects both as
+   * INVALID_REQUEST before dispatch.
    */
-  id?: number | string | null
+  id?: number | string
   method: string
   params?: Record<string, unknown>
 }
@@ -94,6 +96,23 @@ function isNotification(req: JsonRpcRequest): boolean {
   return req.id === undefined
 }
 
+/**
+ * Validates the `id` member of a decoded request envelope. A valid id
+ * is a string or an integer number; an *absent* id is also valid (it
+ * marks a notification — JSON cannot express `undefined`, so a
+ * present-but-undefined id from an in-process caller is treated the
+ * same). MCP explicitly forbids `id: null`, and the JSON-RPC 2.0 spec
+ * says numeric ids SHOULD NOT contain fractional parts — both are
+ * rejected (callers map `false` to INVALID_REQUEST). Exported so each
+ * transport's pre-dispatch envelope check enforces the same rule as
+ * `dispatchJsonRpc` itself.
+ */
+export function hasValidJsonRpcId(req: object): boolean {
+  const id = (req as { id?: unknown }).id
+  if (id === undefined) return true
+  return typeof id === 'string' || (typeof id === 'number' && Number.isInteger(id))
+}
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -117,32 +136,56 @@ function toolAnnotations(t: {
  * Dispatch one parsed JSON-RPC request against a tool registry.
  * Returns the response envelope, or `null` for a notification (the
  * caller maps that to an empty 202/no-body HTTP response).
+ *
+ * Notification suppression is centralised here: a notification (id
+ * absent) still *executes* its method — including a `tools/call`
+ * handler and its side effects — but the response envelope is
+ * discarded, per the JSON-RPC 2.0 spec.
  */
 export async function dispatchJsonRpc<TCtx>(
   req: JsonRpcRequest,
   opts: JsonRpcDispatchOptions<TCtx>,
 ): Promise<JsonRpcResponse | null> {
-  const notification = isNotification(req)
+  // MCP forbids `id: null`, and JSON-RPC numeric ids SHOULD NOT contain
+  // fractional parts. A malformed id is INVALID_REQUEST — distinct from
+  // an *absent* id, which marks a notification.
+  if (!hasValidJsonRpcId(req)) {
+    return jsonRpcError(
+      null,
+      JSON_RPC_INVALID_REQUEST,
+      'Invalid Request: `id` must be a string or an integer',
+    )
+  }
+  const response = await dispatchMethod(req, opts)
+  return isNotification(req) ? null : response
+}
+
+/** The per-method dispatch; always builds a response envelope. */
+async function dispatchMethod<TCtx>(
+  req: JsonRpcRequest,
+  opts: JsonRpcDispatchOptions<TCtx>,
+): Promise<JsonRpcResponse> {
   const id = req.id ?? null
 
   switch (req.method) {
     case 'initialize': {
       const requested = (req.params as { protocolVersion?: unknown } | undefined)?.protocolVersion
-      // `protocolVersion` is a required `initialize` parameter — a
-      // missing one is a malformed request, not a version we silently
-      // default.
-      if (requested === undefined) {
+      // `protocolVersion` is a required string `initialize` parameter —
+      // a missing or non-string one (number / null / object) is a
+      // malformed request, not a version we silently default. Only an
+      // *unsupported string* falls back to the latest supported version.
+      if (typeof requested !== 'string') {
         return jsonRpcError(
           id,
           JSON_RPC_INVALID_PARAMS,
-          'initialize requires a `protocolVersion` parameter',
+          'initialize requires a string `protocolVersion` parameter',
         )
       }
-      const protocolVersion =
-        typeof requested === 'string' &&
-        (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
-          ? requested
-          : LATEST_SUPPORTED_PROTOCOL_VERSION
+      const protocolVersion = (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(
+        requested,
+      )
+        ? requested
+        : LATEST_SUPPORTED_PROTOCOL_VERSION
       return jsonRpcResult(id, {
         protocolVersion,
         capabilities: { tools: {} },
@@ -151,9 +194,11 @@ export async function dispatchJsonRpc<TCtx>(
     }
 
     case 'notifications/initialized':
-      // One-way notification: MCP clients fire this after `initialize`.
-      // The spec says the server must not respond.
-      return null
+      // One-way notification: MCP clients fire this after `initialize`
+      // with no id, so the wrapper suppresses this envelope. If a client
+      // (incorrectly) attaches an id, acknowledge with an empty result
+      // rather than violating "every request gets a response".
+      return jsonRpcResult(id, {})
 
     case 'tools/list':
       return jsonRpcResult(id, {
@@ -208,9 +253,8 @@ export async function dispatchJsonRpc<TCtx>(
     }
 
     default:
-      // Unknown notification → still no response; unknown request →
-      // method-not-found.
-      if (notification) return null
+      // Unknown method → method-not-found. For an unknown *notification*
+      // the wrapper discards this envelope (spec: no response).
       return jsonRpcError(id, JSON_RPC_METHOD_NOT_FOUND, `Method not found: ${req.method}`)
   }
 }

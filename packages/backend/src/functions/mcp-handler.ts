@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
 import {
   dispatchJsonRpc,
+  hasValidJsonRpcId,
   jsonRpcError,
   JSON_RPC_PARSE_ERROR,
   JSON_RPC_INVALID_REQUEST,
@@ -248,10 +249,18 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
     return jsonResponse(400, jsonRpcError(null, JSON_RPC_PARSE_ERROR, 'Parse error'))
   }
 
-  if (req.jsonrpc !== '2.0' || typeof req.method !== 'string') {
+  // Envelope validation, kept in sync with `dispatchJsonRpc`: MCP
+  // forbids `id: null`, and JSON-RPC numeric ids must be integers. An
+  // *absent* id is a valid notification, not an error.
+  if (req.jsonrpc !== '2.0' || typeof req.method !== 'string' || !hasValidJsonRpcId(req)) {
+    // Echo the id only when it is itself valid — per spec, a response
+    // to a request with an unusable id carries `id: null`.
+    const responseId = hasValidJsonRpcId(req)
+      ? (req as { id?: JsonRpcRequest['id'] }).id ?? null
+      : null
     return jsonResponse(
       400,
-      jsonRpcError((req as { id?: JsonRpcRequest['id'] })?.id ?? null, JSON_RPC_INVALID_REQUEST, 'Invalid Request')
+      jsonRpcError(responseId, JSON_RPC_INVALID_REQUEST, 'Invalid Request')
     )
   }
 

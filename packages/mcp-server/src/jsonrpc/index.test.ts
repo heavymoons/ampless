@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   dispatchJsonRpc,
   JSON_RPC_INVALID_PARAMS,
+  JSON_RPC_INVALID_REQUEST,
   JSON_RPC_METHOD_NOT_FOUND,
   LATEST_SUPPORTED_PROTOCOL_VERSION,
   type JsonRpcRequest,
@@ -95,6 +96,53 @@ describe('dispatchJsonRpc', () => {
         opts()
       )
       expect(res?.error?.code).toBe(JSON_RPC_INVALID_PARAMS)
+    })
+
+    it.each([
+      ['number', 42],
+      ['null', null],
+      ['object', { v: '2025-03-26' }],
+    ])(
+      'returns INVALID_PARAMS when protocolVersion is a %s (no latest-version fallback)',
+      async (_label, badVersion) => {
+        const res = await dispatchJsonRpc(
+          {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: { protocolVersion: badVersion as never },
+          },
+          opts()
+        )
+        expect(res?.error?.code).toBe(JSON_RPC_INVALID_PARAMS)
+      }
+    )
+  })
+
+  describe('request id validation', () => {
+    it.each([
+      ['null', null],
+      ['fractional number', 1.5],
+    ])('id: %s → INVALID_REQUEST (not treated as a notification)', async (_label, badId) => {
+      const res = await dispatchJsonRpc(
+        { jsonrpc: '2.0', id: badId, method: 'tools/list' } as unknown as JsonRpcRequest,
+        opts()
+      )
+      expect(res?.error?.code).toBe(JSON_RPC_INVALID_REQUEST)
+      expect(res?.id).toBeNull()
+    })
+
+    it.each([
+      ['string', 'abc'],
+      ['zero', 0],
+    ])('id: %s is a valid request id', async (_label, goodId) => {
+      const res = await dispatchJsonRpc(
+        { jsonrpc: '2.0', id: goodId, method: 'tools/list' },
+        opts()
+      )
+      expect(res?.error).toBeUndefined()
+      expect(res?.id).toBe(goodId)
+      expect(res?.result).toBeDefined()
     })
   })
 
@@ -214,6 +262,37 @@ describe('dispatchJsonRpc', () => {
         opts()
       )
       expect(res).toBeNull()
+    })
+
+    it('a tools/list notification (id absent) returns null', async () => {
+      const res = await dispatchJsonRpc(
+        { jsonrpc: '2.0', method: 'tools/list' } as JsonRpcRequest,
+        opts()
+      )
+      expect(res).toBeNull()
+    })
+
+    it('a tools/call notification (id absent) returns null but still executes the tool handler', async () => {
+      const spyHandler = vi.fn(async () => ({ ran: true }))
+      const spiedTool: ToolDefinition<FakeCtx> = {
+        name: 'spy',
+        description: 'spies',
+        inputSchema: { type: 'object', properties: {} },
+        readOnly: false,
+        destructive: false,
+        handler: spyHandler,
+      }
+      const res = await dispatchJsonRpc(
+        {
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'spy', arguments: { via: 'notification' } },
+        } as JsonRpcRequest,
+        opts({ tools: [spiedTool] })
+      )
+      expect(res).toBeNull()
+      expect(spyHandler).toHaveBeenCalledOnce()
+      expect(spyHandler).toHaveBeenCalledWith({ via: 'notification' }, { tag: 'ctx-1' })
     })
 
     it('an unknown method with an id → METHOD_NOT_FOUND', async () => {

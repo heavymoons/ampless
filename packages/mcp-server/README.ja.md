@@ -77,7 +77,7 @@ import type { JsonRpcRequest, JsonRpcResponse } from '@ampless/mcp-server/jsonrp
 
 | エクスポート | 説明 |
 |---|---|
-| `dispatchJsonRpc(req, opts)` | JSON-RPC リクエストを 1 件ツールレジストリに対して実行（`initialize` のバージョンネゴシエーション、annotations 付き `tools/list`、`tools/call`、notification 処理）。notification には `null` を返す |
+| `dispatchJsonRpc(req, opts)` | JSON-RPC リクエストを 1 件ツールレジストリに対して実行（`initialize` のバージョンネゴシエーション、annotations 付き `tools/list`、`tools/call`、notification 処理）。notification（`id` 無し）は method を実行しつつレスポンスの代わりに `null` を返す。`id: null` / 小数 id は `INVALID_REQUEST` で拒否 |
 | `jsonRpcResult` / `jsonRpcError` / `JSON_RPC_*` | エンベロープヘルパ + 標準エラーコード |
 | `SUPPORTED_PROTOCOL_VERSIONS` | `['2025-03-26', '2024-11-05']` |
 

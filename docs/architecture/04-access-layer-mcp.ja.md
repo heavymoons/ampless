@@ -191,9 +191,10 @@ import { publicTools } from '@ampless/mcp-server/public'
 
 両エンドポイントは同じ `dispatchJsonRpc` を通る：
 
-- **`initialize` のバージョンネゴシエーション**: サポート版は `2025-03-26`（tool annotations を定義した最初の版）と `2024-11-05`。サポート内の要求版はそのまま返し、サポート外なら `2025-03-26` に落とす。`protocolVersion` **欠落**は `INVALID_PARAMS` エラー。`2025-06-18` は意図的に名乗らない（stateless な JSON-POST エンドポイントが実装しないトランスポート要件を伴うため）。
+- **`initialize` のバージョンネゴシエーション**: サポート版は `2025-03-26`（tool annotations を定義した最初の版）と `2024-11-05`。サポート内の要求版はそのまま返し、サポート外の*文字列*なら `2025-03-26` に落とす。`protocolVersion` の**欠落または非文字列**（number / null / object）は `INVALID_PARAMS` エラー。`2025-06-18` は意図的に名乗らない（stateless な JSON-POST エンドポイントが実装しないトランスポート要件を伴うため）。
 - **`tools/list` annotations**: 各ツールに `{ readOnlyHint, destructiveHint }` を付与。単一フラグからの導出ではなく明示分類（read / 追加 write / 上書き write / destructive）— 既存状態を上書きする update 系は `destructiveHint: true`。
-- **notification**（`id` を持たない JSON-RPC リクエスト、例 `notifications/initialized`）は本文を返さない — admin HTTP ハンドラは `202 Accepted` にマップする。
+- **request id**: 有効な `id` は文字列または整数。`id: null`（MCP で禁止）と小数の数値 id は `INVALID_REQUEST` で拒否する — `id` が*無い*場合（notification）とは区別される。
+- **notification**（`id` を持たない JSON-RPC リクエスト、例 `notifications/initialized`）は*どの* method でも本文を返さない — method 自体は実行される（`tools/call` の handler も含む）がレスポンスは抑止され、admin HTTP ハンドラは `202 Accepted` にマップする。
 
 #### MCP ツール
 

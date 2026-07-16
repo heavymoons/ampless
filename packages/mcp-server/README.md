@@ -77,7 +77,7 @@ import type { JsonRpcRequest, JsonRpcResponse } from '@ampless/mcp-server/jsonrp
 
 | Export | Description |
 |---|---|
-| `dispatchJsonRpc(req, opts)` | Runs one JSON-RPC request against a tool registry (`initialize` with protocol negotiation, `tools/list` with annotations, `tools/call`, notification handling). Returns `null` for a notification. |
+| `dispatchJsonRpc(req, opts)` | Runs one JSON-RPC request against a tool registry (`initialize` with protocol negotiation, `tools/list` with annotations, `tools/call`, notification handling). A notification (`id` absent) still executes the method but returns `null` instead of a response; `id: null` / fractional ids are rejected as `INVALID_REQUEST`. |
 | `jsonRpcResult` / `jsonRpcError` / `JSON_RPC_*` | Envelope helpers + standard error codes |
 | `SUPPORTED_PROTOCOL_VERSIONS` | `['2025-03-26', '2024-11-05']` |
 
