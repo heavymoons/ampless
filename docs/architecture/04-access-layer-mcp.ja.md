@@ -221,7 +221,9 @@ import { publicTools } from '@ampless/mcp-server/public'
 
 #### 公開読み取り専用 MCP ([`@ampless/mcp-server/public`](../../packages/mcp-server/src/public))
 
-トークン不要の **匿名・読み取り専用** MCP surface が、公開済みコンテンツを AI クライアントに提供する。Next.js runtime の `/api/mcp` ルートから配信され（route の配線・config トグル・per-IP レート制限は後続 PR）、同じ共有 `dispatchJsonRpc` を、runtime が apiKey モードの `listPublishedPosts` / `getPublishedPost`（draft はサーバ側で除去）+ `postToMarkdown` で backing した `PublicToolContext` とともに通す。
+トークン不要の **匿名・読み取り専用** MCP surface が、公開済みコンテンツを AI クライアントに提供する。Next.js runtime の `/api/mcp` ルート（`createPublicMcpRouteHandler`、`app/api/mcp/route.ts` にマウント）から配信され、同じ共有 dispatch を、runtime が apiKey モードの `listPublishedPosts` / `getPublishedPost`（draft はサーバ側で除去）+ `postToMarkdown` で backing した `PublicToolContext` とともに通す。
+
+**オプトイン。** `cms.config.ai.publicMcp === true` でない限りルートは 404 を返す — 無認証のため既定は無効。`POST` / `OPTIONS` の両方が gate される。
 
 | ツール | 説明 |
 |---|---|
@@ -236,6 +238,14 @@ import { publicTools } from '@ampless/mcp-server/public'
 - **フィールド allowlist。** サマリーは `slug` / `title` / `excerpt` / `tags` / `publishedAt` / `updatedAt` / `format` のみ。`postId` / `status` / `metadata` / 生 `body` は決して出力しない（`Post` の spread ではなく明示的な pick）。
 - **有界走査。** `search_posts` / `list_tags` は最大 5 AppSync ページ（≈直近 200 件）まで。匿名の body 込み read は CDN で吸収できないため、ツール層で件数・ページ数を有界化する。リクエスト頻度制限は route の責務。
 - 4 ツールとも `readOnlyHint: true, destructiveHint: false` を annotation で持つ。
+
+トランスポート / HTTP framing（`createPublicMcpRouteHandler`）：
+
+- **POST JSON-RPC 2.0**。admin トランスポートと `dispatchJsonRpcMessage` を共有するため、エンベロープ検証・非オブジェクト拒否・**batch** 処理（逐次・順序維持・batch 内 `initialize` 禁止・≤`MAX_BATCH` = 50）は両エンドポイントで同一。タグ付き結果を HTTP にマップ：`invalid` → 400、`ok` → 200、`no-content`（notification のみ）→ 202。
+- 全レスポンスに **open CORS**（`Access-Control-Allow-Origin: *`、`POST, OPTIONS`）。有効時の `OPTIONS` preflight は 204。匿名・読み取り専用・公開済みのみ・credential 不使用なので安全。
+- **64KB ボディ上限。** `Content-Length` が上限超なら読み取り前に 413。chunked body は上限を跨いだ時点でストリーム中断（全量バッファリングしない）。
+- **粗い circuit breaker（per-IP rate limit ではない）。** module スコープの固定ウィンドウカウンタ 1 個（600 req/min、batch は要素 1 つにつき 1 消費）で、1 warm lambda instance が暴走リクエストに張り付くのを止める。`x-forwarded-for` で **キーしない** — CloudFront はクライアント送信の XFF を保持し実 IP を末尾に追記するため先頭値は偽装可能・hop 数も不定。warm instance 内でしか効かず、真の per-IP throttle / DoS 対策は CloudFront / WAF の責務。ツール失敗は `console.error` に記録しつつ固定文言でマスクし、匿名 endpoint が内部詳細を漏らさないようにする。
+- **最外周ガード。** ストリーム読取失敗や予期しない例外でも、Next.js 素の HTML 500 ではなく CORS つき JSON-RPC 500（`id: null`）を返す。
 
 ### 方針
 

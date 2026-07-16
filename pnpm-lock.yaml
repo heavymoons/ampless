@@ -384,6 +384,9 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@ampless/mcp-server':
+        specifier: workspace:*
+        version: link:../mcp-server
       '@ampless/plugin-og-image':
         specifier: workspace:*
         version: link:../plugin-og-image

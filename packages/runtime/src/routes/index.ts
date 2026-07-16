@@ -5,3 +5,8 @@ export { createRawRouteHandler, type RawRouteHandler } from './raw.js'
 export { createStaticRouteHandler, type StaticRouteHandler } from './static.js'
 export { createMarkdownRouteHandler, type MarkdownRouteHandler } from './md.js'
 export { createLlmsTxtRouteHandler, type LlmsTxtRouteHandler } from './llms.js'
+export {
+  createPublicMcpRouteHandler,
+  _resetPublicMcpRateLimit,
+  type PublicMcpRouteHandlers,
+} from './public-mcp.js'

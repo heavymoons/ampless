@@ -104,6 +104,18 @@ a single-file index. Disable with `cms.config.ai.llmsTxt: false`. Note
 that `llms.txt` becomes a reserved slug either way — a post whose slug
 happens to be `llms.txt` can no longer reach the themed route.
 
+`/api/mcp` is an **anonymous, read-only MCP endpoint** (JSON-RPC 2.0
+over POST) built by `createPublicMcpRouteHandler(ampless)` and mounted
+at `app/api/mcp/route.ts`. It serves the four `@ampless/mcp-server/public`
+tools (`list_posts` / `get_post` / `search_posts` / `list_tags`) over
+published posts only — never writes, never sees drafts. Off by default;
+set `cms.config.ai.publicMcp: true` to enable. The route adds open CORS
+(anonymous read-only), a 64KB body cap, and a coarse warm-instance
+circuit breaker (600 req/min per warm lambda, not a per-IP limiter —
+pair it with CloudFront / WAF for real abuse protection). The factory
+returns `{ POST, OPTIONS }`; the template destructures both (a single
+`export const POST = ...` would drop the CORS preflight).
+
 It also computes `Cache-Control` from `post.metadata.cache` (auto /
 deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
 freshTtlSeconds, deepTtlSeconds}` and sets the header on the response.
@@ -113,7 +125,7 @@ See `docs/CONTENT.md` for the cache strategy contract.
 
 - `@ampless/runtime` — `createAmpless`, runtime types, and re-exports of `renderBody`, `renderThemeCss`, format converters
 - `@ampless/runtime/middleware` — `createAmplessMiddleware`, `defaultMatcherConfig`
-- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`, `createMarkdownRouteHandler`, `createLlmsTxtRouteHandler`
+- `@ampless/runtime/routes` — `createOgRouteHandler`, `createSitemapRouteHandler`, `createFeedRouteHandler`, `createRawRouteHandler`, `createStaticRouteHandler`, `createMarkdownRouteHandler`, `createLlmsTxtRouteHandler`, `createPublicMcpRouteHandler`
 - `@ampless/runtime/dispatchers` — `createThemeHomeDispatcher`, `createThemePostDispatcher`, `createThemeTagDispatcher` (each with a matching `*Metadata` factory)
 
 ## What's still in the template

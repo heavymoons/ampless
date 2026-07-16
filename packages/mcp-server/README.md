@@ -71,13 +71,19 @@ import type { ToolDefinition, ToolContext, ResolvedSite } from '@ampless/mcp-ser
 ### `./jsonrpc`
 
 ```typescript
-import { dispatchJsonRpc } from '@ampless/mcp-server/jsonrpc'
-import type { JsonRpcRequest, JsonRpcResponse } from '@ampless/mcp-server/jsonrpc'
+import { dispatchJsonRpcMessage, dispatchJsonRpc, MAX_BATCH } from '@ampless/mcp-server/jsonrpc'
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcMessageResult,
+} from '@ampless/mcp-server/jsonrpc'
 ```
 
 | Export | Description |
 |---|---|
-| `dispatchJsonRpc(req, opts)` | Runs one JSON-RPC request against a tool registry (`initialize` with protocol negotiation, `tools/list` with annotations, `tools/call`, notification handling). A notification (`id` absent) still executes the method but returns `null` instead of a response; `id: null` / fractional ids are rejected as `INVALID_REQUEST`. |
+| `dispatchJsonRpcMessage(input, opts)` | **Preferred entry point.** Takes an *unvalidated* decoded message (`unknown` — a single object **or** a batch array) and returns a tagged `JsonRpcMessageResult`: `{ status: 'invalid', body }` (HTTP 400 — top-level malformed / empty / over-size batch), `{ status: 'ok', body }` (HTTP 200 — single response or a batch's response array), or `{ status: 'no-content' }` (HTTP 202 — notification(s) only). Envelope validation and batch handling (sequential, order-preserving, `initialize` forbidden inside a batch) live here, so transports pass their raw `JSON.parse` result straight through. `opts.maxBatch` defaults to `MAX_BATCH`. |
+| `dispatchJsonRpc(req, opts)` | Runs **one already-validated** JSON-RPC request against a tool registry (`initialize` with protocol negotiation, `tools/list` with annotations, `tools/call`, notification handling). A notification (`id` absent) still executes the method but returns `null` instead of a response; `id: null` / fractional ids are rejected as `INVALID_REQUEST`. Prefer `dispatchJsonRpcMessage` for anything coming off the wire — it centralises envelope checks and batch support. |
+| `MAX_BATCH` | Default batch-element cap (`50`) |
 | `jsonRpcResult` / `jsonRpcError` / `JSON_RPC_*` | Envelope helpers + standard error codes |
 | `SUPPORTED_PROTOCOL_VERSIONS` | `['2025-03-26', '2024-11-05']` |
 

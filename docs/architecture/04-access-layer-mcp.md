@@ -221,7 +221,9 @@ The current registry exposes 14 tools ([`packages/mcp-server/src/tools/index.ts`
 
 #### Public Read-Only MCP ([`@ampless/mcp-server/public`](../../packages/mcp-server/src/public))
 
-A second, **anonymous read-only** MCP surface exposes published content to AI clients without a token. It is served from the Next.js runtime's `/api/mcp` route (wiring + config toggle + per-IP rate limiting land in a follow-up), and runs through the same shared `dispatchJsonRpc` with a `PublicToolContext` that the runtime backs with its apiKey-mode `listPublishedPosts` / `getPublishedPost` (drafts stripped server-side) + `postToMarkdown`.
+A second, **anonymous read-only** MCP surface exposes published content to AI clients without a token. It is served from the Next.js runtime's `/api/mcp` route (`createPublicMcpRouteHandler`, mounted at `app/api/mcp/route.ts`) and runs through the same shared dispatch with a `PublicToolContext` that the runtime backs with its apiKey-mode `listPublishedPosts` / `getPublishedPost` (drafts stripped server-side) + `postToMarkdown`.
+
+**Opt-in.** The route 404s unless `cms.config.ai.publicMcp === true` — because it is unauthenticated, the default is off. Both `POST` and `OPTIONS` are gated.
 
 | Tool | Description |
 |---|---|
@@ -236,6 +238,14 @@ Design constraints:
 - **Field allowlist.** Summaries surface only `slug` / `title` / `excerpt` / `tags` / `publishedAt` / `updatedAt` / `format`. `postId` / `status` / `metadata` / raw `body` are never emitted (an explicit pick, never a spread of the `Post`).
 - **Bounded scans.** `search_posts` / `list_tags` walk at most 5 AppSync pages (~200 recent posts). Anonymous body-bearing reads can't be absorbed by a CDN, so the tool layer bounds item/page counts; request-frequency limiting is the route's responsibility.
 - All four tools are annotated `readOnlyHint: true, destructiveHint: false`.
+
+Transport / HTTP framing (`createPublicMcpRouteHandler`):
+
+- **POST JSON-RPC 2.0**, sharing `dispatchJsonRpcMessage` with the admin transport — so envelope validation, non-object rejection, and **batch** handling (sequential, order-preserving, `initialize` forbidden as a batch element, ≤`MAX_BATCH` = 50) are identical on both endpoints. Tagged results map to HTTP: `invalid` → 400, `ok` → 200, `no-content` (notification-only) → 202.
+- **Open CORS** on every response (`Access-Control-Allow-Origin: *`, `POST, OPTIONS`); `OPTIONS` preflight returns 204 when enabled. Safe because the surface is anonymous, read-only, published-only, and credential-free.
+- **64KB body cap.** A `Content-Length` over the cap is a 413 before any read; a chunked body is aborted mid-stream once it crosses the cap (never fully buffered).
+- **Coarse circuit breaker, NOT a per-IP rate limiter.** A single module-scope fixed-window counter (600 req/min; a batch charges one unit per element) stops one warm lambda instance from being pinned by a runaway caller. It is deliberately **not** keyed on `x-forwarded-for` — CloudFront preserves a client-supplied XFF and only appends the real edge IP, so the leftmost value is spoofable and the hop count isn't guaranteed. It only bites within a warm instance; real per-IP throttling / DoS protection is CloudFront / WAF's job. `console.error`-logged tool failures are masked to a fixed client message so the anonymous endpoint never leaks internal detail.
+- **Outermost guard.** A stream-read failure or any unexpected exception still returns a CORS'd JSON-RPC 500 (`id: null`), never a bare Next.js HTML 500.
 
 ### Policy
 

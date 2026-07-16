@@ -715,4 +715,75 @@ describe('mcp-handler', () => {
     expect(body.result.isError).toBe(true)
     expect(body.result.content[0].text).toContain('AppSync exploded')
   })
+
+  // --- JSON-RPC batch (shared dispatchJsonRpcMessage) ---
+
+  it('a batch of requests returns an array of responses in input order (200)', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: [
+          { jsonrpc: '2.0', id: 'a', method: 'tools/list' },
+          { jsonrpc: '2.0', id: 'b', method: 'initialize', params: { protocolVersion: '2024-11-05' } },
+        ],
+      })
+    )
+    // initialize inside a batch is rejected per element (INVALID_REQUEST),
+    // but tools/list still succeeds — both come back in order.
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(Array.isArray(body)).toBe(true)
+    expect(body.map((r: { id: unknown }) => r.id)).toEqual(['a', 'b'])
+    expect(body[0].result.tools.length).toBeGreaterThan(0)
+    expect(body[1].error.code).toBe(-32600)
+  })
+
+  it('a malformed-mixed batch: bad elements become id:null errors, notification excluded, 200', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: [
+          { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+          { jsonrpc: '2.0', method: 'notifications/initialized' },
+          null,
+          { jsonrpc: '2.0', id: 3 },
+        ],
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.length).toBe(3)
+    expect(body[0].id).toBe(1)
+    expect(body[0].result).toBeDefined()
+    expect(body[1].id).toBeNull()
+    expect(body[1].error.code).toBe(-32600)
+    expect(body[2].id).toBe(3)
+    expect(body[2].error.code).toBe(-32600)
+  })
+
+  it('an all-notification batch gets a 202 with an empty body', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: [
+          { jsonrpc: '2.0', method: 'notifications/initialized' },
+          { jsonrpc: '2.0', method: 'some/other/notification' },
+        ],
+      })
+    )
+    expect(res.statusCode).toBe(202)
+    expect(res.body).toBe('')
+  })
+
+  it('an empty batch array returns 400 invalid-request', async () => {
+    mockValidTokenLookup()
+    const res = await handler(makeEvent({ authorization: VALID_TOKEN, body: [] }))
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+    expect(body.id).toBeNull()
+  })
 })

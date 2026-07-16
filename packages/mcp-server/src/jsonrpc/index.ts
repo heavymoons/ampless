@@ -117,6 +117,140 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+// Maximum number of elements a single JSON-RPC batch may carry. A batch
+// larger than this is rejected wholesale as INVALID_REQUEST — an
+// unbounded batch would let one HTTP request fan out into arbitrarily
+// many tool executions. Callers can override via `opts.maxBatch`.
+export const MAX_BATCH = 50
+
+/**
+ * Result of dispatching an *unvalidated* decoded JSON-RPC message
+ * (single object or batch array) through `dispatchJsonRpcMessage`. The
+ * `status` tag tells the HTTP transport which response to emit:
+ *
+ *   - `invalid`    → 400 (top-level malformed: non-object scalar, empty
+ *                    batch, or over-size batch). `body` is the single
+ *                    error envelope to return.
+ *   - `ok`         → 200. `body` is a single response, or a batch's
+ *                    array of responses (invalid *elements* of a batch
+ *                    are error responses *inside* this array, still 200).
+ *   - `no-content` → 202 empty body (a lone notification, or a batch
+ *                    made entirely of notifications).
+ */
+export type JsonRpcMessageResult =
+  | { status: 'invalid'; body: JsonRpcResponse }
+  | { status: 'ok'; body: JsonRpcResponse | JsonRpcResponse[] }
+  | { status: 'no-content' }
+
+export interface JsonRpcDispatchMessageOptions<TCtx> extends JsonRpcDispatchOptions<TCtx> {
+  /** Batch element cap. Defaults to `MAX_BATCH` (50). */
+  maxBatch?: number
+}
+
+// Best-effort id for an error response: echo the request's id only when
+// it is a valid JSON-RPC id, else `null` (per spec, a response to a
+// request with an unusable/absent id carries `id: null`).
+function idForError(input: unknown): JsonRpcResponse['id'] {
+  if (isPlainObject(input) && hasValidJsonRpcId(input)) {
+    return (input as { id?: JsonRpcRequest['id'] }).id ?? null
+  }
+  return null
+}
+
+/**
+ * Validate one decoded envelope. Returns the typed request when the
+ * envelope passes, or an INVALID_REQUEST error response when it fails.
+ * `inBatch` additionally rejects `initialize` — MCP forbids putting an
+ * `initialize` request inside a batch.
+ */
+function validateEnvelope(
+  input: unknown,
+  inBatch: boolean,
+): { ok: true; req: JsonRpcRequest } | { ok: false; error: JsonRpcResponse } {
+  if (!isPlainObject(input)) {
+    return { ok: false, error: jsonRpcError(null, JSON_RPC_INVALID_REQUEST, 'Invalid Request') }
+  }
+  const jsonrpc = (input as { jsonrpc?: unknown }).jsonrpc
+  const method = (input as { method?: unknown }).method
+  if (jsonrpc !== '2.0' || typeof method !== 'string' || !hasValidJsonRpcId(input)) {
+    return {
+      ok: false,
+      error: jsonRpcError(idForError(input), JSON_RPC_INVALID_REQUEST, 'Invalid Request'),
+    }
+  }
+  if (inBatch && method === 'initialize') {
+    return {
+      ok: false,
+      error: jsonRpcError(
+        idForError(input),
+        JSON_RPC_INVALID_REQUEST,
+        'Invalid Request: `initialize` is not allowed in a batch',
+      ),
+    }
+  }
+  return { ok: true, req: input as unknown as JsonRpcRequest }
+}
+
+/**
+ * Dispatch an *unvalidated* decoded JSON-RPC message — the single entry
+ * point every transport should use once it has `JSON.parse`d the body.
+ * Envelope validation, batch handling, and MCP method semantics are all
+ * centralised here so the admin (backend Lambda) and public (runtime)
+ * transports share one implementation; the transport keeps only HTTP
+ * framing (body decode, status codes, CORS, auth).
+ *
+ * Batch semantics (JSON-RPC 2.0):
+ *   - An array is a batch. Empty / over-`maxBatch` batches are rejected
+ *     wholesale as a single top-level INVALID_REQUEST (`status: 'invalid'`).
+ *   - Elements are processed **sequentially** (never `Promise.all`) so a
+ *     batch of tool calls cannot fan out into concurrent handler runs.
+ *   - Malformed elements yield an INVALID_REQUEST response inside the
+ *     result array (id echoed when valid, else null); `initialize` is
+ *     not allowed as a batch element. Notifications execute but emit no
+ *     response. Non-notification responses keep the input order.
+ *   - A batch that yields no responses at all (all notifications) →
+ *     `no-content`.
+ */
+export async function dispatchJsonRpcMessage<TCtx>(
+  input: unknown,
+  opts: JsonRpcDispatchMessageOptions<TCtx>,
+): Promise<JsonRpcMessageResult> {
+  const maxBatch = opts.maxBatch ?? MAX_BATCH
+
+  if (Array.isArray(input)) {
+    if (input.length === 0 || input.length > maxBatch) {
+      return {
+        status: 'invalid',
+        body: jsonRpcError(
+          null,
+          JSON_RPC_INVALID_REQUEST,
+          input.length === 0
+            ? 'Invalid Request: empty batch'
+            : `Invalid Request: batch exceeds the maximum of ${maxBatch} elements`,
+        ),
+      }
+    }
+    const responses: JsonRpcResponse[] = []
+    for (const element of input) {
+      const validated = validateEnvelope(element, true)
+      if (!validated.ok) {
+        responses.push(validated.error)
+        continue
+      }
+      const res = await dispatchJsonRpc(validated.req, opts)
+      if (res !== null) responses.push(res)
+    }
+    return responses.length === 0 ? { status: 'no-content' } : { status: 'ok', body: responses }
+  }
+
+  const validated = validateEnvelope(input, false)
+  if (!validated.ok) {
+    return { status: 'invalid', body: validated.error }
+  }
+  const res = await dispatchJsonRpc(validated.req, opts)
+  return res === null ? { status: 'no-content' } : { status: 'ok', body: res }
+}
+
 // Build the MCP tool annotations. Only emit a hint when the tool has
 // been explicitly classified — an unclassified `destructive`
 // (undefined) omits `destructiveHint`, letting the spec default (true,

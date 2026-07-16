@@ -4,13 +4,11 @@ import { createHash } from 'node:crypto'
 
 import { tools, type StorageClient, type ToolContext } from '@ampless/mcp-server/tools'
 import {
-  dispatchJsonRpc,
-  hasValidJsonRpcId,
+  dispatchJsonRpcMessage,
   jsonRpcError,
   JSON_RPC_PARSE_ERROR,
   JSON_RPC_INVALID_REQUEST,
   JSON_RPC_INTERNAL_ERROR,
-  type JsonRpcRequest,
 } from '@ampless/mcp-server/jsonrpc'
 import { createMcpGraphqlClient } from './mcp-graphql-client.js'
 import { createMcpStorageClient } from './mcp-storage-client.js'
@@ -235,8 +233,11 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
   // minute.
   await touchLastUsedAt(meta.hash)
 
-  // Parse JSON-RPC body.
-  let req: JsonRpcRequest
+  // Parse JSON-RPC body. Envelope validation, non-object rejection, and
+  // batch handling now live in the shared `dispatchJsonRpcMessage` — this
+  // handler keeps only the two HTTP-framing failures (empty body /
+  // unparseable JSON) and passes the raw `unknown` through.
+  let parsed: unknown
   try {
     const body = event.isBase64Encoded
       ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
@@ -244,56 +245,45 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
     if (!body) {
       return jsonResponse(400, jsonRpcError(null, JSON_RPC_INVALID_REQUEST, 'Empty body'))
     }
-    req = JSON.parse(body) as JsonRpcRequest
+    parsed = JSON.parse(body) as unknown
   } catch {
     return jsonResponse(400, jsonRpcError(null, JSON_RPC_PARSE_ERROR, 'Parse error'))
   }
 
-  // `JSON.parse` accepts non-object JSON (`null`, `42`, `[]`, `"x"`).
-  // Reject anything that isn't a plain object before touching envelope
-  // fields, or `req.jsonrpc` on `null` would throw a 5xx below.
-  if (typeof req !== 'object' || req === null || Array.isArray(req)) {
-    return jsonResponse(400, jsonRpcError(null, JSON_RPC_INVALID_REQUEST, 'Invalid Request'))
-  }
-
-  // Envelope validation, kept in sync with `dispatchJsonRpc`: MCP
-  // forbids `id: null`, and JSON-RPC numeric ids must be integers. An
-  // *absent* id is a valid notification, not an error.
-  if (req.jsonrpc !== '2.0' || typeof req.method !== 'string' || !hasValidJsonRpcId(req)) {
-    // Echo the id only when it is itself valid — per spec, a response
-    // to a request with an unusable id carries `id: null`.
-    const responseId = hasValidJsonRpcId(req)
-      ? (req as { id?: JsonRpcRequest['id'] }).id ?? null
-      : null
-    return jsonResponse(
-      400,
-      jsonRpcError(responseId, JSON_RPC_INVALID_REQUEST, 'Invalid Request')
-    )
-  }
-
   try {
-    const response = await dispatchJsonRpc(req, {
+    const result = await dispatchJsonRpcMessage(parsed, {
       tools: HTTP_TOOLS,
       getContext: makeContext,
       serverInfo: { name: 'ampless-mcp', version: '0.2' },
     })
-    // A notification (JSON-RPC id absent, e.g. notifications/initialized)
-    // gets no body — the shared dispatch returns null. Reply 202 Accepted
-    // with an empty body rather than the old (protocol-violating) result.
-    if (response === null) {
+    // Tagged-result → HTTP mapping. `no-content` (a lone notification or
+    // an all-notification batch) replies 202 with an empty body rather
+    // than a protocol-violating result envelope; `invalid` (top-level
+    // malformed input) is a 400.
+    if (result.status === 'invalid') {
+      return jsonResponse(400, result.body)
+    }
+    if (result.status === 'no-content') {
       return { statusCode: 202, body: '' }
     }
-    return jsonResponse(200, response)
+    return jsonResponse(200, result.body)
   } catch (err) {
-    // Last-ditch catch: dispatchJsonRpc shouldn't throw for normal
+    // Last-ditch catch: dispatchJsonRpcMessage shouldn't throw for normal
     // tool errors (those are returned as JSON-RPC results with
-    // isError: true), but a bug in the dispatcher or a credential
-    // failure could land here. Log loudly so CloudWatch sees it.
+    // isError: true), but a bug in the dispatcher or a credential failure
+    // could land here. `parsed` is `unknown` (it may be a batch array or
+    // a scalar), so extract the method defensively for the log line and
+    // always answer with `id: null` — a batch / malformed input has no
+    // single id to echo.
+    const method =
+      typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as { method?: unknown }).method
+        : undefined
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[mcp-handler] dispatch threw', { method: req.method, message })
-    return jsonResponse(
-      500,
-      jsonRpcError(req.id ?? null, JSON_RPC_INTERNAL_ERROR, message)
-    )
+    console.error('[mcp-handler] dispatch threw', {
+      method: typeof method === 'string' ? method : undefined,
+      message,
+    })
+    return jsonResponse(500, jsonRpcError(null, JSON_RPC_INTERNAL_ERROR, message))
   }
 }

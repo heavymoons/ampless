@@ -281,6 +281,15 @@ export interface AiConfig {
    *  are comparatively expensive for now).
    *  Default: enabled with `{ limit: 100 }` (clamped to 1..1000). */
   llmsTxt?: boolean | { limit?: number }
+  /**
+   * Expose an anonymous, read-only MCP endpoint at `/api/mcp`
+   * (JSON-RPC 2.0 over POST). Serves published posts only and can never
+   * write. **Default: false** — because the endpoint is unauthenticated,
+   * it is opt-in. The route ships a coarse warm-instance circuit breaker,
+   * not a per-IP rate limiter; pair it with CloudFront / WAF for real
+   * abuse protection.
+   */
+  publicMcp?: boolean
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

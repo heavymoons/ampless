@@ -191,6 +191,7 @@ static posts.
 | `format: 'static'` | `/<slug>/` | static bundle served from S3 via presigned URL |
 | Any format | `/<slug>.md` | Markdown projection of the post (`ampless.postToMarkdown()`) |
 | Site-wide | `/llms.txt` | AI index of recent published posts, disable with `ai.llmsTxt: false` |
+| Site-wide | `/api/mcp` | Anonymous read-only MCP endpoint (JSON-RPC 2.0 over POST, published posts only); enable with `ai.publicMcp: true` |
 
 ## AI-readable Markdown (`/<slug>.md`)
 
