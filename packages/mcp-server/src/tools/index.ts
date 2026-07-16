@@ -27,12 +27,24 @@ export {
   type ExtractZipOptions,
 } from './static-bundle-extract.js'
 
-export interface ToolDefinition {
+export interface ToolDefinition<TCtx = ToolContext> {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>
+  handler: (args: Record<string, unknown>, ctx: TCtx) => Promise<unknown>
+  /**
+   * `true` when the tool can destroy or irreversibly overwrite existing
+   * state. Surfaced as the MCP `destructiveHint` annotation. Left
+   * `undefined` only for tools that have not been classified — the
+   * shared dispatch then omits the hint so the spec default (`true`,
+   * the safe side) applies.
+   */
   destructive?: boolean
+  /**
+   * `true` when the tool only reads and never mutates state. Surfaced
+   * as the MCP `readOnlyHint` annotation.
+   */
+  readOnly?: boolean
 }
 
 export const tools: ToolDefinition[] = [
@@ -42,6 +54,8 @@ export const tools: ToolDefinition[] = [
       'Returns lightweight post summaries (no body — use get_post for content) with search / sort / filters. `total` reflects the filtered count. Supports query (substring over title/slug/tags), tag (exact), status, sort, limit (1–100, default 20), offset (default 0).',
     inputSchema: listPostsSchema,
     handler: (args, ctx) => listPosts(ctx.graphql, args),
+    readOnly: true,
+    destructive: false,
   },
   {
     name: 'get_post',
@@ -49,6 +63,8 @@ export const tools: ToolDefinition[] = [
       'Fetch a single post by slug or postId. Returns null if not found.',
     inputSchema: getPostSchema,
     handler: (args, ctx) => getPost(ctx.graphql, args),
+    readOnly: true,
+    destructive: false,
   },
   {
     name: 'create_post',
@@ -57,6 +73,8 @@ export const tools: ToolDefinition[] = [
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, args as unknown as Parameters<typeof createPost>[1]),
+    readOnly: false,
+    destructive: false,
   },
   {
     name: 'update_post',
@@ -65,6 +83,9 @@ export const tools: ToolDefinition[] = [
     inputSchema: updatePostSchema,
     handler: (args, ctx) =>
       updatePost(ctx.graphql, args as unknown as Parameters<typeof updatePost>[1]),
+    readOnly: false,
+    // Overwrites an existing post's fields — not a pure additive write.
+    destructive: true,
   },
   {
     name: 'delete_post',
@@ -73,6 +94,7 @@ export const tools: ToolDefinition[] = [
     inputSchema: deletePostSchema,
     handler: (args, ctx) =>
       deletePost(ctx.graphql, args as unknown as Parameters<typeof deletePost>[1]),
+    readOnly: false,
     destructive: true,
   },
   {
@@ -82,6 +104,8 @@ export const tools: ToolDefinition[] = [
     inputSchema: uploadMediaSchema,
     handler: (args, ctx) =>
       uploadMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof uploadMedia>[2]),
+    readOnly: false,
+    destructive: false,
   },
   {
     name: 'list_media',
@@ -90,6 +114,8 @@ export const tools: ToolDefinition[] = [
     inputSchema: listMediaSchema,
     handler: (args, ctx) =>
       listMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof listMedia>[2]),
+    readOnly: true,
+    destructive: false,
   },
   {
     name: 'search_media',
@@ -98,6 +124,8 @@ export const tools: ToolDefinition[] = [
     inputSchema: searchMediaSchema,
     handler: (args, ctx) =>
       searchMedia(ctx.graphql, ctx.storage(), args as unknown as Parameters<typeof searchMedia>[2]),
+    readOnly: true,
+    destructive: false,
   },
   {
     name: 'delete_media',
@@ -110,6 +138,7 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof deleteMedia>[2],
       ),
+    readOnly: false,
     destructive: true,
   },
   {
@@ -118,6 +147,8 @@ export const tools: ToolDefinition[] = [
       'Returns the CMS content schema (Post/Page/Media field shapes, format enum, notes). Useful as the first call to understand what fields are available.',
     inputSchema: getSchemaSchema,
     handler: async () => getSchema(),
+    readOnly: true,
+    destructive: false,
   },
   {
     name: 'upload_static_bundle',
@@ -130,6 +161,7 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof uploadStaticBundle>[2],
       ),
+    readOnly: false,
     destructive: true,
   },
   {
@@ -142,6 +174,9 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof uploadStaticFile>[1],
       ),
+    readOnly: false,
+    // Overwrites whatever file currently sits at that S3 key.
+    destructive: true,
   },
   {
     name: 'delete_static_file',
@@ -153,6 +188,7 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof deleteStaticFile>[1],
       ),
+    readOnly: false,
     destructive: true,
   },
   {
@@ -166,6 +202,9 @@ export const tools: ToolDefinition[] = [
         ctx.storage(),
         args as unknown as Parameters<typeof commitStaticPost>[2],
       ),
+    readOnly: false,
+    // Rebuilds (overwrites) the existing Post row's manifest.
+    destructive: true,
   },
 ]
 

@@ -284,12 +284,17 @@ describe('mcp-handler', () => {
 
   // --- JSON-RPC dispatch ---
 
-  it('initialize returns 200 with protocolVersion + tools capability', async () => {
+  it('initialize echoes a supported requested protocolVersion (2024-11-05) + tools capability', async () => {
     mockValidTokenLookup()
     const res = await handler(
       makeEvent({
         authorization: VALID_TOKEN,
-        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2024-11-05' },
+        },
       })
     )
     expect(res.statusCode).toBe(200)
@@ -299,6 +304,65 @@ describe('mcp-handler', () => {
     expect(body.result.protocolVersion).toBe('2024-11-05')
     expect(body.result.capabilities).toEqual({ tools: {} })
     expect(body.result.serverInfo).toMatchObject({ name: 'ampless-mcp' })
+  })
+
+  it('initialize echoes 2025-03-26 when the client requests it', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-03-26' },
+        },
+      })
+    )
+    const body = JSON.parse(res.body)
+    expect(body.result.protocolVersion).toBe('2025-03-26')
+  })
+
+  it('initialize negotiates down to the latest supported version for an unknown request', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '1999-01-01' },
+        },
+      })
+    )
+    const body = JSON.parse(res.body)
+    expect(body.result.protocolVersion).toBe('2025-03-26')
+  })
+
+  it('initialize without protocolVersion returns invalid-params', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32602)
+  })
+
+  it('notifications/initialized (JSON-RPC notification, no id) gets a 202 with an empty body', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', method: 'notifications/initialized' },
+      })
+    )
+    expect(res.statusCode).toBe(202)
+    expect(res.body).toBe('')
   })
 
   it('tools/list returns the full tool registry including upload_media', async () => {
@@ -325,6 +389,33 @@ describe('mcp-handler', () => {
     expect(names).toContain('upload_static_file')
     expect(names).toContain('delete_static_file')
     expect(names).toContain('commit_static_post')
+  })
+
+  it('tools/list emits MCP readOnlyHint / destructiveHint annotations per tool classification', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+      })
+    )
+    const body = JSON.parse(res.body)
+    const byName = new Map(
+      (body.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [
+        t.name,
+        t.annotations,
+      ])
+    )
+    // Pure read.
+    expect(byName.get('list_posts')).toEqual({ readOnlyHint: true, destructiveHint: false })
+    expect(byName.get('get_schema')).toEqual({ readOnlyHint: true, destructiveHint: false })
+    // Pure additive write.
+    expect(byName.get('create_post')).toEqual({ readOnlyHint: false, destructiveHint: false })
+    // Overwriting write.
+    expect(byName.get('update_post')).toEqual({ readOnlyHint: false, destructiveHint: true })
+    expect(byName.get('commit_static_post')).toEqual({ readOnlyHint: false, destructiveHint: true })
+    // destructive: true.
+    expect(byName.get('delete_post')).toEqual({ readOnlyHint: false, destructiveHint: true })
   })
 
   it('tools/call list_posts dispatches via the mocked graphql client', async () => {
@@ -493,6 +584,107 @@ describe('mcp-handler', () => {
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.body)
     expect(body.error.code).toBe(-32600)
+  })
+
+  it.each(['null', '42', '"a string"', '[]'])(
+    'non-object JSON body %s returns 400 invalid-request without crashing',
+    async (rawBody) => {
+      mockValidTokenLookup()
+      const res = await handler(
+        makeEvent({ authorization: VALID_TOKEN, rawBody })
+      )
+      expect(res.statusCode).toBe(400)
+      const body = JSON.parse(res.body)
+      expect(body.error.code).toBe(-32600)
+    }
+  )
+
+  it('id: null is rejected as invalid-request (MCP forbids null ids; not a notification)', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: null, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+    expect(body.id).toBeNull()
+  })
+
+  it('id: 1.5 (fractional number) is rejected as invalid-request', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 1.5, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32600)
+    // An unusable id is not echoed back — the response carries id: null.
+    expect(body.id).toBeNull()
+  })
+
+  it('id: "abc" (string) is a valid request id', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 'abc', method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(body.id).toBe('abc')
+    expect(body.result.tools.length).toBeGreaterThan(0)
+  })
+
+  it('id: 0 (integer) is a valid request id', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', id: 0, method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBeUndefined()
+    expect(body.id).toBe(0)
+  })
+
+  it('a tools/list notification (id absent) gets a 202 with an empty body', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: { jsonrpc: '2.0', method: 'tools/list' },
+      })
+    )
+    expect(res.statusCode).toBe(202)
+    expect(res.body).toBe('')
+  })
+
+  it('initialize with a non-string protocolVersion (42) returns invalid-params, not a fallback', async () => {
+    mockValidTokenLookup()
+    const res = await handler(
+      makeEvent({
+        authorization: VALID_TOKEN,
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: 42 },
+        },
+      })
+    )
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.error.code).toBe(-32602)
   })
 
   it('empty body returns invalid-request (not parse error)', async () => {

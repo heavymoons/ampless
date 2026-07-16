@@ -7,7 +7,7 @@
 // `/static` this isn't reached via a middleware rewrite, so (like
 // `og.ts`) this route computes and sets its own `Cache-Control`.
 
-import type { Post } from 'ampless'
+import { collectBounded, type Post } from 'ampless'
 import type { Ampless } from '../index.js'
 
 // File route is `app/llms.txt/route.ts` — no dynamic segments.
@@ -100,53 +100,17 @@ interface CollectResult {
 }
 
 /**
- * Walk `listPublishedPosts` pages until we have `limit + 1` items (the
- * extra item confirms there really are more posts beyond `limit` — a
- * present `nextToken` alone doesn't guarantee that, since DynamoDB can
- * return a token alongside zero remaining items), the token is
- * exhausted, or one of the two bounds below trips:
- *
- *  - `MAX_PAGES` pages walked without reaching either stop condition
- *  - the same `nextToken` comes back twice (defends against a
- *    misbehaving resolver looping forever)
+ * Walk `listPublishedPosts` pages via the shared `collectBounded` helper
+ * (`ampless` core), bounded to `MAX_PAGES` pages of `PAGE_SIZE_CAP`
+ * items each. `clampLimit` above guarantees `limit` is already a finite
+ * positive integer, so it satisfies `collectBounded`'s argument
+ * contract without any further coercion here.
  */
 async function collectPosts(ampless: Ampless, limit: number): Promise<CollectResult> {
-  const items: Post[] = []
-  const seenTokens = new Set<string>()
-  let token: string | undefined
-  let truncated: Truncation = null
-
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const remaining = limit + 1 - items.length
-    const pageLimit = Math.min(PAGE_SIZE_CAP, remaining)
-    const res = await ampless.listPublishedPosts({ limit: pageLimit, nextToken: token })
-    items.push(...res.items)
-
-    if (items.length > limit) {
-      truncated = 'limit'
-      break
-    }
-    if (!res.nextToken) {
-      break
-    }
-    if (seenTokens.has(res.nextToken)) {
-      truncated = 'early'
-      break
-    }
-    seenTokens.add(res.nextToken)
-    token = res.nextToken
-
-    if (page === MAX_PAGES - 1) {
-      // Last allowed page produced neither a limit+1th item nor an
-      // exhausted token — stopping here with (possibly) more left.
-      truncated = 'early'
-    }
-  }
-
-  return {
-    items: truncated === 'limit' ? items.slice(0, limit) : items,
-    truncated,
-  }
+  return collectBounded<Post>(
+    (args) => ampless.listPublishedPosts({ limit: args.limit, nextToken: args.nextToken }),
+    { limit, pageSizeCap: PAGE_SIZE_CAP, maxPages: MAX_PAGES },
+  )
 }
 
 // Both notes live in the description area, before the first `## Posts`

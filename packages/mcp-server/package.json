@@ -9,8 +9,16 @@
   "type": "module",
   "exports": {
     "./tools": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/tools/index.js",
+      "types": "./dist/tools/index.d.ts"
+    },
+    "./jsonrpc": {
+      "import": "./dist/jsonrpc/index.js",
+      "types": "./dist/jsonrpc/index.d.ts"
+    },
+    "./public": {
+      "import": "./dist/public/index.js",
+      "types": "./dist/public/index.d.ts"
     }
   },
   "files": [

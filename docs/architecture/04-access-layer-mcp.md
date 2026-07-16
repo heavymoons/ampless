@@ -119,7 +119,7 @@ MCP access is **HTTP-only**. The system is split across two packages:
 
 ```
 packages/
-  mcp-server/         — Tool registry library (private, bundled into the Lambda)
+  mcp-server/         — Tool registry + shared JSON-RPC dispatch + public tools (published to npm)
   backend/
     src/functions/
       mcp-handler.ts          — Lambda entry: HTTP + JSON-RPC + Bearer auth
@@ -171,11 +171,30 @@ MCP client → HTTPS POST to Lambda Function URL
 
 #### Tool Registry ([`packages/mcp-server`](../../packages/mcp-server))
 
-`@ampless/mcp-server` is an **internal library** — `private: true`, not published to npm. It exposes a registry of tool definitions and a `dispatchToolCall(name, args, ctx)` entry point. The Lambda supplies the `ToolContext` (GraphQL client, S3 client, site context); the registry has no transport awareness.
+`@ampless/mcp-server` **is published to npm** (public access) and arrives transitively via `@ampless/admin` / `@ampless/backend` / `@ampless/runtime` — no direct install is needed. It exposes three subpath entries:
+
+| Subpath | Contents |
+|---|---|
+| `@ampless/mcp-server/tools` | The admin tool registry (`tools`, `getTools`, `dispatchToolCall`, `ToolDefinition`) |
+| `@ampless/mcp-server/jsonrpc` | Transport-agnostic JSON-RPC 2.0 dispatch (`dispatchJsonRpc`) shared by the admin (backend) and public (runtime) MCP endpoints — protocol-version negotiation, `tools/list` annotations, notification handling |
+| `@ampless/mcp-server/public` | Read-only public tools (`publicTools`) + the `PublicToolContext` the runtime injects |
+
+The registry has no transport awareness — each transport supplies the context (admin: a GraphQL + S3 `ToolContext`; public: a `PublicToolContext`) and runs it through the shared `dispatchJsonRpc`.
 
 ```typescript
-import { tools, dispatchToolCall } from '@ampless/mcp-server/tools'
+import { tools } from '@ampless/mcp-server/tools'
+import { dispatchJsonRpc } from '@ampless/mcp-server/jsonrpc'
+import { publicTools } from '@ampless/mcp-server/public'
 ```
+
+##### JSON-RPC protocol behaviour (shared)
+
+Both endpoints run the same `dispatchJsonRpc`:
+
+- **Protocol negotiation** on `initialize`: supported versions are `2025-03-26` (first revision to define tool annotations) and `2024-11-05`. A supported requested version is echoed; an unsupported *string* negotiates down to `2025-03-26`; a **missing or non-string** `protocolVersion` (number / null / object) is an `INVALID_PARAMS` error. `2025-06-18` is intentionally not advertised (it adds transport obligations these stateless JSON-POST endpoints don't implement).
+- **`tools/list` annotations**: every tool carries `{ readOnlyHint, destructiveHint }`. Each tool is explicitly classified (read / additive write / overwriting write / destructive) rather than deriving the hints from a single flag — an update that overwrites existing state is `destructiveHint: true`.
+- **Request ids**: a valid `id` is a string or an integer. `id: null` (forbidden by MCP) and fractional numeric ids are rejected as `INVALID_REQUEST` — distinct from an *absent* id, which marks a notification.
+- **Notifications** (JSON-RPC requests with no `id`, e.g. `notifications/initialized`) get no response body for *any* method — the method still executes (including a `tools/call` handler), but the response is suppressed; the admin HTTP handler maps that to `202 Accepted`.
 
 #### MCP Tools
 
@@ -199,6 +218,24 @@ The current registry exposes 14 tools ([`packages/mcp-server/src/tools/index.ts`
 | `commit_static_post` | Re-scan the S3 prefix and rebuild the Post manifest (the "save" step after incremental edits) |
 
 `create_post` / `update_post` deliberately reject `format=static` so the manifest can't drift from S3 — the static-bundle tools are the only supported entry point.
+
+#### Public Read-Only MCP ([`@ampless/mcp-server/public`](../../packages/mcp-server/src/public))
+
+A second, **anonymous read-only** MCP surface exposes published content to AI clients without a token. It is served from the Next.js runtime's `/api/mcp` route (wiring + config toggle + per-IP rate limiting land in a follow-up), and runs through the same shared `dispatchJsonRpc` with a `PublicToolContext` that the runtime backs with its apiKey-mode `listPublishedPosts` / `getPublishedPost` (drafts stripped server-side) + `postToMarkdown`.
+
+| Tool | Description |
+|---|---|
+| `list_posts` | One page of newest-first published-post summaries + an opaque `nextCursor` (single backend page read, no scan) |
+| `get_post` | A single published post by slug, body rendered to `markdown`; truncated past 100k chars (`truncated: true`) |
+| `search_posts` | Case-insensitive substring over title / slug / tags / excerpt across a bounded scan of recent posts (`scanTruncated` flags a short scan) |
+| `list_tags` | Tag occurrence counts (descending) over the same bounded scan |
+
+Design constraints:
+
+- **Published only.** Every tool reads through the published-index resolvers; drafts are never reachable.
+- **Field allowlist.** Summaries surface only `slug` / `title` / `excerpt` / `tags` / `publishedAt` / `updatedAt` / `format`. `postId` / `status` / `metadata` / raw `body` are never emitted (an explicit pick, never a spread of the `Post`).
+- **Bounded scans.** `search_posts` / `list_tags` walk at most 5 AppSync pages (~200 recent posts). Anonymous body-bearing reads can't be absorbed by a CDN, so the tool layer bounds item/page counts; request-frequency limiting is the route's responsibility.
+- All four tools are annotated `readOnlyHint: true, destructiveHint: false`.
 
 ### Policy
 
