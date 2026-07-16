@@ -249,6 +249,13 @@ export const handler = async (event: FunctionUrlEvent): Promise<FunctionUrlResul
     return jsonResponse(400, jsonRpcError(null, JSON_RPC_PARSE_ERROR, 'Parse error'))
   }
 
+  // `JSON.parse` accepts non-object JSON (`null`, `42`, `[]`, `"x"`).
+  // Reject anything that isn't a plain object before touching envelope
+  // fields, or `req.jsonrpc` on `null` would throw a 5xx below.
+  if (typeof req !== 'object' || req === null || Array.isArray(req)) {
+    return jsonResponse(400, jsonRpcError(null, JSON_RPC_INVALID_REQUEST, 'Invalid Request'))
+  }
+
   // Envelope validation, kept in sync with `dispatchJsonRpc`: MCP
   // forbids `id: null`, and JSON-RPC numeric ids must be integers. An
   // *absent* id is a valid notification, not an error.

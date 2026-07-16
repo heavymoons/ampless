@@ -586,6 +586,19 @@ describe('mcp-handler', () => {
     expect(body.error.code).toBe(-32600)
   })
 
+  it.each(['null', '42', '"a string"', '[]'])(
+    'non-object JSON body %s returns 400 invalid-request without crashing',
+    async (rawBody) => {
+      mockValidTokenLookup()
+      const res = await handler(
+        makeEvent({ authorization: VALID_TOKEN, rawBody })
+      )
+      expect(res.statusCode).toBe(400)
+      const body = JSON.parse(res.body)
+      expect(body.error.code).toBe(-32600)
+    }
+  )
+
   it('id: null is rejected as invalid-request (MCP forbids null ids; not a notification)', async () => {
     mockValidTokenLookup()
     const res = await handler(
