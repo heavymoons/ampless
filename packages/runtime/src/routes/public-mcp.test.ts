@@ -172,6 +172,22 @@ describe('createPublicMcpRouteHandler', () => {
       const tools = body.result.tools as { name: string; annotations: Record<string, boolean> }[]
       const names = tools.map((t) => t.name).sort()
       expect(names).toEqual(['get_post', 'list_posts', 'list_tags', 'search_posts'])
+      for (const adminOnlyName of [
+        'create_post',
+        'update_post',
+        'delete_post',
+        'upload_media',
+        'delete_media',
+        'upload_static_bundle',
+        'upload_static_file',
+        'delete_static_file',
+        'commit_static_post',
+        'get_schema',
+        'list_media',
+        'search_media',
+      ]) {
+        expect(names).not.toContain(adminOnlyName)
+      }
       for (const t of tools) {
         expect(t.annotations).toEqual({ readOnlyHint: true, destructiveHint: false })
       }
@@ -249,6 +265,53 @@ describe('createPublicMcpRouteHandler', () => {
       const payload = JSON.parse(body.result.content[0].text)
       // 'news' appears on both posts, 'intro' on one.
       expect(payload.tags[0]).toEqual({ tag: 'news', count: 2 })
+    })
+
+    it('rejects an admin-only tool as METHOD_NOT_FOUND', async () => {
+      const { POST } = createPublicMcpRouteHandler(makeAmpless({ publicMcp: true }))
+      const res = await POST(
+        jsonRequest({
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'tools/call',
+          params: { name: 'create_post', arguments: {} },
+        })
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error.code).toBe(-32601)
+    })
+
+    it('clamps a 300-character search query and returns a normal tool result', async () => {
+      const { POST } = createPublicMcpRouteHandler(makeAmpless({ publicMcp: true }))
+      const res = await POST(
+        jsonRequest({
+          jsonrpc: '2.0',
+          id: 8,
+          method: 'tools/call',
+          params: { name: 'search_posts', arguments: { query: 'x'.repeat(300) } },
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.result.isError).toBeUndefined()
+      expect(JSON.parse(body.result.content[0].text).posts).toEqual([])
+    })
+
+    it('surfaces client-safe validation text for an invalid slug type', async () => {
+      const { POST } = createPublicMcpRouteHandler(makeAmpless({ publicMcp: true }))
+      const res = await POST(
+        jsonRequest({
+          jsonrpc: '2.0',
+          id: 9,
+          method: 'tools/call',
+          params: { name: 'get_post', arguments: { slug: 42 } },
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.result.isError).toBe(true)
+      expect(body.result.content[0].text).toBe('`slug` is required and must be a string')
+      expect(console.error).not.toHaveBeenCalled()
     })
 
     it('a notification returns 202 with an empty body + CORS + no-store', async () => {
@@ -391,9 +454,14 @@ describe('createPublicMcpRouteHandler', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    // Tool surfaced a not-found as isError; the draft body never leaks.
     expect(body.result.isError).toBe(true)
+    expect(body.result.content[0].text).toBe(
+      'No published post found for the requested slug.'
+    )
+    expect(body.result.content[0].text).not.toContain(DRAFT.slug)
+    expect(body.result.content[0].text).not.toContain('Internal error')
     expect(JSON.stringify(body)).not.toContain('shhh')
+    expect(console.error).not.toHaveBeenCalled()
   })
 
   // --- body size cap (byte-capped) ---
@@ -553,6 +621,29 @@ describe('createPublicMcpRouteHandler', () => {
       '[ampless] public MCP tool error',
       expect.any(Error)
     )
+  })
+
+  it('an unbranded same-name error remains masked', async () => {
+    const ampless = makeAmpless({ publicMcp: true })
+    ampless.listPublishedPosts = vi.fn(async () => {
+      const error = new Error('SECRET fake user error')
+      error.name = 'ToolUserError'
+      throw error
+    })
+    const { POST } = createPublicMcpRouteHandler(ampless)
+    const res = await POST(
+      jsonRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'list_posts', arguments: {} },
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.result.isError).toBe(true)
+    expect(body.result.content[0].text).toBe('Internal error while executing the tool.')
+    expect(JSON.stringify(body)).not.toContain('SECRET fake user error')
   })
 
   // --- outermost catch ---

@@ -21,6 +21,30 @@ export const JSON_RPC_METHOD_NOT_FOUND = -32601
 export const JSON_RPC_INVALID_PARAMS = -32602
 export const JSON_RPC_INTERNAL_ERROR = -32603
 
+const TOOL_USER_ERROR_BRAND = Symbol.for('ampless.mcp.toolUserError')
+
+/**
+ * A tool failure whose message is intentionally safe to expose to MCP
+ * clients. Messages must not include secrets, internal details, or
+ * unprocessed user input.
+ */
+export class ToolUserError extends Error {
+  readonly [TOOL_USER_ERROR_BRAND] = true
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'ToolUserError'
+  }
+}
+
+/** Recognises ToolUserError instances across independently bundled entry points. */
+export function isToolUserError(error: unknown): error is ToolUserError {
+  return (
+    error instanceof Error &&
+    (error as Error & { [TOOL_USER_ERROR_BRAND]?: unknown })[TOOL_USER_ERROR_BRAND] === true
+  )
+}
+
 // Protocol versions we can negotiate on `initialize`, newest first.
 //
 // `2025-03-26` is the first spec revision to define tool annotations
@@ -86,7 +110,8 @@ export interface JsonRpcDispatchOptions<TCtx> {
    * Converts a tool handler exception into the string surfaced to the
    * client. Omit to expose the raw error message (admin transport).
    * The public transport passes a fixed message here and logs the
-   * detail server-side instead.
+   * detail server-side instead. ToolUserError messages bypass this
+   * formatter because they are explicitly marked as client-safe.
    */
   formatToolError?: (err: unknown) => string
 }
@@ -370,15 +395,22 @@ async function dispatchMethod<TCtx>(
         })
       } catch (err) {
         // Tool errors are reported via isError + content (per MCP), not
-        // as JSON-RPC protocol errors. Always log the raw detail so the
-        // public transport (which masks the client-facing message via
-        // formatToolError) still leaves a trail in CloudWatch.
+        // as JSON-RPC protocol errors. Unexpected failures are logged
+        // before the public transport masks them. ToolUserError is an
+        // expected, client-safe failure and is neither logged nor masked.
         const rawMessage = err instanceof Error ? err.message : String(err)
-        console.error('[mcp-jsonrpc] tool dispatch failed', {
-          tool: params.name,
-          message: rawMessage,
-        })
-        const message = opts.formatToolError ? opts.formatToolError(err) : rawMessage
+        const userError = isToolUserError(err)
+        if (!userError) {
+          console.error('[mcp-jsonrpc] tool dispatch failed', {
+            tool: params.name,
+            message: rawMessage,
+          })
+        }
+        const message = userError
+          ? rawMessage
+          : opts.formatToolError
+            ? opts.formatToolError(err)
+            : rawMessage
         return jsonRpcResult(id, {
           isError: true,
           content: [{ type: 'text', text: message }],

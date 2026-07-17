@@ -186,6 +186,24 @@ export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler
     }
     const note = truncationNote(truncated, limit)
     if (note) blocks.push(note)
+    if (ampless.cmsConfig.ai?.publicMcp === true) {
+      // Origin-based, matching admin's resolvePublicMcpEndpoint: the MCP
+      // route is mounted at the app root, so it must not inherit any path
+      // component `site.url` happens to carry (unlike the `.md` links).
+      let mcpUrl = '/api/mcp'
+      if (siteUrl) {
+        try {
+          mcpUrl = new URL('/api/mcp', siteUrl).toString()
+        } catch {
+          mcpUrl = '/api/mcp'
+        }
+      }
+      blocks.push(
+        `This site also exposes a read-only MCP endpoint at ${mcpUrl} ` +
+          '(JSON-RPC over HTTP POST; tools: list_posts, get_post, search_posts, list_tags; ' +
+          'published posts only).'
+      )
+    }
 
     if (items.length > 0) {
       const lines = items.map((post) => {

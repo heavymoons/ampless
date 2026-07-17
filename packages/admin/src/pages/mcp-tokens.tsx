@@ -22,15 +22,41 @@ export function createMcpTokensPage(admin: Admin) {
       redirect('/admin')
     }
     const mcpEndpoint = extractMcpEndpoint(admin.outputs)
+    let publicMcpEndpoint: string | null | undefined
+    if (admin.cmsConfig.ai?.publicMcp === true) {
+      try {
+        const settings = await admin.loadSiteSettings()
+        publicMcpEndpoint = resolvePublicMcpEndpoint(true, settings.site.url)
+      } catch (err) {
+        console.error('[mcp-tokens] loadSiteSettings failed', err)
+        publicMcpEndpoint = null
+      }
+    }
     return (
       <McpTokensView
         currentUserId={session!.userId}
         currentUserEmail={session!.email}
         mcpEndpoint={mcpEndpoint}
+        publicMcpEndpoint={publicMcpEndpoint}
       />
     )
   }
   return McpTokensPage
+}
+
+export function resolvePublicMcpEndpoint(
+  publicMcp: boolean | undefined,
+  siteUrl: string | undefined,
+): string | null | undefined {
+  if (publicMcp !== true) return undefined
+  if (!siteUrl?.trim()) return null
+  try {
+    const parsed = new URL(siteUrl)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return new URL('/api/mcp', parsed).toString()
+  } catch {
+    return null
+  }
 }
 
 function extractMcpEndpoint(outputs: Admin['outputs']): string | null {

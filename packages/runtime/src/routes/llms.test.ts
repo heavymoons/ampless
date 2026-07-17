@@ -109,6 +109,62 @@ describe('createLlmsTxtRouteHandler', () => {
     expect(res.status).toBe(200)
   })
 
+  it('advertises the public MCP endpoint in the preamble only when enabled', async () => {
+    const posts = [makePost()]
+    const enabled = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: true } },
+      settings: { url: 'https://site.example.com/base/' },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const enabledText = await (
+      await createLlmsTxtRouteHandler(enabled)(makeRequest(), makeCtx())
+    ).text()
+    // Origin-based (matching admin's resolvePublicMcpEndpoint): the /base
+    // path in site.url must NOT leak into the MCP endpoint URL.
+    const guidance =
+      'This site also exposes a read-only MCP endpoint at https://site.example.com/api/mcp ' +
+      '(JSON-RPC over HTTP POST; tools: list_posts, get_post, search_posts, list_tags; published posts only).'
+    expect(enabledText).toContain(guidance)
+    expect(enabledText.indexOf(guidance)).toBeLessThan(enabledText.indexOf('## Posts'))
+
+    const disabled = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: false } },
+      list: sequentialPages([{ items: posts, nextToken: null }]),
+    })
+    const disabledText = await (
+      await createLlmsTxtRouteHandler(disabled)(makeRequest(), makeCtx())
+    ).text()
+    expect(disabledText).not.toContain('read-only MCP endpoint')
+  })
+
+  it('builds the MCP endpoint from the site URL origin even when site.url has a path', async () => {
+    const post = makePost({ slug: 'hello', title: 'Hello' })
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: true } },
+      settings: { url: 'https://example.com/base' },
+      list: sequentialPages([{ items: [post], nextToken: null }]),
+    })
+    const text = await (
+      await createLlmsTxtRouteHandler(ampless)(makeRequest(), makeCtx())
+    ).text()
+    // MCP endpoint is origin-based — /base is dropped.
+    expect(text).toContain('read-only MCP endpoint at https://example.com/api/mcp ')
+    // Post links keep the path-based buildUrl behavior (unchanged).
+    expect(text).toContain('[Hello](https://example.com/base/hello.md)')
+  })
+
+  it('uses a relative public MCP endpoint when the configured site URL is empty', async () => {
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: true } },
+      settings: { url: '' },
+      list: sequentialPages([{ items: [], nextToken: null }]),
+    })
+    const text = await (
+      await createLlmsTxtRouteHandler(ampless)(makeRequest(), makeCtx())
+    ).text()
+    expect(text).toContain('read-only MCP endpoint at /api/mcp ')
+  })
+
   it('sets Content-Type: text/plain and a self-computed Cache-Control', async () => {
     const ampless = makeAmpless({ list: sequentialPages([{ items: [], nextToken: null }]) })
     const handler = createLlmsTxtRouteHandler(ampless)
@@ -500,6 +556,7 @@ describe('createLlmsTxtRouteHandler', () => {
         makePost({ slug: 'tags-only', title: 'Post three', excerpt: undefined, tags: ['x'] }),
       ]
       const ampless = makeAmpless({
+        cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: true } },
         settings: { name: 'Site', description: 'Desc' },
         list: sequentialPages([{ items: posts, nextToken: null }]),
       })
@@ -517,6 +574,7 @@ describe('createLlmsTxtRouteHandler', () => {
         (t) => t.type === 'heading' && (t as Tokens.Heading).depth === 2,
       )
       expect(h2Index).toBeGreaterThan(0)
+      expect(text.indexOf('read-only MCP endpoint')).toBeLessThan(text.indexOf('## Posts'))
 
       for (const t of tokens.slice(1, h2Index)) {
         expect(['blockquote', 'paragraph']).toContain(t.type)

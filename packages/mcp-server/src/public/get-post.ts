@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../tools/index.js'
+import { ToolUserError } from '../jsonrpc/index.js'
 import type { PublicToolContext } from './types.js'
 import { toPublicSummary } from './types.js'
 import { validateSlug, MAX_BODY_CHARS, MAX_SLUG_LEN } from './shared.js'
@@ -41,7 +42,7 @@ export const getPostTool: ToolDefinition<PublicToolContext> = {
 
     const post = await ctx.getPublishedPost(slug)
     if (!post) {
-      throw new Error(`No published post found for slug: ${slug}`)
+      throw new ToolUserError('No published post found for the requested slug.')
     }
 
     const summary = toPublicSummary(post)
