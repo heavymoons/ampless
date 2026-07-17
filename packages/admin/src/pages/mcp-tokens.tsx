@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { resolvePublicMcpEndpoint } from 'ampless'
 import type { Admin } from '../index.js'
 import { McpTokensView } from '../components/mcp-tokens-view.js'
 
@@ -42,21 +43,6 @@ export function createMcpTokensPage(admin: Admin) {
     )
   }
   return McpTokensPage
-}
-
-export function resolvePublicMcpEndpoint(
-  publicMcp: boolean | undefined,
-  siteUrl: string | undefined,
-): string | null | undefined {
-  if (publicMcp !== true) return undefined
-  if (!siteUrl?.trim()) return null
-  try {
-    const parsed = new URL(siteUrl)
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-    return new URL('/api/mcp', parsed).toString()
-  } catch {
-    return null
-  }
 }
 
 function extractMcpEndpoint(outputs: Admin['outputs']): string | null {

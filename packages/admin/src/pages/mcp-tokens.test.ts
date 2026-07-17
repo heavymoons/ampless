@@ -3,33 +3,13 @@ import type { Admin } from '../index.js'
 
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
-import { createMcpTokensPage, resolvePublicMcpEndpoint } from './mcp-tokens.js'
+import { createMcpTokensPage } from './mcp-tokens.js'
 
-describe('resolvePublicMcpEndpoint', () => {
-  it.each([undefined, false])('returns undefined when public MCP is %s', (publicMcp) => {
-    expect(resolvePublicMcpEndpoint(publicMcp, 'https://example.com')).toBeUndefined()
-  })
-
-  it.each([
-    undefined,
-    '',
-    '   ',
-    'not a URL',
-    'ftp://example.com',
-    'mailto:hello@example.com',
-  ])('returns null for an unusable site URL: %s', (siteUrl) => {
-    expect(resolvePublicMcpEndpoint(true, siteUrl)).toBeNull()
-  })
-
-  it('normalizes the endpoint to the site root for HTTP(S) URLs', () => {
-    expect(resolvePublicMcpEndpoint(true, 'https://example.com/blog/')).toBe(
-      'https://example.com/api/mcp',
-    )
-    expect(resolvePublicMcpEndpoint(true, 'http://localhost:3000/base')).toBe(
-      'http://localhost:3000/api/mcp',
-    )
-  })
-})
+// `resolvePublicMcpEndpoint` itself now lives in `ampless` core (shared
+// with the `/llms.txt` route) and is unit-tested there
+// (`packages/ampless/src/public-mcp.test.ts`). The tests below only cover
+// this page's wiring: whether it calls the resolver at all, and threads
+// the result through as `publicMcpEndpoint`.
 
 function makeAdmin(publicMcp: boolean | undefined, loadSiteSettings = vi.fn()) {
   return {

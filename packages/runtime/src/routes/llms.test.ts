@@ -165,6 +165,23 @@ describe('createLlmsTxtRouteHandler', () => {
     expect(text).toContain('read-only MCP endpoint at /api/mcp ')
   })
 
+  it('uses a relative public MCP endpoint when the site URL is not http(s) (e.g. ftp)', async () => {
+    // `resolvePublicMcpEndpoint` (ampless core, shared with admin) rejects
+    // non-http(s) protocols outright rather than mechanically resolving
+    // `/api/mcp` against them — an `ftp://` (or similar) site URL must not
+    // produce an `ftp://.../api/mcp` line in llms.txt.
+    const ampless = makeAmpless({
+      cmsConfig: { ...BASE_CONFIG, ai: { publicMcp: true } },
+      settings: { url: 'ftp://example.com/base' },
+      list: sequentialPages([{ items: [], nextToken: null }]),
+    })
+    const text = await (
+      await createLlmsTxtRouteHandler(ampless)(makeRequest(), makeCtx())
+    ).text()
+    expect(text).toContain('read-only MCP endpoint at /api/mcp ')
+    expect(text).not.toContain('ftp://')
+  })
+
   it('sets Content-Type: text/plain and a self-computed Cache-Control', async () => {
     const ampless = makeAmpless({ list: sequentialPages([{ items: [], nextToken: null }]) })
     const handler = createLlmsTxtRouteHandler(ampless)
