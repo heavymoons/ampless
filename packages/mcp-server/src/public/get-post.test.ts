@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Post } from 'ampless'
 import { getPostTool } from './get-post.js'
+import { isToolUserError } from '../jsonrpc/index.js'
 import type { PublicToolContext } from './types.js'
 
 function makePost(overrides: Partial<Post> = {}): Post {
@@ -65,7 +66,9 @@ describe('public get_post', () => {
 
   it('throws a not-found error when no published post matches', async () => {
     const { ctx } = makeCtx({ post: null })
-    await expect(getPostTool.handler({ slug: 'missing' }, ctx)).rejects.toThrow(/No published post/)
+    const error = await getPostTool.handler({ slug: 'missing' }, ctx).catch((caught) => caught)
+    expect(isToolUserError(error)).toBe(true)
+    expect(error).toHaveProperty('message', 'No published post found for the requested slug.')
   })
 
   it('truncates markdown longer than 100k chars and flags truncated: true', async () => {
@@ -81,7 +84,9 @@ describe('public get_post', () => {
 
   it('rejects a non-string slug', async () => {
     const { ctx } = makeCtx({})
-    await expect(getPostTool.handler({ slug: 42 }, ctx)).rejects.toThrow(/slug/)
+    const error = await getPostTool.handler({ slug: 42 }, ctx).catch((caught) => caught)
+    expect(isToolUserError(error)).toBe(true)
+    expect(error).toHaveProperty('message', '`slug` is required and must be a string')
   })
 
   it('rejects an overlong slug (> 512 chars)', async () => {

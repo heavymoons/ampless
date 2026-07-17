@@ -1,4 +1,5 @@
 import { collectBounded, type Post } from 'ampless'
+import { ToolUserError } from '../jsonrpc/index.js'
 import type { PublicToolContext } from './types.js'
 
 // --- bounds shared across the public tools ---
@@ -44,13 +45,13 @@ export function clampInt(v: unknown, fallback: number, min: number, max: number)
 /** Validate a required `slug` argument. Throws on a bad type / length. */
 export function validateSlug(v: unknown): string {
   if (typeof v !== 'string') {
-    throw new Error('`slug` is required and must be a string')
+    throw new ToolUserError('`slug` is required and must be a string')
   }
   if (v.length === 0) {
-    throw new Error('`slug` must not be empty')
+    throw new ToolUserError('`slug` must not be empty')
   }
   if (v.length > MAX_SLUG_LEN) {
-    throw new Error(`\`slug\` must be at most ${MAX_SLUG_LEN} characters`)
+    throw new ToolUserError(`\`slug\` must be at most ${MAX_SLUG_LEN} characters`)
   }
   return v
 }
@@ -59,10 +60,10 @@ export function validateSlug(v: unknown): string {
 export function validateCursor(v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined
   if (typeof v !== 'string') {
-    throw new Error('`cursor` must be a string')
+    throw new ToolUserError('`cursor` must be a string')
   }
   if (v.length > MAX_CURSOR_LEN) {
-    throw new Error(`\`cursor\` must be at most ${MAX_CURSOR_LEN} characters`)
+    throw new ToolUserError(`\`cursor\` must be at most ${MAX_CURSOR_LEN} characters`)
   }
   return v
 }
@@ -74,11 +75,11 @@ export function validateCursor(v: unknown): string | undefined {
  */
 export function validateQuery(v: unknown): string {
   if (typeof v !== 'string') {
-    throw new Error('`query` is required and must be a string')
+    throw new ToolUserError('`query` is required and must be a string')
   }
   const trimmed = v.trim()
   if (trimmed.length === 0) {
-    throw new Error('`query` must not be empty')
+    throw new ToolUserError('`query` must not be empty')
   }
   return trimmed.length > MAX_QUERY_LEN ? trimmed.slice(0, MAX_QUERY_LEN) : trimmed
 }

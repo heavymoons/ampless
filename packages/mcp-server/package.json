@@ -36,7 +36,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:dist": "node scripts/tool-user-error-dist-smoke.mjs"
   },
   "dependencies": {
     "ampless": "workspace:*",

@@ -60,6 +60,7 @@ export { formatDate } from './format.js'
 export { escapeXml } from './xml.js'
 export { encodeAwsJson, decodeAwsJson } from './awsjson.js'
 export { formatPublicAssetUrl } from './storage.js'
+export { resolvePublicMcpEndpoint } from './public-mcp.js'
 export { definePlugin } from './plugin.js'
 export { validatePublicAssetKey } from './plugin-asset-key.js'
 export type {

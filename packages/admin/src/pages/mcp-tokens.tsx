@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { resolvePublicMcpEndpoint } from 'ampless'
 import type { Admin } from '../index.js'
 import { McpTokensView } from '../components/mcp-tokens-view.js'
 
@@ -22,11 +23,22 @@ export function createMcpTokensPage(admin: Admin) {
       redirect('/admin')
     }
     const mcpEndpoint = extractMcpEndpoint(admin.outputs)
+    let publicMcpEndpoint: string | null | undefined
+    if (admin.cmsConfig.ai?.publicMcp === true) {
+      try {
+        const settings = await admin.loadSiteSettings()
+        publicMcpEndpoint = resolvePublicMcpEndpoint(true, settings.site.url)
+      } catch (err) {
+        console.error('[mcp-tokens] loadSiteSettings failed', err)
+        publicMcpEndpoint = null
+      }
+    }
     return (
       <McpTokensView
         currentUserId={session!.userId}
         currentUserEmail={session!.email}
         mcpEndpoint={mcpEndpoint}
+        publicMcpEndpoint={publicMcpEndpoint}
       />
     )
   }

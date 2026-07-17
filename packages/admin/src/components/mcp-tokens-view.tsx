@@ -29,6 +29,8 @@ interface Props {
    * `amplify_outputs.json` doesn't have `custom.mcp.endpoint` populated.
    */
   mcpEndpoint: string | null
+  /** Public read-only endpoint; undefined hides the card, null reports missing configuration. */
+  publicMcpEndpoint: string | null | undefined
 }
 
 type ExpirationPreset = 'never' | '30days' | '90days' | 'custom'
@@ -52,10 +54,16 @@ function relativeTime(iso: string | null): string {
   return `${d}d ago`
 }
 
-export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: Props) {
+export function McpTokensView({
+  currentUserId,
+  currentUserEmail,
+  mcpEndpoint,
+  publicMcpEndpoint,
+}: Props) {
   const t = useT()
 
   const [endpointCopied, setEndpointCopied] = useState(false)
+  const [publicEndpointCopied, setPublicEndpointCopied] = useState(false)
 
   async function copyEndpoint() {
     if (!mcpEndpoint) return
@@ -65,6 +73,17 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
       setTimeout(() => setEndpointCopied(false), 2000)
     } catch (err) {
       console.error('[mcp-tokens-view] copy endpoint failed', err)
+    }
+  }
+
+  async function copyPublicEndpoint() {
+    if (!publicMcpEndpoint) return
+    try {
+      await navigator.clipboard.writeText(publicMcpEndpoint)
+      setPublicEndpointCopied(true)
+      setTimeout(() => setPublicEndpointCopied(false), 2000)
+    } catch (err) {
+      console.error('[mcp-tokens-view] copy public endpoint failed', err)
     }
   }
 
@@ -202,6 +221,31 @@ export function McpTokensView({ currentUserId, currentUserEmail, mcpEndpoint }: 
           <p className="mt-1 text-muted-foreground">{t('mcpTokens.endpointMissing')}</p>
         )}
       </div>
+
+      {publicMcpEndpoint !== undefined && (
+        <div className="rounded-md border bg-card px-4 py-3 text-sm">
+          <p className="font-medium">{t('mcpTokens.publicEndpointTitle')}</p>
+          <p className="mt-1 text-muted-foreground">
+            {t('mcpTokens.publicEndpointDescription')}
+          </p>
+          {publicMcpEndpoint ? (
+            <div className="mt-2 flex items-center gap-2">
+              <code className="flex-1 overflow-x-auto rounded border bg-muted px-2 py-1 font-mono text-xs">
+                {publicMcpEndpoint}
+              </code>
+              <Button type="button" variant="outline" size="sm" onClick={copyPublicEndpoint}>
+                {publicEndpointCopied
+                  ? t('mcpTokens.endpointCopied')
+                  : t('mcpTokens.endpointCopy')}
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-1 text-muted-foreground">
+              {t('mcpTokens.publicEndpointMissing')}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Token list */}
       <section className="space-y-3">

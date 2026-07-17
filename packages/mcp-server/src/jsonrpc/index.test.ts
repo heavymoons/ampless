@@ -7,6 +7,7 @@ import {
   JSON_RPC_INVALID_REQUEST,
   JSON_RPC_METHOD_NOT_FOUND,
   LATEST_SUPPORTED_PROTOCOL_VERSION,
+  ToolUserError,
   type JsonRpcRequest,
   type JsonRpcResponse,
 } from './index.js'
@@ -54,7 +55,38 @@ const throwingTool: ToolDefinition<FakeCtx> = {
   },
 }
 
-const TOOLS = [okTool, writeTool, unclassifiedTool, throwingTool]
+const userErrorTool: ToolDefinition<FakeCtx> = {
+  name: 'bad-input',
+  description: 'throws a client-safe error',
+  inputSchema: { type: 'object', properties: {} },
+  readOnly: true,
+  destructive: false,
+  handler: async () => {
+    throw new ToolUserError('Choose a valid input.')
+  },
+}
+
+const sameNameErrorTool: ToolDefinition<FakeCtx> = {
+  name: 'fake-user-error',
+  description: 'throws an unbranded same-name error',
+  inputSchema: { type: 'object', properties: {} },
+  readOnly: true,
+  destructive: false,
+  handler: async () => {
+    const error = new Error('SECRET same-name detail')
+    error.name = 'ToolUserError'
+    throw error
+  },
+}
+
+const TOOLS = [
+  okTool,
+  writeTool,
+  unclassifiedTool,
+  throwingTool,
+  userErrorTool,
+  sameNameErrorTool,
+]
 const serverInfo = { name: 'test-mcp', version: '1.0' }
 
 function opts(overrides: Partial<Parameters<typeof dispatchJsonRpc<FakeCtx>>[1]> = {}) {
@@ -246,6 +278,38 @@ describe('dispatchJsonRpc', () => {
       expect(console.error).toHaveBeenCalledWith(
         '[mcp-jsonrpc] tool dispatch failed',
         expect.objectContaining({ tool: 'boom', message: 'kaboom detail' })
+      )
+    })
+
+    it.each([
+      ['without formatToolError', undefined],
+      ['with formatToolError', () => 'Internal error while executing the tool.'],
+    ])('ToolUserError is exposed %s without logging or formatting', async (_label, formatter) => {
+      const formatToolError = formatter ? vi.fn(formatter) : undefined
+      const res = await dispatchJsonRpc(
+        { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'bad-input' } },
+        opts({ formatToolError })
+      )
+      const result = res?.result as { isError: boolean; content: { text: string }[] }
+      expect(result.isError).toBe(true)
+      expect(result.content[0]!.text).toBe('Choose a valid input.')
+      expect(console.error).not.toHaveBeenCalled()
+      if (formatToolError) expect(formatToolError).not.toHaveBeenCalled()
+    })
+
+    it('an unbranded error named ToolUserError is still logged and masked', async () => {
+      const formatToolError = vi.fn(() => 'Internal error while executing the tool.')
+      const res = await dispatchJsonRpc(
+        { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'fake-user-error' } },
+        opts({ formatToolError })
+      )
+      const result = res?.result as { isError: boolean; content: { text: string }[] }
+      expect(result.isError).toBe(true)
+      expect(result.content[0]!.text).toBe('Internal error while executing the tool.')
+      expect(formatToolError).toHaveBeenCalledOnce()
+      expect(console.error).toHaveBeenCalledWith(
+        '[mcp-jsonrpc] tool dispatch failed',
+        expect.objectContaining({ tool: 'fake-user-error', message: 'SECRET same-name detail' })
       )
     })
   })

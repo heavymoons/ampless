@@ -7,7 +7,7 @@
 // `/static` this isn't reached via a middleware rewrite, so (like
 // `og.ts`) this route computes and sets its own `Cache-Control`.
 
-import { collectBounded, type Post } from 'ampless'
+import { collectBounded, resolvePublicMcpEndpoint, type Post } from 'ampless'
 import type { Ampless } from '../index.js'
 
 // File route is `app/llms.txt/route.ts` — no dynamic segments.
@@ -186,6 +186,23 @@ export function createLlmsTxtRouteHandler(ampless: Ampless): LlmsTxtRouteHandler
     }
     const note = truncationNote(truncated, limit)
     if (note) blocks.push(note)
+    if (ampless.cmsConfig.ai?.publicMcp === true) {
+      // Shared with admin's MCP tokens card via `resolvePublicMcpEndpoint`
+      // (ampless core) — both surfaces need the same origin-based
+      // normalization and http(s)-only validation, so the endpoint they
+      // advertise for a given `site.url` never disagrees. Falls back to a
+      // relative path when the endpoint can't be resolved (missing /
+      // non-http(s) `site.url`): llms.txt is always fetched from the same
+      // site, so a relative link is still correct there even when an
+      // absolute one isn't resolvable.
+      const resolvedMcpUrl = resolvePublicMcpEndpoint(true, settings.site.url)
+      const mcpUrl = typeof resolvedMcpUrl === 'string' ? resolvedMcpUrl : '/api/mcp'
+      blocks.push(
+        `This site also exposes a read-only MCP endpoint at ${mcpUrl} ` +
+          '(JSON-RPC over HTTP POST; tools: list_posts, get_post, search_posts, list_tags; ' +
+          'published posts only).'
+      )
+    }
 
     if (items.length > 0) {
       const lines = items.map((post) => {

@@ -3,9 +3,9 @@
 
 # AI-friendly CMS ideas
 
-Status: partially adopted. The machine-readable exports subset — `/<slug>.md` (§3) and `/llms.txt` (§4) — plus a public read-only MCP endpoint has been adopted into the roadmap; see [14-roadmap.md § AI-readable publishing](./architecture/14-roadmap.md). The remaining sections stay unadopted proposals.
+Status: partially implemented. The machine-readable exports subset — `/<slug>.md` (§3) and `/llms.txt` (§4) — and the opt-in public read-only MCP endpoint are implemented; see [14-roadmap.md § AI-readable publishing](./architecture/14-roadmap.md). The remaining sections stay unadopted proposals.
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-07-16
 
 This note collects product and architecture ideas for making ampless content easier for AI search, AI agents, and retrieval-augmented generation (RAG) systems to understand. JSON-LD is part of the story, but it should not be the whole story. A useful AI-friendly CMS should make the canonical content, metadata, relationships, freshness, rights, and operational policy explicit.
 

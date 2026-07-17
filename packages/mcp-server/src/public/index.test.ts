@@ -120,6 +120,6 @@ describe('publicTools end-to-end via dispatchJsonRpc', () => {
     )
     const result = (res as { result: { isError?: boolean; content: { text: string }[] } }).result
     expect(result.isError).toBe(true)
-    expect(result.content[0]!.text).toContain('No published post')
+    expect(result.content[0]!.text).toBe('No published post found for the requested slug.')
   })
 })
