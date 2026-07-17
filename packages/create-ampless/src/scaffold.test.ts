@@ -71,4 +71,45 @@ describe('scaffold', () => {
       await rm(dest, { recursive: true, force: true })
     }
   })
+
+  // The experimental MCP discovery routes (catalog + server-card) are thin
+  // delegates over `createMcpDiscoveryRouteHandlers`. Pin that both files
+  // scaffold and export GET (+ OPTIONS) so a template edit can't drop them.
+  it('scaffolds the MCP discovery route files exporting GET + OPTIONS', async () => {
+    const sharedDir = sharedTemplateDir()
+    try {
+      await stat(sharedDir)
+    } catch {
+      return
+    }
+
+    const dest = await mkdtemp(resolve(tmpdir(), 'scaffold-mcp-discovery-'))
+    try {
+      await scaffold(sharedDir, templatesDir, dest, {
+        projectName: 'tmp-test',
+        siteName: 'Tmp Test',
+        themes: ['blog'],
+        defaultTheme: 'blog',
+        plugins: ['seo'],
+      })
+
+      const catalog = await readFile(
+        resolve(dest, 'app', 'api', 'mcp', 'catalog.json', 'route.ts'),
+        'utf-8',
+      )
+      expect(catalog).toContain('createMcpDiscoveryRouteHandlers')
+      expect(catalog).toContain('export const GET = handlers.catalog.GET')
+      expect(catalog).toContain('export const OPTIONS = handlers.catalog.OPTIONS')
+
+      const card = await readFile(
+        resolve(dest, 'app', 'api', 'mcp', 'server-card', 'route.ts'),
+        'utf-8',
+      )
+      expect(card).toContain('createMcpDiscoveryRouteHandlers')
+      expect(card).toContain('export const GET = handlers.serverCard.GET')
+      expect(card).toContain('export const OPTIONS = handlers.serverCard.OPTIONS')
+    } finally {
+      await rm(dest, { recursive: true, force: true })
+    }
+  })
 })

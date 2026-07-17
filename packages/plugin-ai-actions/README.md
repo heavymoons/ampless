@@ -96,6 +96,6 @@ Without an inline-script capability or a plugin asset delivery mechanism, there'
 ## What it does not do (v1)
 
 - **Copy Markdown (clipboard)** — see [Why no "Copy Markdown" button](#why-no-copy-markdown-button) above.
-- **On-page MCP connection info** — the public read-only MCP server is available when `cms.config.ai.publicMcp` is enabled, with connection details in `/llms.txt` and Admin → MCP tokens. A reader-facing link/QR code remains deferred to Phase D discovery work.
+- **On-page MCP connection info** — the public read-only MCP server is available when `cms.config.ai.publicMcp` is enabled, with connection details in `/llms.txt` and Admin → MCP tokens. Machine discovery is now covered by the experimental well-known catalog + Server Card (`cms.config.ai.mcpDiscovery`; see the repo's `docs/mcp.md`), and humans connect via that same guide, so a reader-facing on-page link/QR code was dropped rather than deferred. It can be revisited if requested.
 - **Theme-specific CSS** — the plugin ships no per-theme styling. A neutral default (pill-shaped links) comes from the site template's `globals.css` at zero specificity (`:where()`); anything beyond that is up to theme CSS via the stable class names.
 - **Locale-aware labels** — not supported. Link text is a fixed English string, and registering the plugin multiple times does not help: all instances render into the same position bucket, so themes cannot pick a per-locale slot. Deferred until requested.

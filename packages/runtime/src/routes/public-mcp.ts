@@ -24,6 +24,10 @@ import {
   MAX_BATCH,
 } from '@ampless/mcp-server/jsonrpc'
 import { publicTools, type PublicToolContext } from '@ampless/mcp-server/public'
+import {
+  corsHeaders as sharedCorsHeaders,
+  resolvePublicMcpIdentity,
+} from './_mcp-shared.js'
 import type { Ampless } from '../index.js'
 
 export interface PublicMcpRouteHandlers {
@@ -88,17 +92,19 @@ export function _resetPublicMcpRateLimit(): void {
 // --- CORS ---------------------------------------------------------------
 //
 // Open CORS is safe here: anonymous, read-only, published-only, and no
-// credentials are used (same posture as the admin MCP transport).
+// credentials are used (same posture as the admin MCP transport). The
+// shared helper (also used by the discovery routes) is parameterised on
+// the allowed methods — this endpoint always advertises `POST, OPTIONS`.
 
 function corsHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'content-type, mcp-protocol-version',
-    'Access-Control-Max-Age': '86400',
-    ...extra,
-  }
+  return sharedCorsHeaders('POST, OPTIONS', extra)
 }
+
+// Static serverInfo for the default (discovery-off) endpoint — unchanged
+// wire shape for every existing site. Only when `ai.mcpDiscovery` is on do
+// we resolve the site-derived reverse-DNS identity so the `initialize`
+// response matches the Server Card exactly (see `resolveServerInfo`).
+const STATIC_SERVER_INFO = { name: 'ampless-mcp', version: '0.2' } as const
 
 // --- Response helpers (every response carries CORS) ----------------------
 
@@ -202,6 +208,20 @@ export function createPublicMcpRouteHandler(ampless: Ampless): PublicMcpRouteHan
     return ampless.cmsConfig.ai?.publicMcp === true
   }
 
+  // Resolve the `initialize` serverInfo. Default (discovery off): the
+  // static `ampless-mcp / 0.2` with NO settings fetch — every existing
+  // site's wire shape is untouched. Only when `ai.mcpDiscovery` is on do
+  // we load site settings (S3, 60s-cached) and use the reverse-DNS
+  // identity, so it matches the Server Card the discovery routes serve.
+  // When identity can't be resolved (site.url unset / non-http(s)) we fall
+  // back to the static value — and the discovery routes 404 in that same
+  // case, so there is no live Card for the fallback to contradict.
+  async function resolveServerInfo(): Promise<{ name: string; version: string }> {
+    if (ampless.cmsConfig.ai?.mcpDiscovery !== true) return STATIC_SERVER_INFO
+    const settings = await ampless.loadSiteSettings()
+    return resolvePublicMcpIdentity(settings.site.url) ?? STATIC_SERVER_INFO
+  }
+
   async function POST(request: Request): Promise<Response> {
     // Outermost guard: a stream read failure or an unexpected dispatcher
     // exception must still return a CORS'd JSON-RPC 500, never Next.js's
@@ -250,7 +270,7 @@ export function createPublicMcpRouteHandler(ampless: Ampless): PublicMcpRouteHan
       const result = await dispatchJsonRpcMessage(parsed, {
         tools: publicTools,
         getContext: () => publicCtx,
-        serverInfo: { name: 'ampless-mcp', version: '0.2' },
+        serverInfo: await resolveServerInfo(),
         formatToolError,
         maxBatch: MAX_BATCH,
       })

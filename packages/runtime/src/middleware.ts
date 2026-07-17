@@ -11,6 +11,11 @@
 //                           is not explicitly disabled
 //   /feed.xml, /sitemap.xml, /og/<slug>, /tag/<tag>
 //                         — direct route handlers (no rewrite)
+//   /.well-known/mcp/catalog.json
+//                         — rewritten to the dot-free internal
+//                           /api/mcp/catalog.json when MCP discovery is on
+//                           (ai.publicMcp && ai.mcpDiscovery); other
+//                           /.well-known/* paths pass through to Next
 //
 // All routing decisions happen here. Middleware fetches a tiny
 // `{ format, metadata, updatedAt }` projection from AppSync per slug,
@@ -280,6 +285,12 @@ const RESERVED_PREFIXES = new Set<string>([
   'raw',
   'static',
   'md',
+  // `/.well-known/*` is passed through to Next (RFC 8615 registry paths):
+  // the exact `/.well-known/mcp/catalog.json` is rewritten below when MCP
+  // discovery is on; everything else (e.g. a future
+  // `/.well-known/mcp-registry-auth` an operator drops in) is served by
+  // Next without a wasted AppSync flag fetch or a middleware 404.
+  '.well-known',
 ])
 
 /**
@@ -337,6 +348,22 @@ export function createAmplessMiddleware(opts: CreateMiddlewareOpts): MiddlewareF
     requestHeaders.set(AMPLESS_PATHNAME_HEADER, url.pathname)
     const passthrough = (): NextResponse =>
       NextResponse.next({ request: { headers: requestHeaders } })
+
+    // MCP discovery: rewrite the well-known catalog to its dot-free
+    // internal route. Checked BEFORE the RESERVED_PREFIXES passthrough
+    // (`.well-known` is reserved) and only when BOTH flags are on —
+    // discovery advertises the `/api/mcp` endpoint, so it's meaningless
+    // without `publicMcp`, and it's experimental so it stays behind
+    // `mcpDiscovery`. Any other `/.well-known/*` path falls through to the
+    // `.well-known` reserved-prefix passthrough below.
+    if (
+      url.pathname === '/.well-known/mcp/catalog.json' &&
+      opts.cmsConfig.ai?.publicMcp === true &&
+      opts.cmsConfig.ai?.mcpDiscovery === true
+    ) {
+      url.pathname = '/api/mcp/catalog.json'
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
 
     // Parse path. `/foo/bar` → ['foo', 'bar']; `/` → [].
     const segments = url.pathname.split('/').filter(Boolean)

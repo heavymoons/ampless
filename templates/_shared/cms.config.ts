@@ -54,7 +54,12 @@ export default defineConfig({
   // its built-in circuit breaker is a coarse warm-instance guard, not a
   // per-IP rate limiter: pair `publicMcp: true` with CloudFront / WAF for
   // real abuse protection.
-  // ai: { markdownRoutes: false, llmsTxt: { limit: 100 }, publicMcp: true },
+  // `mcpDiscovery` (default: false, experimental) additionally publishes
+  // discovery metadata so AI clients can find the endpoint on their own:
+  // a catalog at `/.well-known/mcp/catalog.json` and a Server Card at
+  // `/api/mcp/server-card`. Requires `publicMcp: true` + an http(s)
+  // `site.url`. See docs/mcp.md.
+  // ai: { markdownRoutes: false, llmsTxt: { limit: 100 }, publicMcp: true, mcpDiscovery: true },
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.
   //

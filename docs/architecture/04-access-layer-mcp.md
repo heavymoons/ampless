@@ -248,7 +248,22 @@ Transport / HTTP framing (`createPublicMcpRouteHandler`):
 - **Coarse circuit breaker, NOT a per-IP rate limiter.** A single module-scope fixed-window counter (600 req/min; a batch charges one unit per element) stops one warm lambda instance from being pinned by a runaway caller. It is deliberately **not** keyed on `x-forwarded-for` — CloudFront preserves a client-supplied XFF and only appends the real edge IP, so the leftmost value is spoofable and the hop count isn't guaranteed. It only bites within a warm instance; real per-IP throttling / DoS protection is CloudFront / WAF's job. Unexpected tool failures are `console.error`-logged and masked to a fixed client message so the anonymous endpoint never leaks internal detail.
 - **Outermost guard.** A stream-read failure or any unexpected exception still returns a CORS'd JSON-RPC 500 (`id: null`), never a bare Next.js HTML 500.
 
-Connection guidance is available in two places when public MCP is enabled: `/llms.txt` advertises the read-only endpoint and tool names for machine readers, and Admin → MCP tokens shows the resolved public endpoint separately from the token-authenticated admin endpoint. An on-page link or QR code remains deferred to the discovery phase.
+Connection guidance is available in three places when public MCP is enabled: `/llms.txt` advertises the read-only endpoint and tool names for machine readers, Admin → MCP tokens shows the resolved public endpoint separately from the token-authenticated admin endpoint, and [docs/mcp.md](../mcp.md) is the human connection guide (Claude Code / Cursor / VS Code config + MCP Registry publishing). A reader-facing on-page link/QR affordance was dropped in favour of the standard machine discovery below.
+
+#### MCP Discovery (experimental — `ai.mcpDiscovery`)
+
+An opt-in, experimental discovery surface lets AI clients find the public endpoint without being handed its URL. It is gated behind `ai.mcpDiscovery` (default off) **on top of** `ai.publicMcp`, and additionally requires an `http(s)` `site.url` — when either flag is off or the URL can't resolve, the routes 404. It follows the prototype `modelcontextprotocol/experimental-ext-server-card` spec (SEP-2127, still open/unmerged), so schema and paths may change to track upstream.
+
+Two documents are served (`createMcpDiscoveryRouteHandlers`, `packages/runtime/src/routes/mcp-discovery.ts`):
+
+- **Catalog** — `GET /.well-known/mcp/catalog.json`. The App Router can't host a `.`-prefixed folder cleanly (and a raw nested dotfile trips npm's packing quirk), so middleware rewrites the exact `/.well-known/mcp/catalog.json` to the dot-free internal `/api/mcp/catalog.json` (the rewrite fires only when both flags are on; `.well-known` is otherwise a reserved passthrough prefix so any other `/.well-known/*` path — e.g. a `/.well-known/mcp-registry-auth` an operator drops in — reaches Next untouched). The catalog carries one entry (`urn:air:<hostname>:ampless-mcp`) pointing at the Server Card.
+- **Server Card** — `GET /api/mcp/server-card` (the spec's recommended `<streamable-http-url>/server-card` placement, no rewrite needed). Declares identity (`name` reverse-DNS from `site.url`, `version`), `websiteUrl`, and `remotes[]` (the `/api/mcp` endpoint + `supportedProtocolVersions`). It does **not** enumerate tools — those stay a runtime `tools/list` call. `Content-Type: application/mcp-server-card+json`.
+
+Both responses carry open CORS (`GET, OPTIONS`) and `Cache-Control: public, max-age=3600`. The Card is validated in tests against a vendored copy of the upstream schema (`Ajv2020` + `ajv-formats`, with negative controls).
+
+The spec requires the Card's advertised identity to be consistent with the live server. So when `mcpDiscovery` is on, the `/api/mcp` `initialize` `serverInfo` switches from the static `{ name: 'ampless-mcp', version: '0.2' }` to the same site-derived reverse-DNS identity the Card carries (`{ name: '<reverse-dns>/ampless-mcp', version: '0.2.0' }`). This is the **only** wire change discovery introduces on the JSON-RPC endpoint — tool behaviour, error shapes, and response structure are unchanged, and default-off sites keep the static serverInfo with no extra settings fetch.
+
+The MCP Registry (`server.json`) is handled by docs, not code: registration requires operator-owned namespace proof (DNS TXT / HTTP / GitHub OAuth) that ampless can't perform, and `mcp-publisher init` already scaffolds `server.json`. See [docs/mcp.md](../mcp.md) for the publishing flow.
 
 ### Policy
 

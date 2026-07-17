@@ -150,6 +150,70 @@ describe('createAmplessMiddleware — passthroughs', () => {
   })
 })
 
+describe('createAmplessMiddleware — MCP discovery well-known', () => {
+  function optsWithAi(ai: Config['ai']): typeof OPTS {
+    return { ...OPTS, cmsConfig: { ...BASE_CONFIG, ai } }
+  }
+
+  it('rewrites /.well-known/mcp/catalog.json → /api/mcp/catalog.json when both flags on', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(optsWithAi({ publicMcp: true, mcpDiscovery: true }))
+    const res = (await mw(
+      makeReq('x.example.com', '/.well-known/mcp/catalog.json') as never,
+    )) as unknown as { kind: string; rewrittenTo?: URL }
+    expect(res.kind).toBe('rewrite')
+    expect(res.rewrittenTo?.pathname).toBe('/api/mcp/catalog.json')
+    // Rewrite decision is flag-only — no AppSync flag fetch.
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT rewrite when only publicMcp is on (mcpDiscovery off) — passthrough', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(optsWithAi({ publicMcp: true }))
+    const res = (await mw(
+      makeReq('x.example.com', '/.well-known/mcp/catalog.json') as never,
+    )) as unknown as { kind: string }
+    // `.well-known` is a reserved prefix → passthrough (no rewrite, no fetch).
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT rewrite when both flags are off — passthrough', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/.well-known/mcp/catalog.json') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('passes other /.well-known/* paths through without an AppSync flag fetch', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(optsWithAi({ publicMcp: true, mcpDiscovery: true }))
+    for (const path of ['/.well-known/mcp-registry-auth', '/.well-known/foo', '/.well-known/mcp/other.json']) {
+      const res = (await mw(makeReq('x.example.com', path) as never)) as unknown as { kind: string }
+      expect(res.kind).toBe('next')
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('a post slugged ".well-known" never reaches the themed route (reserved slug)', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const mw = createAmplessMiddleware(OPTS)
+    const res = (await mw(
+      makeReq('x.example.com', '/.well-known') as never,
+    )) as unknown as { kind: string }
+    expect(res.kind).toBe('next')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe('createAmplessMiddleware — routing by post flags', () => {
   it('themed post: passes /<slug> through (no rewrite)', async () => {
     mockFetch(
