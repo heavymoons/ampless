@@ -27,7 +27,10 @@ export function resolvePublicMcpEndpoint(
   try {
     const parsed = new URL(siteUrl)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-    return new URL('/api/mcp', parsed).toString()
+    // Build from `.origin`, not `parsed` itself — `.origin` never carries
+    // userinfo (`user:pass@`), so a credential-bearing `site.url` can't
+    // leak into the advertised endpoint.
+    return new URL('/api/mcp', parsed.origin).toString()
   } catch {
     return null
   }

@@ -290,6 +290,24 @@ export interface AiConfig {
    * abuse protection.
    */
   publicMcp?: boolean
+  /**
+   * **Experimental.** Publish MCP discovery metadata so AI clients can
+   * find the public endpoint without being handed its URL: a well-known
+   * catalog at `/.well-known/mcp/catalog.json` and a Server Card at
+   * `/api/mcp/server-card`. Requires `publicMcp: true` (discovery only
+   * advertises the same `/api/mcp` endpoint) and an `http(s)` `site.url`
+   * to resolve the absolute URLs it advertises — when either is missing
+   * the discovery routes 404.
+   *
+   * **Default: false.** This tracks the prototype
+   * `modelcontextprotocol/experimental-ext-server-card` spec (SEP-2127 —
+   * still open / unmerged), whose schema and paths may change to follow
+   * upstream, so it is isolated behind this opt-in flag. When enabled,
+   * the `/api/mcp` `initialize` response's `serverInfo` also switches to
+   * a site-derived reverse-DNS name + version so it matches the Server
+   * Card (default OFF sites keep the static `ampless-mcp` serverInfo).
+   */
+  mcpDiscovery?: boolean
 }
 
 export type Role = 'reader' | 'editor' | 'admin'

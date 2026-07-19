@@ -42,6 +42,11 @@ const DRAFT: Post = {
 
 interface MockOpts {
   publicMcp?: boolean | undefined
+  // Experimental discovery flag — when on (together with publicMcp), the
+  // `initialize` serverInfo switches to the site-derived reverse-DNS
+  // identity resolved from `siteUrl` via loadSiteSettings.
+  mcpDiscovery?: boolean | undefined
+  siteUrl?: string
   posts?: Post[]
   // Posts reachable via getPublishedPost (published index). Drafts are
   // never included, mirroring the server-side published-only resolvers.
@@ -51,13 +56,19 @@ interface MockOpts {
 function makeAmpless(opts: MockOpts = {}): Ampless {
   const published = opts.posts ?? [PUBLISHED_A, PUBLISHED_B]
   return {
-    cmsConfig: { ai: { publicMcp: opts.publicMcp } },
+    cmsConfig: { ai: { publicMcp: opts.publicMcp, mcpDiscovery: opts.mcpDiscovery } },
     listPublishedPosts: vi.fn(async () => ({ items: published, nextToken: null })),
     getPublishedPost: vi.fn(async (slug: string) => {
       if (opts.getPost) return opts.getPost(slug)
       return published.find((p) => p.slug === slug) ?? null
     }),
     postToMarkdown: vi.fn(async (post: Post) => `MD:${post.slug}`),
+    // Only consulted when mcpDiscovery is on. Default-off tests never
+    // define real behaviour here, so a spy proves it is not called.
+    loadSiteSettings: vi.fn(async () => ({
+      site: { name: 'Example', url: opts.siteUrl ?? 'https://example.com' },
+      media: {},
+    })),
   } as unknown as Ampless
 }
 
@@ -147,7 +158,8 @@ describe('createPublicMcpRouteHandler', () => {
 
   describe('JSON-RPC methods', () => {
     it('initialize negotiates the protocol version + returns serverInfo', async () => {
-      const { POST } = createPublicMcpRouteHandler(makeAmpless({ publicMcp: true }))
+      const ampless = makeAmpless({ publicMcp: true })
+      const { POST } = createPublicMcpRouteHandler(ampless)
       const res = await POST(
         jsonRequest({
           jsonrpc: '2.0',
@@ -161,7 +173,10 @@ describe('createPublicMcpRouteHandler', () => {
       expectCors(res)
       const body = await res.json()
       expect(body.result.protocolVersion).toBe('2025-03-26')
-      expect(body.result.serverInfo).toMatchObject({ name: 'ampless-mcp' })
+      // Default (discovery off): static serverInfo, unchanged wire shape,
+      // and NO site-settings fetch.
+      expect(body.result.serverInfo).toEqual({ name: 'ampless-mcp', version: '0.2' })
+      expect(ampless.loadSiteSettings).not.toHaveBeenCalled()
     })
 
     it('tools/list returns the four public tools with readOnly annotations', async () => {
@@ -344,6 +359,41 @@ describe('createPublicMcpRouteHandler', () => {
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.error.code).toBe(-32600)
+    })
+  })
+
+  // --- serverInfo under ai.mcpDiscovery ---
+
+  describe('initialize serverInfo (ai.mcpDiscovery)', () => {
+    async function initServerInfo(ampless: Ampless): Promise<{ name: string; version: string }> {
+      const { POST } = createPublicMcpRouteHandler(ampless)
+      const res = await POST(
+        jsonRequest({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-03-26' },
+        })
+      )
+      return (await res.json()).result.serverInfo
+    }
+
+    it('both flags on: serverInfo is the site-derived reverse-DNS identity', async () => {
+      const ampless = makeAmpless({
+        publicMcp: true,
+        mcpDiscovery: true,
+        siteUrl: 'https://ishinao.net',
+      })
+      expect(await initServerInfo(ampless)).toEqual({
+        name: 'net.ishinao/ampless-mcp',
+        version: '0.2.0',
+      })
+      expect(ampless.loadSiteSettings).toHaveBeenCalled()
+    })
+
+    it('both flags on but site.url unresolvable: static fallback', async () => {
+      const ampless = makeAmpless({ publicMcp: true, mcpDiscovery: true, siteUrl: '' })
+      expect(await initServerInfo(ampless)).toEqual({ name: 'ampless-mcp', version: '0.2' })
     })
   })
 

@@ -248,7 +248,22 @@ import { publicTools } from '@ampless/mcp-server/public'
 - **粗い circuit breaker（per-IP rate limit ではない）。** module スコープの固定ウィンドウカウンタ 1 個（600 req/min、batch は要素 1 つにつき 1 消費）で、1 warm lambda instance が暴走リクエストに張り付くのを止める。`x-forwarded-for` で **キーしない** — CloudFront はクライアント送信の XFF を保持し実 IP を末尾に追記するため先頭値は偽装可能・hop 数も不定。warm instance 内でしか効かず、真の per-IP throttle / DoS 対策は CloudFront / WAF の責務。予期しないツール失敗は `console.error` に記録しつつ固定文言でマスクし、匿名 endpoint が内部詳細を漏らさないようにする。
 - **最外周ガード。** ストリーム読取失敗や予期しない例外でも、Next.js 素の HTML 500 ではなく CORS つき JSON-RPC 500（`id: null`）を返す。
 
-公開 MCP が有効な場合、接続案内は 2 か所に出る。`/llms.txt` は machine reader 向けに読み取り専用 endpoint と tool 名を掲載し、管理画面の MCP トークンページは token 認証の admin endpoint と分けて解決済み公開 endpoint を表示する。ページ上のリンク / QR コードは discovery phase まで後回し。
+公開 MCP が有効な場合、接続案内は 3 か所に出る。`/llms.txt` は machine reader 向けに読み取り専用 endpoint と tool 名を掲載し、管理画面の MCP トークンページは token 認証の admin endpoint と分けて解決済み公開 endpoint を表示し、[docs/mcp.ja.md](../mcp.ja.md) が人間向けの接続ガイド（Claude Code / Cursor / VS Code の設定 + MCP Registry への公開手順）になる。読者向けのページ上リンク / QR コードは、下記の標準的な machine discovery を優先して取りやめた。
+
+#### MCP Discovery（experimental — `ai.mcpDiscovery`）
+
+opt-in の experimental な discovery surface により、AI クライアントは URL を手渡されなくても公開 endpoint を発見できる。`ai.publicMcp` に**加えて** `ai.mcpDiscovery`（デフォルト無効）でゲートされ、さらに `http(s)` の `site.url` を必須とする — いずれかのフラグが無効、または URL が解決できない場合、routes は 404 を返す。プロトタイプの `modelcontextprotocol/experimental-ext-server-card` 仕様（SEP-2127、まだ open / unmerged）に準拠しており、schema とパスは upstream の変化に追随して変わり得る。
+
+2 つのドキュメントを配信する（`createMcpDiscoveryRouteHandlers`、`packages/runtime/src/routes/mcp-discovery.ts`）:
+
+- **Catalog** — `GET /.well-known/mcp/catalog.json`。App Router は `.` で始まるフォルダをきれいにホストできず（生のネストした dotfile は npm の packing 仕様の癖も踏む）、middleware が `/.well-known/mcp/catalog.json` を dot なしの内部 `/api/mcp/catalog.json` へ rewrite する（rewrite は両フラグが有効なときのみ発火。`.well-known` はそれ以外は予約済みの passthrough prefix なので、他の `/.well-known/*` パス — 例えば operator が置く `/.well-known/mcp-registry-auth` — はそのまま Next に到達する）。catalog は Server Card を指す 1 エントリ（`urn:air:<hostname>:ampless-mcp`）を持つ。
+- **Server Card** — `GET /api/mcp/server-card`（仕様が推奨する `<streamable-http-url>/server-card` の配置で rewrite 不要）。identity（`site.url` から導出した reverse-DNS の `name`、`version`）、`websiteUrl`、`remotes[]`（`/api/mcp` endpoint + `supportedProtocolVersions`）を宣言する。tool は列挙**しない** — それは runtime の `tools/list` 呼び出しのまま。`Content-Type: application/mcp-server-card+json`。
+
+両レスポンスとも open CORS（`GET, OPTIONS`）と `Cache-Control: public, max-age=3600` を持つ。Card は upstream schema の vendored コピーに対してテストで検証される（`Ajv2020` + `ajv-formats`、negative control つき）。
+
+仕様は Card が広告する identity が稼働中の server と一致していることを要求する。そのため `mcpDiscovery` が有効なとき、`/api/mcp` の `initialize` `serverInfo` は静的な `{ name: 'ampless-mcp', version: '0.2' }` から、Card と同じ site 由来の reverse-DNS identity（`{ name: '<reverse-dns>/ampless-mcp', version: '0.2.0' }`）に切り替わる。これは discovery が JSON-RPC endpoint に持ち込む**唯一**の wire 変更 — tool の挙動、error shape、レスポンス構造は変わらず、デフォルト無効のサイトは追加の設定 fetch なしで静的な serverInfo を保つ。
+
+MCP Registry（`server.json`）はコードではなくドキュメントで扱う: 登録には ampless が代行できない operator 所有の namespace 証明（DNS TXT / HTTP / GitHub OAuth）が必要で、`mcp-publisher init` がすでに `server.json` を scaffold する。公開手順は [docs/mcp.ja.md](../mcp.ja.md) を参照。
 
 ### 方針
 

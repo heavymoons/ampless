@@ -10,3 +10,7 @@ export {
   _resetPublicMcpRateLimit,
   type PublicMcpRouteHandlers,
 } from './public-mcp.js'
+export {
+  createMcpDiscoveryRouteHandlers,
+  type McpDiscoveryRouteHandlers,
+} from './mcp-discovery.js'
