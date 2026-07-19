@@ -139,7 +139,16 @@ The Server Card `name`/`version` deliberately match the live endpoint's `initial
 
 ## Publishing to the MCP Registry
 
-The [MCP Registry](https://github.com/modelcontextprotocol/registry) (currently **preview** — expect breaking changes and possible data resets) lists servers via a `server.json` that is a near-superset of the Server Card. ampless does **not** generate `server.json` for you: registry publishing requires proving ownership of the namespace you register under, which only you (the operator) can do. Use the official `mcp-publisher` CLI (`go install github.com/modelcontextprotocol/registry/cmd/mcp-publisher@latest`, or download a release binary).
+The [MCP Registry](https://github.com/modelcontextprotocol/registry) (currently **preview** — expect breaking changes and possible data resets) lists servers via a `server.json` that is a near-superset of the Server Card. ampless does **not** generate `server.json` for you: registry publishing requires proving ownership of the namespace you register under, which only you (the operator) can do. Install the official `mcp-publisher` CLI first:
+
+```bash
+# Homebrew
+brew install mcp-publisher
+
+# …or a release binary (macOS/Linux)
+curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+  | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+```
 
 The namespace you're allowed to publish under **depends on which authentication method you choose** — pick one before scaffolding `server.json`:
 
@@ -166,11 +175,7 @@ mcp-publisher init
 }
 ```
 
-Then prove ownership with **one** of the following, matching the `name` you chose above, and publish:
-
-```bash
-mcp-publisher publish
-```
+Then prove ownership with **one** of the following, matching the `name` you chose above. `mcp-publisher publish` comes **after** a successful login — running it unauthenticated fails.
 
 ### (a) GitHub OAuth → `io.github.<user>/*`
 
@@ -223,6 +228,14 @@ echo "v=MCPv1; k=ed25519; p=${PUBLIC_KEY}" > mcp-registry-auth
 # 3. Once the file is live, log in with the private key.
 PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
 mcp-publisher login http --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
+
+### Publish
+
+Once logged in with any of the three methods above, publish from the directory containing your `server.json`:
+
+```bash
+mcp-publisher publish
 ```
 
 ## See also

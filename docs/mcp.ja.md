@@ -139,7 +139,16 @@ Server Card の `name` / `version` は、稼働中 endpoint の `initialize` の
 
 ## MCP Registry への公開
 
-[MCP Registry](https://github.com/modelcontextprotocol/registry)（現在 **preview** — 破壊的変更やデータリセットの可能性あり）は、Server Card のほぼ superset である `server.json` を通じて server を掲載する。ampless は `server.json` を自動生成**しない** — registry への公開には、登録する namespace の所有権を証明する必要があり、それができるのは operator（あなた）だけだから。公式の `mcp-publisher` CLI を使うこと（`go install github.com/modelcontextprotocol/registry/cmd/mcp-publisher@latest`、またはリリースバイナリをダウンロード）。
+[MCP Registry](https://github.com/modelcontextprotocol/registry)（現在 **preview** — 破壊的変更やデータリセットの可能性あり）は、Server Card のほぼ superset である `server.json` を通じて server を掲載する。ampless は `server.json` を自動生成**しない** — registry への公開には、登録する namespace の所有権を証明する必要があり、それができるのは operator（あなた）だけだから。まず公式の `mcp-publisher` CLI をインストールする:
+
+```bash
+# Homebrew
+brew install mcp-publisher
+
+# …またはリリースバイナリ（macOS/Linux）
+curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+  | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+```
 
 公開できる namespace は**どの認証方式を選ぶかで決まる** — `server.json` を scaffold する前に方式を選ぶこと:
 
@@ -166,11 +175,7 @@ mcp-publisher init
 }
 ```
 
-その上で、選んだ `name` に対応する**いずれか1つ**の方法で所有権を証明し、公開する:
-
-```bash
-mcp-publisher publish
-```
+その上で、選んだ `name` に対応する**いずれか1つ**の方法で所有権を証明する。`mcp-publisher publish` は **login 成功の後**に実行する（未認証で実行すると失敗する）。
 
 ### (a) GitHub OAuth → `io.github.<user>/*`
 
@@ -223,6 +228,14 @@ echo "v=MCPv1; k=ed25519; p=${PUBLIC_KEY}" > mcp-registry-auth
 # 3. ファイルが配信できたら、秘密鍵でログインする。
 PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
 mcp-publisher login http --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
+
+### 公開
+
+上記 3 方式のいずれかで login が成功したら、`server.json` のあるディレクトリで公開する:
+
+```bash
+mcp-publisher publish
 ```
 
 ## 参照
