@@ -139,40 +139,91 @@ The Server Card `name`/`version` deliberately match the live endpoint's `initial
 
 ## Publishing to the MCP Registry
 
-The [MCP Registry](https://github.com/modelcontextprotocol/registry) (currently **preview** — expect breaking changes and possible data resets) lists servers via a `server.json` that is a near-superset of the Server Card. ampless does **not** generate `server.json` for you: registry publishing requires proving ownership of the namespace you register under, which only you (the operator) can do. Use the official `mcp-publisher` flow:
+The [MCP Registry](https://github.com/modelcontextprotocol/registry) (currently **preview** — expect breaking changes and possible data resets) lists servers via a `server.json` that is a near-superset of the Server Card. ampless does **not** generate `server.json` for you: registry publishing requires proving ownership of the namespace you register under, which only you (the operator) can do. Use the official `mcp-publisher` CLI (`go install github.com/modelcontextprotocol/registry/cmd/mcp-publisher@latest`, or download a release binary).
 
-1. **Scaffold** `server.json`:
+The namespace you're allowed to publish under **depends on which authentication method you choose** — pick one before scaffolding `server.json`:
 
-   ```bash
-   mcp-publisher init
-   ```
+| Authentication | `name` format                                     | Example                          |
+| -------------- | -------------------------------------------------- | --------------------------------- |
+| GitHub OAuth   | `io.github.<username-or-org>/*`                    | `io.github.alice/ampless-mcp`     |
+| DNS TXT        | `<reverse-dns-of-your-domain>/*`                   | `com.example/ampless-mcp`         |
+| HTTP file      | `<reverse-dns-of-your-domain>/*`                   | `com.example/ampless-mcp`         |
 
-2. **Fill in** the remote endpoint and identity. Map your ampless endpoint to a `remotes` entry, and set `name` to a namespace you can verify:
+All three start the same way — scaffold, then fill in the remote endpoint:
 
-   ```json
-   {
-     "name": "com.example/ampless-mcp",
-     "description": "Read-only MCP endpoint for published posts.",
-     "version": "0.2.0",
-     "remotes": [
-       { "type": "streamable-http", "url": "https://example.com/api/mcp" }
-     ]
-   }
-   ```
+```bash
+mcp-publisher init
+```
 
-3. **Prove ownership** of the namespace (DNS TXT, HTTP `/.well-known/mcp-registry-auth`, or GitHub OAuth):
+```json
+{
+  "name": "<namespace from the table above>/ampless-mcp",
+  "description": "Read-only MCP endpoint for published posts.",
+  "version": "0.2.0",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://example.com/api/mcp" }
+  ]
+}
+```
 
-   ```bash
-   mcp-publisher login dns    # or: http | github
-   ```
+Then prove ownership with **one** of the following, matching the `name` you chose above, and publish:
 
-   If you use HTTP ownership proof, place the auth document at `/.well-known/mcp-registry-auth` on your site — ampless passes any `/.well-known/*` path other than the MCP catalog straight through to Next, so serving that file is up to you and won't collide.
+```bash
+mcp-publisher publish
+```
 
-4. **Publish**:
+### (a) GitHub OAuth → `io.github.<user>/*`
 
-   ```bash
-   mcp-publisher publish
-   ```
+No keys to manage — the CLI drives a device-code OAuth flow and grants your personal `io.github.<username>/*` namespace (an **org**-owned namespace additionally requires you to be an **Owner** of that org). Set `server.json`'s `name` to `io.github.<your-username>/ampless-mcp` and run:
+
+```bash
+mcp-publisher login github
+```
+
+Follow the printed `https://github.com/login/device` link and enter the code; the CLI confirms `✓ Successfully logged in`.
+
+### (b) DNS TXT → `com.example/*` (reverse-DNS of your own domain)
+
+Set `server.json`'s `name` to the reverse-DNS form of a domain you control, e.g. `com.example/ampless-mcp` for `example.com`. Generate a keypair, publish the public half as a DNS TXT record **at the domain apex** (not a subdomain/selector), then log in with the private half:
+
+```bash
+MY_DOMAIN="example.com"
+
+# 1. Generate an Ed25519 keypair (requires OpenSSL >= 3.0 — macOS's
+#    system `openssl` is LibreSSL and doesn't support Ed25519 in
+#    `genpkey`; on macOS install `brew install openssl@3` and invoke it
+#    explicitly, e.g. /opt/homebrew/opt/openssl@3/bin/openssl).
+openssl genpkey -algorithm Ed25519 -out key.pem
+
+# 2. Derive the TXT record value and add it at the domain apex via your
+#    DNS provider (e.g. example.com. IN TXT "v=MCPv1; k=ed25519; p=...").
+PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+echo "${MY_DOMAIN}. IN TXT \"v=MCPv1; k=ed25519; p=${PUBLIC_KEY}\""
+
+# 3. Once the TXT record has propagated, log in with the private key.
+PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
+mcp-publisher login dns --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
+
+### (c) HTTP file → `com.example/*` (reverse-DNS of your own domain)
+
+Same namespace and keypair as DNS, but ownership is proven by hosting a file instead of a DNS record — useful when you can deploy to the domain but don't control its DNS. ampless passes any `/.well-known/*` path other than the MCP catalog straight through to Next, so serving this file is up to you and won't collide:
+
+```bash
+MY_DOMAIN="example.com"
+
+# 1. Generate an Ed25519 keypair (same OpenSSL >= 3.0 caveat as DNS auth).
+openssl genpkey -algorithm Ed25519 -out key.pem
+
+# 2. Write the proof file and host it at
+#    https://example.com/.well-known/mcp-registry-auth
+PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+echo "v=MCPv1; k=ed25519; p=${PUBLIC_KEY}" > mcp-registry-auth
+
+# 3. Once the file is live, log in with the private key.
+PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
+mcp-publisher login http --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
 
 ## See also
 

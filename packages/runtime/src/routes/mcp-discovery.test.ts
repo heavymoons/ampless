@@ -234,6 +234,19 @@ describe('createMcpDiscoveryRouteHandlers', () => {
       expect(body.entries[0].url).toBe('https://example.com/api/mcp/server-card')
       expect(body.entries[0].identifier).toBe('urn:air:example.com:ampless-mcp')
     })
+
+    it('never leaks userinfo credentials embedded in site.url', async () => {
+      const { catalog } = createMcpDiscoveryRouteHandlers(
+        makeAmpless({ ...BOTH_ON, siteUrl: 'https://user:secret@example.com' }),
+      )
+      const res = await catalog.GET(req('/api/mcp/catalog.json'))
+      const raw = await res.text()
+      expect(raw).not.toContain('user')
+      expect(raw).not.toContain('secret')
+      expect(raw).not.toContain('@')
+      const body = JSON.parse(raw)
+      expect(body.entries[0].url).toBe('https://example.com/api/mcp/server-card')
+    })
   })
 
   // --- server card ---
@@ -269,6 +282,20 @@ describe('createMcpDiscoveryRouteHandlers', () => {
       ])
     })
 
+    it('never leaks userinfo credentials embedded in site.url', async () => {
+      const { serverCard } = createMcpDiscoveryRouteHandlers(
+        makeAmpless({ ...BOTH_ON, siteUrl: 'https://user:secret@example.com' }),
+      )
+      const res = await serverCard.GET(req('/api/mcp/server-card'))
+      const raw = await res.text()
+      expect(raw).not.toContain('user')
+      expect(raw).not.toContain('secret')
+      expect(raw).not.toContain('@')
+      const card = JSON.parse(raw)
+      expect(card.websiteUrl).toBe('https://example.com')
+      expect(card.remotes[0].url).toBe('https://example.com/api/mcp')
+    })
+
     it('never leaks internal post fields', async () => {
       const { serverCard } = createMcpDiscoveryRouteHandlers(makeAmpless(BOTH_ON))
       const raw = await (await serverCard.GET(req('/api/mcp/server-card'))).text()
@@ -290,6 +317,33 @@ describe('createMcpDiscoveryRouteHandlers', () => {
       // Newlines/tabs collapsed to single spaces.
       expect(card.title).not.toMatch(/[\n\t]/)
       expect(card.title.startsWith('A'.repeat(60) + ' B')).toBe(true)
+    })
+
+    it('truncates by code point, not UTF-16 unit, when a surrogate pair straddles the 100-char cap', async () => {
+      const validate = makeCardValidator()
+      // The 100th code point (index 99) is a surrogate-pair emoji — a
+      // naive `.slice(0, 100)` on UTF-16 units would cut it in half,
+      // leaving a lone (ill-formed) surrogate in the JSON output.
+      const longName = 'A'.repeat(99) + '\u{1F600}' + 'C'.repeat(60) // 😀
+      const { serverCard } = createMcpDiscoveryRouteHandlers(
+        makeAmpless({ ...BOTH_ON, siteName: longName }),
+      )
+      const card = await (await serverCard.GET(req('/api/mcp/server-card'))).json()
+      expect(validate(card)).toBe(true)
+
+      expect([...card.title].length).toBeLessThanOrEqual(100)
+      expect([...card.description].length).toBeLessThanOrEqual(100)
+      expect(card.title.isWellFormed()).toBe(true)
+      expect(card.description.isWellFormed()).toBe(true)
+      // The emoji at code point 100 must survive intact, not as a lone
+      // surrogate.
+      expect(card.title.endsWith('\u{1F600}')).toBe(true)
+
+      // Round-tripping through JSON.stringify/parse (as the route itself
+      // does) must not throw or produce U+FFFD replacement characters.
+      const roundTripped = JSON.parse(JSON.stringify(card))
+      expect(roundTripped.title).toBe(card.title)
+      expect(roundTripped.title).not.toContain('�')
     })
 
     it('omits title (but keeps a non-empty description) when site.name is empty', async () => {

@@ -58,7 +58,7 @@ export default defineConfig({
   // discovery metadata so AI clients can find the endpoint on their own:
   // a catalog at `/.well-known/mcp/catalog.json` and a Server Card at
   // `/api/mcp/server-card`. Requires `publicMcp: true` + an http(s)
-  // `site.url`. See docs/mcp.md.
+  // `site.url`. See https://github.com/heavymoons/ampless/blob/main/docs/mcp.md.
   // ai: { markdownRoutes: false, llmsTxt: { limit: 100 }, publicMcp: true, mcpDiscovery: true },
   // Active plugins. Order doesn't matter; the runtime aggregates metadata
   // and runs hooks for events each plugin subscribes to.

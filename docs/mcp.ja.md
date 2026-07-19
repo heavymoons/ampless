@@ -139,40 +139,91 @@ Server Card の `name` / `version` は、稼働中 endpoint の `initialize` の
 
 ## MCP Registry への公開
 
-[MCP Registry](https://github.com/modelcontextprotocol/registry)（現在 **preview** — 破壊的変更やデータリセットの可能性あり）は、Server Card のほぼ superset である `server.json` を通じて server を掲載する。ampless は `server.json` を自動生成**しない** — registry への公開には、登録する namespace の所有権を証明する必要があり、それができるのは operator（あなた）だけだから。公式の `mcp-publisher` フローを使うこと:
+[MCP Registry](https://github.com/modelcontextprotocol/registry)（現在 **preview** — 破壊的変更やデータリセットの可能性あり）は、Server Card のほぼ superset である `server.json` を通じて server を掲載する。ampless は `server.json` を自動生成**しない** — registry への公開には、登録する namespace の所有権を証明する必要があり、それができるのは operator（あなた）だけだから。公式の `mcp-publisher` CLI を使うこと（`go install github.com/modelcontextprotocol/registry/cmd/mcp-publisher@latest`、またはリリースバイナリをダウンロード）。
 
-1. `server.json` を **scaffold** する:
+公開できる namespace は**どの認証方式を選ぶかで決まる** — `server.json` を scaffold する前に方式を選ぶこと:
 
-   ```bash
-   mcp-publisher init
-   ```
+| 認証方式      | `name` の形式                       | 例                             |
+| ------------- | ------------------------------------ | ------------------------------- |
+| GitHub OAuth  | `io.github.<username-or-org>/*`      | `io.github.alice/ampless-mcp`   |
+| DNS TXT       | `<自分のドメインの reverse-DNS>/*`   | `com.example/ampless-mcp`       |
+| HTTP file     | `<自分のドメインの reverse-DNS>/*`   | `com.example/ampless-mcp`       |
 
-2. remote endpoint と identity を**記入**する。自分の ampless endpoint を `remotes` エントリにマップし、`name` は自分が証明できる namespace に設定する:
+3 方式とも最初のステップは共通 — scaffold してから remote endpoint を記入する:
 
-   ```json
-   {
-     "name": "com.example/ampless-mcp",
-     "description": "Read-only MCP endpoint for published posts.",
-     "version": "0.2.0",
-     "remotes": [
-       { "type": "streamable-http", "url": "https://example.com/api/mcp" }
-     ]
-   }
-   ```
+```bash
+mcp-publisher init
+```
 
-3. namespace の**所有権を証明**する（DNS TXT、HTTP `/.well-known/mcp-registry-auth`、または GitHub OAuth）:
+```json
+{
+  "name": "<上表の namespace>/ampless-mcp",
+  "description": "Read-only MCP endpoint for published posts.",
+  "version": "0.2.0",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://example.com/api/mcp" }
+  ]
+}
+```
 
-   ```bash
-   mcp-publisher login dns    # or: http | github
-   ```
+その上で、選んだ `name` に対応する**いずれか1つ**の方法で所有権を証明し、公開する:
 
-   HTTP による所有権証明を使う場合は、認証ドキュメントをサイトの `/.well-known/mcp-registry-auth` に置くこと — ampless は MCP catalog 以外の `/.well-known/*` パスをすべてそのまま Next に通すので、このファイルを配信するかどうかはあなた次第であり、衝突は起きない。
+```bash
+mcp-publisher publish
+```
 
-4. **公開**する:
+### (a) GitHub OAuth → `io.github.<user>/*`
 
-   ```bash
-   mcp-publisher publish
-   ```
+鍵の管理は不要 — CLI が device-code OAuth フローを回し、自分個人の `io.github.<username>/*` namespace を付与する（**org** 名義の namespace はさらに、その org の **Owner** であることが必要）。`server.json` の `name` を `io.github.<自分のユーザー名>/ampless-mcp` にして、以下を実行する:
+
+```bash
+mcp-publisher login github
+```
+
+表示される `https://github.com/login/device` のリンクを開きコードを入力する。CLI 側に `✓ Successfully logged in` と出れば完了。
+
+### (b) DNS TXT → `com.example/*`（自分のドメインの reverse-DNS）
+
+`server.json` の `name` を、自分が所有するドメインの reverse-DNS 形式にする（`example.com` なら `com.example/ampless-mcp`）。鍵ペアを生成し、公開鍵を DNS TXT レコードとして**ドメインの apex に**（サブドメイン/セレクタではなく）設置してから、秘密鍵でログインする:
+
+```bash
+MY_DOMAIN="example.com"
+
+# 1. Ed25519 の鍵ペアを生成する（OpenSSL >= 3.0 が必要 — macOS 標準の
+#    `openssl` は LibreSSL で `genpkey` の Ed25519 に非対応。macOS では
+#    `brew install openssl@3` を入れ、明示的にそちらを呼ぶこと。例:
+#    /opt/homebrew/opt/openssl@3/bin/openssl）。
+openssl genpkey -algorithm Ed25519 -out key.pem
+
+# 2. TXT レコードの値を導出し、DNS プロバイダ側でドメインの apex に追加する
+#    （例: example.com. IN TXT "v=MCPv1; k=ed25519; p=..."）。
+PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+echo "${MY_DOMAIN}. IN TXT \"v=MCPv1; k=ed25519; p=${PUBLIC_KEY}\""
+
+# 3. TXT レコードが伝播したら、秘密鍵でログインする。
+PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
+mcp-publisher login dns --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
+
+### (c) HTTP file → `com.example/*`（自分のドメインの reverse-DNS）
+
+namespace と鍵ペアの生成は DNS 方式と同じだが、所有権の証明は DNS レコードではなくファイルの設置で行う — ドメインへのデプロイはできても DNS を管理できない場合に有用。ampless は MCP catalog 以外の `/.well-known/*` パスをすべてそのまま Next に通すので、このファイルを配信しても衝突しない:
+
+```bash
+MY_DOMAIN="example.com"
+
+# 1. Ed25519 の鍵ペアを生成する（DNS 方式と同じ OpenSSL >= 3.0 の注意点あり）。
+openssl genpkey -algorithm Ed25519 -out key.pem
+
+# 2. 証明ファイルを書き出し、
+#    https://example.com/.well-known/mcp-registry-auth として配信する。
+PUBLIC_KEY="$(openssl pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)"
+echo "v=MCPv1; k=ed25519; p=${PUBLIC_KEY}" > mcp-registry-auth
+
+# 3. ファイルが配信できたら、秘密鍵でログインする。
+PRIVATE_KEY="$(openssl pkey -in key.pem -noout -text | grep -A3 "priv:" | tail -n +2 | tr -d ' :\n')"
+mcp-publisher login http --domain "${MY_DOMAIN}" --private-key "${PRIVATE_KEY}"
+```
 
 ## 参照
 

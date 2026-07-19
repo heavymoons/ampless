@@ -26,4 +26,13 @@ describe('resolvePublicMcpEndpoint', () => {
       'http://localhost:3000/api/mcp',
     )
   })
+
+  it('drops userinfo credentials embedded in site.url', () => {
+    const endpoint = resolvePublicMcpEndpoint(true, 'https://user:secret@example.com')
+    expect(endpoint).toBe('https://example.com/api/mcp')
+    const serialized = JSON.stringify({ endpoint })
+    expect(serialized).not.toContain('user')
+    expect(serialized).not.toContain('secret')
+    expect(serialized).not.toContain('@')
+  })
 })

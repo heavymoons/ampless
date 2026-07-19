@@ -59,8 +59,13 @@ function normalizeText(s: string): string {
   return s.replace(CONTROL_CHARS_RE, ' ').replace(/\s+/g, ' ').trim()
 }
 
+// Truncate by Unicode code point, not UTF-16 code unit — `.slice()` cuts
+// mid-surrogate-pair if a multi-unit character (e.g. an emoji) straddles
+// the boundary, producing an unpaired surrogate (ill-formed string) in
+// the JSON output. Spreading a string iterates by code point.
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) : s
+  const codePoints = [...s]
+  return codePoints.length > max ? codePoints.slice(0, max).join('') : s
 }
 
 interface DiscoveryContext {
@@ -95,11 +100,16 @@ async function resolveContext(ampless: Ampless): Promise<DiscoveryContext | null
   if (typeof endpoint !== 'string') return null
   const identity = resolvePublicMcpIdentity(settings.site.url)
   if (!identity) return null
+  // `.origin`/`.hostname` never carry userinfo, but `endpoint` itself
+  // (and thus a naive `.toString()`/template of `parsed`) can if
+  // `site.url` embeds `user:pass@`. Rebuild `endpoint` from `.origin` too
+  // so the Card's `remotes[0].url` can't leak credentials either.
   const url = new URL(endpoint)
+  const { origin, hostname } = url
   return {
-    origin: url.origin,
-    hostname: url.hostname,
-    endpoint,
+    origin,
+    hostname,
+    endpoint: `${origin}/api/mcp`,
     identity,
     siteName: settings.site.name ?? '',
   }

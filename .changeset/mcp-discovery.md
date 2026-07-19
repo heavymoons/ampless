@@ -7,7 +7,7 @@
 
 Add experimental MCP discovery (well-known catalog + Server Card) for the public read-only MCP endpoint.
 
-- **ampless**: new `AiConfig.mcpDiscovery?: boolean` (default `false`, experimental). Requires `publicMcp: true` + an `http(s)` `site.url`.
+- **ampless**: new `AiConfig.mcpDiscovery?: boolean` (default `false`, experimental). Requires `publicMcp: true` + an `http(s)` `site.url`. Fixes `resolvePublicMcpEndpoint` (and the discovery catalog / Server Card that build on it) leaking `site.url` userinfo credentials (`https://user:pass@…`) into the advertised endpoint — all derived URLs now build from `.origin`, which never carries userinfo.
 - **@ampless/runtime**: new `createMcpDiscoveryRouteHandlers` serving `/.well-known/mcp/catalog.json` (via a middleware rewrite to the dot-free internal `/api/mcp/catalog.json`) and `/api/mcp/server-card`, following the prototype `experimental-ext-server-card` spec (SEP-2127, still open/unmerged — schema/paths may change). `.well-known` becomes a reserved middleware prefix so other `/.well-known/*` paths pass straight through to Next (previously they cost a wasted AppSync flag query + a middleware 404; behaviour is equivalent for callers).
 
   **Wire change (only when `ai.mcpDiscovery` is on):** the `/api/mcp` `initialize` response's `serverInfo` switches from the static `{ name: "ampless-mcp", version: "0.2" }` to a site-derived reverse-DNS identity (`{ name: "<reverse-dns>/ampless-mcp", version: "0.2.0" }`) so it matches the Server Card. Tool behaviour, error shapes, and response structure are unchanged. Sites with `mcpDiscovery` off (the default) are fully unchanged, including no extra settings fetch.
