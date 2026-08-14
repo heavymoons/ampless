@@ -27,7 +27,7 @@ import type {
 // 投稿本文に含まれる HTML / JavaScript を**意図的にサニタイズしない**。
 // editor が `attrs.alt` 等の属性経由で `"` をブレイクアウトして任意の
 // JS を仕込めること、`format: 'html'` で `<script>` を保存できること
-// は仕様。詳細は docs/architecture/04-access-layer-mcp.md の
+// は仕様。詳細は https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp の
 // 「editor の信頼モデル（仕様）」を参照。
 //
 // このコメントを読んでサニタイズを追加したくなった場合、まずその設計

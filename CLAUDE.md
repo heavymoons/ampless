@@ -82,12 +82,13 @@ Safe local commands while iterating:
 - Hand-edit `.changeset/<slug>.md`
 - `pnpm changeset status` — read-only, shows what bumps *would* happen
 
-If a stale `.changeset/pre.json` slips through and the symptom shows up (Release workflow says `No changesets found` and no VP PR appears), the fix is a one-line PR that removes the stale entry from `pre.json` without touching the `.md`. Full operational details and recovery steps live in [docs/release-workflow.md](./docs/release-workflow.md).
+If a stale `.changeset/pre.json` slips through and the symptom shows up (Release workflow says `No changesets found` and no VP PR appears), the fix is a one-line PR that removes the stale entry from `pre.json` without touching the `.md`. Full operational details and recovery steps live on the wiki: [Release workflow operations](https://github.com/heavymoons/ampless/wiki/release-workflow).
 
 ## Documentation Language Policy
 
-- **Primary language for `*.md` is English.** New documentation should be authored in English at `name.md`.
-- **Japanese translation lives at `name.ja.md`** alongside the English file (e.g. `README.md` ↔ `README.ja.md`, `docs/architecture/01-overview.md` ↔ `docs/architecture/01-overview.ja.md`).
+- **User-facing documentation lives in the [GitHub wiki](https://github.com/heavymoons/ampless/wiki)**, not in a repo `docs/` directory — there is no top-level `docs/` in this repo (it was migrated to the wiki). Quick start, architecture, MCP, plugin authoring, and other guides are wiki pages; edit them directly there. Wiki edits don't go through PR review and need no changeset.
+- **Primary language for `*.md` (and wiki pages) is English.** New documentation should be authored in English at `name.md` (repo) or the wiki page `name`.
+- **Japanese translation lives at `name.ja.md`** alongside the English file (e.g. `README.md` ↔ `README.ja.md`). The same pairing applies on the wiki: page `name` ↔ page `name.ja` (e.g. `quickstart` ↔ `quickstart.ja`, `architecture-01-overview` ↔ `architecture-01-overview.ja`).
 - Each file should link to the other language at the top, e.g.:
   - English: `> 日本語版: [README.ja.md](./README.ja.md)`
   - Japanese: `> English: [README.md](./README.md)`
@@ -98,7 +99,7 @@ If a stale `.changeset/pre.json` slips through and the symptom shows up (Release
 ## Local Working Notes
 
 - Temporary development notes, review summaries, scratch design docs, and any other local-only handoff files belong under `docs/tmp/`. This directory is gitignored, so contents stay on the contributor's machine and never reach the repo.
-- Use it for personal scratch space or for handing off context to an agent / future-you when the note isn't ready (or isn't intended) to be shared. Promote a note to a regular `docs/` path once it's ready for the repo, and follow the language policy above when you do.
+- Use it for personal scratch space or for handing off context to an agent / future-you when the note isn't ready (or isn't intended) to be shared. Promote a note to the appropriate place once it's ready to share — the GitHub wiki for user-facing documentation, or a suitable spot in the repo (README, package docs) for contributor-facing notes — and follow the language policy above when you do.
 
 ## AWS / Amplify Specifics
 

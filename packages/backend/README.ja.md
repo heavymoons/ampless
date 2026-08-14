@@ -64,7 +64,7 @@ amplessAuthConfig({                                            // カスタム�
 amplessAuthConfig({ postConfirmation, webAuthn: false })      // パスワードのみのサインイン
 ```
 
-Amplify Hosting パイプラインビルドでは、テンプレートが `cms.config.ts` の `site.url` から `resolveWebAuthn({ override, siteUrl, isPipeline })` を通じて Relying Party ID を自動導出します。最も一般的なケースでは手動設定不要です。`ampx sandbox` では RP ID は `localhost` のまま（Amplify が自動解決）です。管理画面を `site.url` と**異なるサブドメイン**で配信している場合は、`amplify/auth/resource.custom.ts` でオペレーターがアクセスする bare domain を `relyingPartyId` に固定してください。パスキー登録後に RP ID を変更すると、登録済みの認証情報がすべて無効化されます。[docs/passkeys.ja.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.ja.md) を参照してください。
+Amplify Hosting パイプラインビルドでは、テンプレートが `cms.config.ts` の `site.url` から `resolveWebAuthn({ override, siteUrl, isPipeline })` を通じて Relying Party ID を自動導出します。最も一般的なケースでは手動設定不要です。`ampx sandbox` では RP ID は `localhost` のまま（Amplify が自動解決）です。管理画面を `site.url` と**異なるサブドメイン**で配信している場合は、`amplify/auth/resource.custom.ts` でオペレーターがアクセスする bare domain を `relyingPartyId` に固定してください。パスキー登録後に RP ID を変更すると、登録済みの認証情報がすべて無効化されます。[passkeys.ja](https://github.com/heavymoons/ampless/wiki/passkeys.ja) を参照してください。
 
 ### `amplify/data/resource.ts`
 

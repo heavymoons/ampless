@@ -7,7 +7,7 @@ Google Analytics 4 plugin for [ampless](https://github.com/heavymoons/ampless).
 
 > **Pre-release / beta.** Breaking changes are still possible before v1.0.
 
-Drops the two standard GA4 snippets into every public page's `<head>` through the descriptor-based plugin head injection API ([plugin architecture](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)):
+Drops the two standard GA4 snippets into every public page's `<head>` through the descriptor-based plugin head injection API ([plugin architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture)):
 
 1. The async `gtag.js` loader (`https://www.googletagmanager.com/gtag/js?id=...`).
 2. An inline `gtag('config', '<measurementId>')` bootstrap.
@@ -82,7 +82,7 @@ This warning fires in production too — it is intended to help operators catch 
 
 **Plugin ordering:** register `@ampless/plugin-cookie-consent` before the analytics plugin in the `plugins` array. The runtime processes plugins in order; placing cookie-consent first ensures `window.amplessConsent` is installed before the analytics gating logic runs.
 
-For full details on the Consent Convention and the `window.amplessConsent` API see [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md).
+For full details on the Consent Convention and the `window.amplessConsent` API see [architecture-08-plugin-architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture).
 
 ## Getting your measurement ID
 

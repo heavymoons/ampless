@@ -128,7 +128,7 @@ export interface PluginPublicRenderContext {
  * and renders the surviving descriptors as React elements inside the
  * root layout's `<head>`. Returning arbitrary `ReactNode` is
  * intentionally not offered here — see
- * `docs/architecture/08-plugin-architecture.md` §"Descriptor-based
+ * `https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture` §"Descriptor-based
  * Head/Body Injection".
  */
 export type PublicHeadDescriptor =
@@ -235,7 +235,7 @@ export type PublicHeadDescriptor =
        * an admin installs a plugin, accepting whatever it eventually
        * renders into `<head>` / `<body>`. The boundary is structurally
        * the same as the [editor trust
-       * model](../../docs/architecture/04-access-layer-mcp.md#editor-trust-model-specification)
+       * model](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp#editor-trust-model-specification)
        * — editors can already inject arbitrary `<script>` via post
        * body anyway, so a per-plugin sandbox here wouldn't change the
        * upper bound. If a tighter sandbox is needed, scope it at
@@ -512,7 +512,7 @@ export interface OgImageConfig {
 // a plugin instance exposes. Values are stored under
 //   pk = 'siteconfig', sk = `plugins.<instanceId>.<key>`
 // and surfaced to `publicHead` / `publicBodyEnd` via
-// `ctx.setting<T>(key)`. See docs/architecture/08-plugin-architecture.md
+// `ctx.setting<T>(key)`. See https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture
 // "Plugin State Storage" and packages/ampless/src/plugin-settings.ts
 // for the validation / resolution helpers.
 
@@ -1028,7 +1028,7 @@ export interface AmplessPlugin {
    * `apiVersion` is the breaking-change marker on the plugin contract;
    * additive changes (new optional fields, new reserved capabilities)
    * stay within `apiVersion: 1`. See the apiVersion bump policy in
-   * `docs/architecture/08-plugin-architecture.md` for the full criteria.
+   * `https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture` for the full criteria.
    */
   apiVersion: 1
   /**
@@ -1114,7 +1114,7 @@ export interface AmplessPlugin {
    * What this reservation locks in: when `uninstall` does fire,
    * it runs in a trusted-Lambda IAM context with cleanup grants for
    * the five plugin-owned data areas (see
-   * docs/architecture/08-plugin-architecture.md
+   * https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture
    * §"Plugin-owned data areas"). Idempotency is the plugin author's
    * responsibility — the hook may be invoked more than once
    * (SQS at-least-once or operator-retry).
@@ -1321,7 +1321,7 @@ export function definePlugin(p: AmplessPlugin): AmplessPlugin {
           `but no privileged Lambda is provisioned yet. Hooks will not execute. ` +
           `Sync render surfaces (publicHead / metadata / publicBodyForPost / etc.) ` +
           `work normally regardless of trust_level. See ` +
-          `docs/architecture/08-plugin-architecture.md#trust-levels for the future plan.`
+          `https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#trust-levels for the future plan.`
       )
     }
   }

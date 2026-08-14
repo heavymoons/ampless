@@ -88,7 +88,7 @@ This warning fires in production too — it is intended to help operators catch 
 
 **Plugin ordering:** register `@ampless/plugin-cookie-consent` before the GTM plugin in the `plugins` array.
 
-For full details on the Consent Convention and the `window.amplessConsent` API see [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md).
+For full details on the Consent Convention and the `window.amplessConsent` API see [architecture-08-plugin-architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture).
 
 ## Editing the container ID from the admin UI
 

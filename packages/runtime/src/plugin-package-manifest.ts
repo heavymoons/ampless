@@ -29,7 +29,7 @@
 // convention) continue to work — they just don't participate in the
 // new cross-check.
 //
-// Architecture: docs/architecture/08-plugin-architecture.md — static plugin manifests.
+// Architecture: https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture — static plugin manifests.
 
 import type { PluginPackageManifest, TrustLevel } from 'ampless'
 

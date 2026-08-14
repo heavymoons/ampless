@@ -85,7 +85,7 @@ Did you forget to register @ampless/plugin-cookie-consent?
 
 **プラグインの順序:** `plugins` 配列内で `@ampless/plugin-cookie-consent` を Plausible plugin より前に置いてください。
 
-Consent Convention および `window.amplessConsent` API の詳細は [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) を参照してください。
+Consent Convention および `window.amplessConsent` API の詳細は [architecture-08-plugin-architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture) を参照してください。
 
 ## 管理画面から設定を編集する
 

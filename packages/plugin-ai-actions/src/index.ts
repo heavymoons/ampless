@@ -29,7 +29,7 @@
 // on the site — see README.md / README.ja.md for the "do not register
 // this plugin if markdownRoutes is disabled" guidance.
 //
-// Architecture: docs/architecture/08-plugin-architecture.md — publicHtmlForPost.
+// Architecture: https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture — publicHtmlForPost.
 
 import { definePlugin, type AmplessPlugin, type PublicPostHtmlDescriptor } from 'ampless'
 import type { Post } from 'ampless'

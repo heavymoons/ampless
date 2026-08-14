@@ -16,10 +16,10 @@ Phase 1–4 surfaces — descriptor-based `<head>` / `<body>` /
 per-post body injection, the async event hooks, and admin-managed
 `settings.public` values.
 
-The design rationale is in [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md);
+The design rationale is in [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture);
 this page is the hands-on companion.
 
-> **Positioning**: ampless is a customization-based CMS for engineers — plugins are **npm dependencies that the site engineer imports + configures in `cms.config.ts`**. The engineer audits each dep before installing, the way they would for any other npm library (Astro integration / Next.js plugin pattern). The trust framework described in this guide (`trust_level`, capabilities, IAM-scoped Lambdas) is implemented in v1 as **first-party plugin organization** — it decides which trust tier's Lambda runs each event hook, which IAM permissions each tier holds, and applies hard runtime gates only at narrowly-scoped points (most notably: `settings.secret` requires `trust_level: 'trusted'` because secret read needs the trusted Lambda's IAM permission). Most capability declarations are soft warnings + admin labels + future allow-list surfaces, not hard runtime gates. It is **not** designed as a marketplace-grade automatic sandbox that safely runs arbitrary untrusted third-party plugins. Marketplace + runtime sandbox is a v2.0+ exploration, not a v1 guarantee. See [`docs/architecture/08-plugin-architecture.md#trust-model-v1-scope`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) for the full trust model.
+> **Positioning**: ampless is a customization-based CMS for engineers — plugins are **npm dependencies that the site engineer imports + configures in `cms.config.ts`**. The engineer audits each dep before installing, the way they would for any other npm library (Astro integration / Next.js plugin pattern). The trust framework described in this guide (`trust_level`, capabilities, IAM-scoped Lambdas) is implemented in v1 as **first-party plugin organization** — it decides which trust tier's Lambda runs each event hook, which IAM permissions each tier holds, and applies hard runtime gates only at narrowly-scoped points (most notably: `settings.secret` requires `trust_level: 'trusted'` because secret read needs the trusted Lambda's IAM permission). Most capability declarations are soft warnings + admin labels + future allow-list surfaces, not hard runtime gates. It is **not** designed as a marketplace-grade automatic sandbox that safely runs arbitrary untrusted third-party plugins. Marketplace + runtime sandbox is a v2.0+ exploration, not a v1 guarantee. See [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#trust-model-v1-scope) for the full trust model.
 
 ---
 
@@ -56,7 +56,7 @@ The two boundaries that frequently catch new authors:
   carry their own settings, but those are theme-display settings, not
   site-operational ones.
 
-Some features genuinely sit at the boundary — see [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)
+Some features genuinely sit at the boundary — see [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture)
 for the longer discussion.
 
 ---
@@ -250,7 +250,7 @@ If a future `apiVersion: 2` is ever introduced, it will be announced
 through a changeset and a section update in this guide and the
 architecture doc. Until then, **publish your plugin with
 `apiVersion: 1` and treat it as the only valid value**. See the
-[apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy)
+[apiVersion bump policy](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#apiversion-bump-policy)
 section in the architecture doc for the full criteria around what
 would (and would not) trigger a v2 bump.
 
@@ -361,7 +361,7 @@ not a runtime block.
 
 ## 4. Picking a `trust_level`
 
-The trust tiers are implemented in v1 as **first-party plugin organization** — they decide which IAM-scoped Lambda runs your event hooks and which permissions that Lambda holds. This is a code organization surface for engineer-audited npm deps, not a marketplace-grade automatic sandbox for arbitrary third-party untrusted plugins (see the [Positioning note](#writing-an-ampless-plugin) above and the [full trust model](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope)).
+The trust tiers are implemented in v1 as **first-party plugin organization** — they decide which IAM-scoped Lambda runs your event hooks and which permissions that Lambda holds. This is a code organization surface for engineer-audited npm deps, not a marketplace-grade automatic sandbox for arbitrary third-party untrusted plugins (see the [Positioning note](#writing-an-ampless-plugin) above and the [full trust model](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#trust-model-v1-scope)).
 
 Three tiers, picked by what the plugin needs to do **inside
 event hooks** (the sync surfaces — metadata, head, body — don't
@@ -833,7 +833,7 @@ current release. Until then, the pattern above is the recommended
 guard for notification plugins.
 
 For a full description of `publishedAt` semantics from the operator's
-perspective, see [`docs/scheduled-publishing.md`](https://github.com/heavymoons/ampless/blob/main/docs/scheduled-publishing.md).
+perspective, see [`scheduled-publishing`](https://github.com/heavymoons/ampless/wiki/scheduled-publishing).
 
 ---
 
@@ -1610,7 +1610,7 @@ keep working. Plugins that do declare `capabilities` but omit
   may fire twice. Writing the same output twice should produce the
   same effect (e.g. a deterministic feed).
 - **Don't read events.payload.\* fields you didn't declare.** The
-  shape is documented in [`docs/architecture/05-event-system.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/05-event-system.md);
+  shape is documented in [`architecture-05-event-system`](https://github.com/heavymoons/ampless/wiki/architecture-05-event-system);
   drifting consumers break silently when the shape moves.
 - **Errors propagate to DLQ.** Throwing inside a hook eventually
   parks the message in the dead-letter queue. Use the normal
@@ -2013,7 +2013,7 @@ outside the ampless schema, lifecycle management (including cleanup on uninstall
 is your responsibility. ampless has no visibility into external tables and the
 future `uninstall` cleanup grants cover only the five areas above.
 
-See [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#plugin-owned-data-areas)
+See [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#plugin-owned-data-areas)
 for the full rationale and the IAM grant design.
 
 ---
@@ -2294,7 +2294,7 @@ a normal npm package:
   contract, not a semver-style channel: additive changes (new
   optional fields, new reserved capabilities) stay within
   `apiVersion: 1` and do NOT require a bump. See the [apiVersion
-  bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy)
+  bump policy](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#apiversion-bump-policy)
   in the architecture doc for the full criteria.
 - **Dist-tag**: `@beta` while ampless itself is in beta. The
   `@latest` tag stays reserved until ampless v1.0.
@@ -2452,7 +2452,7 @@ PROTECTED), so the scaffolded code is safe across ampless upgrades.
 
 ## 15. Where to ask
 
-- Architecture / design questions → [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)
+- Architecture / design questions → [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture)
 - Bugs in a first-party plugin → file an issue against
   `heavymoons/ampless` referencing the plugin's package name.
 - Bugs in the plugin runtime / admin form → same repo, label

@@ -143,7 +143,7 @@ function requireClearMutation(
  * threat model treats admin/editor as trusted operators authorised to
  * set secrets; the manifest checks here are UX guidance, not a
  * security boundary. See the Phase 6a v2.2 section of
- * docs/architecture/08-plugin-architecture.md for the full threat
+ * https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture for the full threat
  * model.
  *
  * The plaintext is sent to the Lambda via the AppSync mutation (TLS).

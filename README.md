@@ -26,7 +26,7 @@ npm run sandbox       # provisions AWS dev resources, then http://localhost:3000
 
 > Use the `@beta` tag while ampless is in beta — `@latest` is reserved for the eventual v1.0 release.
 
-Sign up at `/login` — the first registered user is automatically promoted to the `ampless-admin` Cognito group; subsequent signups land in no group by default and need manual promotion. **Full prerequisites, what gets provisioned, and next steps**: [docs/quickstart.md](./docs/quickstart.md).
+Sign up at `/login` — the first registered user is automatically promoted to the `ampless-admin` Cognito group; subsequent signups land in no group by default and need manual promotion. **Full prerequisites, what gets provisioned, and next steps**: [quickstart](https://github.com/heavymoons/ampless/wiki/quickstart).
 
 When you're ready to publish, the CLI's `--mount` mode wires the directory you've been working in to a new GitHub repo + Amplify Hosting app in one shot — see [Publishing](#publishing) below.
 
@@ -112,12 +112,12 @@ publishing to npm. The bundled GA4 / RSS / SEO / Webhook plugins are
 the working examples it references.
 
 The design rationale stays in
-[`docs/architecture/08-plugin-architecture.md`](./docs/architecture/08-plugin-architecture.md);
+[`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture);
 the author guide focuses on what to write and where to put it.
 
 ## Editor trust model (read this before granting `editor` access)
 
-ampless treats `ampless-editor` as a trusted principal — same shape as WordPress's `unfiltered_html` capability. Editors can store arbitrary HTML / JavaScript in post bodies and the public site renders it verbatim. The full spec is in [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md); the short version is **don't grant `editor` to anyone you wouldn't also grant `admin`**.
+ampless treats `ampless-editor` as a trusted principal — same shape as WordPress's `unfiltered_html` capability. Editors can store arbitrary HTML / JavaScript in post bodies and the public site renders it verbatim. The full spec is in [`architecture-04-access-layer-mcp`](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp); the short version is **don't grant `editor` to anyone you wouldn't also grant `admin`**.
 
 ## Roadmap
 
@@ -132,11 +132,11 @@ ampless development follows a four-stage release path: **alpha → beta → RC �
 | v1.0 stable | Public launch — ampless introduction page (built with ampless) ships simultaneously. |
 | v2.0+ | Exploration only — if AmpLess later needs a plugin marketplace: runtime sandbox, dynamic IAM, distribution UI. Not a v1.0 commitment. |
 
-Full list in [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md).
+Full list in [`architecture-14-roadmap`](https://github.com/heavymoons/ampless/wiki/architecture-14-roadmap).
 
 ## Architecture
 
-[`docs/architecture/`](./docs/architecture/) has the design docs split per concern. [`ARCHITECTURE.md`](./ARCHITECTURE.md) is the table of contents.
+[`docs/architecture/`](https://github.com/heavymoons/ampless/wiki/Home#architecture) has the design docs split per concern. [`ARCHITECTURE.md`](./ARCHITECTURE.md) is the table of contents.
 
 ## Contributing
 

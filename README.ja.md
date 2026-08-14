@@ -26,7 +26,7 @@ npm run sandbox       # AWS 開発リソースをプロビジョニング後、h
 
 > ampless が beta の間は `@beta` タグを使用してください — `@latest` は最終的な v1.0 リリース用に予約されています。
 
-`/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。2 人目以降はデフォルトでグループなしとなり、手動で昇格が必要です。**前提条件・プロビジョニングされるリソース・次のステップの詳細**: [docs/quickstart.ja.md](./docs/quickstart.ja.md)
+`/login` でサインアップすると、最初に登録したユーザーが自動的に `ampless-admin` Cognito グループに昇格します。2 人目以降はデフォルトでグループなしとなり、手動で昇格が必要です。**前提条件・プロビジョニングされるリソース・次のステップの詳細**: [quickstart.ja](https://github.com/heavymoons/ampless/wiki/quickstart.ja)
 
 公開準備ができたら、CLI の `--mount` モードで「ローカルで作業中のディレクトリ」を GitHub repo + Amplify Hosting アプリに一括登録できます。下記 [公開](#公開) セクション参照。
 
@@ -111,12 +111,12 @@ head / body 注入、`ctx.setting<T>()` 経由の admin 管理
 npm 公開。GA4 / RSS / SEO / Webhook の同梱プラグインが参照する動作
 サンプルです。
 
-設計の経緯は [`docs/architecture/08-plugin-architecture.ja.md`](./docs/architecture/08-plugin-architecture.ja.md)
+設計の経緯は [`architecture-08-plugin-architecture.ja`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja)
 に集約。作者ガイド側は何をどこに書くかにフォーカスしています。
 
 ## エディタートラストモデル（`editor` 権限を付与する前に必ずお読みください）
 
-ampless は `ampless-editor` を信頼済みプリンシパルとして扱います — WordPress の `unfiltered_html` ケイパビリティと同じ位置づけです。エディターは投稿本文に任意の HTML / JavaScript を格納でき、公開サイトはそれをそのままレンダリングします。詳細な仕様は [`docs/architecture/04-access-layer-mcp.md`](./docs/architecture/04-access-layer-mcp.md) を参照してください。要約すると、**`admin` を付与してもよいと思える相手にのみ `editor` を付与してください**。
+ampless は `ampless-editor` を信頼済みプリンシパルとして扱います — WordPress の `unfiltered_html` ケイパビリティと同じ位置づけです。エディターは投稿本文に任意の HTML / JavaScript を格納でき、公開サイトはそれをそのままレンダリングします。詳細な仕様は [`architecture-04-access-layer-mcp`](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp) を参照してください。要約すると、**`admin` を付与してもよいと思える相手にのみ `editor` を付与してください**。
 
 ## ロードマップ
 
@@ -131,11 +131,11 @@ ampless の開発は 4 段階のリリースパスに従っています: **alpha
 | v1.0 stable | 公開ローンチ — ampless 自身のマーケティングページ（ampless 製）も同時にローンチ |
 | v2.0+ | 探索のみ — ampless がプラグインマーケットプレイスを必要とする場合: ランタイムサンドボックス、動的 IAM、配布 UI。v1.0 のコミットではない |
 
-詳細なリストは [`docs/architecture/14-roadmap.md`](./docs/architecture/14-roadmap.md) を参照してください。
+詳細なリストは [`architecture-14-roadmap`](https://github.com/heavymoons/ampless/wiki/architecture-14-roadmap) を参照してください。
 
 ## アーキテクチャ
 
-[`docs/architecture/`](./docs/architecture/) に懸案事項ごとに分割された設計ドキュメントがあります。[`ARCHITECTURE.md`](./ARCHITECTURE.md) が目次です。
+[`docs/architecture/`](https://github.com/heavymoons/ampless/wiki/Home#architecture) に懸案事項ごとに分割された設計ドキュメントがあります。[`ARCHITECTURE.md`](./ARCHITECTURE.md) が目次です。
 
 ## コントリビューション
 

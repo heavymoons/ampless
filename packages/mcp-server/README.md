@@ -41,7 +41,7 @@ End users configure MCP via the admin UI:
 }
 ```
 
-See `docs/architecture/04-access-layer-mcp.md` for the full HTTP MCP architecture.
+See `https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp` for the full HTTP MCP architecture.
 
 ## Exports
 

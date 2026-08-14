@@ -33,7 +33,7 @@
 // ⚠️ Changing the RP ID after operators have registered passkeys
 // invalidates every existing credential — they'll have to register
 // again from the account page. The password flow always stays available
-// as the fallback. See `docs/passkeys.md`.
+// as the fallback. See `https://github.com/heavymoons/ampless/wiki/passkeys`.
 //
 // ⚠️ cms.config.ts must not import theme CSS or browser-only modules —
 // it is loaded at CDK synth time when deriving the RP ID.

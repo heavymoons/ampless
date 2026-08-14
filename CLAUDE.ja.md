@@ -82,12 +82,13 @@ pnpm changeset        # バージョニング用 changeset を作成
 - `.changeset/<slug>.md` を手書き
 - `pnpm changeset status` — 読み取り専用、今 version を叩いたらどの bump になるか表示
 
-ステイル状態がすり抜けて症状（Release workflow が `No changesets found` と出して VP PR が開かない）が出た場合は、`.md` には触らず `pre.json` から該当エントリを 1 行削除する小さな修正 PR で復旧する。詳しい運用とリカバリ手順は [docs/release-workflow.ja.md](./docs/release-workflow.ja.md)。
+ステイル状態がすり抜けて症状（Release workflow が `No changesets found` と出して VP PR が開かない）が出た場合は、`.md` には触らず `pre.json` から該当エントリを 1 行削除する小さな修正 PR で復旧する。詳しい運用とリカバリ手順は wiki を参照: [Release workflow operations](https://github.com/heavymoons/ampless/wiki/release-workflow.ja)。
 
 ## ドキュメント言語ポリシー
 
-- **`*.md` の主言語は英語。** 新規ドキュメントは `name.md` に英語で記述する。
-- **日本語訳は `name.ja.md`** として英語版と並べて配置する (例: `README.md` ↔ `README.ja.md`、`docs/architecture/01-overview.md` ↔ `docs/architecture/01-overview.ja.md`)。
+- **ユーザー向けドキュメントは [GitHub wiki](https://github.com/heavymoons/ampless/wiki) にある**。リポジトリの `docs/` ディレクトリではない — このリポジトリにトップレベル `docs/` はもう存在しない（wiki へ移行済み）。クイックスタート、アーキテクチャ、MCP、プラグイン作者ガイドなどは wiki ページであり、直接そこで編集する。wiki の編集は PR レビューを経ず、changeset も不要。
+- **`*.md`（および wiki ページ）の主言語は英語。** 新規ドキュメントはリポジトリなら `name.md`、wiki ならページ `name` に英語で記述する。
+- **日本語訳は `name.ja.md`** として英語版と並べて配置する (例: `README.md` ↔ `README.ja.md`)。同じペア規約は wiki でも同じ: ページ `name` ↔ ページ `name.ja`（例: `quickstart` ↔ `quickstart.ja`、`architecture-01-overview` ↔ `architecture-01-overview.ja`）。
 - 各ファイルは先頭で他言語版へのリンクを示す:
   - 英語版: `> 日本語版: [README.ja.md](./README.ja.md)`
   - 日本語版: `> English: [README.md](./README.md)`
@@ -98,7 +99,7 @@ pnpm changeset        # バージョニング用 changeset を作成
 ## ローカル作業メモ
 
 - 開発中の一時メモ、レビューまとめ、設計のスクラッチ、エージェント間の引き継ぎファイルなど、ローカルだけで使うドキュメントは `docs/tmp/` 配下に置く。このディレクトリは gitignore されているので、コミットされず手元に留まる。
-- 自分用のメモ置き場、または未確定 / 公開予定のないコンテキスト引き継ぎ用に使う。共有できる段階になったら通常の `docs/` パスへ移動し、上記の言語ポリシーに従う。
+- 自分用のメモ置き場、または未確定 / 公開予定のないコンテキスト引き継ぎ用に使う。共有できる段階になったら適切な場所へ移動する — ユーザー向けドキュメントなら GitHub wiki、コントリビューター向けの補足ならリポジトリ内の適所（README、パッケージ doc）— 上記の言語ポリシーに従う。
 
 ## AWS / Amplify 固有事項
 

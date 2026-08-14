@@ -41,7 +41,7 @@ admin の `mcp-handler` Lambda は Bearer トークンを `McpToken` AppSync モ
 }
 ```
 
-HTTP MCP のアーキテクチャ全体については `docs/architecture/04-access-layer-mcp.md` を参照してください。
+HTTP MCP のアーキテクチャ全体については `https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp` を参照してください。
 
 ## エクスポート
 

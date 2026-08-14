@@ -121,7 +121,7 @@ CORS（匿名・読み取り専用）、64KB のボディ上限、粗い warm-in
 また、`post.metadata.cache`（auto / deep / hot）+ `post.updatedAt` +
 `cms.config.cache.{cooldownMs, freshTtlSeconds, deepTtlSeconds}` から
 `Cache-Control` を算出してレスポンスに付与します。キャッシュ戦略の
-契約については `docs/CONTENT.md` を参照してください。
+契約については `https://github.com/heavymoons/ampless/wiki/CONTENT` を参照してください。
 
 ## サブパス
 

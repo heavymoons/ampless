@@ -11,9 +11,9 @@
 
 このガイドは、初めての `definePlugin()` 呼び出しから admin 編集可能な設定パネル、そして npm 公開に至るまで、ampless プラグインを ship するために必要な手順を一通りカバーします。Phase 1〜4 の機能を網羅 — descriptor ベースの `<head>` / `<body>` / 投稿単位 body 注入、非同期イベントフック、admin 管理の `settings.public` 値です。
 
-設計の経緯と背景は [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) に集約。本ページはその実装ハンドブック側です。
+設計の経緯と背景は [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture) に集約。本ページはその実装ハンドブック側です。
 
-> **ポジショニング**: ampless はエンジニア向けのカスタマイズベース CMS です — プラグインは**サイトエンジニアが `cms.config.ts` でインポート + 設定する npm dep** です。エンジニアは他の npm ライブラリと同様にインストール前に各 dep を審査します（Astro integration / Next.js plugin パターン）。このガイドで説明する trust framework（`trust_level`、capabilities、IAM スコープ付き Lambda）は v1 において**ファーストパーティプラグインの code organization**として実装されています — どの trust 階層の Lambda が各イベントフックを実行するか、各階層が保有する IAM 権限、そして狭い範囲のポイントでのみ runtime hard gate を適用する（最も重要: `settings.secret` は `trust_level: 'trusted'` を要求、シークレット読み取りに trusted Lambda の IAM 権限が必要なため）。ほとんどの capability 宣言は runtime の hard gate ではなく soft warning + admin ラベル + 将来の allow-list surface です。任意の未審査サードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索であり、v1 の保証ではありません。詳細な trust model は [`docs/architecture/08-plugin-architecture.md#trust-model-v1-scope`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) を参照してください。
+> **ポジショニング**: ampless はエンジニア向けのカスタマイズベース CMS です — プラグインは**サイトエンジニアが `cms.config.ts` でインポート + 設定する npm dep** です。エンジニアは他の npm ライブラリと同様にインストール前に各 dep を審査します（Astro integration / Next.js plugin パターン）。このガイドで説明する trust framework（`trust_level`、capabilities、IAM スコープ付き Lambda）は v1 において**ファーストパーティプラグインの code organization**として実装されています — どの trust 階層の Lambda が各イベントフックを実行するか、各階層が保有する IAM 権限、そして狭い範囲のポイントでのみ runtime hard gate を適用する（最も重要: `settings.secret` は `trust_level: 'trusted'` を要求、シークレット読み取りに trusted Lambda の IAM 権限が必要なため）。ほとんどの capability 宣言は runtime の hard gate ではなく soft warning + admin ラベル + 将来の allow-list surface です。任意の未審査サードパーティ untrusted プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox としては**設計されていません**。マーケットプレイス + ランタイムサンドボックスは v2.0+ の探索であり、v1 の保証ではありません。詳細な trust model は [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#trust-model-v1-scope) を参照してください。
 
 ---
 
@@ -43,7 +43,7 @@ ampless はテーマとプラグインの両方を提供します。用途に合
 - **ストレージ / DynamoDB / 外部 API 書き込みはプラグインに置く**。テーマは読み取り専用です。
 - **admin が `/admin/plugins` からオン・オフしたい機能はプラグインに置く**。表面上の効果が純粋に見た目だけであっても同様です。テーマも独自の設定を持てますが、それはテーマ表示設定であり、サイト運用設定ではありません。
 
-境界線上に本当に乗っている機能については [`docs/architecture/08-plugin-architecture.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) で詳しく議論しています。
+境界線上に本当に乗っている機能については [`architecture-08-plugin-architecture`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture) で詳しく議論しています。
 
 ---
 
@@ -208,7 +208,7 @@ interface AmplessPlugin {
 
 Phase 1 の compat-break reservation すべて（PR #220、#222、#230、#232、#234）は `apiVersion: 1` 内に収まります。これらをプラグインで declare するかどうかは契約バージョンに影響しません。
 
-将来 `apiVersion: 2` が導入される場合は、changeset とこのガイドおよび architecture doc のセクション更新を通じてアナウンスされます。それまでは、**`apiVersion: 1` でプラグインを publish し、唯一の有効値として扱ってください**。v2 bump の trigger となるもの（ならないもの）の全基準については、architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy) セクションを参照してください。
+将来 `apiVersion: 2` が導入される場合は、changeset とこのガイドおよび architecture doc のセクション更新を通じてアナウンスされます。それまでは、**`apiVersion: 1` でプラグインを publish し、唯一の有効値として扱ってください**。v2 bump の trigger となるもの（ならないもの）の全基準については、architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#apiversion-bump-policy) セクションを参照してください。
 
 ### `instanceId`
 
@@ -290,7 +290,7 @@ runtime がチェックする内容:
 
 ## 4. `trust_level` の選び方
 
-trust 階層は v1 において**ファーストパーティプラグインの code organization**として実装されています — イベントフックがどの IAM スコープ付き Lambda で実行されるか、その Lambda が保有する権限を決定します。これはエンジニアが審査した npm dep 向けの code organization surface であり、任意のサードパーティ未審査プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox ではありません（上記の[ポジショニング注記](#ampless-プラグインの書き方)と[詳細な trust model](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#trust-model-v1-scope) を参照）。
+trust 階層は v1 において**ファーストパーティプラグインの code organization**として実装されています — イベントフックがどの IAM スコープ付き Lambda で実行されるか、その Lambda が保有する権限を決定します。これはエンジニアが審査した npm dep 向けの code organization surface であり、任意のサードパーティ未審査プラグインを自動的に安全に動かすための marketplace-grade automatic sandbox ではありません（上記の[ポジショニング注記](#ampless-プラグインの書き方)と[詳細な trust model](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#trust-model-v1-scope) を参照）。
 
 3 階層、選択基準は **イベントフック (hooks) が何を必要とするか** で決まります (sync サーフェスは IAM に触れない):
 
@@ -632,7 +632,7 @@ hooks: {
 
 `content.published` の発火を保存時ではなく `publishedAt` のタイミングに合わせる機能 — EventBridge Scheduler または DynamoDB TTL トリガー Lambda によるスケジューラーコンポーネントが必要 — は計画中の機能強化です。現リリースのスコープには含まれていません。それまでの間は上記のパターンが通知プラグインにおける推奨ガードです。
 
-オペレーター視点からの `publishedAt` セマンティクスの全体像は [`docs/scheduled-publishing.md`](https://github.com/heavymoons/ampless/blob/main/docs/scheduled-publishing.ja.md) を参照してください。
+オペレーター視点からの `publishedAt` セマンティクスの全体像は [`scheduled-publishing`](https://github.com/heavymoons/ampless/wiki/scheduled-publishing.ja) を参照してください。
 
 ---
 
@@ -1190,7 +1190,7 @@ public/plugins/<instanceId ?? name>/<key>
 ### ベストプラクティス
 
 - **冪等にする**。SQS は at-least-once 配送 — 同じイベントが 2 回 fire する可能性があります。同じ入力で同じ出力 (決定論的なフィード等) を生成するようにしてください
-- **宣言していない `event.payload.*` を読まない**。形は [`docs/architecture/05-event-system.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/05-event-system.md) に文書化されています。形がドリフトすると暗黙の読み出しが silent に壊れます
+- **宣言していない `event.payload.*` を読まない**。形は [`architecture-05-event-system`](https://github.com/heavymoons/ampless/wiki/architecture-05-event-system) に文書化されています。形がドリフトすると暗黙の読み出しが silent に壊れます
 - **エラーは DLQ に行く**。フック内で throw すると最終的にメッセージは dead-letter queue に届きます。失敗のサーフェスは通常の CloudWatch ダッシュボードで
 
 ---
@@ -1452,7 +1452,7 @@ admin は再デプロイなしにいつでも secret をローテーションで
 
 **独自 DynamoDB テーブル。** プラグインが ampless スキーマ外に独自の DynamoDB テーブルを持つ場合、lifecycle 管理（アンインストール時の cleanup を含む）はプラグイン著者の責任です。ampless は外部テーブルを把握しておらず、将来の `uninstall` cleanup grant は上記 5 領域のみをカバーします。
 
-詳細な設計根拠と IAM grant 設計については [`docs/architecture/08-plugin-architecture.ja.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md#プラグインが所有するデータ領域) を参照してください。
+詳細な設計根拠と IAM grant 設計については [`architecture-08-plugin-architecture.ja`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja#プラグインが所有するデータ領域) を参照してください。
 
 ---
 
@@ -1671,7 +1671,7 @@ it('admin が空文字保存した場合は空配列', () => {
 
 - **パッケージ名**: `@your-scope/plugin-foo`。`@ampless/plugin-*` スコープは本モノレポから ship する公式プラグイン用に予約
 - **エントリ**: ESM のみ、default export (factory) + 設定インターフェイス (ユーザの `cms.config.ts` から型付きで引数を渡せるように) を export
-- **`apiVersion`**: 現状は `1` を declare してください — 唯一の有効値で、literal type が他の値を compile-time に reject します。`apiVersion` はプラグイン契約の **breaking-change marker** であって semver 風のチャンネルではありません。additive な追加 (optional field、reserved capability など) は `apiVersion: 1` 内に収まり、bump は不要です。詳細は architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#apiversion-bump-policy) を参照
+- **`apiVersion`**: 現状は `1` を declare してください — 唯一の有効値で、literal type が他の値を compile-time に reject します。`apiVersion` はプラグイン契約の **breaking-change marker** であって semver 風のチャンネルではありません。additive な追加 (optional field、reserved capability など) は `apiVersion: 1` 内に収まり、bump は不要です。詳細は architecture doc の [apiVersion bump policy](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#apiversion-bump-policy) を参照
 - **Dist-tag**: ampless 自体が beta のうちは `@beta`。`@latest` は ampless v1.0 まで予約
 
 参考実装:
@@ -1785,7 +1785,7 @@ export default defineConfig({
 
 ## 15. 質問先
 
-- アーキテクチャ / 設計の質問 → [`docs/architecture/08-plugin-architecture.ja.md`](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md)
+- アーキテクチャ / 設計の質問 → [`architecture-08-plugin-architecture.ja`](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja)
 - ファーストパーティプラグインの bug → `heavymoons/ampless` にプラグインの package 名つきで issue
 - プラグインランタイム / admin form の bug → 同じレポ、ラベル `area:plugins`
 
