@@ -44,7 +44,7 @@ export interface AnalyticsGa4Options {
    * Optional consent category. When set, the analytics loader does
    * not run until window.amplessConsent.has(consentCategory) returns
    * true. See @ampless/plugin-cookie-consent and the Consent
-   * Convention in docs/architecture/08-plugin-architecture.md.
+   * Convention in https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.
    */
   consentCategory?: string
 }

@@ -21,7 +21,7 @@
 // (`process.env.NODE_ENV !== 'production'`) we additionally log a
 // `console.warn` so plugin authors can spot the problem.
 //
-// Architecture: docs/architecture/08-plugin-architecture.md — public head/body descriptors.
+// Architecture: https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture — public head/body descriptors.
 
 import { headers } from 'next/headers'
 import {

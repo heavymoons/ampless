@@ -7,7 +7,7 @@ GDPR/ePrivacy cookie consent banner plugin for [ampless](https://github.com/heav
 
 > **Pre-release / beta.** Breaking changes possible in any minor version until v1.0.
 
-Installs the `window.amplessConsent` Consent Convention API (§6 of the [plugin architecture docs](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md)) in every public page's `<head>`, then appends a configurable consent banner to `<body>` outside the React tree. Analytics and tracking plugins use the API to gate themselves until the visitor grants consent.
+Installs the `window.amplessConsent` Consent Convention API (§6 of the [plugin architecture docs](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture)) in every public page's `<head>`, then appends a configurable consent banner to `<body>` outside the React tree. Analytics and tracking plugins use the API to gate themselves until the visitor grants consent.
 
 No AWS data permissions are required — everything runs at request time inside the public Next.js process. The plugin's `trust_level` is `untrusted`.
 
@@ -96,7 +96,7 @@ Standard events fired on `window`:
 
 Consent state is persisted in `localStorage` under the key `'ampless:consent'` as a `Record<string, boolean>` JSON object.
 
-For the full API specification and the analytics consume pattern see [`docs/architecture/08-plugin-architecture.md` — Consent Convention](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md#consent-convention).
+For the full API specification and the analytics consume pattern see [`architecture-08-plugin-architecture` — Consent Convention](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture#consent-convention).
 
 ## Combining with analytics plugins
 

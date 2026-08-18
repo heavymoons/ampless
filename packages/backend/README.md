@@ -64,7 +64,7 @@ amplessAuthConfig({                                            // pin the Relyin
 amplessAuthConfig({ postConfirmation, webAuthn: false })      // password-only sign-in
 ```
 
-In Amplify Hosting pipeline builds the template auto-derives the Relying Party ID from `site.url` in `cms.config.ts` via `resolveWebAuthn({ override, siteUrl, isPipeline })` — no manual configuration needed for the common case. In `ampx sandbox` the RP ID stays `localhost` (auto-resolved by Amplify). If the admin is served from a **different subdomain** than `site.url`, pin `relyingPartyId` to the bare domain operators visit in `amplify/auth/resource.custom.ts`. Changing the RP ID after passkeys exist invalidates every registered credential. See [docs/passkeys.md](https://github.com/heavymoons/ampless/blob/main/docs/passkeys.md).
+In Amplify Hosting pipeline builds the template auto-derives the Relying Party ID from `site.url` in `cms.config.ts` via `resolveWebAuthn({ override, siteUrl, isPipeline })` — no manual configuration needed for the common case. In `ampx sandbox` the RP ID stays `localhost` (auto-resolved by Amplify). If the admin is served from a **different subdomain** than `site.url`, pin `relyingPartyId` to the bare domain operators visit in `amplify/auth/resource.custom.ts`. Changing the RP ID after passkeys exist invalidates every registered credential. See [passkeys](https://github.com/heavymoons/ampless/wiki/passkeys).
 
 ### `amplify/data/resource.ts`
 

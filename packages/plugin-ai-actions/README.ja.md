@@ -96,6 +96,6 @@ inline-script capability の新設か plugin asset 配信の仕組みが無い�
 ## v1 では対応しないこと
 
 - **Copy Markdown（クリップボード）** — 上記[「Copy Markdown」ボタンが無い理由](#copy-markdown-ボタンが無い理由)を参照。
-- **ページ上の MCP 接続情報** — `cms.config.ai.publicMcp` を有効にすると公開読み取り専用 MCP server を利用でき、接続情報は `/llms.txt` と管理画面 → MCP トークンに表示されます。machine discovery は experimental な well-known catalog + Server Card（`cms.config.ai.mcpDiscovery`。リポジトリの `docs/mcp.md` を参照）でカバーされるようになり、人間もその同じガイド経由で接続するため、読者向けのページ上リンク / QR コードは後回しではなく取りやめました。要望があれば再検討します。
+- **ページ上の MCP 接続情報** — `cms.config.ai.publicMcp` を有効にすると公開読み取り専用 MCP server を利用でき、接続情報は `/llms.txt` と管理画面 → MCP トークンに表示されます。machine discovery は experimental な well-known catalog + Server Card（`cms.config.ai.mcpDiscovery`。リポジトリの `https://github.com/heavymoons/ampless/wiki/mcp` を参照）でカバーされるようになり、人間もその同じガイド経由で接続するため、読者向けのページ上リンク / QR コードは後回しではなく取りやめました。要望があれば再検討します。
 - **テーマ固有の CSS** — プラグイン自体はテーマごとのスタイルを持ちません。site テンプレートの `globals.css` にニュートラルな既定スタイル（ピル型リンク）がゼロ詳細度（`:where()`）で同梱されるのみで、それ以上の見た目は安定クラス名を使ったテーマ CSS の担当です。
 - **ロケール別ラベル** — 未対応です。リンクテキストは英語固定で、プラグインを複数回登録しても解決になりません（全 instance が同じ position バケットに描画されるため、テーマがロケール別のスロットを選べません）。要望が出た時点で検討します。

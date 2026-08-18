@@ -36,7 +36,7 @@ export interface GtmOptions {
    * Optional consent category. When set, the analytics loader does
    * not run until window.amplessConsent.has(consentCategory) returns
    * true. See @ampless/plugin-cookie-consent and the Consent
-   * Convention in docs/architecture/08-plugin-architecture.md.
+   * Convention in https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.
    *
    * Note: in gated mode the `<noscript>` fallback in publicBodyEnd
    * is suppressed — JavaScript-less environments cannot run the

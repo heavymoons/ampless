@@ -7,7 +7,7 @@
 
 > **プレリリース / ベータ版。** v1.0 までは破壊的変更が入る可能性があります。
 
-descriptor ベースのプラグイン head 注入 API ([plugin architecture](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md)) を使って、公開ページの `<head>` に GA4 標準の 2 つのスニペットを挿入します。
+descriptor ベースのプラグイン head 注入 API ([plugin architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja)) を使って、公開ページの `<head>` に GA4 標準の 2 つのスニペットを挿入します。
 
 1. 非同期 `gtag.js` ローダー (`https://www.googletagmanager.com/gtag/js?id=...`)
 2. インライン `gtag('config', '<measurementId>')` のブートストラップ
@@ -82,7 +82,7 @@ Did you forget to register @ampless/plugin-cookie-consent?
 
 **プラグインの順序:** `plugins` 配列内で `@ampless/plugin-cookie-consent` を analytics plugin より前に置いてください。runtime はプラグインを順番に処理するため、cookie-consent を先に置くことで analytics の gating ロジック実行時に `window.amplessConsent` が確実に install されます。
 
-Consent Convention および `window.amplessConsent` API の詳細は [docs/architecture/08-plugin-architecture.md](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.md) を参照してください。
+Consent Convention および `window.amplessConsent` API の詳細は [architecture-08-plugin-architecture](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture) を参照してください。
 
 ## measurement ID の取得
 

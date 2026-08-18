@@ -7,7 +7,7 @@
 
 > **プレリリース / ベータ版。** v1.0 まではマイナーバージョンでも破壊的変更が入る可能性があります。
 
-公開ページの `<head>` に `window.amplessConsent` Consent Convention API（[プラグインアーキテクチャ doc](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md) §Consent Convention）をインストールし、React ツリー外に設定可能な同意バナーを `<body>` に追加します。analytics / トラッキング系プラグインはこの API を利用して、訪問者が同意するまで自身を無効化します。
+公開ページの `<head>` に `window.amplessConsent` Consent Convention API（[プラグインアーキテクチャ doc](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja) §Consent Convention）をインストールし、React ツリー外に設定可能な同意バナーを `<body>` に追加します。analytics / トラッキング系プラグインはこの API を利用して、訪問者が同意するまで自身を無効化します。
 
 AWS のデータ権限は不要です。すべて公開 Next.js プロセスの描画時に動作します。`trust_level` は `untrusted`。
 
@@ -96,7 +96,7 @@ analytics の gate には `has`、バナーが「再プロンプトすべきか�
 
 同意状態は `localStorage` のキー `'ampless:consent'` に `Record<string, boolean>` の JSON として保存されます。
 
-詳細な API 仕様と analytics 側の consume パターンは [`docs/architecture/08-plugin-architecture.ja.md` — Consent Convention](https://github.com/heavymoons/ampless/blob/main/docs/architecture/08-plugin-architecture.ja.md#consent-convention) を参照してください。
+詳細な API 仕様と analytics 側の consume パターンは [`architecture-08-plugin-architecture.ja` — Consent Convention](https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.ja#consent-convention) を参照してください。
 
 ## analytics プラグインとの組み合わせ
 

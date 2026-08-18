@@ -119,7 +119,7 @@ returns `{ POST, OPTIONS }`; the template destructures both (a single
 It also computes `Cache-Control` from `post.metadata.cache` (auto /
 deep / hot) + `post.updatedAt` + `cms.config.cache.{cooldownMs,
 freshTtlSeconds, deepTtlSeconds}` and sets the header on the response.
-See `docs/CONTENT.md` for the cache strategy contract.
+See `https://github.com/heavymoons/ampless/wiki/CONTENT` for the cache strategy contract.
 
 ## Sub-paths
 

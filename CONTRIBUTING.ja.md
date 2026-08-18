@@ -34,7 +34,7 @@ pnpm workspaces と Turborepo で管理されたモノリポです。
 ## プルリクエスト
 
 1. リポジトリをフォークし、`main` からブランチを作成する
-2. 公開パッケージ — `packages/*` 配下、または `templates/_shared/docs/` 配下の同梱 docs — に変更がある場合は `pnpm changeset` を実行して内容を記述する。リポジトリレベルだけの変更 (root の `README.md`、CI 設定、`CLAUDE.md`、トップレベル `docs/` など) には changeset 不要。詳細は `.github/PULL_REQUEST_TEMPLATE.md` 参照
+2. 公開パッケージ — `packages/*` 配下、または `templates/_shared/docs/` 配下の同梱 docs — に変更がある場合は `pnpm changeset` を実行して内容を記述する。リポジトリレベルだけの変更 (root の `README.md`、CI 設定、`CLAUDE.md` など) には changeset 不要。ユーザー向けドキュメントはこのリポジトリではなく [GitHub wiki](https://github.com/heavymoons/ampless/wiki) にあるので、wiki の編集には changeset も PR も不要。詳細は `.github/PULL_REQUEST_TEMPLATE.md` 参照
 3. `pnpm build` と `pnpm test` が通ることを確認する
 4. プルリクエストを開く
 

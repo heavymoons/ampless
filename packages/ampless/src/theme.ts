@@ -9,7 +9,7 @@
 // Override values are stored in KvStore under
 //   PK = `siteconfig`, SK = `theme.{field.key}`
 // and propagated to the public site through the normal site-settings
-// S3 cache. See docs/THEMES.md for authoring details.
+// S3 cache. See https://github.com/heavymoons/ampless/wiki/THEMES for authoring details.
 
 export type ThemeFieldType =
   | 'color'

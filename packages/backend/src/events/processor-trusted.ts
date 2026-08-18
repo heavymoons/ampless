@@ -499,7 +499,7 @@ export function createProcessorTrustedHandler(
           console.warn(
             `[trusted-processor] privileged plugin "${plugin.name}" declares ` +
               `${parsed.type} hook but no privileged Lambda is provisioned yet — ` +
-              `hook will not execute. See docs/architecture/08-plugin-architecture.md.`
+              `hook will not execute. See https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture.`
           )
         }
       }

@@ -135,7 +135,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       // editor is a trusted principal: body is stored verbatim and rendered
       // without sanitization. editor can persist arbitrary HTML / JS via
       // `format: 'html'` or via tiptap attribute payloads. This is a
-      // deliberate design choice — see docs/architecture/04-access-layer-mcp.md
+      // deliberate design choice — see https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp
       // §"editor の信頼モデル". Do not grant editor to anyone you wouldn't
       // also trust as admin.
       //
@@ -311,7 +311,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     // Lambda. The Lambda receives the plaintext, reads the encryption
     // key from `process.env.PLUGIN_SECRET_ENCRYPTION_KEY` (injected by
     // CDK at deploy time from `amplify/secrets/encryption-key.ts` — see
-    // Phase 6a v2.2 in docs/architecture/08-plugin-architecture.md),
+    // Phase 6a v2.2 in https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture),
     // and performs the DDB PutItem using its own IAM role. Ciphertext
     // never flows back to the browser.
     //
@@ -360,7 +360,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         // constant). Even if an AWS account operator reads this column
         // via the DDB Console they only see ciphertext — the key lives
         // outside DynamoDB. The honest threat model is documented in
-        // docs/architecture/08-plugin-architecture.md: defeated for
+        // https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture: defeated for
         // DDB-only browsing, NOT defeated for anyone with source repo
         // / deploy artifact access, NOT defeated for a malicious
         // trusted plugin co-located in the same Lambda.

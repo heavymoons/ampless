@@ -20,7 +20,7 @@ export type RawRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
  *
  * Trust model: the body is emitted verbatim, same trust shape as
  * regular `format: 'html'` posts on the themed route. See
- * docs/architecture/04-access-layer-mcp.md §"editor の信頼モデル".
+ * https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp §"editor の信頼モデル".
  *
  * Cache-Control: deliberately omitted from the response. Middleware
  * computes the strategy from `post.metadata.cache` + `post.updatedAt`

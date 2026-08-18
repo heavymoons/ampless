@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/heavymoons/ampless/blob/main/packages/ampless/docs/plugin-author-guide.md
     about: How to write your own ampless plugin (descriptors, hooks, settings, secrets, npm publishing)
   - name: 🏗 Architecture docs
-    url: https://github.com/heavymoons/ampless/tree/main/docs/architecture
+    url: https://github.com/heavymoons/ampless/wiki/Home#architecture
     about: Design decisions and internal architecture (Amplify Gen 2, plugin sandbox, MCP, etc.)
   - name: 🔒 Security vulnerability
     url: https://github.com/heavymoons/ampless/security/advisories/new

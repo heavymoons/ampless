@@ -13,7 +13,7 @@
 // Both English (space-separated words) and CJK characters (count ÷ 2) are
 // accounted for so multilingual posts produce a reasonable estimate.
 //
-// Architecture: docs/architecture/08-plugin-architecture.md — publicHtmlForPost.
+// Architecture: https://github.com/heavymoons/ampless/wiki/architecture-08-plugin-architecture — publicHtmlForPost.
 
 import { definePlugin, type AmplessPlugin, type PublicPostHtmlDescriptor } from 'ampless'
 import type { Post, ContentFormat } from 'ampless'

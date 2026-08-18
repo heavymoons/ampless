@@ -66,11 +66,11 @@ npm run sandbox
 
 - **Format** — `tiptap`（リッチテキスト）/ `markdown` / `html`（生 HTML、サニタイズなし）/ `static`（HTML/CSS/JS の zip アップロード）
 - **No layout** フラグ（`format: 'html'` のときのみ）— 本文をそのまま出力し、Next.js のレイアウトもテーマのクロームも適用しない。URL は `/<slug>` のままで、middleware がリクエストを内部のベア HTML ハンドラーに書き換える
-- **キャッシュ戦略**（`metadata.cache`）— 投稿ごとに `Cache-Control` を上書き: `'auto'`（デフォルト、編集時刻ベースのクールダウン）、`'deep'`（常に長期キャッシュ）、`'hot'`（常に no-store）。詳細は `docs/CONTENT.ja.md`
+- **キャッシュ戦略**（`metadata.cache`）— 投稿ごとに `Cache-Control` を上書き: `'auto'`（デフォルト、編集時刻ベースのクールダウン）、`'deep'`（常に長期キャッシュ）、`'hot'`（常に no-store）。詳細は `https://github.com/heavymoons/ampless/wiki/CONTENT.ja`
 - **Slug** — 公開 URL
 - **Status** — `draft`（管理者のみ）または `published`
 
-詳細リファレンス: [docs/CONTENT.ja.md（GitHub）](https://github.com/heavymoons/ampless/blob/main/docs/CONTENT.ja.md) ([English](https://github.com/heavymoons/ampless/blob/main/docs/CONTENT.md))
+詳細リファレンス: [CONTENT.ja（GitHub）](https://github.com/heavymoons/ampless/wiki/CONTENT.ja) ([English](https://github.com/heavymoons/ampless/wiki/CONTENT))
 
 ## テーマ
 
@@ -212,7 +212,7 @@ ampless は HTTP トランスポート + Bearer トークン認証による MCP�
 }
 ```
 
-MCP のセットアップとトークン管理の詳細については [docs/architecture/04-access-layer-mcp.md](./docs/architecture/04-access-layer-mcp.md) を参照してください。
+MCP のセットアップとトークン管理の詳細については [architecture-04-access-layer-mcp](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp) を参照してください。
 
 ## ampless の更新
 

@@ -66,11 +66,11 @@ Posts are the single content type. Each post has:
 
 - **Format** — `tiptap` (rich text) / `markdown` / `html` (raw, no sanitization) / `static` (zip-upload of HTML/CSS/JS)
 - **No layout** flag (`format: 'html'` only) — render the body verbatim with no Next.js layout and no theme chrome. URL stays `/<slug>`; middleware rewrites the request to the internal bare-HTML handler.
-- **Cache strategy** (`metadata.cache`) — override the per-post Cache-Control: `'auto'` (default; cooldown by edit time), `'deep'` (always long-cache), or `'hot'` (always no-store). See `docs/CONTENT.md` for details.
+- **Cache strategy** (`metadata.cache`) — override the per-post Cache-Control: `'auto'` (default; cooldown by edit time), `'deep'` (always long-cache), or `'hot'` (always no-store). See `https://github.com/heavymoons/ampless/wiki/CONTENT` for details.
 - **Slug** — the public URL
 - **Status** — `draft` (admin only) or `published`
 
-Full reference: [docs/CONTENT.md on GitHub](https://github.com/heavymoons/ampless/blob/main/docs/CONTENT.md) ([日本語](https://github.com/heavymoons/ampless/blob/main/docs/CONTENT.ja.md)).
+Full reference: [CONTENT on GitHub](https://github.com/heavymoons/ampless/wiki/CONTENT) ([日本語](https://github.com/heavymoons/ampless/wiki/CONTENT.ja)).
 
 ## Themes
 
@@ -212,7 +212,7 @@ ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor 
 }
 ```
 
-See [docs/architecture/04-access-layer-mcp.md](./docs/architecture/04-access-layer-mcp.md) for the full MCP setup and token management guide.
+See [architecture-04-access-layer-mcp](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp) for the full MCP setup and token management guide.
 
 ## Updating ampless
 

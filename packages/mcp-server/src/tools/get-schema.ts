@@ -68,7 +68,7 @@ export function getSchema() {
     formats: ['tiptap', 'markdown', 'html', 'static'],
     notes: {
       editorTrust:
-        'editor stores arbitrary HTML/JS verbatim — same trust shape as WordPress unfiltered_html capability. See docs/architecture/04-access-layer-mcp.md §"editor の信頼モデル".',
+        'editor stores arbitrary HTML/JS verbatim — same trust shape as WordPress unfiltered_html capability. See https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp §"editor の信頼モデル".',
       tiptapBody:
         'When format=tiptap, body is the tiptap document JSON: { type: "doc", content: [...] }. The renderer expects this shape.',
       noLayout:
