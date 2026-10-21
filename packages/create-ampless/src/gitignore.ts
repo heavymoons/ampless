@@ -22,6 +22,9 @@ amplify_outputs.json
 # Ampless plugin-secret encryption key — NEVER commit (decrypts all stored secrets)
 amplify/secrets/encryption-key.ts
 
+# MCP client config — holds the MCP Bearer token (amk_...). NEVER commit
+.mcp.json
+
 # TypeScript build artifacts
 *.tsbuildinfo
 

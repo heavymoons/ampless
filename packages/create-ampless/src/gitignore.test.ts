@@ -17,6 +17,7 @@ describe('DEFAULT_GITIGNORE', () => {
       '.env.local',
       '.env.*.local',
       '.DS_Store',
+      '.mcp.json',
     ]
     for (const entry of required) {
       expect(DEFAULT_GITIGNORE).toContain(entry)

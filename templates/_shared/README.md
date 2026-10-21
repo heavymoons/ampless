@@ -212,6 +212,8 @@ ampless ships an MCP (Model Context Protocol) server so Claude Desktop / Cursor 
 }
 ```
 
+`.mcp.json` contains a secret Bearer token. Never commit it; it is already listed in the default `.gitignore`.
+
 See [architecture-04-access-layer-mcp](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp) for the full MCP setup and token management guide.
 
 ## Updating ampless
