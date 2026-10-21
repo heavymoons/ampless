@@ -1,5 +1,4 @@
 import { type NextRequest } from 'next/server'
-import { cookies } from 'next/headers'
 import { getUrl } from 'aws-amplify/storage/server'
 import {
   streamS3Object,
@@ -85,8 +84,12 @@ export function createMediaProxyRoute(admin: Admin) {
       presignedUrlFor: (k) => signMediaUrl({ runWithAmplifyServerContext, key: k }),
     }
 
+    // `nextServerContext: null` = Amplify's stateless guest path: no
+    // cookie read or write, so this public-cacheable response can never
+    // carry a Set-Cookie (e.g. a refreshed admin token). `public/media/*`
+    // is guest-readable, so no user session is needed.
     return runWithAmplifyServerContext({
-      nextServerContext: { cookies },
+      nextServerContext: null,
       operation: (amplifyContext) => streamS3Object(amplifyContext, key, opts),
     })
   }
@@ -109,8 +112,9 @@ async function signMediaUrl({
   key,
 }: SignMediaUrlArgs): Promise<string | null> {
   try {
+    // Stateless guest context (no cookies); see the GET handler above.
     return await runWithAmplifyServerContext({
-      nextServerContext: { cookies },
+      nextServerContext: null,
       operation: async (amplifyContext) => {
         const result = await getUrl(amplifyContext, {
           path: key,

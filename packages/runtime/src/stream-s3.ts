@@ -23,7 +23,6 @@
 // the request succeeds). See `thresholdBytes` below to tune.
 
 import { getProperties } from 'aws-amplify/storage/server'
-import { cookies } from 'next/headers'
 // Type-only import: the SSR helpers accept the runtime's context
 // shape but typing it tightly costs a peer dep on the adapter's
 // internals, which churn between minor versions. The concrete value
@@ -243,22 +242,25 @@ export async function streamS3Object(
 }
 
 /**
- * Convenience wrapper that pulls in the standard Amplify SSR cookie
- * adapter so route handlers don't have to duplicate the
+ * Convenience wrapper so route handlers don't have to duplicate the
  * `runWithAmplifyServerContext` plumbing. Pass the runner from
  * `createServerRunner({ config: outputs })` and the rest is the same
  * shape as `streamS3Object`.
+ *
+ * Runs with `nextServerContext: null` (Amplify's stateless guest path):
+ * no cookie read or write, so the public-cacheable response can never
+ * carry a Set-Cookie.
  */
 export async function streamS3ObjectWithRunner(
   runWithAmplifyServerContext: <T>(args: {
-    nextServerContext: { cookies: typeof cookies }
+    nextServerContext: null
     operation: (ctx: AmplifyServerContext) => Promise<T>
   }) => Promise<T>,
   key: string,
   options: StreamS3Options,
 ): Promise<Response> {
   return runWithAmplifyServerContext({
-    nextServerContext: { cookies },
+    nextServerContext: null,
     operation: (ctx) => streamS3Object(ctx, key, options),
   })
 }

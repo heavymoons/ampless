@@ -1,5 +1,4 @@
 import { createServerRunner } from '@aws-amplify/adapter-nextjs'
-import { cookies } from 'next/headers'
 import { getUrl } from 'aws-amplify/storage/server'
 import type { PostMetadata, StaticPostFileMeta } from 'ampless'
 import type { Ampless } from '../index.js'
@@ -161,8 +160,12 @@ async function serveStaticAsset({
     presignedUrlFor: (k) => signStaticAsset({ runWithAmplifyServerContext, key: k }),
   }
 
+  // `nextServerContext: null` = Amplify's stateless guest path: no cookie
+  // read or write, so this public-cacheable response can never carry a
+  // Set-Cookie (e.g. a refreshed admin token). `public/static/*` is
+  // guest-readable.
   return runWithAmplifyServerContext({
-    nextServerContext: { cookies },
+    nextServerContext: null,
     operation: (ctx) => streamS3Object(ctx, key, opts),
   })
 }
@@ -183,8 +186,9 @@ async function signStaticAsset({
   key,
 }: SignStaticAssetArgs): Promise<string | null> {
   try {
+    // Stateless guest context (no cookies); see serveStaticAsset above.
     return await runWithAmplifyServerContext({
-      nextServerContext: { cookies },
+      nextServerContext: null,
       operation: async (amplifyContext) => {
         const result = await getUrl(amplifyContext, {
           path: key,
