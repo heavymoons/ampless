@@ -12,10 +12,8 @@
 // The client is stateless: `generateServerClientUsingReqRes` run with
 // `nextServerContext: null` uses Amplify's `sharedInMemoryStorage`
 // guest-role path, so this row lookup never reads or writes cookies.
-// Note this only covers the lookup — the `/api/media/...` response body
-// itself is streamed/presigned by the admin media-proxy under a
-// `{ cookies }` context, which can still emit a Cognito Set-Cookie
-// (separate follow-up).
+// The admin media-proxy streams/presigns the `/api/media/...` body under
+// the same `nextServerContext: null` guest context.
 
 import { generateServerClientUsingReqRes } from '@aws-amplify/adapter-nextjs/api'
 import { createServerRunner } from '@aws-amplify/adapter-nextjs'

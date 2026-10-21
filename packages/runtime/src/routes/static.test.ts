@@ -9,6 +9,7 @@ import type { Post } from 'ampless'
 
 const mockGetUrl = vi.fn()
 const mockGetProperties = vi.fn()
+const mockRunWithContext = vi.fn()
 
 vi.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [] }),
@@ -22,11 +23,13 @@ vi.mock('aws-amplify/storage/server', () => ({
 
 vi.mock('@aws-amplify/adapter-nextjs', () => ({
   createServerRunner: () => ({
-    runWithAmplifyServerContext: async ({
-      operation,
-    }: {
+    runWithAmplifyServerContext: async (args: {
+      nextServerContext: unknown
       operation: (ctx: unknown) => Promise<unknown>
-    }) => operation({}),
+    }) => {
+      mockRunWithContext(args)
+      return args.operation({})
+    },
   }),
 }))
 
@@ -99,6 +102,7 @@ beforeEach(() => {
   _resetStreamS3Cache()
   mockGetUrl.mockReset()
   mockGetProperties.mockReset()
+  mockRunWithContext.mockReset()
   mockGetUrl.mockResolvedValue({ url: new URL('https://s3.example.com/signed') })
   // Default global fetch — individual tests override as needed.
   vi.stubGlobal('fetch', mockFetchOk())
@@ -164,6 +168,23 @@ describe('createStaticRouteHandler — entrypoint', () => {
       path: 'public/static/site/index.html',
       options: { expiresIn: 60 * 60 },
     })
+  })
+
+  it('runs every Amplify call with the stateless guest context (no cookies)', async () => {
+    // Public-cacheable responses must never read or write cookies, so a
+    // refreshed admin token can't surface as Set-Cookie.
+    const handler = createStaticRouteHandler(makeAmpless({ post: STATIC_POST }))
+    const res = await handler(
+      makeRequest('https://x.example.com/site/'),
+      makeCtx({ slug: 'site' }),
+    )
+    expect(res.status).toBe(200)
+    // stream (serveStaticAsset) + presign (signStaticAsset)
+    expect(mockRunWithContext.mock.calls.length).toBeGreaterThanOrEqual(2)
+    for (const [args] of mockRunWithContext.mock.calls) {
+      expect((args as { nextServerContext: unknown }).nextServerContext).toBeNull()
+    }
+    expect(res.headers.get('Set-Cookie')).toBeNull()
   })
 
   it('falls back to index.html when the manifest omits entrypoint', async () => {

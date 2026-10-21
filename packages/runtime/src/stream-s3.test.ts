@@ -12,7 +12,11 @@ vi.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [] }),
 }))
 
-import { streamS3Object, _resetStreamS3Cache } from './stream-s3.js'
+import {
+  streamS3Object,
+  streamS3ObjectWithRunner,
+  _resetStreamS3Cache,
+} from './stream-s3.js'
 
 function fakeContext(): unknown {
   // streamS3Object never inspects the context directly — it forwards
@@ -177,5 +181,29 @@ describe('streamS3Object', () => {
     })
 
     expect(res.status).toBe(404)
+  })
+})
+
+describe('streamS3ObjectWithRunner', () => {
+  it('invokes the runner with nextServerContext: null (stateless guest, no cookies)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('hello', { status: 200 })),
+    )
+    const runner = vi.fn(
+      async (args: {
+        nextServerContext: null
+        operation: (ctx: never) => Promise<unknown>
+      }) => args.operation(fakeContext() as never),
+    )
+
+    const res = await streamS3ObjectWithRunner(runner as never, 'k-null', {
+      meta: { size: 5, mimeType: 'text/plain' },
+      presignedUrlFor: async () => 'https://s3.example.com/signed',
+    })
+
+    expect(res.status).toBe(200)
+    expect(runner).toHaveBeenCalledTimes(1)
+    expect(runner.mock.calls[0]?.[0].nextServerContext).toBeNull()
   })
 })
