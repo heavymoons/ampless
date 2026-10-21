@@ -67,6 +67,8 @@ Registration:
 }
 ```
 
+`.mcp.json` contains a secret Bearer token. Never commit it; it is already listed in the default `.gitignore`.
+
 Post bodies accept three formats: `markdown`, `html`, or `tiptap` (JSON document).
 
 ## Verification expectations

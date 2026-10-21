@@ -212,6 +212,8 @@ ampless は HTTP トランスポート + Bearer トークン認証による MCP�
 }
 ```
 
+`.mcp.json` には秘密の Bearer トークンが含まれます。コミットしないでください（デフォルトの `.gitignore` に登録済みです）。
+
 MCP のセットアップとトークン管理の詳細については [architecture-04-access-layer-mcp](https://github.com/heavymoons/ampless/wiki/architecture-04-access-layer-mcp) を参照してください。
 
 ## ampless の更新
