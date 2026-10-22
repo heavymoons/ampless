@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@types/sanitize-html": "^2.16.1",
-    "sanitize-html": "^2.18.0"
+    "sanitize-html": "^2.18.1"
   },
   "keywords": [
     "ampless",
