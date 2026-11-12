@@ -683,6 +683,49 @@ describe('runUpgradeIn', () => {
       expect(hasNextWarning(warnings, /@ampless\/admin/)).toBe(true)
     })
 
+    // npm treats a top-level `next@<range>` key as an override of the direct
+    // dependency too (real npm: EOVERRIDE after only the dep is raised), and
+    // rewriting selector keys is out of scope, so the whole bump is skipped.
+    it.each([
+      ['next@^16.2.6 string equal', { 'next@^16.2.6': '^16.2.6' }],
+      ['next@^16.2.6 string different', { 'next@^16.2.6': '16.2.6' }],
+      ['next@^16.2.6 $next', { 'next@^16.2.6': '$next' }],
+      ['next@16', { 'next@16': '^16.2.6' }],
+      ['next@>=16.0.0', { 'next@>=16.0.0': '^16.2.6' }],
+      ['next@16.2.6', { 'next@16.2.6': '16.2.6' }],
+      ['object form', { 'next@^16.2.6': { '.': '^16.2.6' } }],
+      ['key with whitespace', { 'next@ ^16.2.6': '^16.2.6' }],
+    ])('skips the next bump when a top-level selector override exists (%s)', async (_n, overrides) => {
+      mutate((p) => { p.overrides = overrides })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.overrides).toEqual(overrides)
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
+    it('keeps raising the dependency when next is overridden only via nested selector/plain keys (no EOVERRIDE in real npm)', async () => {
+      mutate((p) => { p.overrides = { '@ampless/admin': { 'next@^16.2.6': '^16.2.6' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(pkg.overrides).toEqual({ '@ampless/admin': { 'next@^16.2.6': '^16.2.6' } })
+    })
+
+    it('skips the next bump when pnpm.overrides has a next@ selector key', async () => {
+      mutate((p) => { p.pnpm = { overrides: { 'next@^16.2.6': '^16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.pnpm).toEqual({ overrides: { 'next@^16.2.6': '^16.2.6' } })
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
+    it.each(['next@^16.2.6', '**/next@^16.2.6'])('skips the next bump when yarn resolutions has %s', async (key) => {
+      mutate((p) => { p.resolutions = { [key]: '^16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.resolutions).toEqual({ [key]: '^16.2.6' })
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
     it('raises a devDependencies-only next together with an equal override', async () => {
       mutate((p) => {
         delete p.dependencies['next']

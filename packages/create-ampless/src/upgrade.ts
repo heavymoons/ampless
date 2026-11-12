@@ -239,9 +239,30 @@ function collectNextOverrideSlots(pkg: Record<string, unknown>): NextOverrideSlo
 }
 
 /**
- * Nested/selector overrides of `next` that we never modify, only report
+ * Top-level selector keys that target next (`next@<range>`, and yarn's
+ * `**` + `/next@<range>`) in npm `overrides`, `pnpm.overrides` and yarn
+ * `resolutions`. npm treats `next@<range>` as an override of the direct
+ * dependency (EOVERRIDE when only the dependency is raised), so these
+ * are never rewritten — their presence skips the next bump.
+ */
+function collectNextSelectorKeys(pkg: Record<string, unknown>): string[] {
+  const out: string[] = []
+  const scan = (map: unknown, prefix: string): void => {
+    if (!isRecord(map)) return
+    for (const key of Object.keys(map)) {
+      if (/^(\*\*\/)?next@/.test(key)) out.push(`${prefix}["${key}"]`)
+    }
+  }
+  scan(pkg['overrides'], 'overrides')
+  scan(isRecord(pkg['pnpm']) ? pkg['pnpm']['overrides'] : undefined, 'pnpm.overrides')
+  scan(pkg['resolutions'], 'resolutions')
+  return out
+}
+
+/**
+ * Nested overrides of `next` that we never modify, only report
  * when they pin it below the template floor: npm
- * `overrides["<pkg>"].next`, pnpm `overrides["next@<range>"]`.
+ * `overrides["<pkg>"].next` (real npm does not raise EOVERRIDE for these).
  */
 function warnNestedNextOverrides(
   pkg: Record<string, unknown>,
@@ -270,12 +291,6 @@ function warnNestedNextOverrides(
       if (belowFloor(spec)) report(`overrides["${k}"].next`, spec)
     }
   }
-  const pnpmOverrides = isRecord(pkg['pnpm']) ? pkg['pnpm']['overrides'] : undefined
-  if (isRecord(pnpmOverrides)) {
-    for (const [k, v] of Object.entries(pnpmOverrides)) {
-      if (k.startsWith('next@') && belowFloor(v)) report(`pnpm.overrides["${k}"]`, v)
-    }
-  }
 }
 
 /**
@@ -292,6 +307,8 @@ function warnNestedNextOverrides(
  *   override, so the whole next bump is skipped with a warning.
  * - Override-only `next` (no direct dependency) is never touched and no
  *   direct dependency is added (it would conflict); warns if below floor.
+ * - A top-level selector key (`next@<range>`) in overrides / pnpm.overrides /
+ *   resolutions skips the bump with a warning (npm: EOVERRIDE otherwise).
  * - Nested overrides under other packages are reported, never modified.
  */
 function applyNextMerge(
@@ -309,6 +326,17 @@ function applyNextMerge(
 
   const direct = DEP_SECTIONS.filter((sec) => 'next' in ((projectPkg[sec] ?? {}) as Record<string, string>))
   const slots = collectNextOverrideSlots(projectPkg)
+  const selectorKeys = collectNextSelectorKeys(projectPkg)
+
+  if (selectorKeys.length > 0) {
+    warnings.push(
+      `next: ${selectorKeys.join(', ')} targets next with a selector key, which the upgrade does not rewrite; ` +
+      `the next bump was skipped entirely (changing only the direct dependency makes npm fail with EOVERRIDE). ` +
+      `Releases below Next.js 16.4.1 carry critical RCE advisories — update the override key/value and the ` +
+      `direct next dependency to ${templateSpec} or newer yourself.`,
+    )
+    return
+  }
 
   if (direct.length === 0) {
     if (slots.length > 0) {
