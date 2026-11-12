@@ -528,34 +528,48 @@ describe('runUpgradeIn', () => {
   })
 
   // 7e. `next` is managed as a security floor (critical RCE advisories
-  // affect 16.x < 16.4.1) but never downgraded.
-  describe('next (security floor, no downgrade)', () => {
-    function setProjectNext(spec: string | null): void {
+  // affect 16.x < 16.4.1): the user's operator and section are preserved,
+  // only the version number is raised, never downgraded, never across majors.
+  describe('next (security floor, operator-preserving, no downgrade)', () => {
+    type Section = 'dependencies' | 'devDependencies'
+    function setProjectNext(spec: string | null, section: Section = 'dependencies'): void {
       const path = join(projectDir, 'package.json')
       const pkg = JSON.parse(readFileSync(path, 'utf-8'))
-      if (spec === null) delete pkg.dependencies['next']
-      else pkg.dependencies['next'] = spec
+      delete pkg.dependencies['next']
+      delete pkg.devDependencies['next']
+      if (spec !== null) pkg[section]['next'] = spec
       writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
     }
-    async function upgradeAndReadNext(): Promise<string | undefined> {
+    async function upgrade(): Promise<{ dependencies: Record<string, string>; devDependencies: Record<string, string> }> {
       await runUpgradeIn(projectDir, templateDir, { noInstall: true })
-      const merged = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
-      return merged.dependencies['next']
+      return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
     }
 
-    it('raises an older project range to the template range', async () => {
-      setProjectNext('^16.2.6')
-      expect(await upgradeAndReadNext()).toBe('^16.4.6')
+    it.each([
+      ['16.2.6', '16.4.6'],
+      ['=16.2.6', '=16.4.6'],
+      ['~16.2.6', '~16.4.6'],
+      ['^16.2.6', '^16.4.6'],
+      ['>=16.2.6', '>=16.4.6'],
+    ])('raises %s to %s (operator preserved)', async (from, to) => {
+      setProjectNext(from)
+      expect((await upgrade()).dependencies['next']).toBe(to)
     })
 
-    it('keeps a newer project range', async () => {
-      setProjectNext('^16.5.0')
-      expect(await upgradeAndReadNext()).toBe('^16.5.0')
+    it.each(['^16.5.0', '16.4.6', '^16.4.6', '~16.4.7'])('keeps %s (not lower than template)', async (spec) => {
+      setProjectNext(spec)
+      expect((await upgrade()).dependencies['next']).toBe(spec)
     })
 
-    it('leaves an exact-equal version untouched', async () => {
-      setProjectNext('16.4.6')
-      expect(await upgradeAndReadNext()).toBe('16.4.6')
+    it.each(['^15.3.0', '~15.3.0'])('keeps %s (different major) and warns', async (spec) => {
+      setProjectNext(spec)
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+      try {
+        expect((await upgrade()).dependencies['next']).toBe(spec)
+        expect(warn.mock.calls.some((c) => String(c[0]).includes('next:') && String(c[0]).includes('major'))).toBe(true)
+      } finally {
+        warn.mockRestore()
+      }
     })
 
     it.each(['latest', 'canary', 'workspace:*', 'npm:next@16.4.6'])(
@@ -564,7 +578,7 @@ describe('runUpgradeIn', () => {
         setProjectNext(spec)
         const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
         try {
-          expect(await upgradeAndReadNext()).toBe(spec)
+          expect((await upgrade()).dependencies['next']).toBe(spec)
           expect(warn.mock.calls.some((c) => String(c[0]).includes('next: could not parse'))).toBe(true)
         } finally {
           warn.mockRestore()
@@ -572,9 +586,18 @@ describe('runUpgradeIn', () => {
       },
     )
 
-    it('adds the template range when the project has no next', async () => {
+    it('updates next in devDependencies only, without adding it to dependencies', async () => {
+      setProjectNext('^16.2.6', 'devDependencies')
+      const merged = await upgrade()
+      expect(merged.devDependencies['next']).toBe('^16.4.6')
+      expect(merged.dependencies['next']).toBeUndefined()
+    })
+
+    it('adds the template range to dependencies when next is declared nowhere', async () => {
       setProjectNext(null)
-      expect(await upgradeAndReadNext()).toBe('^16.4.6')
+      const merged = await upgrade()
+      expect(merged.dependencies['next']).toBe('^16.4.6')
+      expect(merged.devDependencies['next']).toBeUndefined()
     })
   })
 

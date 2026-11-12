@@ -110,9 +110,10 @@ const AMPLESS_MANAGED_TRANSITIVE_PREFIXES: readonly string[] = ['@tiptap/'] as c
  * managed, existing sites never picked up the template's bump. The
  * template range is caret (`^16.x`), so sites still float within 16.x
  * after upgrade — we only raise the minimum. Unlike the other managed
- * deps, `next` is never downgraded: a site already on a newer spec
- * (e.g. `^16.5.0`) keeps it, and only a lower minimum is replaced (see
- * `mergeNextSpec`).
+ * deps, `next` is merged by `mergeNextSpec`: the user's operator is
+ * preserved (`~16.2.6` -> `~16.4.6`), it is never downgraded, never
+ * rewritten across majors (warns instead), and it is updated only in
+ * the section(s) where the project already declares it.
  */
 const AMPLESS_MANAGED_EXACT_DEPS: ReadonlySet<string> = new Set([
   'next',
@@ -122,16 +123,23 @@ const AMPLESS_MANAGED_EXACT_DEPS: ReadonlySet<string> = new Set([
   '@aws-amplify/backend-cli',
 ])
 
+interface SimpleSpec {
+  /** `''` (exact) / `^` / `~` / `=` / `>=` — the user's operator. */
+  op: string
+  version: [number, number, number]
+}
+
 /**
- * Minimum version of a simple `x.y.z` / `^x.y.z` / `~x.y.z` / `>=x.y.z`
- * / `=x.y.z` spec, or null when the spec is anything else (tags such as
- * `latest` / `canary`, URLs, `workspace:`, `npm:`, ranges, prereleases).
- * Hand-rolled to avoid adding a `semver` runtime dependency for one use.
+ * Parse a simple `[op]x.y.z` spec (op: `^` `~` `>=` `=` or none; a
+ * leading `v` is accepted and dropped). Returns null for anything else
+ * (tags such as `latest` / `canary`, URLs, `workspace:`, `npm:`,
+ * compound ranges, prereleases). Hand-rolled to avoid adding a `semver`
+ * runtime dependency for one use.
  */
-function simpleMinVersion(spec: string): [number, number, number] | null {
-  const m = /^(?:\^|~|>=|=)?\s*v?(\d+)\.(\d+)\.(\d+)$/.exec(spec.trim())
+function parseSimpleSpec(spec: string): SimpleSpec | null {
+  const m = /^(\^|~|>=|=)?\s*v?(\d+)\.(\d+)\.(\d+)$/.exec(spec.trim())
   if (!m) return null
-  return [Number(m[1]), Number(m[2]), Number(m[3])]
+  return { op: m[1] ?? '', version: [Number(m[2]), Number(m[3]), Number(m[4])] }
 }
 
 function isGreaterVersion(a: [number, number, number], b: [number, number, number]): boolean {
@@ -142,10 +150,17 @@ function isGreaterVersion(a: [number, number, number], b: [number, number, numbe
 }
 
 /**
- * Merge rule for `next` (security floor, never a downgrade): returns the
- * spec to store. Replaces the project's spec only when the template's
- * minimum version is strictly higher. An unparseable project spec is
- * left untouched and a warning is pushed.
+ * Merge rule for `next` (security floor): returns the spec to store.
+ *
+ * - Operator-preserving: only the version number is raised to the
+ *   template's minimum (`~16.2.6` -> `~16.4.6`, `16.2.6` -> `16.4.6`),
+ *   so a user's pin / upper bound is never loosened. A leading `v` is
+ *   normalised away.
+ * - Never downgrades: a project minimum >= the template's is untouched.
+ * - Never crosses majors: a lower major (e.g. `^15.3.0`) is untouched
+ *   with a warning, since the template's floor only covers its own major.
+ * - Unparseable specs are untouched with a warning.
+ * - Absent -> template spec.
  */
 function mergeNextSpec(
   projectSpec: string | undefined,
@@ -153,7 +168,7 @@ function mergeNextSpec(
   warnings: string[],
 ): string {
   if (projectSpec === undefined) return templateSpec
-  const proj = simpleMinVersion(projectSpec)
+  const proj = parseSimpleSpec(projectSpec)
   if (!proj) {
     warnings.push(
       `next: could not parse "${projectSpec}" as a version range; left unchanged. ` +
@@ -161,9 +176,19 @@ function mergeNextSpec(
     )
     return projectSpec
   }
-  const tpl = simpleMinVersion(templateSpec)
-  if (tpl && isGreaterVersion(tpl, proj)) return templateSpec
-  return projectSpec
+  const tpl = parseSimpleSpec(templateSpec)
+  if (!tpl) return projectSpec
+  if (proj.version[0] < tpl.version[0]) {
+    warnings.push(
+      `next: "${projectSpec}" is on an older major (major ${proj.version[0]}) than the template's ${templateSpec}, ` +
+      `so it was left unchanged. Releases below Next.js 16.4.1 carry critical RCE advisories — ` +
+      `upgrade next to ${templateSpec} or newer yourself.`,
+    )
+    return projectSpec
+  }
+  if (proj.version[0] > tpl.version[0]) return projectSpec
+  if (!isGreaterVersion(tpl.version, proj.version)) return projectSpec
+  return `${proj.op}${tpl.version.join('.')}`
 }
 
 function isManagedDep(name: string): boolean {
@@ -975,6 +1000,9 @@ export async function runUpgradeIn(
   const indent = detectIndent(projectPkgRaw)
 
   const nextWarnings: string[] = []
+  const nextDeclared = (['dependencies', 'devDependencies'] as const).some(
+    (sec) => 'next' in ((projectPkg[sec] ?? {}) as Record<string, string>),
+  )
 
   // Merge ampless deps from template into project
   for (const section of ['dependencies', 'devDependencies'] as const) {
@@ -983,12 +1011,38 @@ export async function runUpgradeIn(
 
     for (const [name, version] of Object.entries(templateDeps)) {
       if (!isManagedDep(name)) continue
-      projectDeps[name] =
-        name === 'next' ? mergeNextSpec(projectDeps[name], version, nextWarnings) : version
+      if (name === 'next') continue // handled below, section-aware
+      projectDeps[name] = version
     }
 
     if (Object.keys(projectDeps).length > 0) {
       projectPkg[section] = projectDeps
+    }
+  }
+
+  // `next`: update it in each section where the project already declares
+  // it (the template may list it in a different section); add it to the
+  // template's section only if the project declares it nowhere.
+  {
+    const nextTemplateSpec = (['dependencies', 'devDependencies'] as const)
+      .map((sec) => ((templatePkg[sec] ?? {}) as Record<string, string>)['next'])
+      .find((v) => v !== undefined)
+    const nextTemplateSection = (['dependencies', 'devDependencies'] as const).find(
+      (sec) => ((templatePkg[sec] ?? {}) as Record<string, string>)['next'] !== undefined,
+    )
+    if (nextTemplateSpec !== undefined && nextTemplateSection !== undefined) {
+      if (nextDeclared) {
+        for (const sec of ['dependencies', 'devDependencies'] as const) {
+          const deps = projectPkg[sec] as Record<string, string> | undefined
+          if (deps && 'next' in deps) {
+            deps['next'] = mergeNextSpec(deps['next'], nextTemplateSpec, nextWarnings)
+          }
+        }
+      } else {
+        const deps = (projectPkg[nextTemplateSection] ?? {}) as Record<string, string>
+        deps['next'] = nextTemplateSpec
+        projectPkg[nextTemplateSection] = deps
+      }
     }
   }
 
