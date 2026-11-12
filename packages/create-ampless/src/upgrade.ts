@@ -104,13 +104,288 @@ const AMPLESS_MANAGED_TRANSITIVE_PREFIXES: readonly string[] = ['@tiptap/'] as c
  * site's lockfile wouldn't support, so the `npm run sandbox` synth would
  * fail. Keeping all four in lockstep with `templates/_shared/package.json`
  * avoids that on `update-ampless`.
+ *
+ * `next` is managed as a security floor: Next.js 16.x < 16.4.1 carries
+ * critical unauthenticated RCE advisories, and since `next` was not
+ * managed, existing sites never picked up the template's bump. The
+ * template range is caret (`^16.x`), so sites still float within 16.x
+ * after upgrade — we only raise the minimum. Unlike the other managed
+ * deps, `next` is merged by `mergeNextSpec`: the user's operator is
+ * preserved (`~16.2.6` -> `~16.4.6`), it is never downgraded, never
+ * rewritten across majors (warns instead), and it is updated only in
+ * the section(s) where the project already declares it. `next` pins in
+ * `overrides` / `pnpm.overrides` / `resolutions` are raised in lockstep
+ * with the direct spec, or the whole next bump is skipped with a warning
+ * (see `applyNextMerge`) — npm fails with EOVERRIDE otherwise.
  */
 const AMPLESS_MANAGED_EXACT_DEPS: ReadonlySet<string> = new Set([
+  'next',
   'aws-amplify',
   '@aws-amplify/adapter-nextjs',
   '@aws-amplify/backend',
   '@aws-amplify/backend-cli',
 ])
+
+interface SimpleSpec {
+  /** `''` (exact) / `^` / `~` / `=` / `>=` — the user's operator. */
+  op: string
+  version: [number, number, number]
+}
+
+/**
+ * Parse a simple `[op]x.y.z` spec (op: `^` `~` `>=` `=` or none; a
+ * leading `v` is accepted and dropped). Returns null for anything else
+ * (tags such as `latest` / `canary`, URLs, `workspace:`, `npm:`,
+ * compound ranges, prereleases). Hand-rolled to avoid adding a `semver`
+ * runtime dependency for one use.
+ */
+function parseSimpleSpec(spec: string): SimpleSpec | null {
+  const m = /^(\^|~|>=|=)?\s*v?(\d+)\.(\d+)\.(\d+)$/.exec(spec.trim())
+  if (!m) return null
+  return { op: m[1] ?? '', version: [Number(m[2]), Number(m[3]), Number(m[4])] }
+}
+
+function isGreaterVersion(a: [number, number, number], b: [number, number, number]): boolean {
+  for (let i = 0; i < 3; i++) {
+    if (a[i]! !== b[i]!) return a[i]! > b[i]!
+  }
+  return false
+}
+
+/**
+ * Merge rule for `next` (security floor): returns the spec to store.
+ *
+ * - Operator-preserving: only the version number is raised to the
+ *   template's minimum (`~16.2.6` -> `~16.4.6`, `16.2.6` -> `16.4.6`),
+ *   so a user's pin / upper bound is never loosened. A leading `v` is
+ *   normalised away.
+ * - Never downgrades: a project minimum >= the template's is untouched.
+ * - Never crosses majors: a lower major (e.g. `^15.3.0`) is untouched
+ *   with a warning, since the template's floor only covers its own major.
+ * - Unparseable specs are untouched with a warning.
+ * - Absent -> template spec.
+ */
+function mergeNextSpec(
+  projectSpec: string | undefined,
+  templateSpec: string,
+  warnings: string[],
+): string {
+  if (projectSpec === undefined) return templateSpec
+  const proj = parseSimpleSpec(projectSpec)
+  if (!proj) {
+    warnings.push(
+      `next: could not parse "${projectSpec}" as a version range; left unchanged. ` +
+      `Ensure it resolves to ${templateSpec} or newer (security fixes for critical RCE advisories).`,
+    )
+    return projectSpec
+  }
+  const tpl = parseSimpleSpec(templateSpec)
+  if (!tpl) return projectSpec
+  if (proj.version[0] < tpl.version[0]) {
+    warnings.push(
+      `next: "${projectSpec}" is on an older major (major ${proj.version[0]}) than the template's ${templateSpec}, ` +
+      `so it was left unchanged. Releases below Next.js 16.4.1 carry critical RCE advisories — ` +
+      `upgrade next to ${templateSpec} or newer yourself.`,
+    )
+    return projectSpec
+  }
+  if (proj.version[0] > tpl.version[0]) return projectSpec
+  if (!isGreaterVersion(tpl.version, proj.version)) return projectSpec
+  return `${proj.op}${tpl.version.join('.')}`
+}
+
+type DepSection = 'dependencies' | 'devDependencies'
+const DEP_SECTIONS: readonly DepSection[] = ['dependencies', 'devDependencies']
+
+/** A place where the package manager is told which `next` to resolve. */
+interface NextOverrideSlot {
+  label: string
+  /** npm / pnpm accept `$next` (= follow the direct dependency); yarn does not. */
+  allowsDollarRef: boolean
+  get: () => unknown
+  set: (v: string) => void
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * Collect the places that pin `next` itself: npm `overrides.next` (string
+ * or object `"."`), `pnpm.overrides.next` / `**` + `/next`, and yarn
+ * `resolutions.next` / `**` + `/next`.
+ */
+function collectNextOverrideSlots(pkg: Record<string, unknown>): NextOverrideSlot[] {
+  const slots: NextOverrideSlot[] = []
+  const addMap = (map: unknown, prefix: string, allowsDollarRef: boolean, keys: string[]): void => {
+    if (!isRecord(map)) return
+    for (const key of keys) {
+      if (!(key in map)) continue
+      const v = map[key]
+      if (isRecord(v)) {
+        // npm object form: only the "." key refers to next itself
+        if ('.' in v) {
+          slots.push({ label: `${prefix}.${key}["."]`, allowsDollarRef, get: () => v['.'], set: (x) => { v['.'] = x } })
+        }
+      } else {
+        slots.push({ label: `${prefix}.${key}`, allowsDollarRef, get: () => map[key], set: (x) => { map[key] = x } })
+      }
+    }
+  }
+  addMap(pkg['overrides'], 'overrides', true, ['next'])
+  addMap(isRecord(pkg['pnpm']) ? pkg['pnpm']['overrides'] : undefined, 'pnpm.overrides', true, ['next', '**/next'])
+  addMap(pkg['resolutions'], 'resolutions', false, ['next', '**/next'])
+  return slots
+}
+
+/**
+ * Top-level selector keys that target next (`next@<range>`, and yarn's
+ * `**` + `/next@<range>`) in npm `overrides`, `pnpm.overrides` and yarn
+ * `resolutions`. npm treats `next@<range>` as an override of the direct
+ * dependency (EOVERRIDE when only the dependency is raised), so these
+ * are never rewritten — their presence skips the next bump.
+ */
+function collectNextSelectorKeys(pkg: Record<string, unknown>): string[] {
+  const out: string[] = []
+  const scan = (map: unknown, prefix: string): void => {
+    if (!isRecord(map)) return
+    for (const key of Object.keys(map)) {
+      if (/^(\*\*\/)?next@/.test(key)) out.push(`${prefix}["${key}"]`)
+    }
+  }
+  scan(pkg['overrides'], 'overrides')
+  scan(isRecord(pkg['pnpm']) ? pkg['pnpm']['overrides'] : undefined, 'pnpm.overrides')
+  scan(pkg['resolutions'], 'resolutions')
+  return out
+}
+
+/**
+ * Nested overrides of `next` that we never modify, only report
+ * when they pin it below the template floor: npm
+ * `overrides["<pkg>"].next` (real npm does not raise EOVERRIDE for these).
+ */
+function warnNestedNextOverrides(
+  pkg: Record<string, unknown>,
+  templateSpec: string,
+  warnings: string[],
+): void {
+  const tpl = parseSimpleSpec(templateSpec)
+  if (!tpl) return
+  const belowFloor = (v: unknown): v is string => {
+    if (typeof v !== 'string') return false
+    const sp = parseSimpleSpec(v)
+    return sp !== null && isGreaterVersion(tpl.version, sp.version)
+  }
+  const report = (where: string, v: string): void => {
+    warnings.push(
+      `next: ${where} pins next to "${v}", below ${templateSpec} (releases below Next.js 16.4.1 carry critical RCE advisories). ` +
+      `It was left unchanged — raise it yourself.`,
+    )
+  }
+  const overrides = pkg['overrides']
+  if (isRecord(overrides)) {
+    for (const [k, v] of Object.entries(overrides)) {
+      if (k === 'next' || !isRecord(v) || !('next' in v)) continue
+      const n = v['next']
+      const spec = isRecord(n) ? n['.'] : n
+      if (belowFloor(spec)) report(`overrides["${k}"].next`, spec)
+    }
+  }
+}
+
+/**
+ * Apply the `next` security-floor merge to `projectPkg` in place.
+ *
+ * The full plan (direct deps + overrides) is computed first and applied
+ * only if consistent, because npm fails with EOVERRIDE when
+ * `overrides.next` does not match the direct dependency's spec:
+ * - `next` is updated only in the section(s) where the project already
+ *   declares it; added to the template's section only if declared
+ *   nowhere (and no override exists — see below).
+ * - An override equal to the project's original direct spec is raised in
+ *   lockstep; `$next` is left as is; any other value is a deliberate
+ *   override, so the whole next bump is skipped with a warning.
+ * - Override-only `next` (no direct dependency) is never touched and no
+ *   direct dependency is added (it would conflict); warns if below floor.
+ * - A top-level selector key (`next@<range>`) in overrides / pnpm.overrides /
+ *   resolutions skips the bump with a warning (npm: EOVERRIDE otherwise).
+ * - Nested overrides under other packages are reported, never modified.
+ */
+function applyNextMerge(
+  projectPkg: Record<string, unknown>,
+  templatePkg: Record<string, unknown>,
+  warnings: string[],
+): void {
+  const tplSection = DEP_SECTIONS.find(
+    (sec) => ((templatePkg[sec] ?? {}) as Record<string, string>)['next'] !== undefined,
+  )
+  if (!tplSection) return
+  const templateSpec = ((templatePkg[tplSection] ?? {}) as Record<string, string>)['next']!
+
+  warnNestedNextOverrides(projectPkg, templateSpec, warnings)
+
+  const direct = DEP_SECTIONS.filter((sec) => 'next' in ((projectPkg[sec] ?? {}) as Record<string, string>))
+  const slots = collectNextOverrideSlots(projectPkg)
+  const selectorKeys = collectNextSelectorKeys(projectPkg)
+
+  if (selectorKeys.length > 0) {
+    warnings.push(
+      `next: ${selectorKeys.join(', ')} targets next with a selector key, which the upgrade does not rewrite; ` +
+      `the next bump was skipped entirely (changing only the direct dependency makes npm fail with EOVERRIDE). ` +
+      `Releases below Next.js 16.4.1 carry critical RCE advisories — update the override key/value and the ` +
+      `direct next dependency to ${templateSpec} or newer yourself.`,
+    )
+    return
+  }
+
+  if (direct.length === 0) {
+    if (slots.length > 0) {
+      const tpl = parseSimpleSpec(templateSpec)
+      const bad = slots.filter((sl) => {
+        const v = sl.get()
+        const sp = typeof v === 'string' ? parseSimpleSpec(v) : null
+        return !sp || !tpl || isGreaterVersion(tpl.version, sp.version)
+      })
+      for (const sl of bad) {
+        warnings.push(
+          `next: ${sl.label} is "${String(sl.get())}" but next is not a direct dependency, so it was left unchanged ` +
+          `(adding a direct next would conflict with the override). Releases below Next.js 16.4.1 carry critical RCE advisories — ` +
+          `raise the override to ${templateSpec} or newer yourself.`,
+        )
+      }
+      return
+    }
+    const deps = (projectPkg[tplSection] ?? {}) as Record<string, string>
+    deps['next'] = templateSpec
+    projectPkg[tplSection] = deps
+    return
+  }
+
+  const originals = direct.map((sec) => ((projectPkg[sec] as Record<string, string>)['next'])!)
+  for (const slot of slots) {
+    const v = slot.get()
+    if (v === '$next' && slot.allowsDollarRef) continue
+    if (typeof v === 'string' && originals.every((o) => o === v)) continue
+    warnings.push(
+      `next: ${slot.label} is "${String(v)}" and differs from the direct dependency (${originals.join(', ')}). ` +
+      `The next bump was skipped entirely, because changing only one of them makes the package manager fail (EOVERRIDE) ` +
+      `or silently ignores the update. Releases below Next.js 16.4.1 carry critical RCE advisories — ` +
+      `set both to ${templateSpec} or newer yourself.`,
+    )
+    return
+  }
+
+  const newSpecs = direct.map((sec, i) =>
+    mergeNextSpec(originals[i], templateSpec, warnings),
+  )
+  direct.forEach((sec, i) => {
+    ;(projectPkg[sec] as Record<string, string>)['next'] = newSpecs[i]!
+  })
+  for (const slot of slots) {
+    if (slot.get() === '$next') continue
+    slot.set(newSpecs[0]!)
+  }
+}
 
 function isManagedDep(name: string): boolean {
   if (AMPLESS_PACKAGES.has(name)) return true
@@ -920,6 +1195,8 @@ export async function runUpgradeIn(
 
   const indent = detectIndent(projectPkgRaw)
 
+  const nextWarnings: string[] = []
+
   // Merge ampless deps from template into project
   for (const section of ['dependencies', 'devDependencies'] as const) {
     const templateDeps = (templatePkg[section] ?? {}) as Record<string, string>
@@ -927,6 +1204,7 @@ export async function runUpgradeIn(
 
     for (const [name, version] of Object.entries(templateDeps)) {
       if (!isManagedDep(name)) continue
+      if (name === 'next') continue // handled below, section-aware
       projectDeps[name] = version
     }
 
@@ -934,6 +1212,9 @@ export async function runUpgradeIn(
       projectPkg[section] = projectDeps
     }
   }
+
+  // `next` (security floor): section- and override-aware, see applyNextMerge.
+  applyNextMerge(projectPkg, templatePkg, nextWarnings)
 
   // Merge ampless-managed scripts. The allowlist (AMPLESS_MANAGED_SCRIPTS)
   // captures the scripts ampless owns end-to-end — the user is free to
@@ -995,6 +1276,9 @@ export async function runUpgradeIn(
     }
   }
 
+  for (const w of nextWarnings) {
+    log.warn(w)
+  }
   for (const w of bootstrapResult.warnings) {
     log.warn(w)
   }

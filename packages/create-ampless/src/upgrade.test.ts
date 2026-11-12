@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { log } from '@clack/prompts'
 import { runUpgradeIn } from './upgrade.js'
 
 // Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
@@ -41,6 +42,7 @@ function makeProjectPkg(extra: Record<string, unknown> = {}): string {
         '@tiptap/starter-kit': '^2.10.4',
         'aws-amplify': '^6.10.0',
         '@aws-amplify/adapter-nextjs': '^1.4.0',
+        'next': '^16.2.6',
         'react': '^19.0.0',
         'my-own-dep': '^1.0.0',
       },
@@ -82,6 +84,7 @@ function makeTemplatePkg(): string {
         '@tiptap/starter-kit': '^3.23.6',
         'aws-amplify': '^6.17.0',
         '@aws-amplify/adapter-nextjs': '^1.7.3',
+        'next': '^16.4.6',
         'react': '^19.0.0',
       },
       devDependencies: {
@@ -522,6 +525,248 @@ describe('runUpgradeIn', () => {
     // devDependencies side (backend toolchain lives there in the template)
     expect(merged.devDependencies['@aws-amplify/backend']).toBe('^1.22.0')
     expect(merged.devDependencies['@aws-amplify/backend-cli']).toBe('^1.8.2')
+  })
+
+  // 7e. `next` is managed as a security floor (critical RCE advisories
+  // affect 16.x < 16.4.1): the user's operator and section are preserved,
+  // only the version number is raised, never downgraded, never across majors.
+  describe('next (security floor, operator-preserving, no downgrade)', () => {
+    type Section = 'dependencies' | 'devDependencies'
+    function setProjectNext(spec: string | null, section: Section = 'dependencies'): void {
+      const path = join(projectDir, 'package.json')
+      const pkg = JSON.parse(readFileSync(path, 'utf-8'))
+      delete pkg.dependencies['next']
+      delete pkg.devDependencies['next']
+      if (spec !== null) pkg[section]['next'] = spec
+      writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+    }
+    async function upgrade(): Promise<{ dependencies: Record<string, string>; devDependencies: Record<string, string> }> {
+      await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+      return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+    }
+
+    it.each([
+      ['16.2.6', '16.4.6'],
+      ['=16.2.6', '=16.4.6'],
+      ['~16.2.6', '~16.4.6'],
+      ['^16.2.6', '^16.4.6'],
+      ['>=16.2.6', '>=16.4.6'],
+    ])('raises %s to %s (operator preserved)', async (from, to) => {
+      setProjectNext(from)
+      expect((await upgrade()).dependencies['next']).toBe(to)
+    })
+
+    it.each(['^16.5.0', '16.4.6', '^16.4.6', '~16.4.7'])('keeps %s (not lower than template)', async (spec) => {
+      setProjectNext(spec)
+      expect((await upgrade()).dependencies['next']).toBe(spec)
+    })
+
+    it.each(['^15.3.0', '~15.3.0'])('keeps %s (different major) and warns', async (spec) => {
+      setProjectNext(spec)
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+      try {
+        expect((await upgrade()).dependencies['next']).toBe(spec)
+        expect(warn.mock.calls.some((c) => String(c[0]).includes('next:') && String(c[0]).includes('major'))).toBe(true)
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it.each(['latest', 'canary', 'workspace:*', 'npm:next@16.4.6'])(
+      'leaves unparseable spec %s untouched and warns',
+      async (spec) => {
+        setProjectNext(spec)
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+        try {
+          expect((await upgrade()).dependencies['next']).toBe(spec)
+          expect(warn.mock.calls.some((c) => String(c[0]).includes('next: could not parse'))).toBe(true)
+        } finally {
+          warn.mockRestore()
+        }
+      },
+    )
+
+    it('updates next in devDependencies only, without adding it to dependencies', async () => {
+      setProjectNext('^16.2.6', 'devDependencies')
+      const merged = await upgrade()
+      expect(merged.devDependencies['next']).toBe('^16.4.6')
+      expect(merged.dependencies['next']).toBeUndefined()
+    })
+
+    it('adds the template range to dependencies when next is declared nowhere', async () => {
+      setProjectNext(null)
+      const merged = await upgrade()
+      expect(merged.dependencies['next']).toBe('^16.4.6')
+      expect(merged.devDependencies['next']).toBeUndefined()
+    })
+  })
+
+  // 7f. `next` overrides must stay consistent with the direct dependency:
+  // npm fails with EOVERRIDE when overrides.next differs from the direct
+  // spec (verified with real npm), so they are raised in lockstep or the
+  // whole next bump is skipped with a warning.
+  describe('next overrides / resolutions', () => {
+    type Pkg = {
+      dependencies: Record<string, string>
+      devDependencies: Record<string, string>
+      [k: string]: unknown
+    }
+    function mutate(fn: (pkg: Pkg) => void): void {
+      const path = join(projectDir, 'package.json')
+      const pkg = JSON.parse(readFileSync(path, 'utf-8')) as Pkg
+      fn(pkg)
+      writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+    }
+    async function upgrade(): Promise<{ pkg: Pkg; warnings: string[] }> {
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+      try {
+        await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+        const pkg = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8')) as Pkg
+        return { pkg, warnings: warn.mock.calls.map((c) => String(c[0])) }
+      } finally {
+        warn.mockRestore()
+      }
+    }
+    const hasNextWarning = (w: string[], re: RegExp): boolean =>
+      w.some((m) => m.startsWith('next:') && re.test(m))
+
+    it('raises an equal string override together with the direct dependency', async () => {
+      mutate((p) => { p.overrides = { next: '^16.2.6' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.4.6')
+    })
+
+    it('keeps a "$next" override and raises the dependency', async () => {
+      mutate((p) => { p.overrides = { next: '$next' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('$next')
+    })
+
+    it('raises only the "." key of an object override', async () => {
+      mutate((p) => { p.overrides = { next: { '.': '^16.2.6', react: '^19.0.0' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toEqual({ '.': '^16.4.6', react: '^19.0.0' })
+    })
+
+    it('skips the whole next bump when the override differs (deliberate override)', async () => {
+      mutate((p) => { p.overrides = { next: '16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('skips the whole next bump when the override is unparseable', async () => {
+      mutate((p) => { p.overrides = { next: 'latest' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('latest')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('leaves an override-only next (no direct dep) below the floor untouched and warns', async () => {
+      mutate((p) => { delete p.dependencies['next']; p.overrides = { next: '^16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBeUndefined()
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('leaves a nested override under another package untouched and warns when below the floor', async () => {
+      mutate((p) => { p.overrides = { '@ampless/admin': { next: '^16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect((pkg.overrides as Record<string, unknown>)['@ampless/admin']).toEqual({ next: '^16.2.6' })
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(hasNextWarning(warnings, /@ampless\/admin/)).toBe(true)
+    })
+
+    // npm treats a top-level `next@<range>` key as an override of the direct
+    // dependency too (real npm: EOVERRIDE after only the dep is raised), and
+    // rewriting selector keys is out of scope, so the whole bump is skipped.
+    it.each([
+      ['next@^16.2.6 string equal', { 'next@^16.2.6': '^16.2.6' }],
+      ['next@^16.2.6 string different', { 'next@^16.2.6': '16.2.6' }],
+      ['next@^16.2.6 $next', { 'next@^16.2.6': '$next' }],
+      ['next@16', { 'next@16': '^16.2.6' }],
+      ['next@>=16.0.0', { 'next@>=16.0.0': '^16.2.6' }],
+      ['next@16.2.6', { 'next@16.2.6': '16.2.6' }],
+      ['object form', { 'next@^16.2.6': { '.': '^16.2.6' } }],
+      ['key with whitespace', { 'next@ ^16.2.6': '^16.2.6' }],
+    ])('skips the next bump when a top-level selector override exists (%s)', async (_n, overrides) => {
+      mutate((p) => { p.overrides = overrides })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.overrides).toEqual(overrides)
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
+    it('keeps raising the dependency when next is overridden only via nested selector/plain keys (no EOVERRIDE in real npm)', async () => {
+      mutate((p) => { p.overrides = { '@ampless/admin': { 'next@^16.2.6': '^16.2.6' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(pkg.overrides).toEqual({ '@ampless/admin': { 'next@^16.2.6': '^16.2.6' } })
+    })
+
+    it('skips the next bump when pnpm.overrides has a next@ selector key', async () => {
+      mutate((p) => { p.pnpm = { overrides: { 'next@^16.2.6': '^16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.pnpm).toEqual({ overrides: { 'next@^16.2.6': '^16.2.6' } })
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
+    it.each(['next@^16.2.6', '**/next@^16.2.6'])('skips the next bump when yarn resolutions has %s', async (key) => {
+      mutate((p) => { p.resolutions = { [key]: '^16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.resolutions).toEqual({ [key]: '^16.2.6' })
+      expect(hasNextWarning(warnings, /next@/)).toBe(true)
+    })
+
+    it('raises a devDependencies-only next together with an equal override', async () => {
+      mutate((p) => {
+        delete p.dependencies['next']
+        p.devDependencies['next'] = '^16.2.6'
+        p.overrides = { next: '^16.2.6' }
+      })
+      const { pkg } = await upgrade()
+      expect(pkg.devDependencies['next']).toBe('^16.4.6')
+      expect(pkg.dependencies['next']).toBeUndefined()
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.4.6')
+    })
+
+    it('raises an equal pnpm.overrides.next', async () => {
+      mutate((p) => { p.pnpm = { overrides: { next: '^16.2.6' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(((pkg.pnpm as { overrides: Record<string, string> }).overrides)['next']).toBe('^16.4.6')
+    })
+
+    it('skips next when pnpm.overrides.next differs', async () => {
+      mutate((p) => { p.pnpm = { overrides: { next: '16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(((pkg.pnpm as { overrides: Record<string, string> }).overrides)['next']).toBe('16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('raises equal yarn resolutions (next and **/next)', async () => {
+      mutate((p) => { p.resolutions = { next: '^16.2.6', '**/next': '^16.2.6' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(pkg.resolutions).toEqual({ next: '^16.4.6', '**/next': '^16.4.6' })
+    })
+
+    it('skips next when a yarn resolution differs', async () => {
+      mutate((p) => { p.resolutions = { next: '16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.resolutions).toEqual({ next: '16.2.6' })
+      expect(hasNextWarning(warnings, /override|resolution/i)).toBe(true)
+    })
   })
 
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it
