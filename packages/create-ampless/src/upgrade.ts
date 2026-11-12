@@ -104,13 +104,67 @@ const AMPLESS_MANAGED_TRANSITIVE_PREFIXES: readonly string[] = ['@tiptap/'] as c
  * site's lockfile wouldn't support, so the `npm run sandbox` synth would
  * fail. Keeping all four in lockstep with `templates/_shared/package.json`
  * avoids that on `update-ampless`.
+ *
+ * `next` is managed as a security floor: Next.js 16.x < 16.4.1 carries
+ * critical unauthenticated RCE advisories, and since `next` was not
+ * managed, existing sites never picked up the template's bump. The
+ * template range is caret (`^16.x`), so sites still float within 16.x
+ * after upgrade — we only raise the minimum. Unlike the other managed
+ * deps, `next` is never downgraded: a site already on a newer spec
+ * (e.g. `^16.5.0`) keeps it, and only a lower minimum is replaced (see
+ * `mergeNextSpec`).
  */
 const AMPLESS_MANAGED_EXACT_DEPS: ReadonlySet<string> = new Set([
+  'next',
   'aws-amplify',
   '@aws-amplify/adapter-nextjs',
   '@aws-amplify/backend',
   '@aws-amplify/backend-cli',
 ])
+
+/**
+ * Minimum version of a simple `x.y.z` / `^x.y.z` / `~x.y.z` / `>=x.y.z`
+ * / `=x.y.z` spec, or null when the spec is anything else (tags such as
+ * `latest` / `canary`, URLs, `workspace:`, `npm:`, ranges, prereleases).
+ * Hand-rolled to avoid adding a `semver` runtime dependency for one use.
+ */
+function simpleMinVersion(spec: string): [number, number, number] | null {
+  const m = /^(?:\^|~|>=|=)?\s*v?(\d+)\.(\d+)\.(\d+)$/.exec(spec.trim())
+  if (!m) return null
+  return [Number(m[1]), Number(m[2]), Number(m[3])]
+}
+
+function isGreaterVersion(a: [number, number, number], b: [number, number, number]): boolean {
+  for (let i = 0; i < 3; i++) {
+    if (a[i]! !== b[i]!) return a[i]! > b[i]!
+  }
+  return false
+}
+
+/**
+ * Merge rule for `next` (security floor, never a downgrade): returns the
+ * spec to store. Replaces the project's spec only when the template's
+ * minimum version is strictly higher. An unparseable project spec is
+ * left untouched and a warning is pushed.
+ */
+function mergeNextSpec(
+  projectSpec: string | undefined,
+  templateSpec: string,
+  warnings: string[],
+): string {
+  if (projectSpec === undefined) return templateSpec
+  const proj = simpleMinVersion(projectSpec)
+  if (!proj) {
+    warnings.push(
+      `next: could not parse "${projectSpec}" as a version range; left unchanged. ` +
+      `Ensure it resolves to ${templateSpec} or newer (security fixes for critical RCE advisories).`,
+    )
+    return projectSpec
+  }
+  const tpl = simpleMinVersion(templateSpec)
+  if (tpl && isGreaterVersion(tpl, proj)) return templateSpec
+  return projectSpec
+}
 
 function isManagedDep(name: string): boolean {
   if (AMPLESS_PACKAGES.has(name)) return true
@@ -920,6 +974,8 @@ export async function runUpgradeIn(
 
   const indent = detectIndent(projectPkgRaw)
 
+  const nextWarnings: string[] = []
+
   // Merge ampless deps from template into project
   for (const section of ['dependencies', 'devDependencies'] as const) {
     const templateDeps = (templatePkg[section] ?? {}) as Record<string, string>
@@ -927,7 +983,8 @@ export async function runUpgradeIn(
 
     for (const [name, version] of Object.entries(templateDeps)) {
       if (!isManagedDep(name)) continue
-      projectDeps[name] = version
+      projectDeps[name] =
+        name === 'next' ? mergeNextSpec(projectDeps[name], version, nextWarnings) : version
     }
 
     if (Object.keys(projectDeps).length > 0) {
@@ -995,6 +1052,9 @@ export async function runUpgradeIn(
     }
   }
 
+  for (const w of nextWarnings) {
+    log.warn(w)
+  }
   for (const w of bootstrapResult.warnings) {
     log.warn(w)
   }

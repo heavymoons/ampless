@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { log } from '@clack/prompts'
 import { runUpgradeIn } from './upgrade.js'
 
 // Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
@@ -41,6 +42,7 @@ function makeProjectPkg(extra: Record<string, unknown> = {}): string {
         '@tiptap/starter-kit': '^2.10.4',
         'aws-amplify': '^6.10.0',
         '@aws-amplify/adapter-nextjs': '^1.4.0',
+        'next': '^16.2.6',
         'react': '^19.0.0',
         'my-own-dep': '^1.0.0',
       },
@@ -82,6 +84,7 @@ function makeTemplatePkg(): string {
         '@tiptap/starter-kit': '^3.23.6',
         'aws-amplify': '^6.17.0',
         '@aws-amplify/adapter-nextjs': '^1.7.3',
+        'next': '^16.4.6',
         'react': '^19.0.0',
       },
       devDependencies: {
@@ -522,6 +525,57 @@ describe('runUpgradeIn', () => {
     // devDependencies side (backend toolchain lives there in the template)
     expect(merged.devDependencies['@aws-amplify/backend']).toBe('^1.22.0')
     expect(merged.devDependencies['@aws-amplify/backend-cli']).toBe('^1.8.2')
+  })
+
+  // 7e. `next` is managed as a security floor (critical RCE advisories
+  // affect 16.x < 16.4.1) but never downgraded.
+  describe('next (security floor, no downgrade)', () => {
+    function setProjectNext(spec: string | null): void {
+      const path = join(projectDir, 'package.json')
+      const pkg = JSON.parse(readFileSync(path, 'utf-8'))
+      if (spec === null) delete pkg.dependencies['next']
+      else pkg.dependencies['next'] = spec
+      writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+    }
+    async function upgradeAndReadNext(): Promise<string | undefined> {
+      await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+      const merged = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+      return merged.dependencies['next']
+    }
+
+    it('raises an older project range to the template range', async () => {
+      setProjectNext('^16.2.6')
+      expect(await upgradeAndReadNext()).toBe('^16.4.6')
+    })
+
+    it('keeps a newer project range', async () => {
+      setProjectNext('^16.5.0')
+      expect(await upgradeAndReadNext()).toBe('^16.5.0')
+    })
+
+    it('leaves an exact-equal version untouched', async () => {
+      setProjectNext('16.4.6')
+      expect(await upgradeAndReadNext()).toBe('16.4.6')
+    })
+
+    it.each(['latest', 'canary', 'workspace:*', 'npm:next@16.4.6'])(
+      'leaves unparseable spec %s untouched and warns',
+      async (spec) => {
+        setProjectNext(spec)
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+        try {
+          expect(await upgradeAndReadNext()).toBe(spec)
+          expect(warn.mock.calls.some((c) => String(c[0]).includes('next: could not parse'))).toBe(true)
+        } finally {
+          warn.mockRestore()
+        }
+      },
+    )
+
+    it('adds the template range when the project has no next', async () => {
+      setProjectNext(null)
+      expect(await upgradeAndReadNext()).toBe('^16.4.6')
+    })
   })
 
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it
