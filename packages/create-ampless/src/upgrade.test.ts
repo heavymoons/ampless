@@ -601,6 +601,131 @@ describe('runUpgradeIn', () => {
     })
   })
 
+  // 7f. `next` overrides must stay consistent with the direct dependency:
+  // npm fails with EOVERRIDE when overrides.next differs from the direct
+  // spec (verified with real npm), so they are raised in lockstep or the
+  // whole next bump is skipped with a warning.
+  describe('next overrides / resolutions', () => {
+    type Pkg = {
+      dependencies: Record<string, string>
+      devDependencies: Record<string, string>
+      [k: string]: unknown
+    }
+    function mutate(fn: (pkg: Pkg) => void): void {
+      const path = join(projectDir, 'package.json')
+      const pkg = JSON.parse(readFileSync(path, 'utf-8')) as Pkg
+      fn(pkg)
+      writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+    }
+    async function upgrade(): Promise<{ pkg: Pkg; warnings: string[] }> {
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+      try {
+        await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+        const pkg = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8')) as Pkg
+        return { pkg, warnings: warn.mock.calls.map((c) => String(c[0])) }
+      } finally {
+        warn.mockRestore()
+      }
+    }
+    const hasNextWarning = (w: string[], re: RegExp): boolean =>
+      w.some((m) => m.startsWith('next:') && re.test(m))
+
+    it('raises an equal string override together with the direct dependency', async () => {
+      mutate((p) => { p.overrides = { next: '^16.2.6' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.4.6')
+    })
+
+    it('keeps a "$next" override and raises the dependency', async () => {
+      mutate((p) => { p.overrides = { next: '$next' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('$next')
+    })
+
+    it('raises only the "." key of an object override', async () => {
+      mutate((p) => { p.overrides = { next: { '.': '^16.2.6', react: '^19.0.0' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toEqual({ '.': '^16.4.6', react: '^19.0.0' })
+    })
+
+    it('skips the whole next bump when the override differs (deliberate override)', async () => {
+      mutate((p) => { p.overrides = { next: '16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('skips the whole next bump when the override is unparseable', async () => {
+      mutate((p) => { p.overrides = { next: 'latest' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('latest')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('leaves an override-only next (no direct dep) below the floor untouched and warns', async () => {
+      mutate((p) => { delete p.dependencies['next']; p.overrides = { next: '^16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBeUndefined()
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('leaves a nested override under another package untouched and warns when below the floor', async () => {
+      mutate((p) => { p.overrides = { '@ampless/admin': { next: '^16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect((pkg.overrides as Record<string, unknown>)['@ampless/admin']).toEqual({ next: '^16.2.6' })
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(hasNextWarning(warnings, /@ampless\/admin/)).toBe(true)
+    })
+
+    it('raises a devDependencies-only next together with an equal override', async () => {
+      mutate((p) => {
+        delete p.dependencies['next']
+        p.devDependencies['next'] = '^16.2.6'
+        p.overrides = { next: '^16.2.6' }
+      })
+      const { pkg } = await upgrade()
+      expect(pkg.devDependencies['next']).toBe('^16.4.6')
+      expect(pkg.dependencies['next']).toBeUndefined()
+      expect((pkg.overrides as Record<string, unknown>)['next']).toBe('^16.4.6')
+    })
+
+    it('raises an equal pnpm.overrides.next', async () => {
+      mutate((p) => { p.pnpm = { overrides: { next: '^16.2.6' } } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(((pkg.pnpm as { overrides: Record<string, string> }).overrides)['next']).toBe('^16.4.6')
+    })
+
+    it('skips next when pnpm.overrides.next differs', async () => {
+      mutate((p) => { p.pnpm = { overrides: { next: '16.2.6' } } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(((pkg.pnpm as { overrides: Record<string, string> }).overrides)['next']).toBe('16.2.6')
+      expect(hasNextWarning(warnings, /override/i)).toBe(true)
+    })
+
+    it('raises equal yarn resolutions (next and **/next)', async () => {
+      mutate((p) => { p.resolutions = { next: '^16.2.6', '**/next': '^16.2.6' } })
+      const { pkg } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.4.6')
+      expect(pkg.resolutions).toEqual({ next: '^16.4.6', '**/next': '^16.4.6' })
+    })
+
+    it('skips next when a yarn resolution differs', async () => {
+      mutate((p) => { p.resolutions = { next: '16.2.6' } })
+      const { pkg, warnings } = await upgrade()
+      expect(pkg.dependencies['next']).toBe('^16.2.6')
+      expect(pkg.resolutions).toEqual({ next: '16.2.6' })
+      expect(hasNextWarning(warnings, /override|resolution/i)).toBe(true)
+    })
+  })
+
   // 8a. seed-if-missing *.custom.ts: project lacks the stub → upgrade adds it
   it('seeds *.custom.ts stubs into projects that do not have them yet', async () => {
     // Pre-2026-05 scaffolds shipped without the extension stubs. The
