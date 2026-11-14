@@ -244,6 +244,7 @@
     "runtime-post-to-markdown",
     "sanitize-cmsconfig-for-client",
     "scaffold-all-themes-and-copy-theme",
+    "scaffold-eslint-cli",
     "scaffold-include-ga4-plugin",
     "scheduled-publish",
     "scrub-private-until-rc-language",
