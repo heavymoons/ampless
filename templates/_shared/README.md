@@ -229,9 +229,23 @@ This runs `npx create-ampless@beta upgrade`, which:
 - Bumps the `@ampless/*` and `ampless` dependencies in `package.json`
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.
 - Updates `update-ampless` and `copy-theme` script entries if their commands change
-- Moves a site that still has the original `"lint": "next lint"` (removed in Next.js 16) to the ESLint CLI: adds `eslint.config.mjs`, sets `lint` to `eslint .` and adds `eslint` / `eslint-config-next` to `devDependencies`. This only happens when the site has no ESLint settings of its own — no `eslint.config.*` or `.eslintrc*` at the root or in any subdirectory (e.g. `app/.eslintrc.json`; `node_modules/` and build output are not searched), no `.eslintignore`, no `eslintConfig` / `eslintIgnore` in `package.json` — and no ESLint dependencies, because flat config would silently stop applying those settings; otherwise your config and `lint` script are left untouched and the upgrade prints a warning if `lint` still calls `next lint`. An existing `eslint.config.mjs` is never overwritten.
+- Never touches your ESLint setup: the `lint` script, `eslint.config.*` / `.eslintrc*` / `.eslintignore`, and ESLint dependencies are left as they are. If `lint` still calls `next lint`, the upgrade prints a warning — see "Migrating from `next lint`" below.
 
 You can review the diff before committing.
+
+### Migrating from `next lint`
+
+Next.js 16 removed `next lint`, so sites scaffolded before ampless switched to the ESLint CLI fail on `npm run lint`. New scaffolds already ship `eslint.config.mjs`, `"lint": "eslint ."` and the `eslint` / `eslint-config-next` devDependencies. Existing sites migrate by hand, because only you know which lint settings to keep:
+
+1. Run the official codemod, then review its diff:
+
+   ```bash
+   npx @next/codemod@latest next-lint-to-eslint-cli .
+   ```
+
+   Or do it manually: `npm install -D eslint@^9 eslint-config-next`, add an `eslint.config.mjs` flat config (the one new scaffolds ship is a good starting point), and set `"lint": "eslint ."`.
+2. Carry over existing settings. Flat config does not read `.eslintrc*` (in this project, its subdirectories or parent directories) or `.eslintignore`: move their rules and ignore patterns into `eslint.config.mjs`.
+3. Run `npm run lint` and confirm it checks the files you expect.
 
 ## Operations
 

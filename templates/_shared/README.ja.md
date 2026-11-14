@@ -229,9 +229,23 @@ npm run update-ampless
 - `package.json` の `@ampless/*` / `ampless` 依存をバージョンアップ
 - 共有テンプレートファイル（admin アプリの土台、amplify バックエンド、lib/、middleware、テーマ）を再同期 — `cms.config.ts`、`theme.*` 管理画面設定、投稿、テーマ manifest 値などのユーザーカスタマイズは保持されます
 - `update-ampless` / `copy-theme` スクリプトのコマンドが変わっていれば更新
-- 初期状態の `"lint": "next lint"`（Next.js 16 で削除済み）のままのサイトを ESLint CLI に移行: `eslint.config.mjs` を追加し、`lint` を `eslint .` にして、`devDependencies` に `eslint` / `eslint-config-next` を追加します。移行するのは、サイト独自の ESLint 設定（ルートまたは子ディレクトリの `eslint.config.*` / `.eslintrc*`（例: `app/.eslintrc.json`。`node_modules/` や生成物は対象外）、`.eslintignore`、`package.json` の `eslintConfig` / `eslintIgnore`）も ESLint の依存もない場合だけです。flat config ではこれらの設定が黙って効かなくなるためです。それ以外では設定と `lint` スクリプトをそのまま残し、`lint` がまだ `next lint` を呼んでいれば警告を表示します。既存の `eslint.config.mjs` は上書きしません。
+- ESLint の設定には触れません: `lint` スクリプト、`eslint.config.*` / `.eslintrc*` / `.eslintignore`、ESLint の依存はそのまま残します。`lint` がまだ `next lint` を呼んでいる場合は警告を表示します（下記「`next lint` からの移行」参照）。
 
 commit 前に diff を確認できます。
+
+### `next lint` からの移行
+
+Next.js 16 で `next lint` は削除されたため、ampless が ESLint CLI に切り替える前に作成したサイトでは `npm run lint` が失敗します。新規 scaffold には `eslint.config.mjs`、`"lint": "eslint ."`、`eslint` / `eslint-config-next` の devDependencies が含まれています。既存サイトは、どの lint 設定を残すかを判断できるのはサイトの所有者だけなので、手動で移行してください:
+
+1. 公式の codemod を実行し、差分を確認します:
+
+   ```bash
+   npx @next/codemod@latest next-lint-to-eslint-cli .
+   ```
+
+   手動で行う場合は、`npm install -D eslint@^9 eslint-config-next` を実行し、flat config の `eslint.config.mjs` を追加して（新規 scaffold のものを出発点にできます）、`"lint": "eslint ."` に変更します。
+2. 既存の設定を引き継ぎます。flat config は `.eslintrc*`（このプロジェクト、その子ディレクトリ、親ディレクトリのもの）や `.eslintignore` を読み込みません。ルールと除外パターンを `eslint.config.mjs` に移してください。
+3. `npm run lint` を実行し、意図したファイルが検査されることを確認します。
 
 ## 運用
 

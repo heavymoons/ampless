@@ -171,39 +171,32 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
   // site's own conventions. The kept-up-to-date "how to write a
   // plugin" doc lives in `packages/ampless/docs/plugin-author-guide.md`.
   /^plugins(\/|$)/,
-  // `eslint.config.mjs` is the site's own lint config once it exists.
-  // Sites that predate it get it through `planLintMigration` instead,
-  // which also refuses to add it next to an existing ESLint config.
+  // The site's ESLint setup is user-owned. New scaffolds get the
+  // template's `eslint.config.mjs`, but an upgrade never adds or
+  // replaces it: an existing file (or symlink) is the user's, and a new
+  // flat config would shadow whatever legacy `.eslintrc*` / `.eslintignore`
+  // the site relies on, here or in a parent directory.
   /^eslint\.config\.mjs$/,
 ]
 
 /**
- * ESLint config file names, flat and legacy eslintrc. If one exists
- * anywhere in the site (see `findEslintSetup`) the site already owns
- * its lint setup; dropping the template's flat config next to it would
- * silently shadow a legacy `.eslintrc*`.
+ * Printed by `update-ampless` when the site's `lint` script still calls
+ * `next lint`, which Next.js 16 removed. The upgrade never changes the
+ * lint script, ESLint config or ESLint dependencies — moving them is a
+ * manual step because only the site owner knows which settings to keep.
  */
-const ESLINT_CONFIG_FILES: readonly string[] = [
-  'eslint.config.js',
-  'eslint.config.mjs',
-  'eslint.config.cjs',
-  'eslint.config.ts',
-  'eslint.config.mts',
-  'eslint.config.cts',
-  '.eslintrc',
-  '.eslintrc.js',
-  '.eslintrc.cjs',
-  '.eslintrc.yaml',
-  '.eslintrc.yml',
-  '.eslintrc.json',
-] as const
+const NEXT_LINT_WARNING =
+  'package.json "lint" still runs `next lint`, which Next.js 16 removed, so `npm run lint` fails. ' +
+  'update-ampless leaves your lint script, ESLint config and ESLint dependencies untouched. ' +
+  'To migrate by hand: run `npx @next/codemod@latest next-lint-to-eslint-cli .` (or install ' +
+  '`eslint@^9` and `eslint-config-next`, add an `eslint.config.mjs` flat config and set "lint" to "eslint ."), ' +
+  'then carry over any `.eslintrc*` / `.eslintignore` settings, because flat config does not read them. ' +
+  'See "Updating ampless" in README.md.'
 
-const TEMPLATE_ESLINT_CONFIG = 'eslint.config.mjs'
-
-/** The `lint` script every template before Next.js 16 shipped. */
-const LEGACY_LINT_SCRIPT = 'next lint'
-
-const ESLINT_DEV_DEPS: readonly string[] = ['eslint', 'eslint-config-next'] as const
+function usesNextLint(projectPkg: Record<string, unknown>): boolean {
+  const lint = ((projectPkg['scripts'] ?? {}) as Record<string, unknown>)['lint']
+  return typeof lint === 'string' && /(^|[\s;&|(])next\s+lint(\s|$|[;&|)])/.test(lint)
+}
 
 // Files that must be COPIED IN on first encounter but never overwritten
 // once present. Three cases live here:
@@ -267,12 +260,6 @@ export interface UpgradeResult {
    * the latest `@beta` dist-tag by `bumpUserAmplessPlugins`.
    */
   userPluginsBumped?: number
-  /**
-   * True when the site still had the template's `next lint` setup and
-   * was moved to the ESLint CLI (`eslint.config.mjs`, `lint` script and
-   * ESLint devDependencies). In dry-run, true means it would be.
-   */
-  lintMigrated: boolean
 }
 
 interface FileClassification {
@@ -804,142 +791,6 @@ async function regenerateEditorBootstrap(
 }
 
 // ----------------------------------------------------------------------------
-// next lint → ESLint CLI migration
-// ----------------------------------------------------------------------------
-
-interface LintMigrationPlan {
-  migrate: boolean
-  /** Set when the site keeps a `lint` script that Next.js 16 no longer runs. */
-  warning?: string
-}
-
-/**
- * Directories never searched for nested ESLint configs: dependencies,
- * VCS metadata and build / tool output. Configs inside them are not the
- * site's own lint settings.
- */
-const ESLINT_SCAN_SKIP_DIRS: ReadonlySet<string> = new Set([
-  'node_modules',
-  '.git',
-  '.next',
-  '.amplify',
-  '.turbo',
-  '.vercel',
-  'out',
-  'build',
-  'dist',
-  'coverage',
-])
-
-/**
- * Find ESLint settings the template's flat config would silently drop
- * or shadow. Returns a short description of the first one found, or
- * null when the site has none.
- *
- * - Root `.eslintignore` / `package.json#eslintIgnore`: ESLint 9 flat
- *   config no longer reads them, so their exclusions would stop applying.
- * - Any `.eslintrc*` / `eslint.config.*` / `package.json#eslintConfig`,
- *   at the root or in a subdirectory (e.g. `app/.eslintrc.json`): the
- *   eslintrc cascade is gone under flat config, so nested rules would
- *   stop applying without any error.
- *
- * Config names match any non-directory entry, so a symlink — even a
- * broken one — counts as the user's config: writing the template over
- * it would otherwise write through to the link target. Anything the
- * scan cannot read (an unreadable directory, an unreadable or malformed
- * nested package.json) also counts, because it cannot be shown to hold
- * no ESLint settings.
- */
-async function findEslintSetup(
-  destDir: string,
-  projectPkg: Record<string, unknown>,
-): Promise<string | null> {
-  if ('eslintConfig' in projectPkg) return 'package.json "eslintConfig"'
-  if ('eslintIgnore' in projectPkg) return 'package.json "eslintIgnore"'
-
-  const configNames = new Set([...ESLINT_CONFIG_FILES, '.eslintignore'])
-  const errorCode = (e: unknown): string =>
-    (e as NodeJS.ErrnoException)?.code ?? (e instanceof Error ? e.message : String(e))
-
-  async function walk(dir: string, rel: string): Promise<string | null> {
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch (e) {
-      return `${rel || '.'} (could not be read: ${errorCode(e)})`
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory() || !configNames.has(entry.name)) continue
-      // `.eslintignore` is only read from the project root.
-      if (entry.name === '.eslintignore' && rel) continue
-      const entryRel = rel ? `${rel}/${entry.name}` : entry.name
-      return entry.isSymbolicLink() ? `${entryRel} (symlink)` : entryRel
-    }
-    for (const entry of entries) {
-      const entryRel = rel ? `${rel}/${entry.name}` : entry.name
-      if (rel && entry.name === 'package.json' && !entry.isDirectory()) {
-        let nested: unknown
-        try {
-          nested = JSON.parse(await readFile(join(dir, entry.name), 'utf-8'))
-        } catch (e) {
-          return `${entryRel} (could not be read: ${errorCode(e)})`
-        }
-        if (nested && typeof nested === 'object' && 'eslintConfig' in nested) {
-          return `${entryRel} "eslintConfig"`
-        }
-      }
-      // Symlinked directories are not followed (Dirent reports them as
-      // links), which also rules out cycles.
-      if (entry.isDirectory() && !ESLINT_SCAN_SKIP_DIRS.has(entry.name)) {
-        const found = await walk(join(dir, entry.name), entryRel)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  return walk(destDir, '')
-}
-
-/**
- * Next.js 16 removed `next lint`. Sites still on the template's
- * untouched lint setup — `"lint": "next lint"`, no ESLint settings
- * anywhere in the tree (see `findEslintSetup`) and no ESLint
- * devDependencies — are moved to the template's flat config. Anything
- * the user has set up themselves is left exactly as it is, with a
- * warning naming what was found.
- */
-async function planLintMigration(
-  destDir: string,
-  sharedDir: string,
-  projectPkg: Record<string, unknown>,
-): Promise<LintMigrationPlan> {
-  const scripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
-  const lint = scripts['lint']
-  if (typeof lint !== 'string' || !/(^|\s|&&|;)next lint(\s|$)/.test(lint)) {
-    return { migrate: false }
-  }
-  const keep = (reason: string): LintMigrationPlan => ({
-    migrate: false,
-    warning:
-      `package.json "lint" still runs \`next lint\`, which Next.js 16 removed. ` +
-      `It was left as is because ${reason}; ` +
-      `move it to the ESLint CLI (e.g. "eslint .") with a flat config that carries those settings over.`,
-  })
-
-  if (!existsSync(join(sharedDir, TEMPLATE_ESLINT_CONFIG))) return keep('the template has no ESLint config')
-  if (lint.trim() !== LEGACY_LINT_SCRIPT) return keep('the script is customised')
-  const declared = {
-    ...((projectPkg['dependencies'] ?? {}) as Record<string, string>),
-    ...((projectPkg['devDependencies'] ?? {}) as Record<string, string>),
-  }
-  const dep = ESLINT_DEV_DEPS.find((name) => name in declared)
-  if (dep) return keep(`the project declares its own "${dep}" dependency`)
-  const setup = await findEslintSetup(destDir, projectPkg)
-  if (setup) return keep(`the project has its own ESLint settings (${setup})`)
-  return { migrate: true }
-}
-
-// ----------------------------------------------------------------------------
 // Core logic (pure-ish; accepts dirs as arguments for testability)
 // ----------------------------------------------------------------------------
 
@@ -1020,7 +871,6 @@ export async function runUpgradeIn(
   )
 
   const obsoleteFiles = await findObsoleteFiles(destDir, sharedDir)
-  const lintPlan = await planLintMigration(destDir, sharedDir, projectPkg)
 
   log.info(
     `replace: ${pc.green(`${replaceNew.length} added`)} / ${pc.yellow(`${replaceUpdate.length} updated`)}`
@@ -1044,12 +894,10 @@ export async function runUpgradeIn(
   if (obsoleteFiles.length > 0) {
     log.info(`cleanup: ${pc.yellow(`${obsoleteFiles.length} removed`)} (files under ampless-managed app/ paths that no longer exist in the template)`)
   }
-  if (lintPlan.migrate) {
-    log.info(`lint:    ${pc.green(`next lint → eslint (${TEMPLATE_ESLINT_CONFIG}, lint script, ${ESLINT_DEV_DEPS.join(' / ')})`)}`)
-  } else if (lintPlan.warning) {
-    log.warn(lintPlan.warning)
-  }
   log.info(`protected: ${pc.dim(`${classification.protected.length} template files left untouched`)}`)
+  if (usesNextLint(projectPkg)) {
+    log.warn(NEXT_LINT_WARNING)
+  }
 
   // 5. dry-run exit
   if (opts.dryRun) {
@@ -1063,7 +911,6 @@ export async function runUpgradeIn(
       themesQuarantined: quarantinedThemesPreview,
       packageJsonMerged: false,
       obsoleteRemoved: obsoleteFiles,
-      lintMigrated: lintPlan.migrate,
     }
   }
 
@@ -1137,43 +984,6 @@ export async function runUpgradeIn(
     projectPkg['scripts'] = projectScripts
   }
 
-  // 7a. Move an untouched `next lint` setup to the ESLint CLI. The plan
-  // already checked that no config, `eslintConfig` key or ESLint dep
-  // exists, so nothing here can overwrite or shadow user settings. The
-  // config is still written with `wx` (O_CREAT | O_EXCL): if anything
-  // appeared at that path since — a file, or a symlink, live or broken —
-  // the write fails instead of following it, and package.json is left
-  // unmigrated.
-  let lintMigrated = lintPlan.migrate
-  if (lintMigrated) {
-    const template = await readFile(join(sharedDir, TEMPLATE_ESLINT_CONFIG), 'utf-8')
-    try {
-      await writeFile(
-        join(destDir, TEMPLATE_ESLINT_CONFIG),
-        substituteVars(template, vars),
-        { encoding: 'utf-8', flag: 'wx' },
-      )
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code !== 'EEXIST') throw e
-      lintMigrated = false
-      log.warn(
-        `${TEMPLATE_ESLINT_CONFIG} appeared during the upgrade; it was left untouched and ` +
-        `the "lint" script and ESLint devDependencies were not changed.`,
-      )
-    }
-  }
-  if (lintMigrated) {
-    projectScripts['lint'] = templateScripts['lint']!
-    projectPkg['scripts'] = projectScripts
-    const templateDevDeps = (templatePkg['devDependencies'] ?? {}) as Record<string, string>
-    const projectDevDeps = (projectPkg['devDependencies'] ?? {}) as Record<string, string>
-    for (const name of ESLINT_DEV_DEPS) {
-      const version = templateDevDeps[name]
-      if (version) projectDevDeps[name] = version
-    }
-    projectPkg['devDependencies'] = projectDevDeps
-  }
-
   await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
 
   // 7b. Bump user-installed @ampless/* plugins (not in template) to latest @beta.
@@ -1243,7 +1053,6 @@ export async function runUpgradeIn(
     obsoleteRemoved: obsoleteFiles,
     editorExtensionsWired: bootstrapResult.pluginCount,
     userPluginsBumped: userPluginBump.bumped.length,
-    lintMigrated,
   }
 }
 
