@@ -243,7 +243,7 @@ Next.js 16 で `next lint` は削除されたため、ampless が ESLint CLI に
    npx @next/codemod@latest next-lint-to-eslint-cli .
    ```
 
-   手動で行う場合は、`npm install -D eslint@^9 eslint-config-next` を実行し、flat config の `eslint.config.mjs` を追加して（新規 scaffold のものを出発点にできます）、`"lint": "eslint ."` に変更します。
+   codemod は `eslint-config-next` を `package.json` の `next` と同じバージョンに設定します。手動で行う場合は、`npm install -D eslint@^9 eslint-config-next@^16` を実行し、flat config の `eslint.config.mjs` を追加して（新規 scaffold のものを出発点にできます）、`"lint": "eslint ."` に変更します。`eslint-config-next` は必ずサイトの Next.js と同じ major を選んでください（Next.js 16 なら `^16`）。バージョンを指定せずにインストールすると最新の major が入るため、新しい Next.js の major が出た時点でサイトの Next.js と合わなくなります。
 2. 既存の設定を引き継ぎます。flat config は `.eslintrc*`（このプロジェクト、その子ディレクトリ、親ディレクトリのもの）や `.eslintignore` を読み込みません。ルールと除外パターンを `eslint.config.mjs` に移してください。
 3. `npm run lint` を実行し、意図したファイルが検査されることを確認します。
 

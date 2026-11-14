@@ -1063,6 +1063,9 @@ describe('runUpgradeIn — ESLint setup is left to the site', () => {
     expect(text).toContain('`next lint`, which Next.js 16 removed')
     expect(text).toContain('next-lint-to-eslint-cli')
     expect(text).toContain('.eslintrc*')
+    // An unversioned eslint-config-next would drift to a newer Next.js major.
+    expect(text).toContain('same major as your `next`')
+    expect(text).toContain('eslint-config-next@^16')
   })
 
   it('warns in dry-run too, without writing anything', async () => {

@@ -189,7 +189,8 @@ const NEXT_LINT_WARNING =
   'package.json "lint" still runs `next lint`, which Next.js 16 removed, so `npm run lint` fails. ' +
   'update-ampless leaves your lint script, ESLint config and ESLint dependencies untouched. ' +
   'To migrate by hand: run `npx @next/codemod@latest next-lint-to-eslint-cli .` (or install ' +
-  '`eslint@^9` and `eslint-config-next`, add an `eslint.config.mjs` flat config and set "lint" to "eslint ."), ' +
+  '`eslint@^9` and `eslint-config-next` with the same major as your `next` — `eslint-config-next@^16` for Next.js 16 — ' +
+  'add an `eslint.config.mjs` flat config and set "lint" to "eslint ."), ' +
   'then carry over any `.eslintrc*` / `.eslintignore` settings, because flat config does not read them. ' +
   'See "Updating ampless" in README.md.'
 

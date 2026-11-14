@@ -243,7 +243,7 @@ Next.js 16 removed `next lint`, so sites scaffolded before ampless switched to t
    npx @next/codemod@latest next-lint-to-eslint-cli .
    ```
 
-   Or do it manually: `npm install -D eslint@^9 eslint-config-next`, add an `eslint.config.mjs` flat config (the one new scaffolds ship is a good starting point), and set `"lint": "eslint ."`.
+   The codemod pins `eslint-config-next` to the version of `next` in your `package.json`. Or do it manually: `npm install -D eslint@^9 eslint-config-next@^16`, add an `eslint.config.mjs` flat config (the one new scaffolds ship is a good starting point), and set `"lint": "eslint ."`. Always pick the `eslint-config-next` major that matches your site's Next.js major (`^16` for Next.js 16); an unversioned install pulls the latest major, which will not match once a newer Next.js major ships.
 2. Carry over existing settings. Flat config does not read `.eslintrc*` (in this project, its subdirectories or parent directories) or `.eslintignore`: move their rules and ignore patterns into `eslint.config.mjs`.
 3. Run `npm run lint` and confirm it checks the files you expect.
 
