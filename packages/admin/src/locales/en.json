@@ -90,6 +90,7 @@
       "body": "Body",
       "format": "Format",
       "formatHint": "Tiptap is the rich editor. Markdown / HTML use a plain textarea.",
+      "formatLossTableClasses": "Markdown cannot keep table styles. Converting removes these table styles from this post: {classes}. Switching back will not restore them. Convert to Markdown anyway?",
       "insertMedia": "Insert media",
       "tabEdit": "Edit",
       "tabPreview": "Preview",
@@ -277,7 +278,13 @@
       "deleteRow": "Delete row",
       "deleteColumn": "Delete column",
       "toggleHeaderRow": "Toggle header row",
-      "deleteTable": "Delete table"
+      "deleteTable": "Delete table",
+      "style": "Table style",
+      "styleDefault": "Default",
+      "styleUnknown": "{id} (not declared by the active theme)",
+      "styleUnknownHint": "Kept and still rendered as a class; pick another style or Default to replace it.",
+      "styleNoneDeclared": "The active theme declares no table styles.",
+      "titleWithStyle": "Table (style: {style})"
     },
     "codeBlock": {
       "languageLabel": "Language",

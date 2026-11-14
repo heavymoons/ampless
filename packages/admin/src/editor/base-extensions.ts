@@ -23,6 +23,47 @@ import { TaskItem } from '@tiptap/extension-task-item'
 import { Underline } from '@tiptap/extension-underline'
 import { Highlight } from '@tiptap/extension-highlight'
 import { TextAlign } from '@tiptap/extension-text-align'
+import { isValidCustomClassId, tableCustomClassName } from 'ampless'
+
+const TABLE_CLASS_PREFIX = tableCustomClassName('')
+
+/**
+ * Read a theme custom class id back from a table's class list
+ * (`tiptap-table tiptap-table--compact` → `compact`). Invalid ids are
+ * ignored. Exported for tests.
+ */
+export function parseTableCustomClass(className: string | null | undefined): string | null {
+  for (const cls of (className ?? '').split(/\s+/)) {
+    if (!cls.startsWith(TABLE_CLASS_PREFIX)) continue
+    const id = cls.slice(TABLE_CLASS_PREFIX.length)
+    if (isValidCustomClassId(id)) return id
+  }
+  return null
+}
+
+// Extend the Table extension with a per-table `customClass` attribute: a
+// theme-declared class id (ThemeManifest.customClasses, target 'table').
+// Stored as `attrs.customClass` in the tiptap JSON, rendered as
+// `tiptap-table--<id>` next to the base `tiptap-table` class (tiptap's
+// mergeAttributes concatenates classes), and parsed back from that class so
+// html → tiptap format switches and pasted tables keep it. Ids that the
+// active theme does not declare are kept as long as they are valid; the
+// table controls flag them instead of dropping them.
+const AmplessTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      customClass: {
+        default: null,
+        parseHTML: (el) => parseTableCustomClass(el.getAttribute('class')),
+        renderHTML: (attrs) => {
+          const v = attrs.customClass
+          return isValidCustomClassId(v) ? { class: tableCustomClassName(v) } : {}
+        },
+      },
+    }
+  },
+})
 
 // Extend the Image extension with a per-image `display` attribute
 // ("inline" | "lightbox" | null). null means "fall back to cms.config".
@@ -55,7 +96,7 @@ export const BASE_TIPTAP_EXTENSIONS = [
   StarterKit,
   Link.configure({ openOnClick: false }),
   AmplessImage.configure({ inline: false, allowBase64: false }),
-  Table.configure({ resizable: true, HTMLAttributes: { class: 'tiptap-table' } }),
+  AmplessTable.configure({ resizable: true, HTMLAttributes: { class: 'tiptap-table' } }),
   TableRow,
   TableHeader,
   TableCell,

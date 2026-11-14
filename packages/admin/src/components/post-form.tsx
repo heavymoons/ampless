@@ -46,7 +46,7 @@ import { getAdminTiptapNodeMarkdown } from '../editor/admin-node-markdown.js'
 import { getAdminTiptapNodeHtml } from '../editor/admin-node-html.js'
 import { getAdminEditorExtensions } from '../editor/admin-editor-extensions.js'
 import { BASE_TIPTAP_EXTENSIONS } from '../editor/base-extensions.js'
-import { convertBodyFormat } from '../editor/format-switch.js'
+import { convertBodyFormat, confirmLossyFormatChange } from '../editor/format-switch.js'
 import type { AnyExtension } from '@tiptap/core'
 
 type PostFormView = 'edit' | 'preview'
@@ -395,6 +395,21 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
 
   function changeFormat(next: ContentFormat) {
     if (next === format) return
+
+    // Markdown cannot carry table custom classes (theme table styles): ask
+    // before a conversion that would drop them. Cancel keeps the current
+    // format and body untouched (the <select> is controlled by `format`).
+    if (
+      !confirmLossyFormatChange(
+        body,
+        format,
+        next,
+        (message) => window.confirm(message),
+        (classes) => t('posts.form.formatLossTableClasses', { classes: classes.join(', ') }),
+      )
+    ) {
+      return
+    }
 
     // Convert the body across tiptap / html / markdown so the user
     // keeps their content. tiptap is parsed by the editor when it
