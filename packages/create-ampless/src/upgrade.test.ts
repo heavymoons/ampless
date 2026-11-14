@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { log } from '@clack/prompts'
 import { runUpgradeIn } from './upgrade.js'
 
 // Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
@@ -1133,6 +1134,101 @@ describe('runUpgradeIn — next lint → ESLint CLI migration', () => {
     expect(result.lintMigrated).toBe(false)
     expect(readPkg().scripts.lint).toBeUndefined()
     expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+  })
+
+  function expectNotMigrated(result: { lintMigrated: boolean }): void {
+    expect(result.lintMigrated).toBe(false)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    const pkg = readPkg()
+    expect(pkg.scripts.lint).toBe('next lint')
+    expect(pkg.devDependencies.eslint).toBeUndefined()
+    expect(pkg.devDependencies['eslint-config-next']).toBeUndefined()
+  }
+
+  it('does not migrate a site with .eslintignore (flat config would drop its ignores) and says why', async () => {
+    const ignore = 'generated/\nlegacy/**/*.js\n'
+    writeFileSync(join(projectDir, '.eslintignore'), ignore)
+    const warn = vi.spyOn(log, 'warn')
+    try {
+      const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+      expectNotMigrated(result)
+      expect(readFileSync(join(projectDir, '.eslintignore'), 'utf-8')).toBe(ignore)
+      expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/next lint.*\.eslintignore/s)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('does not migrate when package.json carries an eslintIgnore key', async () => {
+    editPkg((pkg) => { pkg.eslintIgnore = ['generated/'] })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expectNotMigrated(result)
+    expect(readPkg().eslintIgnore).toEqual(['generated/'])
+  })
+
+  it.each([
+    'app/.eslintrc.json',
+    'app/(site)/blog/.eslintrc.js',
+    'themes/my-theme/.eslintrc.cjs',
+    'lib/.eslintrc',
+    'components/eslint.config.mjs',
+  ])('does not migrate when a nested config exists (%s) and names it in the warning', async (rel) => {
+    const content = '{ "rules": { "no-console": "error" } }\n'
+    mkdirSync(join(projectDir, rel, '..'), { recursive: true })
+    writeFileSync(join(projectDir, rel), content)
+    const warn = vi.spyOn(log, 'warn')
+    try {
+      const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+      expectNotMigrated(result)
+      expect(readFileSync(join(projectDir, rel), 'utf-8')).toBe(content)
+      expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain(rel)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('does not migrate when a nested package.json carries eslintConfig', async () => {
+    mkdirSync(join(projectDir, 'packages', 'widget'), { recursive: true })
+    writeFileSync(
+      join(projectDir, 'packages', 'widget', 'package.json'),
+      JSON.stringify({ name: 'widget', eslintConfig: { rules: {} } }),
+    )
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expectNotMigrated(result)
+  })
+
+  it('ignores configs inside node_modules, .git and build output when deciding', async () => {
+    for (const rel of [
+      'node_modules/some-pkg/.eslintrc.json',
+      'node_modules/some-pkg/package.json',
+      '.git/.eslintrc',
+      '.next/server/.eslintrc.json',
+      '.amplify/artifacts/.eslintrc.json',
+      'dist/.eslintrc.json',
+      'build/.eslintrc.json',
+      'out/.eslintrc.json',
+      'coverage/.eslintrc.json',
+    ]) {
+      mkdirSync(join(projectDir, rel, '..'), { recursive: true })
+      writeFileSync(
+        join(projectDir, rel),
+        rel.endsWith('package.json') ? JSON.stringify({ eslintConfig: {} }) : '{}\n',
+      )
+    }
+    // A broken nested package.json outside skipped dirs does not abort the scan.
+    mkdirSync(join(projectDir, 'fixtures'), { recursive: true })
+    writeFileSync(join(projectDir, 'fixtures', 'package.json'), '{ not json')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(true)
+    expect(readPkg().scripts.lint).toBe('eslint .')
   })
 
   it('is idempotent: a second upgrade keeps the migrated setup', async () => {

@@ -178,10 +178,10 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
 ]
 
 /**
- * Every ESLint config location that ESLint 9 (flat) or the legacy
- * eslintrc loader picks up at the project root. If any of these exists
- * the site already owns its lint setup; dropping the template's flat
- * config next to it would silently shadow a legacy `.eslintrc*`.
+ * ESLint config file names, flat and legacy eslintrc. If one exists
+ * anywhere in the site (see `findEslintSetup`) the site already owns
+ * its lint setup; dropping the template's flat config next to it would
+ * silently shadow a legacy `.eslintrc*`.
  */
 const ESLINT_CONFIG_FILES: readonly string[] = [
   'eslint.config.js',
@@ -814,39 +814,111 @@ interface LintMigrationPlan {
 }
 
 /**
- * Next.js 16 removed `next lint`. Sites still on the template's
- * untouched lint setup — `"lint": "next lint"`, no ESLint config of any
- * kind and no ESLint devDependencies — are moved to the template's flat
- * config. Anything the user has set up themselves (a config file, an
- * `eslintConfig` key, their own ESLint deps or a different `lint`
- * script) is left exactly as it is.
+ * Directories never searched for nested ESLint configs: dependencies,
+ * VCS metadata and build / tool output. Configs inside them are not the
+ * site's own lint settings.
  */
-function planLintMigration(
+const ESLINT_SCAN_SKIP_DIRS: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.git',
+  '.next',
+  '.amplify',
+  '.turbo',
+  '.vercel',
+  'out',
+  'build',
+  'dist',
+  'coverage',
+])
+
+/**
+ * Find ESLint settings the template's flat config would silently drop
+ * or shadow. Returns a short description of the first one found, or
+ * null when the site has none.
+ *
+ * - Root `.eslintignore` / `package.json#eslintIgnore`: ESLint 9 flat
+ *   config no longer reads them, so their exclusions would stop applying.
+ * - Any `.eslintrc*` / `eslint.config.*` / `package.json#eslintConfig`,
+ *   at the root or in a subdirectory (e.g. `app/.eslintrc.json`): the
+ *   eslintrc cascade is gone under flat config, so nested rules would
+ *   stop applying without any error.
+ */
+async function findEslintSetup(
+  destDir: string,
+  projectPkg: Record<string, unknown>,
+): Promise<string | null> {
+  if ('eslintConfig' in projectPkg) return 'package.json "eslintConfig"'
+  if ('eslintIgnore' in projectPkg) return 'package.json "eslintIgnore"'
+  if (existsSync(join(destDir, '.eslintignore'))) return '.eslintignore'
+
+  const configNames = new Set(ESLINT_CONFIG_FILES)
+  async function walk(dir: string, rel: string): Promise<string | null> {
+    const entries = await readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isFile() && configNames.has(entry.name)) return entryRel
+    }
+    for (const entry of entries) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isFile() && entry.name === 'package.json' && rel) {
+        try {
+          const nested = JSON.parse(await readFile(join(dir, entry.name), 'utf-8'))
+          if (nested && typeof nested === 'object' && 'eslintConfig' in nested) {
+            return `${entryRel} "eslintConfig"`
+          }
+        } catch {
+          // Not our file to validate; an unparsable nested package.json
+          // cannot carry an eslintConfig ESLint would load either.
+        }
+      }
+      // Symlinked directories are not followed (Dirent reports them as
+      // links), which also rules out cycles.
+      if (entry.isDirectory() && !ESLINT_SCAN_SKIP_DIRS.has(entry.name)) {
+        const found = await walk(join(dir, entry.name), entryRel)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return walk(destDir, '')
+}
+
+/**
+ * Next.js 16 removed `next lint`. Sites still on the template's
+ * untouched lint setup — `"lint": "next lint"`, no ESLint settings
+ * anywhere in the tree (see `findEslintSetup`) and no ESLint
+ * devDependencies — are moved to the template's flat config. Anything
+ * the user has set up themselves is left exactly as it is, with a
+ * warning naming what was found.
+ */
+async function planLintMigration(
   destDir: string,
   sharedDir: string,
   projectPkg: Record<string, unknown>,
-): LintMigrationPlan {
+): Promise<LintMigrationPlan> {
   const scripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
   const lint = scripts['lint']
   if (typeof lint !== 'string' || !/(^|\s|&&|;)next lint(\s|$)/.test(lint)) {
     return { migrate: false }
   }
-  const warning =
-    `package.json "lint" still runs \`next lint\`, which Next.js 16 removed. ` +
-    `It was left as is because the project has its own ESLint setup; ` +
-    `switch it to the ESLint CLI (e.g. "eslint .") when you are ready.`
+  const keep = (reason: string): LintMigrationPlan => ({
+    migrate: false,
+    warning:
+      `package.json "lint" still runs \`next lint\`, which Next.js 16 removed. ` +
+      `It was left as is because ${reason}; ` +
+      `move it to the ESLint CLI (e.g. "eslint .") with a flat config that carries those settings over.`,
+  })
 
-  if (!existsSync(join(sharedDir, TEMPLATE_ESLINT_CONFIG))) return { migrate: false, warning }
-  if (lint.trim() !== LEGACY_LINT_SCRIPT) return { migrate: false, warning }
-  if ('eslintConfig' in projectPkg) return { migrate: false, warning }
-  if (ESLINT_CONFIG_FILES.some((f) => existsSync(join(destDir, f)))) {
-    return { migrate: false, warning }
-  }
+  if (!existsSync(join(sharedDir, TEMPLATE_ESLINT_CONFIG))) return keep('the template has no ESLint config')
+  if (lint.trim() !== LEGACY_LINT_SCRIPT) return keep('the script is customised')
   const declared = {
     ...((projectPkg['dependencies'] ?? {}) as Record<string, string>),
     ...((projectPkg['devDependencies'] ?? {}) as Record<string, string>),
   }
-  if (ESLINT_DEV_DEPS.some((name) => name in declared)) return { migrate: false, warning }
+  const dep = ESLINT_DEV_DEPS.find((name) => name in declared)
+  if (dep) return keep(`the project declares its own "${dep}" dependency`)
+  const setup = await findEslintSetup(destDir, projectPkg)
+  if (setup) return keep(`the project has its own ESLint settings (${setup})`)
   return { migrate: true }
 }
 
@@ -931,7 +1003,7 @@ export async function runUpgradeIn(
   )
 
   const obsoleteFiles = await findObsoleteFiles(destDir, sharedDir)
-  const lintPlan = planLintMigration(destDir, sharedDir, projectPkg)
+  const lintPlan = await planLintMigration(destDir, sharedDir, projectPkg)
 
   log.info(
     `replace: ${pc.green(`${replaceNew.length} added`)} / ${pc.yellow(`${replaceUpdate.length} updated`)}`

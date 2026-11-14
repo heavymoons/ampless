@@ -229,7 +229,7 @@ npm run update-ampless
 - `package.json` の `@ampless/*` / `ampless` 依存をバージョンアップ
 - 共有テンプレートファイル（admin アプリの土台、amplify バックエンド、lib/、middleware、テーマ）を再同期 — `cms.config.ts`、`theme.*` 管理画面設定、投稿、テーマ manifest 値などのユーザーカスタマイズは保持されます
 - `update-ampless` / `copy-theme` スクリプトのコマンドが変わっていれば更新
-- 初期状態の `"lint": "next lint"`（Next.js 16 で削除済み）のままのサイトを ESLint CLI に移行: `eslint.config.mjs` を追加し、`lint` を `eslint .` にして、`devDependencies` に `eslint` / `eslint-config-next` を追加します。移行するのは、サイト独自の ESLint 設定（`eslint.config.*`、`.eslintrc*`、`package.json` の `eslintConfig`）も ESLint の依存もない場合だけです。それ以外では設定と `lint` スクリプトをそのまま残し、`lint` がまだ `next lint` を呼んでいれば警告を表示します。既存の `eslint.config.mjs` は上書きしません。
+- 初期状態の `"lint": "next lint"`（Next.js 16 で削除済み）のままのサイトを ESLint CLI に移行: `eslint.config.mjs` を追加し、`lint` を `eslint .` にして、`devDependencies` に `eslint` / `eslint-config-next` を追加します。移行するのは、サイト独自の ESLint 設定（ルートまたは子ディレクトリの `eslint.config.*` / `.eslintrc*`（例: `app/.eslintrc.json`。`node_modules/` や生成物は対象外）、`.eslintignore`、`package.json` の `eslintConfig` / `eslintIgnore`）も ESLint の依存もない場合だけです。flat config ではこれらの設定が黙って効かなくなるためです。それ以外では設定と `lint` スクリプトをそのまま残し、`lint` がまだ `next lint` を呼んでいれば警告を表示します。既存の `eslint.config.mjs` は上書きしません。
 
 commit 前に diff を確認できます。
 
