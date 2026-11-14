@@ -40,15 +40,28 @@ function collectTiptapTableClasses(node: unknown, out: Set<string>): void {
   if (Array.isArray(n.content)) for (const c of n.content) collectTiptapTableClasses(c, out)
 }
 
+function addTableClass(cls: string, out: Set<string>): void {
+  if (!cls.startsWith(TABLE_CLASS_PREFIX)) return
+  const id = cls.slice(TABLE_CLASS_PREFIX.length)
+  if (isValidCustomClassId(id)) out.add(id)
+}
+
 function collectHtmlTableClasses(html: string, out: Set<string>): void {
-  // `class` attribute of every <table> start tag, quoted either way.
-  for (const m of html.matchAll(/<table\b[^>]*?\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
-    for (const cls of (m[1] ?? m[2] ?? '').split(/\s+/)) {
-      if (!cls.startsWith(TABLE_CLASS_PREFIX)) continue
-      const id = cls.slice(TABLE_CLASS_PREFIX.length)
-      if (isValidCustomClassId(id)) out.add(id)
+  // Parse the HTML the way the browser (and the editor's parseHTML) does, so
+  // every attribute form counts — quoted, single-quoted, unquoted, any case,
+  // any whitespace — and only the real `class` attribute of real <table>
+  // elements matches (not `data-class`, text, comments or other elements).
+  // DOMParser builds an inert document: no scripts run, nothing loads.
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    for (const table of Array.from(doc.querySelectorAll('table'))) {
+      for (const cls of Array.from(table.classList)) addTableClass(cls, out)
     }
+    return
   }
+  // No DOM (never the case in the admin UI, which runs in a browser): err on
+  // the side of warning — any `tiptap-table--<id>` token anywhere counts.
+  for (const m of html.matchAll(/tiptap-table--[a-z0-9-]+/g)) addTableClass(m[0], out)
 }
 
 /**

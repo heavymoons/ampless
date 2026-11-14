@@ -108,6 +108,25 @@ describe('PostForm format switch with table styles', () => {
     expect(bodyTextarea()!.value).not.toContain('compact')
   })
 
+  it('html → markdown: an unquoted class attribute also asks, and Cancel keeps html', async () => {
+    const html = '<table class=tiptap-table--compact><tbody><tr><td><p>1</p></td></tr></tbody></table>'
+    await mount(post('html', html))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await chooseFormat('markdown')
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(confirm.mock.calls[0]![0]).toContain('compact')
+    expect(select().value).toBe('html')
+    expect(bodyTextarea()!.value).toBe(html)
+  })
+
+  it('html → markdown: data-class is not a table style and does not ask', async () => {
+    await mount(post('html', '<table data-class="tiptap-table--compact"><tbody><tr><td><p>1</p></td></tr></tbody></table>'))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await chooseFormat('markdown')
+    expect(confirm).not.toHaveBeenCalled()
+    expect(select().value).toBe('markdown')
+  })
+
   it('tiptap → markdown: asks for a styled table and Cancel keeps tiptap', async () => {
     await mount(post('tiptap', tableDoc('compact')))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
