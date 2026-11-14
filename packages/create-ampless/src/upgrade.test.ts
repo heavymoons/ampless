@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import {
+  mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync,
+  symlinkSync, lstatSync, readlinkSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { log } from '@clack/prompts'
 import { runUpgradeIn } from './upgrade.js'
 
 // Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
@@ -990,5 +994,222 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     expect(afterPkg.dependencies['@ampless/plugin-youtube']).toBe('1.0.0-alpha.4')
     // Nothing bumped
     expect(result.userPluginsBumped).toBe(0)
+  })
+})
+
+describe('runUpgradeIn — ESLint setup is left to the site', () => {
+  const TEMPLATE_ESLINT = '// template flat config\nexport default []\n'
+  let projectDir: string
+  let templateDir: string
+  let outsideDir: string
+  let warn: ReturnType<typeof vi.spyOn>
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function editPkg(edit: (pkg: any) => void): void {
+    const pkg = readPkg()
+    edit(pkg)
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+  }
+
+  function warnings(): string {
+    return warn.mock.calls.map((c: unknown[]) => String(c[0])).join('\n')
+  }
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    outsideDir = mkdtempSync(join(tmpdir(), 'ampless-upgrade-outside-'))
+    // Mirror the real template: a flat config, the ESLint CLI script and
+    // ESLint devDependencies.
+    templateDir = makeTemplateDir({ 'eslint.config.mjs': TEMPLATE_ESLINT })
+    const tpl = JSON.parse(readFileSync(join(templateDir, 'package.json'), 'utf-8'))
+    tpl.scripts.lint = 'eslint .'
+    tpl.devDependencies.eslint = '^9.39.5'
+    tpl.devDependencies['eslint-config-next'] = '^16.2.6'
+    writeFileSync(join(templateDir, 'package.json'), JSON.stringify(tpl, null, 2) + '\n')
+    // Every pre-Next.js-16 template shipped this script.
+    editPkg((pkg) => { pkg.scripts.lint = 'next lint' })
+    warn = vi.spyOn(log, 'warn')
+  })
+
+  afterEach(() => {
+    warn.mockRestore()
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+
+  it('does not add eslint.config.mjs, change the lint script or add ESLint deps', async () => {
+    const before = readPkg()
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.protected).toContain('eslint.config.mjs')
+    expect(result.added).not.toContain('eslint.config.mjs')
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    const after = readPkg()
+    expect(after.scripts.lint).toBe('next lint')
+    expect(after.devDependencies.eslint).toBeUndefined()
+    expect(after.devDependencies['eslint-config-next']).toBeUndefined()
+    expect(after.devDependencies.typescript).toBe(before.devDependencies.typescript)
+  })
+
+  it('warns with the manual migration steps when lint still calls next lint', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    const text = warnings()
+    expect(text).toContain('`next lint`, which Next.js 16 removed')
+    expect(text).toContain('next-lint-to-eslint-cli')
+    expect(text).toContain('.eslintrc*')
+    // An unversioned eslint-config-next would drift to a newer Next.js major.
+    expect(text).toContain('same major as your `next`')
+    expect(text).toContain('eslint-config-next@^16')
+  })
+
+  it('warns in dry-run too, without writing anything', async () => {
+    const before = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    await runUpgradeIn(projectDir, templateDir, { dryRun: true, noInstall: true })
+
+    expect(warnings()).toContain('next-lint-to-eslint-cli')
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(before)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+  })
+
+  it.each([
+    'next lint --dir app',
+    'tsc --noEmit && next lint',
+    'next  lint',
+  ])('keeps a customised next lint script (%s) and warns', async (script) => {
+    editPkg((pkg) => { pkg.scripts.lint = script })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().scripts.lint).toBe(script)
+    expect(warnings()).toContain('next-lint-to-eslint-cli')
+  })
+
+  it.each([
+    'eslint .',
+    'biome check .',
+    'echo "no next linter here"',
+  ])('does not warn when lint does not call next lint (%s)', async (script) => {
+    editPkg((pkg) => { pkg.scripts.lint = script })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().scripts.lint).toBe(script)
+    expect(warnings()).not.toContain('next-lint-to-eslint-cli')
+  })
+
+  it('does not add a lint script to a project that removed it', async () => {
+    editPkg((pkg) => { delete pkg.scripts.lint })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().scripts.lint).toBeUndefined()
+    expect(warnings()).not.toContain('next-lint-to-eslint-cli')
+  })
+
+  it('keeps user-declared ESLint dependency versions', async () => {
+    editPkg((pkg) => {
+      pkg.devDependencies.eslint = '^8.57.0'
+      pkg.devDependencies['eslint-config-next'] = '^15.0.0'
+    })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().devDependencies.eslint).toBe('^8.57.0')
+    expect(readPkg().devDependencies['eslint-config-next']).toBe('^15.0.0')
+  })
+
+  it('never overwrites an existing eslint.config.mjs', async () => {
+    const userConfig = '// my own flat config\nexport default [{ rules: {} }]\n'
+    writeFileSync(join(projectDir, 'eslint.config.mjs'), userConfig)
+    editPkg((pkg) => { pkg.scripts.lint = 'eslint --max-warnings 0 .' })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.updated).not.toContain('eslint.config.mjs')
+    expect(readFileSync(join(projectDir, 'eslint.config.mjs'), 'utf-8')).toBe(userConfig)
+    expect(readPkg().scripts.lint).toBe('eslint --max-warnings 0 .')
+  })
+
+  it('keeps an eslint.config.mjs symlink and never writes through to its target', async () => {
+    const shared = '// shared org config\nexport default [{ rules: { eqeqeq: "error" } }]\n'
+    const target = join(outsideDir, 'eslint.config.mjs')
+    writeFileSync(target, shared)
+    symlinkSync(target, join(projectDir, 'eslint.config.mjs'))
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readFileSync(target, 'utf-8')).toBe(shared)
+    expect(lstatSync(join(projectDir, 'eslint.config.mjs')).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(join(projectDir, 'eslint.config.mjs'))).toBe(target)
+  })
+
+  it('keeps a broken eslint.config.mjs symlink and does not create its target', async () => {
+    const target = join(outsideDir, 'missing', 'eslint.config.mjs')
+    symlinkSync(target, join(projectDir, 'eslint.config.mjs'))
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(lstatSync(join(projectDir, 'eslint.config.mjs')).isSymbolicLink()).toBe(true)
+    expect(existsSync(target)).toBe(false)
+  })
+
+  it.each([
+    '.eslintrc.json',
+    '.eslintrc.js',
+    '.eslintrc',
+    '.eslintignore',
+    'app/.eslintrc.json',
+    'app/build/.eslintrc.json',
+    'eslint.config.js',
+  ])('keeps %s and does not add a flat config that would shadow it', async (rel) => {
+    const content = '{ "rules": { "no-console": "error" } }\n'
+    mkdirSync(join(projectDir, rel, '..'), { recursive: true })
+    writeFileSync(join(projectDir, rel), content)
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readFileSync(join(projectDir, rel), 'utf-8')).toBe(content)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    expect(readPkg().scripts.lint).toBe('next lint')
+  })
+
+  it('does not add a flat config when the eslintrc lives in a parent directory', async () => {
+    // eslintrc cascades from ancestors; the upgrade cannot see past the
+    // project root, so it must never add a config that would cut it off.
+    const parentDir = mkdtempSync(join(tmpdir(), 'ampless-upgrade-parent-'))
+    try {
+      writeFileSync(join(parentDir, '.eslintrc.json'), '{ "root": true }\n')
+      const nestedProject = join(parentDir, 'site')
+      mkdirSync(nestedProject)
+      for (const f of ['package.json', 'cms.config.ts']) {
+        writeFileSync(join(nestedProject, f), readFileSync(join(projectDir, f)))
+      }
+      mkdirSync(join(nestedProject, 'amplify'))
+      writeFileSync(join(nestedProject, 'amplify', 'backend.ts'), '// backend')
+
+      await runUpgradeIn(nestedProject, templateDir, { noInstall: true })
+
+      expect(existsSync(join(nestedProject, 'eslint.config.mjs'))).toBe(false)
+      expect(readFileSync(join(parentDir, '.eslintrc.json'), 'utf-8')).toBe('{ "root": true }\n')
+    } finally {
+      rmSync(parentDir, { recursive: true, force: true })
+    }
+  })
+
+  it('is stable across repeated upgrades', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    const afterFirst = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(afterFirst)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
   })
 })

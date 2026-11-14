@@ -171,7 +171,33 @@ const PROTECTED_PATTERNS: readonly RegExp[] = [
   // site's own conventions. The kept-up-to-date "how to write a
   // plugin" doc lives in `packages/ampless/docs/plugin-author-guide.md`.
   /^plugins(\/|$)/,
+  // The site's ESLint setup is user-owned. New scaffolds get the
+  // template's `eslint.config.mjs`, but an upgrade never adds or
+  // replaces it: an existing file (or symlink) is the user's, and a new
+  // flat config would shadow whatever legacy `.eslintrc*` / `.eslintignore`
+  // the site relies on, here or in a parent directory.
+  /^eslint\.config\.mjs$/,
 ]
+
+/**
+ * Printed by `update-ampless` when the site's `lint` script still calls
+ * `next lint`, which Next.js 16 removed. The upgrade never changes the
+ * lint script, ESLint config or ESLint dependencies — moving them is a
+ * manual step because only the site owner knows which settings to keep.
+ */
+const NEXT_LINT_WARNING =
+  'package.json "lint" still runs `next lint`, which Next.js 16 removed, so `npm run lint` fails. ' +
+  'update-ampless leaves your lint script, ESLint config and ESLint dependencies untouched. ' +
+  'To migrate by hand: run `npx @next/codemod@latest next-lint-to-eslint-cli .` (or install ' +
+  '`eslint@^9` and `eslint-config-next` with the same major as your `next` — `eslint-config-next@^16` for Next.js 16 — ' +
+  'add an `eslint.config.mjs` flat config and set "lint" to "eslint ."), ' +
+  'then carry over any `.eslintrc*` / `.eslintignore` settings, because flat config does not read them. ' +
+  'See "Updating ampless" in README.md.'
+
+function usesNextLint(projectPkg: Record<string, unknown>): boolean {
+  const lint = ((projectPkg['scripts'] ?? {}) as Record<string, unknown>)['lint']
+  return typeof lint === 'string' && /(^|[\s;&|(])next\s+lint(\s|$|[;&|)])/.test(lint)
+}
 
 // Files that must be COPIED IN on first encounter but never overwritten
 // once present. Three cases live here:
@@ -870,6 +896,9 @@ export async function runUpgradeIn(
     log.info(`cleanup: ${pc.yellow(`${obsoleteFiles.length} removed`)} (files under ampless-managed app/ paths that no longer exist in the template)`)
   }
   log.info(`protected: ${pc.dim(`${classification.protected.length} template files left untouched`)}`)
+  if (usesNextLint(projectPkg)) {
+    log.warn(NEXT_LINT_WARNING)
+  }
 
   // 5. dry-run exit
   if (opts.dryRun) {

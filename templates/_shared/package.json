@@ -10,7 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "sandbox": "ampx sandbox --once && next dev",
     "update-ampless": "npx create-ampless@beta upgrade",
     "copy-theme": "npx create-ampless@beta copy-theme"
@@ -69,6 +69,8 @@
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "aws-cdk-lib": "^2.257.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.6",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"
