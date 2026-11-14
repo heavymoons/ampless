@@ -992,3 +992,158 @@ describe('runUpgradeIn — obsolete file cleanup', () => {
     expect(result.userPluginsBumped).toBe(0)
   })
 })
+
+describe('runUpgradeIn — next lint → ESLint CLI migration', () => {
+  const TEMPLATE_ESLINT = '// template flat config\nexport default []\n'
+  let projectDir: string
+  let templateDir: string
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function editPkg(edit: (pkg: any) => void): void {
+    const pkg = readPkg()
+    edit(pkg)
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+  }
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir({ 'eslint.config.mjs': TEMPLATE_ESLINT })
+    const tpl = JSON.parse(readFileSync(join(templateDir, 'package.json'), 'utf-8'))
+    tpl.scripts.lint = 'eslint .'
+    tpl.devDependencies.eslint = '^9.39.5'
+    tpl.devDependencies['eslint-config-next'] = '^16.2.6'
+    writeFileSync(join(templateDir, 'package.json'), JSON.stringify(tpl, null, 2) + '\n')
+    // Every pre-Next.js-16 template shipped this script.
+    editPkg((pkg) => { pkg.scripts.lint = 'next lint' })
+  })
+
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  it('migrates an untouched next lint setup: config, script and devDependencies', async () => {
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(true)
+    expect(readFileSync(join(projectDir, 'eslint.config.mjs'), 'utf-8')).toBe(TEMPLATE_ESLINT)
+    const pkg = readPkg()
+    expect(pkg.scripts.lint).toBe('eslint .')
+    expect(pkg.devDependencies.eslint).toBe('^9.39.5')
+    expect(pkg.devDependencies['eslint-config-next']).toBe('^16.2.6')
+    // Unrelated user devDependencies survive.
+    expect(pkg.devDependencies.typescript).toBe('^5.0.0')
+  })
+
+  it('dry-run: reports the migration without writing anything', async () => {
+    const before = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+    const result = await runUpgradeIn(projectDir, templateDir, { dryRun: true, noInstall: true })
+
+    expect(result.lintMigrated).toBe(true)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(before)
+  })
+
+  it('never overwrites an existing eslint.config.mjs', async () => {
+    const userConfig = '// my own flat config\nexport default [{ rules: {} }]\n'
+    writeFileSync(join(projectDir, 'eslint.config.mjs'), userConfig)
+    editPkg((pkg) => { pkg.scripts.lint = 'eslint --max-warnings 0 .' })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(result.protected).toContain('eslint.config.mjs')
+    expect(readFileSync(join(projectDir, 'eslint.config.mjs'), 'utf-8')).toBe(userConfig)
+    expect(readPkg().scripts.lint).toBe('eslint --max-warnings 0 .')
+  })
+
+  it.each([
+    'eslint.config.js',
+    'eslint.config.cjs',
+    'eslint.config.ts',
+    '.eslintrc',
+    '.eslintrc.json',
+    '.eslintrc.js',
+    '.eslintrc.cjs',
+    '.eslintrc.yml',
+    '.eslintrc.yaml',
+  ])('does not add a flat config next to an existing %s', async (file) => {
+    writeFileSync(join(projectDir, file), '{}\n')
+    const before = readFileSync(join(projectDir, file), 'utf-8')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    expect(readFileSync(join(projectDir, file), 'utf-8')).toBe(before)
+    const pkg = readPkg()
+    expect(pkg.scripts.lint).toBe('next lint')
+    expect(pkg.devDependencies.eslint).toBeUndefined()
+    expect(pkg.devDependencies['eslint-config-next']).toBeUndefined()
+  })
+
+  it('does not migrate when package.json carries an eslintConfig key', async () => {
+    editPkg((pkg) => { pkg.eslintConfig = { extends: 'next/core-web-vitals' } })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    expect(readPkg().eslintConfig).toEqual({ extends: 'next/core-web-vitals' })
+  })
+
+  it('does not migrate or bump user-declared ESLint dependencies', async () => {
+    editPkg((pkg) => {
+      pkg.devDependencies.eslint = '^8.57.0'
+      pkg.devDependencies['eslint-config-next'] = '^15.0.0'
+    })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    const pkg = readPkg()
+    expect(pkg.scripts.lint).toBe('next lint')
+    expect(pkg.devDependencies.eslint).toBe('^8.57.0')
+    expect(pkg.devDependencies['eslint-config-next']).toBe('^15.0.0')
+  })
+
+  it.each([
+    'next lint --dir app',
+    'tsc --noEmit && next lint',
+    'biome check .',
+  ])('keeps a customised lint script (%s) untouched', async (script) => {
+    editPkg((pkg) => { pkg.scripts.lint = script })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+    expect(readPkg().scripts.lint).toBe(script)
+  })
+
+  it('does not add a lint script to a project that removed it', async () => {
+    editPkg((pkg) => { delete pkg.scripts.lint })
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(readPkg().scripts.lint).toBeUndefined()
+    expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+  })
+
+  it('is idempotent: a second upgrade keeps the migrated setup', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    const userConfig = '// tweaked after migration\nexport default []\n'
+    writeFileSync(join(projectDir, 'eslint.config.mjs'), userConfig)
+
+    const result = await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(result.lintMigrated).toBe(false)
+    expect(readFileSync(join(projectDir, 'eslint.config.mjs'), 'utf-8')).toBe(userConfig)
+    expect(readPkg().scripts.lint).toBe('eslint .')
+  })
+})

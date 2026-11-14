@@ -23,7 +23,7 @@ If you use an AI coding agent (Claude Code, Cursor, Codex, etc.) on this project
 | `npm run dev` | Start Next.js only (skip sandbox provisioning — use after `sandbox` has already run once) |
 | `npm run build` | Production build of the Next.js app (also runs as part of Amplify Hosting deploy) |
 | `npm run start` | Serve the production build locally |
-| `npm run lint` | Lint with `next lint` |
+| `npm run lint` | Lint with the ESLint CLI (`eslint.config.mjs`, Next.js + TypeScript rules) |
 | `npm run update-ampless` | Pull the latest ampless template files into this project, preserving your config and themes (see "Updating ampless" below) |
 | `npm run copy-theme` | Add another official theme to this project after-the-fact |
 
@@ -229,6 +229,7 @@ This runs `npx create-ampless@beta upgrade`, which:
 - Bumps the `@ampless/*` and `ampless` dependencies in `package.json`
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.
 - Updates `update-ampless` and `copy-theme` script entries if their commands change
+- Moves a site that still has the original `"lint": "next lint"` (removed in Next.js 16) to the ESLint CLI: adds `eslint.config.mjs`, sets `lint` to `eslint .` and adds `eslint` / `eslint-config-next` to `devDependencies`. This only happens when the site has no ESLint config of its own (`eslint.config.*`, `.eslintrc*`, or `eslintConfig` in `package.json`) and no ESLint dependencies; otherwise your config and `lint` script are left untouched and the upgrade prints a warning if `lint` still calls `next lint`. An existing `eslint.config.mjs` is never overwritten.
 
 You can review the diff before committing.
 
