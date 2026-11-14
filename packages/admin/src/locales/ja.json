@@ -90,6 +90,7 @@
       "body": "本文",
       "format": "フォーマット",
       "formatHint": "Tiptap はリッチエディタ。Markdown / HTML はプレーンテキストエリア。",
+      "formatLossTableClasses": "Markdown では表のスタイルを保持できません。変換するとこの記事から次の表スタイルが失われます: {classes}。元の形式に戻しても復元されません。Markdown に変換しますか？",
       "insertMedia": "メディアを挿入",
       "tabEdit": "編集",
       "tabPreview": "プレビュー",

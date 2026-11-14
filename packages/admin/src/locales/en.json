@@ -90,6 +90,7 @@
       "body": "Body",
       "format": "Format",
       "formatHint": "Tiptap is the rich editor. Markdown / HTML use a plain textarea.",
+      "formatLossTableClasses": "Markdown cannot keep table styles. Converting removes these table styles from this post: {classes}. Switching back will not restore them. Convert to Markdown anyway?",
       "insertMedia": "Insert media",
       "tabEdit": "Edit",
       "tabPreview": "Preview",

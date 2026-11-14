@@ -8,7 +8,7 @@
 // bundle manifest and does not involve body translation. The caller
 // (`post-form.tsx`) must handle `static` before calling this helper.
 
-import type { ContentFormat, TiptapNodeMarkdownAdapters, TiptapNodeHtmlAdapters } from 'ampless'
+import { isValidCustomClassId, tableCustomClassName, type ContentFormat, type TiptapNodeMarkdownAdapters, type TiptapNodeHtmlAdapters } from 'ampless'
 import {
   tiptapToHtml,
   tiptapToMarkdown,
@@ -29,6 +29,69 @@ export interface FormatSwitchRegistries {
   // so the call site casts on the way in (= boundary between the
   // structural registry API and the nominal tiptap world).
   editorExtensions: readonly AnyExtension[]
+}
+
+const TABLE_CLASS_PREFIX = tableCustomClassName('')
+
+function collectTiptapTableClasses(node: unknown, out: Set<string>): void {
+  if (!node || typeof node !== 'object') return
+  const n = node as { type?: unknown; attrs?: { customClass?: unknown }; content?: unknown }
+  if (n.type === 'table' && isValidCustomClassId(n.attrs?.customClass)) out.add(n.attrs.customClass)
+  if (Array.isArray(n.content)) for (const c of n.content) collectTiptapTableClasses(c, out)
+}
+
+function collectHtmlTableClasses(html: string, out: Set<string>): void {
+  // `class` attribute of every <table> start tag, quoted either way.
+  for (const m of html.matchAll(/<table\b[^>]*?\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    for (const cls of (m[1] ?? m[2] ?? '').split(/\s+/)) {
+      if (!cls.startsWith(TABLE_CLASS_PREFIX)) continue
+      const id = cls.slice(TABLE_CLASS_PREFIX.length)
+      if (isValidCustomClassId(id)) out.add(id)
+    }
+  }
+}
+
+/**
+ * Table custom class ids (ThemeManifest.customClasses, target 'table') that
+ * converting `body` from `from` to `to` would lose. Only a conversion to
+ * markdown loses them: GFM tables cannot carry a class, so the class is gone
+ * for good and switching back cannot restore it. tiptap → html and
+ * html → tiptap keep the class (`tiptap-table--<id>` is rendered and parsed
+ * back). The body of a tiptap post may be a doc JSON or, right after an
+ * html/markdown → tiptap switch before the editor normalised it, an HTML
+ * string; both are scanned. Returns ids in first-seen order, de-duplicated;
+ * [] when nothing would be lost (no table classes, or a lossless target).
+ */
+export function tableClassesLostOnConversion(
+  body: unknown,
+  from: ContentFormat,
+  to: ContentFormat,
+): string[] {
+  if (to !== 'markdown' || from === 'markdown' || from === 'static') return []
+  const found = new Set<string>()
+  if (typeof body === 'string') collectHtmlTableClasses(body, found)
+  else if (from === 'tiptap') collectTiptapTableClasses(body, found)
+  return [...found]
+}
+
+/**
+ * Decide whether a format change may proceed. When the conversion would
+ * drop table custom classes, ask the editor first through `confirm` (the
+ * admin uses `window.confirm`, an accessible native modal, like its delete
+ * confirmation) with a message naming the affected classes. Returns false
+ * when the editor cancels; true when nothing is lost (no prompt) or the
+ * editor confirms.
+ */
+export function confirmLossyFormatChange(
+  body: unknown,
+  from: ContentFormat,
+  to: ContentFormat,
+  confirm: (message: string) => boolean,
+  message: (classes: string[]) => string,
+): boolean {
+  const lost = tableClassesLostOnConversion(body, from, to)
+  if (lost.length === 0) return true
+  return confirm(message(lost))
 }
 
 /**
