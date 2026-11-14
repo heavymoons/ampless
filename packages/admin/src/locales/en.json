@@ -277,7 +277,13 @@
       "deleteRow": "Delete row",
       "deleteColumn": "Delete column",
       "toggleHeaderRow": "Toggle header row",
-      "deleteTable": "Delete table"
+      "deleteTable": "Delete table",
+      "style": "Table style",
+      "styleDefault": "Default",
+      "styleUnknown": "{id} (not declared by the active theme)",
+      "styleUnknownHint": "Kept and still rendered as a class; pick another style or Default to replace it.",
+      "styleNoneDeclared": "The active theme declares no table styles.",
+      "titleWithStyle": "Table (style: {style})"
     },
     "codeBlock": {
       "languageLabel": "Language",

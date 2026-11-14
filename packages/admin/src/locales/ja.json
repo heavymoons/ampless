@@ -277,7 +277,13 @@
       "deleteRow": "行を削除",
       "deleteColumn": "列を削除",
       "toggleHeaderRow": "ヘッダー行を切替",
-      "deleteTable": "テーブルを削除"
+      "deleteTable": "テーブルを削除",
+      "style": "表のスタイル",
+      "styleDefault": "標準",
+      "styleUnknown": "{id}（現在のテーマで未定義）",
+      "styleUnknownHint": "クラスとして保持・出力されます。別のスタイルか「標準」を選ぶと置き換わります。",
+      "styleNoneDeclared": "現在のテーマは表のスタイルを定義していません。",
+      "titleWithStyle": "テーブル（スタイル: {style}）"
     },
     "codeBlock": {
       "languageLabel": "言語",

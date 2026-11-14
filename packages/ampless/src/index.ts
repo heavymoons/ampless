@@ -172,9 +172,16 @@ export {
   parseColorPair,
   formatColorPair,
   isTagListUrl,
+  CUSTOM_CLASS_ID_PATTERN,
+  CUSTOM_CLASS_ID_MAX_LENGTH,
+  isValidCustomClassId,
+  tableCustomClassName,
+  themeTableClasses,
 } from './theme.js'
 export type {
   ThemeManifest,
+  ThemeCustomClass,
+  ThemeCustomClassTarget,
   ThemeField,
   ThemeFieldType,
   ThemeColorField,
