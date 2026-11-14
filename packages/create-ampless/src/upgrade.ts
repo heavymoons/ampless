@@ -842,6 +842,13 @@ const ESLINT_SCAN_SKIP_DIRS: ReadonlySet<string> = new Set([
  *   at the root or in a subdirectory (e.g. `app/.eslintrc.json`): the
  *   eslintrc cascade is gone under flat config, so nested rules would
  *   stop applying without any error.
+ *
+ * Config names match any non-directory entry, so a symlink — even a
+ * broken one — counts as the user's config: writing the template over
+ * it would otherwise write through to the link target. Anything the
+ * scan cannot read (an unreadable directory, an unreadable or malformed
+ * nested package.json) also counts, because it cannot be shown to hold
+ * no ESLint settings.
  */
 async function findEslintSetup(
   destDir: string,
@@ -849,26 +856,36 @@ async function findEslintSetup(
 ): Promise<string | null> {
   if ('eslintConfig' in projectPkg) return 'package.json "eslintConfig"'
   if ('eslintIgnore' in projectPkg) return 'package.json "eslintIgnore"'
-  if (existsSync(join(destDir, '.eslintignore'))) return '.eslintignore'
 
-  const configNames = new Set(ESLINT_CONFIG_FILES)
+  const configNames = new Set([...ESLINT_CONFIG_FILES, '.eslintignore'])
+  const errorCode = (e: unknown): string =>
+    (e as NodeJS.ErrnoException)?.code ?? (e instanceof Error ? e.message : String(e))
+
   async function walk(dir: string, rel: string): Promise<string | null> {
-    const entries = await readdir(dir, { withFileTypes: true })
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch (e) {
+      return `${rel || '.'} (could not be read: ${errorCode(e)})`
+    }
     for (const entry of entries) {
+      if (entry.isDirectory() || !configNames.has(entry.name)) continue
+      // `.eslintignore` is only read from the project root.
+      if (entry.name === '.eslintignore' && rel) continue
       const entryRel = rel ? `${rel}/${entry.name}` : entry.name
-      if (entry.isFile() && configNames.has(entry.name)) return entryRel
+      return entry.isSymbolicLink() ? `${entryRel} (symlink)` : entryRel
     }
     for (const entry of entries) {
       const entryRel = rel ? `${rel}/${entry.name}` : entry.name
-      if (entry.isFile() && entry.name === 'package.json' && rel) {
+      if (rel && entry.name === 'package.json' && !entry.isDirectory()) {
+        let nested: unknown
         try {
-          const nested = JSON.parse(await readFile(join(dir, entry.name), 'utf-8'))
-          if (nested && typeof nested === 'object' && 'eslintConfig' in nested) {
-            return `${entryRel} "eslintConfig"`
-          }
-        } catch {
-          // Not our file to validate; an unparsable nested package.json
-          // cannot carry an eslintConfig ESLint would load either.
+          nested = JSON.parse(await readFile(join(dir, entry.name), 'utf-8'))
+        } catch (e) {
+          return `${entryRel} (could not be read: ${errorCode(e)})`
+        }
+        if (nested && typeof nested === 'object' && 'eslintConfig' in nested) {
+          return `${entryRel} "eslintConfig"`
         }
       }
       // Symlinked directories are not followed (Dirent reports them as
@@ -1122,13 +1139,30 @@ export async function runUpgradeIn(
 
   // 7a. Move an untouched `next lint` setup to the ESLint CLI. The plan
   // already checked that no config, `eslintConfig` key or ESLint dep
-  // exists, so nothing here can overwrite or shadow user settings.
-  if (lintPlan.migrate) {
-    await copyWithSubstitution(
-      join(sharedDir, TEMPLATE_ESLINT_CONFIG),
-      join(destDir, TEMPLATE_ESLINT_CONFIG),
-      vars,
-    )
+  // exists, so nothing here can overwrite or shadow user settings. The
+  // config is still written with `wx` (O_CREAT | O_EXCL): if anything
+  // appeared at that path since — a file, or a symlink, live or broken —
+  // the write fails instead of following it, and package.json is left
+  // unmigrated.
+  let lintMigrated = lintPlan.migrate
+  if (lintMigrated) {
+    const template = await readFile(join(sharedDir, TEMPLATE_ESLINT_CONFIG), 'utf-8')
+    try {
+      await writeFile(
+        join(destDir, TEMPLATE_ESLINT_CONFIG),
+        substituteVars(template, vars),
+        { encoding: 'utf-8', flag: 'wx' },
+      )
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== 'EEXIST') throw e
+      lintMigrated = false
+      log.warn(
+        `${TEMPLATE_ESLINT_CONFIG} appeared during the upgrade; it was left untouched and ` +
+        `the "lint" script and ESLint devDependencies were not changed.`,
+      )
+    }
+  }
+  if (lintMigrated) {
     projectScripts['lint'] = templateScripts['lint']!
     projectPkg['scripts'] = projectScripts
     const templateDevDeps = (templatePkg['devDependencies'] ?? {}) as Record<string, string>
@@ -1209,7 +1243,7 @@ export async function runUpgradeIn(
     obsoleteRemoved: obsoleteFiles,
     editorExtensionsWired: bootstrapResult.pluginCount,
     userPluginsBumped: userPluginBump.bumped.length,
-    lintMigrated: lintPlan.migrate,
+    lintMigrated,
   }
 }
 
