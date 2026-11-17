@@ -26,7 +26,7 @@ import {
 } from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
 import { isoToLocalInput, resolvePublishedAtForSave } from '../lib/post-published-at.js'
-import { getPostDisplayStatus } from '../lib/post-display-status.js'
+import { getPostDisplayStatus, scheduledTransitionAt } from '../lib/post-display-status.js'
 import { useNow } from '../lib/use-now.js'
 import {
   readDraft,
@@ -232,9 +232,15 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   const isScheduled = (current: number) =>
     getPostDisplayStatus({ status, publishedAt: scheduleCandidate }, current) === 'scheduled'
   const now = useNow((current) =>
-    isScheduled(current) && scheduleCandidate ? new Date(scheduleCandidate).getTime() : undefined
+    scheduledTransitionAt({ status, publishedAt: scheduleCandidate }, current)
   )
   const scheduled = isScheduled(now)
+  // The notice names when the post actually becomes visible. For a stored
+  // non-UTC value (e.g. `+09:00`) that is later than the field's instant,
+  // because the public resolvers compare publishedAt as a string.
+  const visibleAt = scheduledTransitionAt({ status, publishedAt: scheduleCandidate }, now)
+  const scheduledNoticeDate =
+    visibleAt !== undefined ? isoToLocalInput(new Date(visibleAt).toISOString()) : publishedAtInput
 
   // Pending bundle for static posts. Held in memory until save so the
   // user can cancel without leaving an orphan upload in S3. On save,
@@ -1021,7 +1027,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
         <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
         {scheduled && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            {t('posts.form.scheduledNotice', { date: publishedAtInput })}
+            {t('posts.form.scheduledNotice', { date: scheduledNoticeDate })}
           </p>
         )}
       </div>

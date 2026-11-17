@@ -43,8 +43,11 @@ const summary = (
 })
 
 const POSTS: PostSummary[] = [
-  // Scheduled 30s from NOW, written with a +09:00 offset.
-  summary('soon', 'published', '2026-06-01T21:00:30+09:00'),
+  // Canonical value, 30s from NOW.
+  summary('soon', 'published', '2026-06-01T12:00:30.000Z'),
+  // Stored with a +09:00 offset: 11:00Z as an instant (past), but the public
+  // resolvers compare strings, so it stays hidden until 21:00:00.000Z.
+  summary('offset', 'published', '2026-06-01T20:00:00+09:00'),
   summary('later', 'published', '2026-07-01T00:00:00.000Z'),
   summary('live', 'published', '2026-05-01T00:00:00.000Z'),
   summary('wip', 'draft', '2099-01-01T00:00:00.000Z'),
@@ -105,6 +108,7 @@ describe('PostsList scheduled status', () => {
     await mount('en')
     expect(badges()).toEqual({
       soon: 'Scheduled',
+      offset: 'Scheduled',
       later: 'Scheduled',
       live: 'Published',
       wip: 'Draft',
@@ -119,6 +123,7 @@ describe('PostsList scheduled status', () => {
     await mount('ja')
     expect(badges()).toEqual({
       soon: '公開予約',
+      offset: '公開予約',
       later: '公開予約',
       live: '公開済',
       wip: '下書き',
@@ -130,13 +135,13 @@ describe('PostsList scheduled status', () => {
   it('the scheduled filter shows only scheduled posts; published excludes them', async () => {
     await mount('en')
     await chooseStatus('scheduled')
-    expect(Object.keys(badges()).sort()).toEqual(['later', 'soon'])
+    expect(Object.keys(badges()).sort()).toEqual(['later', 'offset', 'soon'])
     await chooseStatus('published')
     expect(Object.keys(badges())).toEqual(['live'])
     await chooseStatus('draft')
     expect(Object.keys(badges())).toEqual(['wip'])
     await chooseStatus('all')
-    expect(Object.keys(badges())).toHaveLength(4)
+    expect(Object.keys(badges())).toHaveLength(5)
   })
 
   it('flips a badge to Published when its scheduled time arrives', async () => {
@@ -157,5 +162,23 @@ describe('PostsList scheduled status', () => {
 
     await chooseStatus('all')
     expect(badges().later).toBe('Scheduled')
+  })
+
+  it('an offset-stored post flips at the lexical boundary, not the nominal instant', async () => {
+    await mount('en')
+    await chooseStatus('scheduled')
+    expect(Object.keys(badges()).sort()).toEqual(['later', 'offset', 'soon'])
+
+    // 1ms before 21:00:00.000Z (9h after NOW) it is still Scheduled.
+    await act(async () => {
+      vi.advanceTimersByTime(9 * 3_600_000 - 1)
+    })
+    await chooseStatus('all')
+    expect(badges().offset).toBe('Scheduled')
+
+    await act(async () => {
+      vi.advanceTimersByTime(2)
+    })
+    expect(badges().offset).toBe('Published')
   })
 })

@@ -13,6 +13,7 @@ vi.mock('./post-history-panel.js', () => ({ PostHistoryPanel: () => null }))
 const { PostForm } = await import('./post-form.js')
 const { I18nProvider } = await import('./i18n-provider.js')
 const { resolveLocale } = await import('../lib/i18n.js')
+const { isoToLocalInput } = await import('../lib/post-published-at.js')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -91,6 +92,25 @@ describe('PostForm scheduled status label', () => {
     container?.remove()
 
     await mount(post('draft', '2099-01-01T00:00:00.000Z'))
+    expect(publishedOption()).toBe('Published')
+    expect(notice()).toBeNull()
+  })
+
+  it('a stored +09:00 value stays Scheduled until the public string comparison passes it', async () => {
+    // Instant is 2026-06-01T11:00Z (already past), but the resolvers compare
+    // strings, so it is hidden until nowISO reaches 2026-06-01T20:00:00.000Z.
+    await mount(post('published', '2026-06-01T20:00:00+09:00'))
+    expect(publishedOption()).toBe('Scheduled')
+    expect(notice()).toContain(isoToLocalInput('2026-06-01T20:00:00.000Z'))
+
+    const untilVisible = Date.parse('2026-06-01T20:00:00.000Z') - NOW
+    await act(async () => {
+      vi.advanceTimersByTime(untilVisible - 1)
+    })
+    expect(publishedOption()).toBe('Scheduled')
+    await act(async () => {
+      vi.advanceTimersByTime(2)
+    })
     expect(publishedOption()).toBe('Published')
     expect(notice()).toBeNull()
   })

@@ -8,4 +8,6 @@ form, instead of "Published". The posts list gains a "Scheduled" status
 filter (the "Published" filter now excludes scheduled posts), and the
 dashboard gets a Scheduled count. Labels flip to "Published" when the
 scheduled time arrives while the page is open. Display-only — stored
-data, save logic, and public visibility are unchanged.
+data, save logic, and public visibility are unchanged. The scheduled
+check mirrors the public resolvers' string comparison, so non-UTC stored
+values show their actual visibility.
