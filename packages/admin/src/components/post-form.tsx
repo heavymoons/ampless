@@ -25,11 +25,9 @@ import {
   type ExtractedFile,
 } from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
-import {
-  isoToLocalInput,
-  resolvePublishedAtForSave,
-  isFuture,
-} from '../lib/post-published-at.js'
+import { isoToLocalInput, resolvePublishedAtForSave } from '../lib/post-published-at.js'
+import { getPostDisplayStatus, scheduledTransitionAt } from '../lib/post-display-status.js'
+import { useNow } from '../lib/use-now.js'
 import {
   readDraft,
   writeDraft,
@@ -217,6 +215,32 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     initialInput: initialPublishedAtInput,
     existing: post?.publishedAt,
   })
+  // Display-only: a published post with a future publishedAt is shown as
+  // scheduled (status option label + notice). `now` advances when that
+  // time arrives so both disappear without a reload. Save is unaffected.
+  //
+  // Checked against the chosen / stored value only — resolved as if draft,
+  // which is `resolvedPublishedAt` minus the first-publish "now" stamp.
+  // That stamp is never in the future, and including it would re-stamp on
+  // every render and keep re-arming the `useNow` timer.
+  const scheduleCandidate = resolvePublishedAtForSave({
+    status: 'draft',
+    currentInput: publishedAtInput,
+    initialInput: initialPublishedAtInput,
+    existing: post?.publishedAt,
+  })
+  const isScheduled = (current: number) =>
+    getPostDisplayStatus({ status, publishedAt: scheduleCandidate }, current) === 'scheduled'
+  const now = useNow((current) =>
+    scheduledTransitionAt({ status, publishedAt: scheduleCandidate }, current)
+  )
+  const scheduled = isScheduled(now)
+  // The notice names when the post actually becomes visible. For a stored
+  // non-UTC value (e.g. `+09:00`) that is later than the field's instant,
+  // because the public resolvers compare publishedAt as a string.
+  const visibleAt = scheduledTransitionAt({ status, publishedAt: scheduleCandidate }, now)
+  const scheduledNoticeDate =
+    visibleAt !== undefined ? isoToLocalInput(new Date(visibleAt).toISOString()) : publishedAtInput
 
   // Pending bundle for static posts. Held in memory until save so the
   // user can cancel without leaving an orphan upload in S3. On save,
@@ -982,7 +1006,9 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         >
           <option value="draft">{t('common.draft')}</option>
-          <option value="published">{t('common.published')}</option>
+          <option value="published">
+            {scheduled ? t('common.scheduled') : t('common.published')}
+          </option>
         </select>
       </div>
 
@@ -999,9 +1025,9 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
           className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
         />
         <p className="text-xs text-muted-foreground">{t('posts.form.publishedAtHint')}</p>
-        {status === 'published' && isFuture(resolvedPublishedAt) && (
+        {scheduled && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            {t('posts.form.scheduledNotice', { date: publishedAtInput })}
+            {t('posts.form.scheduledNotice', { date: scheduledNoticeDate })}
           </p>
         )}
       </div>
