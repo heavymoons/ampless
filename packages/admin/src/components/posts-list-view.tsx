@@ -13,15 +13,24 @@ import {
   TableHeader,
   TableRow,
 } from '@ampless/runtime/ui'
-import {
-  collectTags,
-  filterSortPostSummaries,
-  type PostListSort,
-  type PostListStatusFilter,
-} from 'ampless'
+import { collectTags, filterSortPostSummaries, type PostListSort } from 'ampless'
 import { useT } from './i18n-provider.js'
+import {
+  getPostDisplayStatus,
+  matchesStatusFilter,
+  nextScheduledTransition,
+  type AdminPostStatusFilter,
+  type PostDisplayStatus,
+} from '../lib/post-display-status.js'
+import { useNow } from '../lib/use-now.js'
 
 const PAGE_SIZE = 100
+
+const STATUS_BADGE_CLASS: Record<PostDisplayStatus, string> = {
+  published: 'inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700',
+  scheduled: 'inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800',
+  draft: 'inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700',
+}
 
 export function PostsList() {
   const t = useT()
@@ -29,7 +38,7 @@ export function PostsList() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<PostListStatusFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<AdminPostStatusFilter>('all')
   const [tagFilter, setTagFilter] = useState('')
   const [sort, setSort] = useState<PostListSort>('updated-desc')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -48,16 +57,25 @@ export function PostsList() {
     setVisibleCount(PAGE_SIZE)
   }, [query, statusFilter, tagFilter, sort])
 
+  // Re-renders when the earliest scheduled post goes live, so its badge
+  // (and the status filter) flip to "published" without a reload.
+  const now = useNow((current) => nextScheduledTransition(posts, current))
+
   const tagCounts = useMemo(() => collectTags(posts), [posts])
   const filteredPosts = useMemo(
     () =>
-      filterSortPostSummaries(posts, {
-        query,
-        status: statusFilter,
-        tag: tagFilter,
-        sort,
-      }),
-    [posts, query, statusFilter, tagFilter, sort]
+      // The status filter is applied here (display status, so "published"
+      // excludes scheduled posts); the shared helper handles the rest.
+      filterSortPostSummaries(
+        posts.filter((post) => matchesStatusFilter(post, statusFilter, now)),
+        {
+          query,
+          status: 'all',
+          tag: tagFilter,
+          sort,
+        }
+      ),
+    [posts, query, statusFilter, tagFilter, sort, now]
   )
   const visiblePosts = filteredPosts.slice(0, visibleCount)
   const hasMore = visibleCount < filteredPosts.length
@@ -97,10 +115,11 @@ export function PostsList() {
               className="h-9 rounded-md border bg-background px-2 py-1.5 text-sm"
               value={statusFilter}
               aria-label={t('common.status')}
-              onChange={(e) => setStatusFilter(e.target.value as PostListStatusFilter)}
+              onChange={(e) => setStatusFilter(e.target.value as AdminPostStatusFilter)}
             >
               <option value="all">{t('posts.list.filterAll')}</option>
               <option value="published">{t('posts.list.filterPublished')}</option>
+              <option value="scheduled">{t('posts.list.filterScheduled')}</option>
               <option value="draft">{t('posts.list.filterDraft')}</option>
             </select>
             <select
@@ -155,38 +174,35 @@ export function PostsList() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visiblePosts.map((post) => (
-                      <TableRow key={post.postId}>
-                        <TableCell>
-                          <Link
-                            href={`/admin/posts/${post.postId}`}
-                            className="font-medium hover:underline"
-                          >
-                            {post.title}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={
-                              post.status === 'published'
-                                ? 'inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700'
-                                : 'inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700'
-                            }
-                          >
-                            {t(`common.${post.status}`)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {post.slug}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {formatPostDate(post.publishedAt)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {formatPostDate(post.updatedAt)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {visiblePosts.map((post) => {
+                      const displayStatus = getPostDisplayStatus(post, now)
+                      return (
+                        <TableRow key={post.postId}>
+                          <TableCell>
+                            <Link
+                              href={`/admin/posts/${post.postId}`}
+                              className="font-medium hover:underline"
+                            >
+                              {post.title}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <span className={STATUS_BADGE_CLASS[displayStatus]}>
+                              {t(`common.${displayStatus}`)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {post.slug}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatPostDate(post.publishedAt)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatPostDate(post.updatedAt)}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
