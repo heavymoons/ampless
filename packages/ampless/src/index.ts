@@ -11,8 +11,10 @@ export {
   listPostSummaries,
   setPostsProvider,
   hasPostsProvider,
+  supportsConditionalPostUpdate,
   mergePostMetadata,
   PostUpdateConflictError,
+  ConditionalUpdateUnsupportedError,
 } from './core.js'
 export type {
   ListOptions,
@@ -20,6 +22,7 @@ export type {
   CreatePostInput,
   PostsProvider,
   UpdatePostOptions,
+  PostMetadataMergeResult,
   PostSummary,
   PostRevision,
   ListPostHistoryOptions,

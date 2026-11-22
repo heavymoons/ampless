@@ -12,6 +12,7 @@ import {
   mergePostMetadata,
   normalizePostClasses,
   PostUpdateConflictError,
+  ConditionalUpdateUnsupportedError,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -643,13 +644,25 @@ export function PostForm({
         // Metadata is shared with plugins and MCP (e.g. `update_post`
         // setting `postClasses`), which may have changed it since this form
         // loaded. Re-read the post and merge three ways per key: keys this
-        // form left as loaded take the stored value, keys it changed take
-        // the form's. The write is conditional on the re-read `updatedAt`,
-        // so a save landing in between is reported instead of overwritten.
-        // The other fields stay last-write-wins, as before.
+        // form left as loaded take the stored value, keys only it changed
+        // take the form's, and `postClasses` changed on both sides is
+        // set-merged. Any other key changed on both sides is a conflict:
+        // nothing is written and the form keeps its state. The write is
+        // conditional on the re-read `updatedAt`, so a save landing in
+        // between is reported instead of overwritten (a provider that
+        // cannot do that is refused by `updatePost`, never written to
+        // unconditionally). The other fields stay last-write-wins.
         const fresh = await getPostById(post!.postId)
         if (!fresh) throw new Error(t('posts.form.saveNotFound'))
-        const mergedMetadata = mergePostMetadata(post!.metadata, metadata, fresh.metadata)
+        const { metadata: mergedMetadata, conflicts } = mergePostMetadata(
+          post!.metadata,
+          metadata,
+          fresh.metadata
+        )
+        if (conflicts.length > 0) {
+          setError(t('posts.form.saveMetadataConflict', { keys: conflicts.join(', ') }))
+          return
+        }
         // This is a full-document save, not a partial patch: provider.update
         // omits `undefined` fields, so clearing excerpt / emptying metadata
         // must send an explicit value or the stored value would survive.
@@ -699,6 +712,12 @@ export function PostForm({
         (err instanceof Error && err.name === 'PostUpdateConflictError')
       ) {
         setError(t('posts.form.saveConflict'))
+      } else if (
+        err instanceof ConditionalUpdateUnsupportedError ||
+        (err instanceof Error && err.name === 'ConditionalUpdateUnsupportedError')
+      ) {
+        console.error('[ampless admin] post save refused:', err)
+        setError(t('posts.form.saveUnsupportedProvider'))
       } else {
         setError(err instanceof Error ? err.message : String(err))
       }

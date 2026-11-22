@@ -116,6 +116,8 @@
       "postClassesNotRestored": "Post styles were not restored from this revision: the revision's or the current stored metadata.postClasses value is not a list of post style ids. The current value is kept unchanged.",
       "saveConflict": "This post was changed elsewhere while saving. Your edits are kept — save again to retry.",
       "saveNotFound": "This post no longer exists, so it could not be saved. It may have been deleted elsewhere.",
+      "saveMetadataConflict": "These settings were changed elsewhere while you edited them: {keys}. Nothing was saved — reload the post to see the other change.",
+      "saveUnsupportedProvider": "The configured posts provider cannot save this post safely. It must implement conditional updates (supportsConditionalUpdate) so that a concurrent change is not overwritten. Nothing was saved.",
       "formatStaticLabel": "Static (zip / file bundle)",
       "static": {
         "pick": "Pick a .zip or one or more files",

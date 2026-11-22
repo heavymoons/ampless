@@ -212,6 +212,11 @@ describe('admin posts provider update', () => {
     ],
   }
 
+  it('declares supportsConditionalUpdate, so core forwards expectedUpdatedAt', async () => {
+    const { supportsConditionalPostUpdate } = await installProvider()
+    expect(supportsConditionalPostUpdate()).toBe(true)
+  })
+
   it('without options writes through client.models.Post.update, as before', async () => {
     postUpdateMock.mockResolvedValueOnce({ data: savedRow, errors: null })
     const { updatePost } = await installProvider()

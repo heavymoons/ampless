@@ -249,6 +249,10 @@ export function installAdminPostsProvider(): void {
   const client = generateClient() as unknown as DataClient
 
   const provider: PostsProvider = {
+    // `update(..., { expectedUpdatedAt })` is a conditional `updatePost`
+    // mutation that throws `PostUpdateConflictError` on a mismatch.
+    supportsConditionalUpdate: true,
+
     async list(opts: ListOptions = {}) {
       const status = opts.status ?? 'published'
       const filter: Record<string, unknown> = {}

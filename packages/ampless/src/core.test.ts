@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  ConditionalUpdateUnsupportedError,
   listPostSummaries,
   listPostHistory,
   mergePostMetadata,
   PostUpdateConflictError,
   setPostsProvider,
+  supportsConditionalPostUpdate,
   updatePost,
   type PostsProvider,
   type PostSummary,
@@ -154,82 +156,185 @@ describe('updatePost options', () => {
     setPostsProvider(null)
   })
 
-  it('forwards expectedUpdatedAt to the provider', async () => {
+  it('forwards expectedUpdatedAt to a provider that supports conditional updates', async () => {
     const updateFn = vi.fn().mockResolvedValue(SAMPLE_POST)
-    setPostsProvider(makeProvider({ update: updateFn }))
+    setPostsProvider(makeProvider({ update: updateFn, supportsConditionalUpdate: true }))
 
     await updatePost('post-1', { title: 'T' }, { expectedUpdatedAt: '2026-06-01T00:00:00.000Z' })
     await updatePost('post-1', { title: 'T' }, { expectedUpdatedAt: null })
 
     expect(updateFn).toHaveBeenNthCalledWith(1, 'post-1', { title: 'T' }, { expectedUpdatedAt: '2026-06-01T00:00:00.000Z' })
     expect(updateFn).toHaveBeenNthCalledWith(2, 'post-1', { title: 'T' }, { expectedUpdatedAt: null })
+    expect(supportsConditionalPostUpdate()).toBe(true)
   })
 
-  it('calls a provider without options exactly as before', async () => {
+  it('refuses expectedUpdatedAt on a provider without the flag, and never calls its update', async () => {
+    for (const flag of [undefined, false]) {
+      const legacyUpdate = vi.fn(async (_postId: string, _data: Partial<Post>) => SAMPLE_POST)
+      setPostsProvider(makeProvider({ update: legacyUpdate, ...(flag === undefined ? {} : { supportsConditionalUpdate: flag }) }))
+
+      for (const expectedUpdatedAt of ['2026-06-01T00:00:00.000Z', null]) {
+        const err = await updatePost('post-1', { title: 'T' }, { expectedUpdatedAt }).catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(ConditionalUpdateUnsupportedError)
+        expect((err as Error).name).toBe('ConditionalUpdateUnsupportedError')
+      }
+      expect(legacyUpdate).not.toHaveBeenCalled()
+      expect(supportsConditionalPostUpdate()).toBe(false)
+    }
+  })
+
+  it('calls a legacy provider without options exactly as before', async () => {
     // A provider written against the two-argument signature still type-checks.
     const legacyUpdate = vi.fn(async (_postId: string, _data: Partial<Post>) => SAMPLE_POST)
     setPostsProvider(makeProvider({ update: legacyUpdate }))
 
-    await updatePost('post-1', { title: 'T' })
+    await expect(updatePost('post-1', { title: 'T' })).resolves.toBe(SAMPLE_POST)
 
-    expect(legacyUpdate.mock.calls[0]).toEqual(['post-1', { title: 'T' }])
+    expect(legacyUpdate.mock.calls).toEqual([['post-1', { title: 'T' }]])
   })
 
-  it('PostUpdateConflictError is an Error with its own name', () => {
+  it('supportsConditionalPostUpdate is false without a provider', () => {
+    expect(supportsConditionalPostUpdate()).toBe(false)
+  })
+
+  it('the error classes are Errors with their own names', () => {
     const err = new PostUpdateConflictError()
     expect(err).toBeInstanceOf(Error)
     expect(err.name).toBe('PostUpdateConflictError')
     expect(new PostUpdateConflictError('custom').message).toBe('custom')
+    const unsupported = new ConditionalUpdateUnsupportedError()
+    expect(unsupported).toBeInstanceOf(Error)
+    expect(unsupported.name).toBe('ConditionalUpdateUnsupportedError')
+    expect(unsupported.message).toContain('supportsConditionalUpdate')
   })
 })
 
 describe('mergePostMetadata', () => {
-  it('takes the stored value for keys the editor left unchanged', () => {
-    expect(
-      mergePostMetadata(
-        { postClasses: ['a'], cache: 'deep' },
-        { postClasses: ['a'], cache: 'deep' },
-        { postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } }
-      )
-    ).toEqual({ postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } })
-  })
+  describe('one-sided changes', () => {
+    it('takes the stored value for keys the editor left unchanged', () => {
+      expect(
+        mergePostMetadata(
+          { postClasses: ['a'], cache: 'deep' },
+          { postClasses: ['a'], cache: 'deep' },
+          { postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } }
+        )
+      ).toEqual({ metadata: { postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } }, conflicts: [] })
+    })
 
-  it("takes the editor's value for keys it changed", () => {
-    expect(
-      mergePostMetadata(
-        { postClasses: ['a'], cache: 'deep' },
-        { postClasses: ['c'], cache: 'deep' },
-        { postClasses: ['b'], cache: 'hot', plugin_x: 1 }
-      )
-    ).toEqual({ postClasses: ['c'], cache: 'hot', plugin_x: 1 })
-  })
+    it("takes the editor's value for keys only it changed", () => {
+      expect(
+        mergePostMetadata(
+          { postClasses: ['a'], cache: 'deep' },
+          { postClasses: ['c'], cache: 'deep' },
+          { postClasses: ['a'], cache: 'hot', plugin_x: 1 }
+        )
+      ).toEqual({ metadata: { postClasses: ['c'], cache: 'hot', plugin_x: 1 }, conflicts: [] })
+    })
 
-  it('deletes a key the editor removed, and keeps a removal someone else made', () => {
-    expect(
-      mergePostMetadata(
-        { postClasses: ['a'], no_layout: true },
-        { no_layout: true },
-        { postClasses: ['b'] }
-      )
-    ).toEqual(undefined)
-    expect(mergePostMetadata({ cache: 'deep', seo: 1 }, { cache: 'deep', seo: 1 }, { seo: 1 })).toEqual({ seo: 1 })
-  })
+    it('deletes a key the editor removed, and keeps a removal someone else made', () => {
+      expect(
+        mergePostMetadata({ postClasses: ['a'], no_layout: true }, { no_layout: true }, { postClasses: ['a'] })
+      ).toEqual({ metadata: undefined, conflicts: [] })
+      expect(mergePostMetadata({ cache: 'deep', seo: 1 }, { cache: 'deep', seo: 1 }, { seo: 1 })).toEqual({
+        metadata: { seo: 1 },
+        conflicts: [],
+      })
+    })
 
-  it('adds a key the editor introduced', () => {
-    expect(mergePostMetadata(undefined, { no_layout: true }, { cache: 'hot' })).toEqual({
-      no_layout: true,
-      cache: 'hot',
+    it('adds a key the editor introduced', () => {
+      expect(mergePostMetadata(undefined, { no_layout: true }, { cache: 'hot' })).toEqual({
+        metadata: { no_layout: true, cache: 'hot' },
+        conflicts: [],
+      })
+    })
+
+    it('compares deeply, so a re-created equal object counts as unchanged', () => {
+      expect(
+        mergePostMetadata({ seo: { title: 'X' } }, { seo: { title: 'X' } }, { seo: { title: 'Y' } })
+      ).toEqual({ metadata: { seo: { title: 'Y' } }, conflicts: [] })
+    })
+
+    it('both sides making the same change is not a conflict', () => {
+      expect(
+        mergePostMetadata({ cache: 'deep', seo: { t: 1 } }, { cache: 'hot', seo: { t: 2 } }, { cache: 'hot', seo: { t: 2 } })
+      ).toEqual({ metadata: { cache: 'hot', seo: { t: 2 } }, conflicts: [] })
+    })
+
+    it('returns undefined metadata for an empty result', () => {
+      expect(mergePostMetadata(undefined, undefined, undefined)).toEqual({ metadata: undefined, conflicts: [] })
+      expect(mergePostMetadata({ a: 1 }, {}, { a: 1 })).toEqual({ metadata: undefined, conflicts: [] })
+    })
+
+    it('does not read inherited properties for keys a side lacks', () => {
+      expect(mergePostMetadata({ constructor: 1 }, { constructor: 1 }, {})).toEqual({ metadata: undefined, conflicts: [] })
     })
   })
 
-  it('compares deeply, so a re-created equal object counts as unchanged', () => {
-    expect(
-      mergePostMetadata({ seo: { title: 'X' } }, { seo: { title: 'X' } }, { seo: { title: 'Y' } })
-    ).toEqual({ seo: { title: 'Y' } })
+  describe('postClasses changed on both sides', () => {
+    const merge = (base: unknown, mine: unknown, theirs: unknown) =>
+      mergePostMetadata(
+        base === undefined ? {} : { postClasses: base as string[] },
+        mine === undefined ? {} : { postClasses: mine as string[] },
+        theirs === undefined ? {} : { postClasses: theirs as string[] }
+      )
+
+    it('keeps the ids both sides added (theirs first, then mine)', () => {
+      expect(merge(['a'], ['a', 'c'], ['a', 'b'])).toEqual({ metadata: { postClasses: ['a', 'b', 'c'] }, conflicts: [] })
+      expect(merge(undefined, ['c', 'd'], ['b'])).toEqual({ metadata: { postClasses: ['b', 'c', 'd'] }, conflicts: [] })
+    })
+
+    it('both sides removing different ids removes both', () => {
+      expect(merge(['a', 'b', 'c'], ['a', 'c'], ['a', 'b'])).toEqual({ metadata: { postClasses: ['a'] }, conflicts: [] })
+      // Everything removed deletes the key.
+      expect(merge(['a', 'b'], ['a'], ['b'])).toEqual({ metadata: undefined, conflicts: [] })
+      expect(merge(['a', 'b'], undefined, ['b'])).toEqual({ metadata: undefined, conflicts: [] })
+    })
+
+    it('one side adding while the other removes applies both', () => {
+      expect(merge(['a', 'b'], ['a', 'b', 'c'], ['b'])).toEqual({ metadata: { postClasses: ['b', 'c'] }, conflicts: [] })
+      expect(merge(['a', 'b'], ['b'], ['a', 'b', 'c'])).toEqual({ metadata: { postClasses: ['b', 'c'] }, conflicts: [] })
+    })
+
+    it('an id added on both sides is kept once', () => {
+      expect(merge(['a'], ['a', 'x', 'c'], ['x', 'a', 'b'])).toEqual({
+        metadata: { postClasses: ['x', 'a', 'b', 'c'] },
+        conflicts: [],
+      })
+    })
+
+    it('a removal on one side with the other side unchanged is applied', () => {
+      expect(merge(['a', 'b'], ['a'], ['a', 'b'])).toEqual({ metadata: { postClasses: ['a'] }, conflicts: [] })
+      expect(merge(['a', 'b'], ['a', 'b'], ['b'])).toEqual({ metadata: { postClasses: ['b'] }, conflicts: [] })
+    })
+
+    it('a non-clean value on any side is a conflict, with theirs as the placeholder', () => {
+      expect(merge(['a'], ['a', 'c'], ['a', 'Bad Id'])).toEqual({
+        metadata: { postClasses: ['a', 'Bad Id'] },
+        conflicts: ['postClasses'],
+      })
+      expect(merge(['a'], ['c'], { plugin: 'x' })).toEqual({ metadata: { postClasses: { plugin: 'x' } }, conflicts: ['postClasses'] })
+      expect(merge(['a', 'a'], ['b'], ['c'])).toEqual({ metadata: { postClasses: ['c'] }, conflicts: ['postClasses'] })
+      expect(merge('a', ['b'], undefined)).toEqual({ metadata: undefined, conflicts: ['postClasses'] })
+    })
   })
 
-  it('returns undefined for an empty result', () => {
-    expect(mergePostMetadata(undefined, undefined, undefined)).toBeUndefined()
-    expect(mergePostMetadata({ a: 1 }, {}, { a: 1 })).toBeUndefined()
+  describe('other keys changed on both sides', () => {
+    it('are reported as conflicts, with theirs as the placeholder; other keys still merge', () => {
+      expect(
+        mergePostMetadata(
+          { cache: 'deep', plugin_x: { n: 1 }, postClasses: ['a'] },
+          { cache: 'hot', plugin_x: { n: 2 }, postClasses: ['a', 'c'] },
+          { cache: 'auto', plugin_x: { n: 3 }, postClasses: ['a', 'b'] }
+        )
+      ).toEqual({
+        metadata: { cache: 'auto', plugin_x: { n: 3 }, postClasses: ['a', 'b', 'c'] },
+        conflicts: ['cache', 'plugin_x'],
+      })
+    })
+
+    it('a key deleted on one side and changed on the other is a conflict', () => {
+      expect(mergePostMetadata({ seo: 1 }, {}, { seo: 2 })).toEqual({ metadata: { seo: 2 }, conflicts: ['seo'] })
+      expect(mergePostMetadata({ seo: 1 }, { seo: 2 }, {})).toEqual({ metadata: undefined, conflicts: ['seo'] })
+    })
   })
 })

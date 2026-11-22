@@ -24,13 +24,22 @@ const updatePost = vi.fn(async () => undefined)
 const createPost = vi.fn(async () => undefined)
 let serverPost: Post | null = null
 const getPostById = vi.fn(async () => serverPost)
-vi.mock('ampless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('ampless')>()),
-  updatePost: (...args: unknown[]) => updatePost(...(args as [])),
-  createPost: (...args: unknown[]) => createPost(...(args as [])),
-  getPostById: (...args: unknown[]) => getPostById(...(args as [])),
-}))
-const { PostUpdateConflictError } = await import('ampless')
+// The real merge by default; a test can override one call.
+type Merge = typeof import('ampless').mergePostMetadata
+let realMerge: Merge | null = null
+const mergePostMetadata = vi.fn((...args: Parameters<Merge>) => realMerge!(...args))
+vi.mock('ampless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ampless')>()
+  realMerge = actual.mergePostMetadata
+  return {
+    ...actual,
+    updatePost: (...args: unknown[]) => updatePost(...(args as [])),
+    createPost: (...args: unknown[]) => createPost(...(args as [])),
+    getPostById: (...args: unknown[]) => getPostById(...(args as [])),
+    mergePostMetadata: (...args: Parameters<Merge>) => mergePostMetadata(...args),
+  }
+})
+const { PostUpdateConflictError, ConditionalUpdateUnsupportedError } = await import('ampless')
 
 const { PostForm } = await import('./post-form.js')
 const { I18nProvider } = await import('./i18n-provider.js')
@@ -38,6 +47,8 @@ const { resolveLocale } = await import('../lib/i18n.js')
 type EditorPostClass = import('./post-classes-field.js').EditorPostClass
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const NO_LAYOUT_LABEL = 'No layout'
 
 const THEME: EditorPostClass[] = [
   { id: 'wide', label: 'Wide', description: 'Full-width body' },
@@ -100,6 +111,7 @@ beforeEach(() => {
   updatePost.mockImplementation(async () => undefined)
   createPost.mockClear()
   getPostById.mockClear()
+  mergePostMetadata.mockClear()
   restoreRevision = null
 })
 afterEach(async () => {
@@ -459,12 +471,14 @@ describe('PostForm post styles', () => {
       expect(options).toEqual({ expectedUpdatedAt: '2026-06-02T00:00:00.000Z' })
     })
 
-    it("the form's post styles win when the user changed them; other stored keys are kept", async () => {
+    // Changed by the three-way postClasses merge: the form removed 'wide',
+    // the server replaced it with 'serif', so 'serif' survives.
+    it('post styles changed on both sides are set-merged; other stored keys are kept', async () => {
       await mount(loaded(), THEME)
       serverPost = changedOnServer()
       await click(checkbox('Wide'))
       await submit()
-      expect(saved()[1].metadata).toEqual({ cache: 'deep', plugin_x: { n: 1 } })
+      expect(saved()[1].metadata).toEqual({ cache: 'deep', postClasses: ['serif'], plugin_x: { n: 1 } })
       await click(checkbox('Serif'))
       await submit()
       expect(saved()[1].metadata).toEqual({ cache: 'deep', postClasses: ['serif'], plugin_x: { n: 1 } })
@@ -498,6 +512,76 @@ describe('PostForm post styles', () => {
       expect(data.metadata).toEqual({ cache: 'hot', postClasses: ['wide', 'serif'], plugin_x: 2 })
       expect(options).toEqual({ expectedUpdatedAt: '2026-06-02T00:00:00.000Z' })
       expect(errorText()).toBeNull()
+    })
+
+    it('form and MCP adding different post styles keeps both (no lost update)', async () => {
+      const ABC: EditorPostClass[] = [
+        { id: 'a', label: 'Style A' },
+        { id: 'b', label: 'Style B' },
+        { id: 'c', label: 'Style C' },
+      ]
+      await mount({ ...post({ cache: 'deep', postClasses: ['a'] }), updatedAt: '2026-06-01T00:00:00.000Z' }, ABC)
+      // MCP update_post meanwhile sets ['a', 'b'].
+      serverPost = { ...post({ cache: 'deep', postClasses: ['a', 'b'] }), updatedAt: '2026-06-02T00:00:00.000Z' }
+      await click(checkbox('Style C'))
+      await submit()
+      expect(updatePost).toHaveBeenCalledTimes(1)
+      expect(saved()[1].metadata).toEqual({ cache: 'deep', postClasses: ['a', 'b', 'c'] })
+      expect(saved()[2]).toEqual({ expectedUpdatedAt: '2026-06-02T00:00:00.000Z' })
+    })
+
+    it('a metadata conflict on a plugin key writes nothing, names the key, and keeps the form', async () => {
+      await mount(loaded(), THEME)
+      serverPost = changedOnServer()
+      await typeTitle('Weekly 2')
+      // The form never edits plugin keys itself, so the merge is stubbed to
+      // report one; the real merge rules are covered in ampless core tests.
+      mergePostMetadata.mockImplementationOnce(() => ({
+        metadata: { cache: 'deep', plugin_x: { n: 1 } },
+        conflicts: ['plugin_x', 'cache'],
+      }))
+      await submit()
+      expect(mergePostMetadata).toHaveBeenCalledTimes(1)
+      expect(updatePost).not.toHaveBeenCalled()
+      expect(errorText()).toBe(
+        'These settings were changed elsewhere while you edited them: plugin_x, cache. Nothing was saved — reload the post to see the other change.',
+      )
+      expect((container!.querySelector('#title') as HTMLInputElement).value).toBe('Weekly 2')
+    })
+
+    it('no_layout changed on both sides (real merge) writes nothing and names the key', async () => {
+      const html = (metadata: Post['metadata'], updatedAt: string): Post => ({
+        ...post(metadata),
+        format: 'html',
+        body: '<p>x</p>',
+        updatedAt,
+      })
+      await mount(html({ no_layout: true, plugin_x: 1 }, '2026-06-01T00:00:00.000Z'), THEME)
+      serverPost = html({ no_layout: false as unknown as true, plugin_x: 2 }, '2026-06-02T00:00:00.000Z')
+      // Uncheck "no layout" (the form deletes the key; the server set false).
+      const noLayoutLabel = Array.from(container!.querySelectorAll('label')).find((l) =>
+        l.textContent?.includes(NO_LAYOUT_LABEL),
+      )!
+      await click(noLayoutLabel.querySelector('input[type="checkbox"]')!)
+      await submit()
+      expect(updatePost).not.toHaveBeenCalled()
+      expect(errorText()).toContain('These settings were changed elsewhere while you edited them: no_layout.')
+    })
+
+    it('a provider without conditional-update support is reported and nothing else is tried', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await mount(loaded(), THEME)
+      await typeTitle('Weekly 2')
+      updatePost.mockImplementationOnce(async () => {
+        throw new ConditionalUpdateUnsupportedError()
+      })
+      await submit()
+      expect(updatePost).toHaveBeenCalledTimes(1)
+      expect(errorText()).toBe(
+        'The configured posts provider cannot save this post safely. It must implement conditional updates (supportsConditionalUpdate) so that a concurrent change is not overwritten. Nothing was saved.',
+      )
+      expect((container!.querySelector('#title') as HTMLInputElement).value).toBe('Weekly 2')
+      expect(errorSpy).toHaveBeenCalled()
     })
 
     it('a post deleted elsewhere is reported and nothing is written', async () => {
