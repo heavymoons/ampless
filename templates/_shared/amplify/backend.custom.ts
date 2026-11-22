@@ -29,6 +29,17 @@ import type { AmplessBackend } from '@ampless/backend'
 //     )
 //   }
 //
+// Example: opting a table out of DynamoDB point-in-time recovery.
+// ampless enables PITR on every data table (including your custom
+// models); this runs afterwards, so the override wins. See RUNBOOK.md
+// for cost and restore details before turning it off.
+//
+//   export function customizeBackend(backend: AmplessBackend): void {
+//     backend.data.resources.cfnResources.amplifyDynamoDbTables[
+//       'KvStore'
+//     ].pointInTimeRecoveryEnabled = false
+//   }
+//
 // Example: adding your own Lambda function — define it in
 // `amplify/functions/<name>/resource.ts`, import it here, and attach
 // it inside `customizeBackend` via `backend.createStack(...)` or by
