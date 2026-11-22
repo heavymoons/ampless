@@ -230,8 +230,18 @@ npm run update-ampless
 - 共有テンプレートファイル（admin アプリの土台、amplify バックエンド、lib/、middleware、テーマ）を再同期 — `cms.config.ts`、`theme.*` 管理画面設定、投稿、テーマ manifest 値などのユーザーカスタマイズは保持されます
 - `update-ampless` / `copy-theme` スクリプトのコマンドが変わっていれば更新
 - ESLint の設定には触れません: `lint` スクリプト、`eslint.config.*` / `.eslintrc*` / `.eslintignore`、ESLint の依存はそのまま残します。`lint` がまだ `next lint` を呼んでいる場合は警告を表示します（下記「`next lint` からの移行」参照）。
+- テンプレートが同梱する `@tiptap/*` パッケージを同じバージョンに揃えます。自分で追加した `@tiptap/*` パッケージは書き換えません。新しい `@tiptap/core` と同じバージョンにできないものがある場合は、ファイルを一切変更する前に中断します（下記「自分で追加した Tiptap 拡張」参照）。
 
 commit 前に diff を確認できます。
+
+### 自分で追加した Tiptap 拡張
+
+`update-ampless` は、テンプレートが同梱する `@tiptap/*` パッケージを同じバージョンに揃えますが、自分で追加した `@tiptap/*` パッケージ（例: `@tiptap/extension-highlight`）は書き換えません。すべての `@tiptap/*` パッケージは `@tiptap/core` と同じバージョンに解決される必要があり、そうでないと `npm install` が ERESOLVE で失敗します（pnpm ではエディタが 2 つ読み込まれます）。
+
+`^3.x` のようなキャレット範囲は自動で追従します。追従できないもの（`"3.32.0"` のような完全一致の固定、`~` 範囲、古いメジャーバージョン）がある場合は、ファイルを一切変更する前に中断し、該当するエントリを一覧表示します。次の手順で直してください:
+
+1. 一覧に出たそれぞれの範囲を、提示された範囲（例: `"^3.35.0"`）に `package.json` で書き換えます。先に `npm install` は実行しないでください。
+2. もう一度 `npm run update-ampless` を実行します。
 
 ### `next lint` からの移行
 

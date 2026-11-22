@@ -6,7 +6,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { log } from '@clack/prompts'
-import { runUpgradeIn } from './upgrade.js'
+import { runUpgradeIn, findTiptapPinConflicts } from './upgrade.js'
+import { execa } from 'execa'
 
 // Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
 // without hitting the network. The mock is configured per-test via mockImplementation.
@@ -504,12 +505,12 @@ describe('runUpgradeIn', () => {
     // not project → "must be in template".
     const projectPkgPath = join(projectDir, 'package.json')
     const pkg = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
-    pkg.dependencies['@tiptap/extension-foo'] = '^2.0.0'
+    pkg.dependencies['@tiptap/extension-foo'] = '^3.0.0'
     writeFileSync(projectPkgPath, JSON.stringify(pkg, null, 2))
 
     await runUpgradeIn(projectDir, templateDir, { noInstall: true })
     const merged = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
-    expect(merged.dependencies['@tiptap/extension-foo']).toBe('^2.0.0')  // unchanged
+    expect(merged.dependencies['@tiptap/extension-foo']).toBe('^3.0.0')  // unchanged
   })
 
   // 7d. exact-name managed Amplify deps: synced from template to project.
@@ -1211,5 +1212,144 @@ describe('runUpgradeIn — ESLint setup is left to the site', () => {
 
     expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(afterFirst)
     expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+  })
+})
+
+describe('runUpgradeIn — project-only @tiptap/* pins', () => {
+  let projectDir: string
+  let templateDir: string
+  let warn: ReturnType<typeof vi.spyOn>
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function editPkg(edit: (pkg: any) => void): void {
+    const pkg = readPkg()
+    edit(pkg)
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+  }
+
+  function warnings(): string {
+    return warn.mock.calls.map((c: unknown[]) => String(c[0])).join('\n')
+  }
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+    warn = vi.spyOn(log, 'warn')
+    vi.mocked(execa).mockClear()
+  })
+
+  afterEach(() => {
+    warn.mockRestore()
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  it('stops before writing anything when a project-only @tiptap/* is pinned below the template range', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+    const adminPath = join(projectDir, 'app', '(admin)', 'admin', 'page.tsx')
+    const backendBefore = readFileSync(join(projectDir, 'amplify', 'backend.ts'), 'utf-8')
+
+    const run = runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    await expect(run).rejects.toThrow(/stopped before changing any files/)
+    await expect(run).rejects.toThrow(
+      'dependencies["@tiptap/extension-highlight"] is "3.20.0"; change it to "^3.23.6"',
+    )
+
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+    expect(existsSync(adminPath)).toBe(false)
+    expect(readFileSync(join(projectDir, 'amplify', 'backend.ts'), 'utf-8')).toBe(backendBefore)
+    expect(vi.mocked(execa)).not.toHaveBeenCalled()
+  })
+
+  it('reports the devDependencies section for a conflicting devDependency', async () => {
+    editPkg((pkg) => { pkg.devDependencies['@tiptap/extension-highlight'] = '3.20.0' })
+
+    await expect(
+      runUpgradeIn(projectDir, templateDir, { noInstall: true }),
+    ).rejects.toThrow('devDependencies["@tiptap/extension-highlight"] is "3.20.0"')
+  })
+
+  it('never runs install when a conflict is found (without noInstall)', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+
+    await expect(runUpgradeIn(projectDir, templateDir)).rejects.toThrow(/@tiptap\/core \^3\.23\.6/)
+
+    expect(vi.mocked(execa)).not.toHaveBeenCalled()
+  })
+
+  it('dry-run: warns about a conflict without throwing or changing files', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { dryRun: true, noInstall: true })
+
+    expect(result.packageJsonMerged).toBe(false)
+    expect(warnings()).toContain('@tiptap/extension-highlight')
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(false)
+  })
+
+  it('keeps a caret range that intersects the template range unchanged', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '^3.20.0' })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/extension-highlight']).toBe('^3.20.0')
+    expect(warnings()).not.toContain('@tiptap/extension-highlight')
+  })
+
+  it.each(['github:someone/ext', 'latest'])(
+    'warns but proceeds for an unverifiable spec (%s) and leaves it unchanged',
+    async (spec) => {
+      editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = spec })
+
+      await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+      expect(readPkg().dependencies['@tiptap/extension-highlight']).toBe(spec)
+      expect(warnings()).toContain('@tiptap/extension-highlight')
+      expect(warnings()).toContain('cannot check')
+    },
+  )
+})
+
+describe('findTiptapPinConflicts', () => {
+  const template = { dependencies: { '@tiptap/core': '^3.35.0', '@tiptap/pm': '^3.35.0' } }
+
+  it('ignores @tiptap/* packages the template declares, even if old', () => {
+    const project = {
+      dependencies: { '@tiptap/core': '2.0.0', '@tiptap/pm': '~2.1.0' },
+    }
+    expect(findTiptapPinConflicts(project, template)).toEqual({
+      templateRange: '^3.35.0',
+      conflicts: [],
+      unverifiable: [],
+    })
+  })
+
+  it('flags a tilde range that cannot reach the template range', () => {
+    const project = { dependencies: { '@tiptap/extension-highlight': '~3.20.0' } }
+    expect(findTiptapPinConflicts(project, template).conflicts).toEqual([
+      { section: 'dependencies', name: '@tiptap/extension-highlight', current: '~3.20.0' },
+    ])
+  })
+
+  it('flags an upper-bounded range below the template range', () => {
+    const project = { optionalDependencies: { '@tiptap/extension-foo': '>=3.0.0 <3.23.0' } }
+    expect(findTiptapPinConflicts(project, template).conflicts).toEqual([
+      { section: 'optionalDependencies', name: '@tiptap/extension-foo', current: '>=3.0.0 <3.23.0' },
+    ])
+  })
+
+  it('returns no conflicts when the template has no @tiptap/core', () => {
+    const project = { dependencies: { '@tiptap/extension-highlight': '3.20.0' } }
+    expect(findTiptapPinConflicts(project, { dependencies: {} })).toEqual({
+      templateRange: '',
+      conflicts: [],
+      unverifiable: [],
+    })
   })
 })

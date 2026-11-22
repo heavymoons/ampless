@@ -230,8 +230,18 @@ This runs `npx create-ampless@beta upgrade`, which:
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.
 - Updates `update-ampless` and `copy-theme` script entries if their commands change
 - Never touches your ESLint setup: the `lint` script, `eslint.config.*` / `.eslintrc*` / `.eslintignore`, and ESLint dependencies are left as they are. If `lint` still calls `next lint`, the upgrade prints a warning — see "Migrating from `next lint`" below.
+- Keeps the `@tiptap/*` packages the template ships in lockstep. `@tiptap/*` packages you added yourself are never rewritten; if one of them cannot share a version with the new `@tiptap/core`, the upgrade stops before changing any files — see "Tiptap extensions you added yourself" below.
 
 You can review the diff before committing.
+
+### Tiptap extensions you added yourself
+
+`update-ampless` keeps the `@tiptap/*` packages that the template ships in lockstep, but it never rewrites `@tiptap/*` packages you added yourself (for example `@tiptap/extension-highlight`). Every `@tiptap/*` package must resolve to the same version as `@tiptap/core`, otherwise `npm install` fails with ERESOLVE (or pnpm loads two copies of the editor).
+
+A caret range such as `^3.x` is picked up automatically. If one of your packages cannot follow (an exact pin like `"3.32.0"`, a `~` range, or an old major), the upgrade stops before changing any files and lists the offending entries. To fix it:
+
+1. Edit each listed range in `package.json` to the suggested one (for example `"^3.35.0"`). Do not run `npm install` first.
+2. Run `npm run update-ampless` again.
 
 ### Migrating from `next lint`
 

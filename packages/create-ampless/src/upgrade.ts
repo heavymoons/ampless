@@ -4,6 +4,7 @@ import { join, relative, extname, dirname } from 'node:path'
 import { log, outro } from '@clack/prompts'
 import pc from 'picocolors'
 import { execa } from 'execa'
+import semver from 'semver'
 import { validateMountableProject } from './mount.js'
 import { sharedTemplateDir } from './templates.js'
 import { buildRegistry, discoverInstalledThemes } from './themes-registry.js'
@@ -589,6 +590,95 @@ function detectIndent(jsonStr: string): number {
 }
 
 // ----------------------------------------------------------------------------
+// Project-only @tiptap/* pin check
+// ----------------------------------------------------------------------------
+
+const TIPTAP_DEP_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const
+
+interface TiptapPinEntry {
+  section: (typeof TIPTAP_DEP_SECTIONS)[number]
+  name: string
+  current: string
+}
+
+interface TiptapPinReport {
+  /** The template's `@tiptap/core` range the project-only specs are checked against. */
+  templateRange: string
+  /** Specs whose range cannot overlap the template's `@tiptap/core` range. */
+  conflicts: TiptapPinEntry[]
+  /** Specs that are not semver ranges (git URL, `file:`, dist-tag, ...) and so cannot be checked. */
+  unverifiable: TiptapPinEntry[]
+}
+
+/**
+ * Tiptap packages peer-depend on the exact same `@tiptap/core` version, and
+ * the upgrade rewrites every `@tiptap/*` the template ships. A project-only
+ * `@tiptap/*` package (one the template does not declare) survives untouched,
+ * so an exact pin / `~` range / old major on it can no longer share a version
+ * with the bumped `@tiptap/core` and the install fails (ERESOLVE) or loads two
+ * editor copies. Detect that before anything is written. A caret range that
+ * intersects the template's range is fine — the package manager moves it.
+ */
+export function findTiptapPinConflicts(
+  projectPkg: Record<string, unknown>,
+  templatePkg: Record<string, unknown>,
+): TiptapPinReport {
+  const templateRange = ((templatePkg['dependencies'] ?? {}) as Record<string, unknown>)['@tiptap/core']
+  if (typeof templateRange !== 'string' || semver.validRange(templateRange) === null) {
+    return { templateRange: '', conflicts: [], unverifiable: [] }
+  }
+  const report: TiptapPinReport = { templateRange, conflicts: [], unverifiable: [] }
+
+  // Template-declared packages are overwritten by the sync, so they are not
+  // user choices that survive the upgrade.
+  const templateDeclared = new Set<string>()
+  for (const section of TIPTAP_DEP_SECTIONS) {
+    for (const name of Object.keys((templatePkg[section] ?? {}) as Record<string, unknown>)) {
+      templateDeclared.add(name)
+    }
+  }
+
+  for (const section of TIPTAP_DEP_SECTIONS) {
+    const deps = (projectPkg[section] ?? {}) as Record<string, unknown>
+    for (const [name, spec] of Object.entries(deps)) {
+      if (!name.startsWith('@tiptap/') || templateDeclared.has(name)) continue
+      if (typeof spec !== 'string') continue
+      const entry: TiptapPinEntry = { section, name, current: spec }
+      if (semver.validRange(spec) === null) {
+        report.unverifiable.push(entry)
+      } else if (!semver.intersects(spec, templateRange)) {
+        report.conflicts.push(entry)
+      }
+    }
+  }
+  return report
+}
+
+function buildTiptapPinConflictMessage(conflicts: TiptapPinEntry[], templateRange: string): string {
+  const lines = conflicts.map(
+    (c) => `  - ${c.section}["${c.name}"] is "${c.current}"; change it to "${templateRange}"`,
+  )
+  return (
+    'update-ampless stopped before changing any files: package.json pins @tiptap/* packages that ' +
+    `cannot share a version with @tiptap/core ${templateRange} used by this ampless release. ` +
+    'Every @tiptap/* package must resolve to the same version, so the install would fail with ' +
+    'ERESOLVE (npm) or load two copies of the editor (pnpm).\n' +
+    lines.join('\n') +
+    '\nupdate-ampless never rewrites @tiptap/* packages that ampless does not ship, so it leaves these for you. ' +
+    'Edit the ranges in package.json (do not run `npm install` first), then run `npm run update-ampless` again. ' +
+    `If an extension has no release matching ${templateRange} yet, stay on your current ampless version until it does. ` +
+    'See "Updating ampless" in README.md.'
+  )
+}
+
+function buildTiptapUnverifiableWarning(entry: TiptapPinEntry, templateRange: string): string {
+  return (
+    `${entry.section}["${entry.name}"] is "${entry.current}", which update-ampless cannot check against ` +
+    `@tiptap/core ${templateRange}. Every @tiptap/* package must resolve to the same version.`
+  )
+}
+
+// ----------------------------------------------------------------------------
 // User-installed @ampless/* plugin bump
 // ----------------------------------------------------------------------------
 
@@ -832,6 +922,12 @@ export async function runUpgradeIn(
 
   const vars: Record<string, string> = { projectName }
 
+  // 2b. read the template package.json up front: the @tiptap/* pin check below
+  // must run before anything is written.
+  const templatePkg = JSON.parse(
+    await readFile(join(sharedDir, 'package.json'), 'utf-8'),
+  ) as Record<string, unknown>
+
   // 3. collect files from shared template dir
   const allRelPaths: string[] = []
   await walkDir(sharedDir, sharedDir, allRelPaths)
@@ -900,6 +996,18 @@ export async function runUpgradeIn(
     log.warn(NEXT_LINT_WARNING)
   }
 
+  // 4c. project-only @tiptap/* specs that cannot share a version with the
+  // template's @tiptap/core. Real runs abort here, before any write.
+  const tiptapPins = findTiptapPinConflicts(projectPkg, templatePkg)
+  for (const entry of tiptapPins.unverifiable) {
+    log.warn(buildTiptapUnverifiableWarning(entry, tiptapPins.templateRange))
+  }
+  if (tiptapPins.conflicts.length > 0) {
+    const message = buildTiptapPinConflictMessage(tiptapPins.conflicts, tiptapPins.templateRange)
+    if (!opts.dryRun) throw new Error(message)
+    log.warn(message)
+  }
+
   // 5. dry-run exit
   if (opts.dryRun) {
     return {
@@ -944,9 +1052,6 @@ export async function runUpgradeIn(
   await removeObsoleteFiles(destDir, obsoleteFiles)
 
   // 7. execute merge package.json
-  const templatePkgRaw = await readFile(join(sharedDir, 'package.json'), 'utf-8')
-  const templatePkg = JSON.parse(templatePkgRaw) as Record<string, unknown>
-
   const indent = detectIndent(projectPkgRaw)
 
   // Merge ampless deps from template into project
