@@ -1,4 +1,4 @@
-import { postBodyClassName, type Post } from 'ampless'
+import type { Post } from 'ampless'
 import { renderThemeCss } from '@ampless/runtime'
 import type { Admin } from '../index.js'
 
@@ -233,32 +233,7 @@ em { font-style: italic; }
  *
  * This gives pixel-accurate theme rendering (drop caps, theme tokens, dark
  * mode) in the preview without requiring the Route Handler to know the hashed
- * CSS bundle filenames. The admin page's http(s) `<link>` stylesheets are
- * copied, the site's own bundles and CDN-hosted ones alike (with their
- * `integrity` / `crossorigin` / `media` / `referrerpolicy`).
- *
- * ## Mirroring the public post page's DOM
- *
- * Theme CSS keys off the public page's markup, so the document reproduces
- * the parts it depends on:
- *
- *   - `<html data-color-scheme="light|dark">` when the site pins a colour
- *     scheme (omitted for `'auto'`), like the root layout.
- *   - `<body class="ampless-preview" data-theme="<activeTheme>">`, so the
- *     active theme's `[data-theme='<name>']` tokens.css block matches. The
- *     client helper does not copy a parent `data-*` attribute the server
- *     already set, so this value stays authoritative.
- *   - `<main id="post-body" class="…">`, the theme's post body wrapper. Its
- *     base classes are, in order: `options.bodyClassName` when given, else
- *     the active theme's `manifest.postBody.className`, else
- *     `'prose prose-neutral dark:prose-invert max-w-none'`. The draft's
- *     `metadata.postClasses` are appended as `ampless-post--<id>` via
- *     `postBodyClassName`, exactly as the theme's post page does.
- *
- * All of it comes from the single `admin.loadThemeConfig()` call. When that
- * fails, the preview renders without theme vars, `data-theme` and
- * `data-color-scheme`, with the option or default base class, and logs a
- * warning. Every interpolated attribute value is HTML-escaped.
+ * CSS bundle filenames.
  *
  * ## Why a Route Handler (not a Server Action)?
  *
@@ -290,35 +265,23 @@ em { font-style: italic; }
  */
 export interface PreviewRouteHandlerOptions {
   /**
-   * Base CSS class string for the `<main id="post-body">` wrapper in the
-   * preview document. When omitted, the active theme's
-   * `manifest.postBody.className` is used, falling back to
-   * `'prose prose-neutral dark:prose-invert max-w-none'` when the theme
-   * declares none (or the theme config cannot be loaded). Set it only when
-   * the preview should use a different wrapper class than the theme
-   * declares; `ampless-post--<id>` classes are appended either way.
+   * CSS class string applied to the `<main>` wrapper in the preview document.
+   * Defaults to `'prose prose-neutral dark:prose-invert max-w-none'` which
+   * matches the typical blog theme `#post-body` wrapper. Sites that use a
+   * different wrapper class (e.g. a custom typography plugin) can override
+   * this so the theme's `.prose`-scoped CSS selectors apply correctly inside
+   * the preview iframe.
    */
   bodyClassName?: string
-}
-
-const DEFAULT_PREVIEW_BODY_CLASS_NAME = 'prose prose-neutral dark:prose-invert max-w-none'
-
-/** Escape a value for a double-quoted HTML attribute. */
-function escapeAttr(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
 }
 
 export function createPreviewRouteHandler(
   admin: Admin,
   options: PreviewRouteHandlerOptions = {}
 ): (req: Request) => Promise<Response> {
-  // `undefined` = not configured: fall through to the active theme's
-  // `manifest.postBody.className`, then to the default.
-  const explicitBodyClassName = options.bodyClassName
+  const {
+    bodyClassName = 'prose prose-neutral dark:prose-invert max-w-none',
+  } = options
   return async function POST(req: Request): Promise<Response> {
     const session = await admin.getServerSession()
     if (!admin.isEditor(session)) {
@@ -356,20 +319,11 @@ export function createPreviewRouteHandler(
     // colour tokens). We catch here because `loadThemeConfig` reaches the S3
     // site-settings cache — if storage isn't configured yet (e.g. first-run
     // sandbox), we shouldn't break preview entirely.
-    // The same call also yields the active theme name (→ `data-theme`), its
-    // colour scheme (→ `data-color-scheme`) and the manifest's
-    // `postBody.className` (→ base classes of `#post-body`).
     let themeCssBlock = ''
-    let activeTheme: string | undefined
-    let colorScheme: string | undefined
-    let manifestBodyClassName: string | undefined
     try {
       const themeConfig = await admin.loadThemeConfig()
       const css = renderThemeCss(themeConfig.cssVars)
       if (css) themeCssBlock = css
-      activeTheme = themeConfig.activeTheme
-      colorScheme = themeConfig.colorScheme
-      manifestBodyClassName = themeConfig.manifest?.postBody?.className
     } catch (err) {
       // Storage not yet configured or theme manifest unavailable — skip vars.
       // Recoverable, but leave a log trail (repo guidance: never swallow
@@ -378,30 +332,17 @@ export function createPreviewRouteHandler(
       console.warn('[ampless admin] preview theme CSS unavailable:', err)
     }
 
-    // Theme-defined post classes (`metadata.postClasses`) go on `#post-body`
-    // like on the public post page. `postBodyClassName` keeps only ids
-    // matching CUSTOM_CLASS_ID_PATTERN (no quotes / spaces / markup), so the
-    // draft cannot break out of the attribute. The base (operator option or
-    // theme manifest) and the theme values are trusted config, but they are
-    // escaped anyway.
-    const baseClassName =
-      explicitBodyClassName ?? manifestBodyClassName ?? DEFAULT_PREVIEW_BODY_CLASS_NAME
-    const mainClassName = escapeAttr(postBodyClassName(draft?.metadata, baseClassName))
-    // Mirrors the root layout: no attribute for 'auto'.
-    const htmlAttrs =
-      colorScheme && colorScheme !== 'auto' ? ` data-color-scheme="${escapeAttr(colorScheme)}"` : ''
-    const bodyAttrs = activeTheme ? ` data-theme="${escapeAttr(activeTheme)}"` : ''
     const html =
       `<!doctype html>` +
-      `<html${htmlAttrs}>` +
+      `<html>` +
       `<head>` +
       `<meta charset="utf-8">` +
       (themeCssBlock ? `<style>${themeCssBlock}</style>` : '') +
       `<style id="ampless-preview-base">${PREVIEW_BASE_CSS}</style>` +
       headMarkup +
       `</head>` +
-      `<body class="ampless-preview"${bodyAttrs}>` +
-      `<main id="post-body" class="${mainClassName}">${fragment}</main>` +
+      `<body class="ampless-preview">` +
+      `<main class="${bodyClassName}">${fragment}</main>` +
       `</body>` +
       `</html>`
 

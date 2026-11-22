@@ -8,7 +8,6 @@ import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
-import manifest from '../manifest'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -78,7 +77,7 @@ export default async function DadsPost({ params }: PostCtx) {
 
           <div
             id="post-body"
-            className={ampless.postBodyClassName(post, manifest.postBody?.className)}
+            className="prose prose-neutral dark:prose-invert max-w-none [&_a]:text-[var(--primary)] [&_a]:underline-offset-4 [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
             style={proseStyle}
           >
             {await ampless.renderBody(post)}

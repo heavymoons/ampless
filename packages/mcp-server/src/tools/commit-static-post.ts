@@ -7,8 +7,7 @@ import {
   type StaticPostFileMeta,
 } from 'ampless'
 import type { GraphqlClient, StorageClient } from './types.js'
-import { upsertStaticPost, StaticPostConflictError } from './upsert-static-post.js'
-import { assertLegacyStaticSlug } from './static-bundle-storage.js'
+import { upsertStaticPost } from './upsert-static-post.js'
 
 export interface CommitStaticPostArgs {
   slug: string
@@ -66,12 +65,6 @@ export const commitStaticPostSchema = {
  * Also doubles as a "create an empty static post" entry point if the
  * caller has already uploaded the files via `upload_static_file`
  * without ever calling `upload_static_bundle`.
- *
- * Legacy layout only: a post whose current body is versioned is refused
- * (fail closed), since committing would swap it back to whatever stale
- * files sit under the legacy prefix. The update is conditional on the
- * row read for that check, so a bundle replaced in between is not
- * overwritten.
  */
 export async function commitStaticPost(
   graphql: GraphqlClient,
@@ -80,7 +73,6 @@ export async function commitStaticPost(
 ) {
   const slug = args.slug
   const prefix = bundlePrefix(slug)
-  const existing = await assertLegacyStaticSlug(graphql, slug, 'commit_static_post')
 
   const objects = await storage.listObjects(prefix)
   if (objects.length === 0) {
@@ -128,29 +120,15 @@ export async function commitStaticPost(
     files: filesMeta,
   }
 
-  let result: Awaited<ReturnType<typeof upsertStaticPost>>
-  try {
-    result = await upsertStaticPost(
-      graphql,
-      slug,
-      body,
-      {
-        title: args.title,
-        postId: args.postId,
-        excerpt: args.excerpt,
-        status: args.status,
-        publishedAt: args.publishedAt,
-        tags: args.tags,
-        metadata: mergedMetadata,
-      },
-      { existing },
-    )
-  } catch (err) {
-    if (err instanceof StaticPostConflictError) {
-      throw new Error(`commit_static_post: ${err.message} Re-read the post (get_post) and retry.`)
-    }
-    throw err
-  }
+  const { post, created } = await upsertStaticPost(graphql, slug, body, {
+    title: args.title,
+    postId: args.postId,
+    excerpt: args.excerpt,
+    status: args.status,
+    publishedAt: args.publishedAt,
+    tags: args.tags,
+    metadata: mergedMetadata,
+  })
 
-  return { post: result.post, bundle: body, created: result.created }
+  return { post, bundle: body, created }
 }

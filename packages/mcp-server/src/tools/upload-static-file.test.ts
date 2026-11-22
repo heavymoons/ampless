@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { uploadStaticFile } from './upload-static-file.js'
-import type { GraphqlClient, StorageClient } from './types.js'
-
-
-// No post at the slug (a legacy / new-slug workflow).
-const NO_POST = {
-  async query() {
-    return { listPosts: { items: [] } }
-  },
-} as GraphqlClient
+import type { StorageClient } from './types.js'
 
 function makeStorage(): {
   storage: StorageClient
@@ -38,7 +30,7 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
 
-    const result = await uploadStaticFile(NO_POST, storage, {
+    const result = await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'img/logo.png',
       base64Data: data,
@@ -54,7 +46,7 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const data = Buffer.from('hello').toString('base64')
 
-    await uploadStaticFile(NO_POST, storage, {
+    await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'note.unknown',
       contentType: 'application/x-custom',
@@ -67,14 +59,14 @@ describe('upload_static_file', () => {
   it('rejects bad filenames (parent traversal, absolute paths)', async () => {
     const { storage } = makeStorage()
     await expect(
-      uploadStaticFile(NO_POST, storage, {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: '../etc/passwd',
         base64Data: Buffer.from('x').toString('base64'),
       }),
     ).rejects.toThrow(/parent-directory/i)
     await expect(
-      uploadStaticFile(NO_POST, storage, {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: '/abs',
         base64Data: Buffer.from('x').toString('base64'),
@@ -87,7 +79,7 @@ describe('upload_static_file', () => {
     const html = '<img src="/abs.png">'
 
     await expect(
-      uploadStaticFile(NO_POST, storage, {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: 'index.html',
         base64Data: Buffer.from(html).toString('base64'),
@@ -98,7 +90,7 @@ describe('upload_static_file', () => {
   it('rejects zero-byte uploads', async () => {
     const { storage } = makeStorage()
     await expect(
-      uploadStaticFile(NO_POST, storage, {
+      uploadStaticFile(storage, {
         slug: 'lp',
         filename: 'index.html',
         base64Data: '',
@@ -110,7 +102,7 @@ describe('upload_static_file', () => {
     const { storage, puts } = makeStorage()
     const html = '<a href="other.html">x</a>'
 
-    const result = await uploadStaticFile(NO_POST, storage, {
+    const result = await uploadStaticFile(storage, {
       slug: 'lp',
       filename: 'about.html',
       base64Data: Buffer.from(html).toString('base64'),

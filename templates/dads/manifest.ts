@@ -16,14 +16,6 @@ export default defineTheme({
     en: 'Government / public-sector layout following the Digital Agency Design System aesthetic. High contrast, accessibility-first, minimal decoration.',
     ja: 'デジタル庁デザインシステム準拠のレイアウト。政府・自治体・公共系サイト向け。高コントラスト、アクセシビリティ重視、装飾控えめ。',
   },
-  // Base classes of the post body wrapper (`#post-body`). pages/post.tsx
-  // passes them to `ampless.postBodyClassName`, and the admin preview
-  // reuses them so the preview's `#post-body` matches the public page.
-  // Tailwind's source detection scans this file, so these utilities are
-  // generated like any class written inline in a page.
-  postBody: {
-    className: 'prose prose-neutral dark:prose-invert max-w-none [&_a]:text-[var(--primary)] [&_a]:underline-offset-4 [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto',
-  },
   fields: [
     {
       key: 'logoUrl',

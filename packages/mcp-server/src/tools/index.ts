@@ -69,7 +69,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'create_post',
     description:
-      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details. Pass `postClasses: ["<id>", ...]` to apply theme-defined post styles (rendered as `ampless-post--<id>` on the post body; the theme declares the ids) — see get_schema.notes.postClasses.',
+      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details.',
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, args as unknown as Parameters<typeof createPost>[1]),
@@ -79,7 +79,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'update_post',
     description:
-      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key. The top-level `postClasses` arg is the exception: without `metadata` it merges into the current metadata (other keys kept; an empty array removes the post classes). The merge is atomic: if the post is modified by someone else between the read and the write, the call fails without writing anything — re-read the post and retry. See get_schema.notes.postClasses.',
+      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key.',
     inputSchema: updatePostSchema,
     handler: (args, ctx) =>
       updatePost(ctx.graphql, args as unknown as Parameters<typeof updatePost>[1]),
@@ -90,10 +90,10 @@ export const tools: ToolDefinition[] = [
   {
     name: 'delete_post',
     description:
-      "Delete a post by postId. Also drops associated PostTag index entries. For a `format: 'static'` post, its bundle files in S3 (the legacy public/static/<slug>/ prefix and every versioned bundle under public/static/_v/<slug>/) are removed after the row (best-effort).",
+      'Delete a post by postId. Also drops associated PostTag index entries.',
     inputSchema: deletePostSchema,
     handler: (args, ctx) =>
-      deletePost(ctx.graphql, args as unknown as Parameters<typeof deletePost>[1], ctx.storage),
+      deletePost(ctx.graphql, args as unknown as Parameters<typeof deletePost>[1]),
     readOnly: false,
     destructive: true,
   },
@@ -153,7 +153,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'upload_static_bundle',
     description:
-      "Create or replace a `format: 'static'` post in one shot. Pass a base64-encoded zip; the server unpacks it, validates every path + lints HTML/CSS/SVG for absolute path refs (bundles must be self-contained via relative paths), uploads every file into a NEW immutable version prefix (public/static/_v/<slug>/<version>/; nothing the live post uses is deleted or overwritten), and upserts the Post row with a manifest pointing at the entrypoint and carrying `version`. An existing post is updated only if unchanged since the tool read it: if someone else saved it meanwhile, nothing is written, the uploaded files are removed and the live bundle stays as it was — re-read the post and retry. After a successful replace the previous versioned bundle is deleted; a previous legacy public/static/<slug>/ prefix is left in place. Use this when you have the whole bundle to submit at once, and always to replace a versioned bundle. upload_static_file / delete_static_file + commit_static_post work only on legacy (unversioned) bundles and on new slugs.",
+      "Create or replace a `format: 'static'` post in one shot. Pass a base64-encoded zip; the server unpacks it, validates every path + lints HTML/CSS/SVG for absolute path refs (bundles must be self-contained via relative paths), wipes the existing S3 prefix at public/static/<slug>/, uploads every file, and upserts the Post row with a manifest pointing at the entrypoint. Use this when you have the whole bundle to submit at once. For incremental edits use upload_static_file / delete_static_file followed by commit_static_post.",
     inputSchema: uploadStaticBundleSchema,
     handler: (args, ctx) =>
       uploadStaticBundle(
@@ -167,13 +167,12 @@ export const tools: ToolDefinition[] = [
   {
     name: 'upload_static_file',
     description:
-      "Upload a single file into a legacy (unversioned) static bundle's S3 prefix public/static/<slug>/. Refused when the post at the slug uses a versioned bundle (`body.version`, as written by upload_static_bundle or the admin) — replace that with upload_static_bundle. The Post row is NOT modified — its `body` manifest will be out of sync with the prefix until you call `commit_static_post`. Use this for incremental edits (one CSS swap, single image change) where rebuilding the entire zip would be overkill. Text files (HTML/CSS/SVG) are linted for absolute / protocol-relative URL refs the same as the zip flow.",
+      "Upload a single file into an existing static bundle's S3 prefix. The Post row is NOT modified — its `body` manifest will be out of sync with the prefix until you call `commit_static_post`. Use this for incremental edits (one CSS swap, single image change) where rebuilding the entire zip would be overkill. Text files (HTML/CSS/SVG) are linted for absolute / protocol-relative URL refs the same as the zip flow.",
     inputSchema: uploadStaticFileSchema,
     handler: (args, ctx) =>
       uploadStaticFile(
-        ctx.graphql,
         ctx.storage(),
-        args as unknown as Parameters<typeof uploadStaticFile>[2],
+        args as unknown as Parameters<typeof uploadStaticFile>[1],
       ),
     readOnly: false,
     // Overwrites whatever file currently sits at that S3 key.
@@ -182,13 +181,12 @@ export const tools: ToolDefinition[] = [
   {
     name: 'delete_static_file',
     description:
-      "Delete a single file from a legacy (unversioned) static bundle's S3 prefix public/static/<slug>/. Refused when the post at the slug uses a versioned bundle — replace that with upload_static_bundle. The Post row is NOT modified — its `body` manifest will list the deleted file until you call `commit_static_post`. Idempotent: returns `{ deleted: false }` instead of throwing if the file isn't there.",
+      "Delete a single file from a static bundle's S3 prefix. The Post row is NOT modified — its `body` manifest will list the deleted file until you call `commit_static_post`. Idempotent: returns `{ deleted: false }` instead of throwing if the file isn't there.",
     inputSchema: deleteStaticFileSchema,
     handler: (args, ctx) =>
       deleteStaticFile(
-        ctx.graphql,
         ctx.storage(),
-        args as unknown as Parameters<typeof deleteStaticFile>[2],
+        args as unknown as Parameters<typeof deleteStaticFile>[1],
       ),
     readOnly: false,
     destructive: true,
@@ -196,7 +194,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'commit_static_post',
     description:
-      'Rebuild a static post\'s Post row from whatever is currently in its S3 prefix. Scans `public/static/<slug>/`, picks the entrypoint (default `index.html` or override), and upserts the Post with a fresh manifest (sorted file list + uploadedAt timestamp). Use this as the "save" step after a series of `upload_static_file` / `delete_static_file` calls. Legacy (unversioned) bundles only: refused when the post at the slug uses a versioned bundle (use upload_static_bundle), and the update is conditional on the post being unchanged since the tool read it. `title` is required when creating a brand-new post; on update, existing fields are preserved unless explicitly overridden.',
+      'Rebuild a static post\'s Post row from whatever is currently in its S3 prefix. Scans `public/static/<slug>/`, picks the entrypoint (default `index.html` or override), and upserts the Post with a fresh manifest (sorted file list + uploadedAt timestamp). Use this as the "save" step after a series of `upload_static_file` / `delete_static_file` calls. `title` is required when creating a brand-new post; on update, existing fields are preserved unless explicitly overridden.',
     inputSchema: commitStaticPostSchema,
     handler: (args, ctx) =>
       commitStaticPost(

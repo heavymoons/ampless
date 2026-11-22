@@ -8,13 +8,6 @@ import {
   stripCommonPrefix,
   pickDefaultEntrypoint,
   DEFAULT_ENTRYPOINT,
-  isReservedStaticSlug,
-  isValidBundleVersion,
-  generateBundleVersion,
-  versionedBundlesPrefix,
-  versionedBundlePrefix,
-  staticBundleVersion,
-  staticBundlePrefix,
 } from './static-bundle.js'
 
 describe('validateBundlePath', () => {
@@ -150,86 +143,6 @@ describe('bundlePrefix', () => {
 
   it('preserves arbitrary slug strings unchanged', () => {
     expect(bundlePrefix('a b c')).toBe('public/static/a b c/')
-  })
-
-  it('refuses a slug whose prefix would contain the versioned area', () => {
-    expect(() => bundlePrefix('_v')).toThrow(/reserved/)
-    expect(() => bundlePrefix('_v/my-lp')).toThrow(/reserved/)
-    // Only the exact segment is reserved.
-    expect(bundlePrefix('_v2')).toBe('public/static/_v2/')
-    expect(bundlePrefix('v')).toBe('public/static/v/')
-  })
-})
-
-describe('isReservedStaticSlug', () => {
-  it('matches `_v` and `_v/…` only', () => {
-    expect(isReservedStaticSlug('_v')).toBe(true)
-    expect(isReservedStaticSlug('_v/x')).toBe(true)
-    expect(isReservedStaticSlug('_v-x')).toBe(false)
-    expect(isReservedStaticSlug('x/_v')).toBe(false)
-    expect(isReservedStaticSlug('')).toBe(false)
-  })
-})
-
-describe('bundle versions', () => {
-  it('generates valid, distinct ids', () => {
-    const a = generateBundleVersion(Date.UTC(2026, 10, 22))
-    const b = generateBundleVersion(Date.UTC(2026, 10, 22))
-    expect(isValidBundleVersion(a)).toBe(true)
-    expect(isValidBundleVersion(b)).toBe(true)
-    expect(a).not.toBe(b)
-    expect(a).toMatch(/^[a-z0-9]+-[0-9a-f]{10}$/)
-  })
-
-  it('validates the charset and length', () => {
-    expect(isValidBundleVersion('mhx3k2a1-4f9c0d2e7b')).toBe(true)
-    expect(isValidBundleVersion('v1')).toBe(true)
-    for (const bad of ['', 'V1', 'a/b', '..', 'a.b', '-a', 'a-', 'a--b', 'a b', 'a'.repeat(65), 1, null, undefined]) {
-      expect(isValidBundleVersion(bad)).toBe(false)
-    }
-  })
-
-  it('staticBundleVersion reads only a valid version', () => {
-    expect(staticBundleVersion({ entrypoint: 'index.html', files: [], uploadedAt: 'x', version: 'v1' })).toBe('v1')
-    expect(staticBundleVersion({ entrypoint: 'index.html', files: [], uploadedAt: 'x' })).toBeUndefined()
-    expect(staticBundleVersion({ version: '../x' })).toBeUndefined()
-    expect(staticBundleVersion(null)).toBeUndefined()
-    expect(staticBundleVersion('v1')).toBeUndefined()
-  })
-})
-
-describe('versioned prefixes', () => {
-  it('nests versions under the reserved segment, slug encoded as one segment', () => {
-    expect(versionedBundlesPrefix('my-lp')).toBe('public/static/_v/my-lp/')
-    expect(versionedBundlePrefix('my-lp', 'v1')).toBe('public/static/_v/my-lp/v1/')
-    // A slug with `/` cannot nest inside another slug's versions.
-    expect(versionedBundlesPrefix('a/v1')).toBe('public/static/_v/a%2Fv1/')
-    expect(versionedBundlePrefix('a', 'v1').startsWith(versionedBundlesPrefix('a/v1'))).toBe(false)
-    expect(versionedBundlesPrefix('_v')).toBe('public/static/_v/_v/')
-  })
-
-  it('never overlaps a legacy prefix of a non-reserved slug', () => {
-    for (const slug of ['my-lp', 'v', '_v2', 'a b', 'static']) {
-      expect(versionedBundlePrefix('my-lp', 'v1').startsWith(bundlePrefix(slug))).toBe(false)
-    }
-  })
-
-  it('rejects an invalid version', () => {
-    expect(() => versionedBundlePrefix('my-lp', '../x')).toThrow(/Invalid static bundle version/)
-  })
-})
-
-describe('staticBundlePrefix', () => {
-  const base = { entrypoint: 'index.html', files: ['index.html'], uploadedAt: '2026-01-01T00:00:00.000Z' }
-
-  it('uses the versioned prefix for a valid version', () => {
-    expect(staticBundlePrefix('my-lp', { ...base, version: 'v1' })).toBe('public/static/_v/my-lp/v1/')
-  })
-
-  it('falls back to the unchanged legacy prefix for absent / invalid versions', () => {
-    expect(staticBundlePrefix('my-lp', base)).toBe('public/static/my-lp/')
-    expect(staticBundlePrefix('my-lp', { ...base, version: 'A/B' })).toBe('public/static/my-lp/')
-    expect(staticBundlePrefix('my-lp', null)).toBe('public/static/my-lp/')
   })
 })
 

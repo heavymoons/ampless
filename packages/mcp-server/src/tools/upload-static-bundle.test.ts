@@ -73,7 +73,7 @@ describe('upload_static_bundle', () => {
     vi.useRealTimers()
   })
 
-  it('extracts a zip, uploads files into a new version prefix (deleting nothing), and creates a new post', async () => {
+  it('extracts a zip, wipes the prefix, uploads files, and creates a new post', async () => {
     const zip = makeZip({
       'index.html': '<html><body><img src="img/x.png"></body></html>',
       'img/x.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
@@ -104,17 +104,15 @@ describe('upload_static_bundle', () => {
       zipBase64: zip.toString('base64'),
     })
 
-    // Nothing is deleted: the legacy prefix object stays.
-    expect(deletes).toEqual([])
+    // Existing prefix object is wiped first.
+    expect(deletes).toEqual(['public/static/my-lp/old.html'])
 
-    // All three files uploaded into the new version's prefix.
-    const version = result.bundle.version!
-    expect(version).toMatch(/^[a-z0-9]+-[0-9a-f]{10}$/)
+    // All three files uploaded.
     const keys = puts.map((p) => p.key).sort()
     expect(keys).toEqual([
-      `public/static/_v/my-lp/${version}/img/x.png`,
-      `public/static/_v/my-lp/${version}/index.html`,
-      `public/static/_v/my-lp/${version}/style.css`,
+      'public/static/my-lp/img/x.png',
+      'public/static/my-lp/index.html',
+      'public/static/my-lp/style.css',
     ])
 
     // index.html got the right content-type.

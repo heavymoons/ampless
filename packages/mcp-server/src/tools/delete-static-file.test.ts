@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deleteStaticFile } from './delete-static-file.js'
-import type { GraphqlClient, StorageClient, StorageObject } from './types.js'
-
-
-// No post at the slug (a legacy / new-slug workflow).
-const NO_POST = {
-  async query() {
-    return { listPosts: { items: [] } }
-  },
-} as GraphqlClient
+import type { StorageClient, StorageObject } from './types.js'
 
 function makeStorage(initial: StorageObject[] = []): {
   storage: StorageClient
@@ -42,7 +34,7 @@ describe('delete_static_file', () => {
       { key: 'public/static/lp/index.html', size: 100 },
     ])
 
-    const result = await deleteStaticFile(NO_POST, storage, {
+    const result = await deleteStaticFile(storage, {
       slug: 'lp',
       filename: 'index.html',
     })
@@ -54,7 +46,7 @@ describe('delete_static_file', () => {
   it('returns deleted: false (and skips deleteObject) when the file is missing', async () => {
     const { storage, deletes } = makeStorage([])
 
-    const result = await deleteStaticFile(NO_POST, storage, {
+    const result = await deleteStaticFile(storage, {
       slug: 'lp',
       filename: 'missing.html',
     })
@@ -66,7 +58,7 @@ describe('delete_static_file', () => {
   it('rejects bad filenames', async () => {
     const { storage } = makeStorage()
     await expect(
-      deleteStaticFile(NO_POST, storage, {
+      deleteStaticFile(storage, {
         slug: 'lp',
         filename: '../escape',
       }),

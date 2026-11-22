@@ -83,12 +83,7 @@ export function createMcpGraphqlClient(opts: McpGraphqlClientOpts): GraphqlClien
       if (json.errors && json.errors.length > 0) {
         const msg = json.errors.map((e) => e.message).join('; ')
         console.error('[mcp-graphql-client] AppSync GraphQL errors', { errors: json.errors })
-        // Attach the raw errors so tools can match on `errorType` (e.g.
-        // `DynamoDB:ConditionalCheckFailedException`), which the message
-        // does not carry.
-        throw Object.assign(new Error(`AppSync GraphQL error: ${msg}`), {
-          graphqlErrors: json.errors,
-        })
+        throw new Error(`AppSync GraphQL error: ${msg}`)
       }
       if (!json.data) {
         throw new Error('AppSync returned an empty response')

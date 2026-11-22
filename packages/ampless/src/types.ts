@@ -2,11 +2,9 @@ export type ContentFormat = 'tiptap' | 'markdown' | 'html' | 'static'
 
 /**
  * Body shape for `format: 'static'` posts. The actual asset bytes
- * live in S3 — under the immutable prefix
- * `public/static/_v/<encoded slug>/<version>/` when `version` is set
- * (and valid), else under the legacy `public/static/<slug>/` (see
- * `staticBundlePrefix`). The body here is the manifest describing which
- * entrypoint to serve and which files are part of the bundle.
+ * live under S3 at `public/static/<slug>/<files...>` — the body here
+ * is the manifest describing which entrypoint to serve and which files
+ * are part of the bundle.
  *
  * Stored as JSON in the `body` column (same encoding pattern as the
  * tiptap doc / html string / markdown string for the other formats).
@@ -25,12 +23,6 @@ export interface StaticPostBody {
   files: string[]
   /** ISO 8601 timestamp of the most recent upload. */
   uploadedAt: string
-  /**
-   * Immutable bundle id (`generateBundleVersion`). Set by uploads that
-   * write a fresh versioned prefix; absent (or invalid) means the legacy
-   * per-slug prefix.
-   */
-  version?: string
 }
 
 export type PostStatus = 'draft' | 'published'
@@ -66,8 +58,6 @@ export type CacheStrategy = 'auto' | 'deep' | 'hot'
  *   - `cache`: see `CacheStrategy`. Overrides the default 'auto'
  *     cache strategy for this post. Independent of `no_layout` —
  *     applies uniformly to themed, no_layout, and static posts.
- *   - `postClasses`: theme-defined post-level class ids (see
- *     `PostMetadata.postClasses`).
  *
  * Additional keys are passed through unchanged — themes and plugins
  * are free to store their own per-post state here (e.g. SEO overrides,
@@ -101,15 +91,6 @@ export interface PostMetadata {
    * "fall back to a HEAD lookup".
    */
   files?: Record<string, StaticPostFileMeta>
-  /**
-   * Theme-defined post-level class ids (`ThemeManifest.customClasses`
-   * entries with `target: 'post'`). Each id must match
-   * `CUSTOM_CLASS_ID_PATTERN`; themes render them as `ampless-post--<id>`
-   * on the post body wrapper via `ampless.postBodyClassName(post, base)`.
-   * Invalid ids are dropped at render time; ids the active theme does not
-   * declare still render (unstyled), so a theme switch never loses them.
-   */
-  postClasses?: string[]
   [key: string]: unknown
 }
 

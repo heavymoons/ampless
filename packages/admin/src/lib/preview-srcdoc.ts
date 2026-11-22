@@ -8,17 +8,12 @@
  * typography fallback. This helper:
  *
  *   1. Collects the parent document's real stylesheets:
- *      - http(s) `link[rel~="stylesheet"]` hrefs, same- or cross-origin
- *        (absolute-ified, for prod/Next hashed bundles and CDN theme styles /
- *        fonts), with their `integrity` / `crossorigin` / `media` /
- *        `referrerpolicy`; other schemes are skipped
+ *      - `link[rel="stylesheet"]` hrefs (absolute-ified, for prod/Next hashed bundles)
  *      - inline `<style>` element contents (for Next.js dev/HMR style-tag injection)
  *   2. Injects the collected `<link>`/`<style>` tags right after `<head>` in the
  *      server-returned HTML.
- *   3. Copies `data-*` attributes from `document.body` onto the iframe `<body`
+ *   3. Copies ALL `data-*` attributes from `document.body` onto the iframe `<body`
  *      tag so theme tokens scoped as `body[data-theme="..."] .prose > ...` apply.
- *      Names the server already set on its `<body>` (it emits `data-theme`
- *      for the active theme) are not copied, so the server value wins.
  *   4. Copies `document.documentElement.className` onto the `<html` tag for
  *      Tailwind class-strategy dark mode (`dark` class on `<html>`).
  *   5. When ≥ 1 stylesheet was collected, strips the server's fallback
@@ -45,30 +40,13 @@ export function buildPreviewSrcDoc(html: string): string {
   const linkTags: string[] = []
   const styleTags: string[] = []
 
-  // link[rel~="stylesheet"] → absolutise href, emit a <link> tag. These
-  // are stylesheets the admin page itself already loaded (its own bundles
-  // and CDN-hosted theme styles / fonts alike), so copying them into the
-  // preview adds no new origin and needs no CSP change. Only http(s) URLs
-  // are copied: `javascript:` / `data:` / `blob:` and unparsable hrefs are
-  // skipped. `integrity` / `crossorigin` / `media` / `referrerpolicy` are
-  // kept so an SRI-pinned CDN link still loads (and still verifies).
-  const linkEls = document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]')
+  // link[rel="stylesheet"] → absolutise href, emit a <link> tag
+  const linkEls = document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
   for (const el of linkEls) {
-    const href = el.getAttribute('href')
-    if (!href) continue
-    let url: URL
-    try {
-      url = new URL(href, document.baseURI)
-    } catch {
-      continue
+    // el.href is already absolute (browser resolves it against document.baseURI)
+    if (el.href) {
+      linkTags.push(`<link rel="stylesheet" href="${el.href}">`)
     }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') continue
-    let tag = `<link rel="stylesheet" href="${escapeAttr(url.href)}"`
-    for (const name of COPIED_LINK_ATTRS) {
-      const value = el.getAttribute(name)
-      if (value !== null) tag += ` ${name}="${escapeAttr(value)}"`
-    }
-    linkTags.push(`${tag}>`)
   }
 
   // inline <style> elements → copy textContent
@@ -95,13 +73,9 @@ export function buildPreviewSrcDoc(html: string): string {
   // 3. Copy parent body data-* attributes onto the iframe <body tag
   // ------------------------------------------------------------------
 
-  // Attribute names the server already put on its <body> tag (e.g.
-  // `data-theme`) are skipped: the server value stays authoritative and the
-  // tag never gets a duplicate attribute.
-  const serverBodyTag = /<body\b[^>]*>/.exec(html)?.[0] ?? ''
   const bodyDataAttrs: string[] = []
   for (const attr of document.body.attributes) {
-    if (attr.name.startsWith('data-') && !hasAttribute(serverBodyTag, attr.name)) {
+    if (attr.name.startsWith('data-')) {
       // Escape double-quotes in attribute values to avoid breaking the tag
       const escaped = attr.value.replace(/"/g, '&quot;')
       bodyDataAttrs.push(`${attr.name}="${escaped}"`)
@@ -151,18 +125,4 @@ export function buildPreviewSrcDoc(html: string): string {
   }
 
   return result
-}
-
-/** `<link>` attributes carried over to the preview copy, when set. */
-const COPIED_LINK_ATTRS = ['integrity', 'crossorigin', 'media', 'referrerpolicy'] as const
-
-/** Escape a value for a double-quoted HTML attribute. */
-function escapeAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/** True when the opening tag string `tag` already carries attribute `name`. */
-function hasAttribute(tag: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`\\s${escaped}(?=[\\s=/>])`, 'i').test(tag)
 }

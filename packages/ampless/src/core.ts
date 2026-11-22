@@ -1,6 +1,5 @@
 import type { ContentFormat, Post, PostMetadata, PostStatus } from './types.js'
 import { DUMMY_POSTS } from './dummy.js'
-import { normalizePostClasses } from './theme.js'
 
 export interface ListOptions {
   limit?: number
@@ -81,65 +80,12 @@ export interface SummaryListOptions {
   status?: 'draft' | 'published' | 'all'
 }
 
-/** Options for `updatePost` / `PostsProvider.update`. */
-export interface UpdatePostOptions {
-  /**
-   * Compare-and-swap on the stored `updatedAt`: the write only succeeds if
-   * the row's `updatedAt` still equals this value (`null` = the row has no
-   * `updatedAt`). On a mismatch the provider writes nothing and throws
-   * `PostUpdateConflictError`. Omit (`undefined`) for an unconditional write.
-   */
-  expectedUpdatedAt?: string | null
-}
-
-/**
- * Thrown by `updatePost` when `options.expectedUpdatedAt` no longer matches
- * the stored post: someone else saved it in between, and nothing was
- * written. Re-read the post and retry.
- */
-export class PostUpdateConflictError extends Error {
-  constructor(message = 'The post was modified by someone else; nothing was written.') {
-    super(message)
-    this.name = 'PostUpdateConflictError'
-  }
-}
-
-/**
- * Thrown by `updatePost` when `options.expectedUpdatedAt` is given but the
- * configured provider does not declare `supportsConditionalUpdate: true`.
- * Nothing was written: the provider was not called, because an
- * unconditional write could silently overwrite a concurrent change.
- */
-export class ConditionalUpdateUnsupportedError extends Error {
-  constructor(
-    message = 'The configured posts provider does not support conditional updates (supportsConditionalUpdate); nothing was written.'
-  ) {
-    super(message)
-    this.name = 'ConditionalUpdateUnsupportedError'
-  }
-}
-
 export interface PostsProvider {
   list(opts?: ListOptions): Promise<Post[]>
   get(slug: string): Promise<Post | null>
   getById(postId: string): Promise<Post | null>
   create(data: CreatePostInput): Promise<Post>
-  /**
-   * `true` declares that `update(id, data, { expectedUpdatedAt })` performs
-   * an atomic compare-and-swap on the stored `updatedAt` and throws
-   * `PostUpdateConflictError` on a mismatch, writing nothing. Without it,
-   * `updatePost` refuses a call with `expectedUpdatedAt` (throwing
-   * `ConditionalUpdateUnsupportedError` before calling `update`) instead of
-   * risking an unconditional write. Plain updates are unaffected.
-   */
-  supportsConditionalUpdate?: boolean
-  /**
-   * `options` is optional so providers written before it existed still
-   * type-check. It is only passed to a provider that declares
-   * `supportsConditionalUpdate: true`, which MUST make the write
-   * conditional and throw `PostUpdateConflictError` on a mismatch.
-   */
-  update(postId: string, data: Partial<Post>, options?: UpdatePostOptions): Promise<Post>
+  update(postId: string, data: Partial<Post>): Promise<Post>
   remove(postId: string): Promise<void>
   listPostHistory(
     postId: string,
@@ -169,15 +115,6 @@ export function hasPostsProvider(): boolean {
   return provider !== null
 }
 
-/**
- * Whether the configured provider declares `supportsConditionalUpdate:
- * true`, i.e. `updatePost(id, data, { expectedUpdatedAt })` will be
- * accepted. `false` when no provider is configured.
- */
-export function supportsConditionalPostUpdate(): boolean {
-  return provider?.supportsConditionalUpdate === true
-}
-
 function dummyList(opts: ListOptions = {}): Post[] {
   const { limit, status = 'published' } = opts
   let posts = DUMMY_POSTS
@@ -205,161 +142,9 @@ export async function createPost(data: CreatePostInput): Promise<Post> {
   return provider.create(data)
 }
 
-export async function updatePost(
-  postId: string,
-  data: Partial<Post>,
-  options?: UpdatePostOptions
-): Promise<Post> {
+export async function updatePost(postId: string, data: Partial<Post>): Promise<Post> {
   if (!provider) throw new Error('No posts provider configured. Call setPostsProvider() first.')
-  // Without options, call exactly as before (two arguments).
-  if (options === undefined) return provider.update(postId, data)
-  // Fail closed: a provider that has not declared compare-and-swap support
-  // may ignore `expectedUpdatedAt` and overwrite a concurrent change, so
-  // refuse before calling it.
-  if (options.expectedUpdatedAt !== undefined && provider.supportsConditionalUpdate !== true) {
-    throw new ConditionalUpdateUnsupportedError()
-  }
-  return provider.update(postId, data, options)
-}
-
-/** Result of `mergePostMetadata`. */
-export interface PostMetadataMergeResult {
-  /** The merged metadata; `undefined` when empty. */
-  metadata: PostMetadata | undefined
-  /**
-   * Top-level keys both sides changed differently and that could not be
-   * merged. For each, `metadata` holds `theirs` only as a placeholder:
-   * callers MUST NOT write when this is non-empty.
-   */
-  conflicts: string[]
-}
-
-/**
- * Three-way merge of a post's `metadata`, per top-level key. `base` is the
- * metadata an editor loaded, `mine` what it wants to write, `theirs` the
- * stored value now. Values compare deeply (by JSON); an absent key equals
- * an absent key.
- *
- * - `mine[k]` equals `base[k]` (the editor left it): take `theirs[k]`, so a
- *   concurrent change (e.g. MCP `update_post` setting `postClasses`)
- *   survives.
- * - `theirs[k]` equals `base[k]`, or equals `mine[k]`: take `mine[k]`
- *   (absent = the key is deleted).
- * - Both changed it differently: for `postClasses`, when base, mine and
- *   theirs are each absent or a clean id list (unchanged by
- *   `normalizePostClasses`), a three-way set merge: theirs in order, minus
- *   the ids mine removed from base, plus (in mine's order) the ids mine
- *   added that theirs lacks; an empty result deletes the key. Any other
- *   key, or a `postClasses` that is not clean, is reported in `conflicts`.
- */
-export function mergePostMetadata(
-  base: PostMetadata | undefined,
-  mine: PostMetadata | undefined,
-  theirs: PostMetadata | undefined
-): PostMetadataMergeResult {
-  const b = (base ?? {}) as Record<string, unknown>
-  const m = (mine ?? {}) as Record<string, unknown>
-  const t = (theirs ?? {}) as Record<string, unknown>
-  const out: Record<string, unknown> = {}
-  const conflicts: string[] = []
-  const keys = new Set([...Object.keys(b), ...Object.keys(m), ...Object.keys(t)])
-  for (const k of keys) {
-    const bv = ownValue(b, k)
-    const mv = ownValue(m, k)
-    const tv = ownValue(t, k)
-    let value: unknown
-    if (sameValue(mv, bv)) value = tv
-    else if (sameValue(tv, bv) || sameValue(mv, tv)) value = mv
-    else if (k === 'postClasses' && isCleanIdList(bv) && isCleanIdList(mv) && isCleanIdList(tv)) {
-      const merged = mergeIdLists(bv ?? [], mv ?? [], tv ?? [])
-      value = merged.length > 0 ? merged : undefined
-    } else {
-      conflicts.push(k)
-      value = tv
-    }
-    // Define, not assign: `out[k] = value` with k === '__proto__' (an own
-    // key of `JSON.parse` output) would hit the prototype setter, dropping
-    // the key and changing the prototype of `out`.
-    if (value !== undefined) {
-      Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true })
-    }
-  }
-  return {
-    metadata: Object.keys(out).length > 0 ? (out as PostMetadata) : undefined,
-    conflicts,
-  }
-}
-
-// Own data property only. `x[k]` finds an own `__proto__` data property
-// before the inherited accessor, so that key reads correctly too.
-function ownValue(x: Record<string, unknown>, k: string): unknown {
-  return Object.prototype.hasOwnProperty.call(x, k) ? x[k] : undefined
-}
-
-/**
- * The fields of a post that belong together for `format: 'static'`: the
- * bundle manifest in `body`, `format`, and the per-file map in
- * `metadata.files`. Any field may be `undefined` (absent).
- */
-export interface StaticContentGroup {
-  format: ContentFormat | undefined
-  body: unknown
-  files: unknown
-}
-
-/** Result of `mergeStaticContent`: the group to write, or a conflict. */
-export type StaticContentMergeResult =
-  | { value: StaticContentGroup; conflict?: undefined }
-  | { conflict: true; value?: undefined }
-
-/**
- * Three-way merge of a post's `{ format, body, metadata.files }` as one
- * atomic unit, so a static bundle manifest is never paired with another
- * bundle's `metadata.files`. Callers use it when any of `base` (what an
- * editor loaded), `mine` (what it wants to write) or `theirs` (stored now)
- * has `format: 'static'`; then `metadata.files` must come from this
- * result, not from `mergePostMetadata`. Groups compare deeply (each field
- * by JSON; absent equals absent).
- *
- * - `mine` equals `base` (the editor left the group): take `theirs`.
- * - `theirs` equals `base`, or equals `mine`: take `mine`.
- * - Otherwise both changed it differently: `{ conflict: true }`, and the
- *   caller must not write.
- *
- * `value` is one of the given group objects (by reference), so a caller
- * can tell whose group was taken.
- */
-export function mergeStaticContent(
-  base: StaticContentGroup,
-  mine: StaticContentGroup,
-  theirs: StaticContentGroup
-): StaticContentMergeResult {
-  if (sameGroup(mine, base)) return { value: theirs }
-  if (sameGroup(theirs, base) || sameGroup(mine, theirs)) return { value: mine }
-  return { conflict: true }
-}
-
-function sameGroup(x: StaticContentGroup, y: StaticContentGroup): boolean {
-  return sameValue(x.format, y.format) && sameValue(x.body, y.body) && sameValue(x.files, y.files)
-}
-
-// Deep equality by JSON; `undefined` (absent) equals only `undefined`.
-function sameValue(x: unknown, y: unknown): boolean {
-  if (x === undefined || y === undefined) return x === y
-  return JSON.stringify(x) === JSON.stringify(y)
-}
-
-function isCleanIdList(x: unknown): x is string[] | undefined {
-  return x === undefined || (Array.isArray(x) && sameValue(normalizePostClasses(x), x))
-}
-
-function mergeIdLists(base: string[], mine: string[], theirs: string[]): string[] {
-  const removedByMine = new Set(base.filter((id) => !mine.includes(id)))
-  const out = theirs.filter((id) => !removedByMine.has(id))
-  for (const id of mine) {
-    if (!base.includes(id) && !out.includes(id)) out.push(id)
-  }
-  return out
+  return provider.update(postId, data)
 }
 
 export async function deletePost(postId: string): Promise<void> {

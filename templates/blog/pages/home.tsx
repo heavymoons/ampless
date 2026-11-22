@@ -58,7 +58,7 @@ export default async function BlogHome(_: ThemeRouteContext) {
                 </time>
               )}
             </Link>
-            <div className={ampless.postBodyClassName(featured, 'prose prose-neutral dark:prose-invert mt-4 max-w-none')}>
+            <div className="prose prose-neutral dark:prose-invert mt-4 max-w-none">
               {await ampless.renderBody(featured)}
             </div>
           </article>

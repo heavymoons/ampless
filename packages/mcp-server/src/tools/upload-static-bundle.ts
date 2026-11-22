@@ -1,7 +1,5 @@
 import {
-  generateBundleVersion,
-  staticBundleVersion,
-  versionedBundlePrefix,
+  bundlePrefix,
   mimeTypeFor,
   pickDefaultEntrypoint,
   validateBundle,
@@ -11,9 +9,7 @@ import {
 } from 'ampless'
 import type { GraphqlClient, StorageClient } from './types.js'
 import { extractZipFromBuffer } from './static-bundle-extract.js'
-import { upsertStaticPost, StaticPostConflictError } from './upsert-static-post.js'
-import { getPost } from './get-post.js'
-import { removeStaticPrefixBestEffort } from './static-bundle-storage.js'
+import { upsertStaticPost } from './upsert-static-post.js'
 
 export interface UploadStaticBundleArgs {
   postId?: string
@@ -65,15 +61,10 @@ export const uploadStaticBundleSchema = {
 } as const
 
 /**
- * Replace a static post's bundle with the zip the caller submitted, then
- * upsert the matching Post row (`format: 'static'`, `body` = manifest
- * pointing at the entrypoint, listing every uploaded file, and carrying
- * the new immutable `version`).
- *
- * The files go to a NEW version prefix
- * `public/static/_v/<encoded slug>/<version>/`; nothing the current post
- * references is deleted or overwritten before the post write commits, so
- * a refused or failed write leaves the live bundle intact.
+ * Replace the entire bundle at `public/static/<slug>/` with the zip
+ * the caller submitted, then upsert the matching Post row
+ * (`format: 'static'`, `body` = manifest pointing at the entrypoint
+ * and listing every uploaded file).
  *
  * Workflow:
  *   1. base64-decode the archive bytes.
@@ -82,17 +73,9 @@ export const uploadStaticBundleSchema = {
  *   3. lint every text file (HTML / CSS / SVG) for absolute path
  *      references — bundles are required to be self-contained via
  *      relative paths. Issues are surfaced as a thrown error.
- *   4. read the current post at the slug.
- *   5. PutObject every file into the new version prefix with the
- *      correct Content-Type.
- *   6. upsert the Post row: create, or update conditionally on the
- *      `updatedAt` read in step 4. On any write failure (a conflict
- *      included) the new version is removed again and the error is
- *      re-thrown; a conflict says to retry.
- *   7. after a successful update, garbage-collect the previous bundle if
- *      it was versioned. A previous legacy prefix
- *      (`public/static/<slug>/`) is left in place: per-file tools may
- *      still be working on it.
+ *   4. wipe the existing S3 prefix so removed files don't linger.
+ *   5. PutObject every file with the correct Content-Type.
+ *   6. upsert the Post row (create-or-update by slug).
  */
 export async function uploadStaticBundle(
   graphql: GraphqlClient,
@@ -138,28 +121,33 @@ export async function uploadStaticBundle(
     )
   }
 
-  // 4. The row the write below must replace (compare-and-swap).
-  const existing = await getPost(graphql, { slug })
+  // 4. Wipe the existing prefix so removed files vanish. A missing prior
+  // bundle is not an error (ListObjects returns empty); a genuine listing
+  // failure means stale files could survive the wipe, violating the
+  // full-prefix-replace contract — surface it instead of proceeding with [].
+  const prefix = bundlePrefix(slug)
+  const existing = await storage.listObjects(prefix).catch((err) => {
+    console.error('[upload_static_bundle] listObjects failed', err)
+    throw new Error(
+      `upload_static_bundle: failed to list existing bundle objects for full-prefix wipe: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+  })
+  for (const obj of existing) {
+    await storage.deleteObject(obj.key)
+  }
 
-  // 5. Upload every file with the correct MIME into a fresh version
-  //    prefix. Track per-file size + mimeType so the Post row's
-  //    metadata.files map lets the static route skip a HEAD round-trip
-  //    on first read. A failed upload removes what it already wrote.
-  const version = generateBundleVersion()
-  const prefix = versionedBundlePrefix(slug, version)
+  // 5. Upload every file with the correct MIME. Track per-file
+  //    size + mimeType so the Post row's metadata.files map lets the
+  //    static route skip a HEAD round-trip on first read.
   let uploadedFiles = 0
   const filesMeta: Record<string, StaticPostFileMeta> = {}
-  try {
-    for (const f of files) {
-      const mimeType = mimeTypeFor(f.path)
-      await storage.putObject(`${prefix}${f.path}`, f.data, mimeType)
-      filesMeta[f.path] = { size: f.data.byteLength, mimeType }
-      uploadedFiles += 1
-    }
-  } catch (err) {
-    console.error('[upload_static_bundle] upload failed; removing the partial version', err)
-    await removeStaticPrefixBestEffort(storage, prefix, 'upload_static_bundle')
-    throw err
+  for (const f of files) {
+    const mimeType = mimeTypeFor(f.path)
+    await storage.putObject(`${prefix}${f.path}`, f.data, mimeType)
+    filesMeta[f.path] = { size: f.data.byteLength, mimeType }
+    uploadedFiles += 1
   }
 
   // 6. Build the manifest and upsert the Post row. The per-file size /
@@ -170,57 +158,20 @@ export async function uploadStaticBundle(
     entrypoint,
     files: files.map((f) => f.path).sort(),
     uploadedAt: new Date().toISOString(),
-    version,
   }
   const mergedMetadata: PostMetadata | Record<string, unknown> = {
     ...(args.metadata ?? {}),
     files: filesMeta,
   }
-  let result: Awaited<ReturnType<typeof upsertStaticPost>>
-  try {
-    result = await upsertStaticPost(
-      graphql,
-      slug,
-      body,
-      {
-        title: args.title,
-        postId: args.postId,
-        status: args.status,
-        publishedAt: args.publishedAt,
-        excerpt: args.excerpt,
-        tags: args.tags,
-        metadata: mergedMetadata,
-      },
-      { existing },
-    )
-  } catch (err) {
-    // Nothing references the new version: remove it. The live bundle was
-    // never touched.
-    await removeStaticPrefixBestEffort(storage, prefix, 'upload_static_bundle')
-    if (err instanceof StaticPostConflictError) {
-      throw new Error(
-        `upload_static_bundle: ${err.message} The live bundle is unchanged and the uploaded files were removed. Re-read the post (get_post) and retry.`,
-      )
-    }
-    throw err
-  }
+  const { post } = await upsertStaticPost(graphql, slug, body, {
+    title: args.title,
+    postId: args.postId,
+    status: args.status,
+    publishedAt: args.publishedAt,
+    excerpt: args.excerpt,
+    tags: args.tags,
+    metadata: mergedMetadata,
+  })
 
-  // 7. The write replaced exactly `previous`; its versioned bundle is
-  //    unreferenced now (nothing else writes into a version prefix).
-  const previous = result.previous
-  const previousVersion =
-    previous && previous.format === 'static' ? staticBundleVersion(previous.body) : undefined
-  if (previous && previousVersion) {
-    await removeStaticPrefixBestEffort(
-      storage,
-      versionedBundlePrefix(previous.slug, previousVersion),
-      'upload_static_bundle',
-    )
-  } else if (previous && previous.format === 'static') {
-    console.info(
-      `[upload_static_bundle] "${slug}" now uses a versioned bundle; its legacy files under public/static/${slug}/ are left in place.`,
-    )
-  }
-
-  return { post: result.post, bundle: body, uploadedFiles }
+  return { post, bundle: body, uploadedFiles }
 }
