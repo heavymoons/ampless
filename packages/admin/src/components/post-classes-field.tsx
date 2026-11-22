@@ -1,5 +1,6 @@
 'use client'
 
+import { isValidCustomClassId } from 'ampless'
 import { Button } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
 
@@ -20,6 +21,25 @@ interface PostClassesFieldProps {
   /** The post's selected ids (already normalized), in stored order. */
   value: ReadonlyArray<string>
   onChange: (next: string[]) => void
+  /**
+   * The stored `metadata.postClasses` is not a clean id list (see
+   * `isMalformedPostClasses`) and the user has not changed post styles yet:
+   * warn that it is kept on save and replaced by any change here.
+   */
+  conflict?: boolean
+}
+
+/**
+ * True when a stored `metadata.postClasses` value exists but is not a list
+ * of valid, unique post class ids — e.g. a non-array, or ids the runtime
+ * would drop. The key was free-form before post classes existed and may
+ * belong to a plugin, so the form keeps such a value as-is until the user
+ * changes post styles.
+ */
+export function isMalformedPostClasses(raw: unknown): boolean {
+  if (raw === undefined) return false
+  if (!Array.isArray(raw)) return true
+  return !raw.every((id) => isValidCustomClassId(id)) || new Set(raw).size !== raw.length
 }
 
 /**
@@ -27,13 +47,14 @@ interface PostClassesFieldProps {
  * checkboxes; stored ids the active theme does not declare (e.g. after a
  * theme switch) are listed, flagged and removable — never dropped silently,
  * since they keep rendering as `ampless-post--<id>`. Renders nothing when the
- * theme declares none and the post has none stored.
+ * theme declares none, the post has none stored and there is no conflict
+ * to warn about.
  */
-export function PostClassesField({ available, value, onChange }: PostClassesFieldProps) {
+export function PostClassesField({ available, value, onChange, conflict = false }: PostClassesFieldProps) {
   const t = useT()
   const declared = new Set(available.map((c) => c.id))
   const undeclared = value.filter((id) => !declared.has(id))
-  if (available.length === 0 && value.length === 0) return null
+  if (available.length === 0 && value.length === 0 && !conflict) return null
 
   function toggle(id: string, checked: boolean) {
     // Keep the stored order for existing ids; a newly checked id goes last.
@@ -47,6 +68,11 @@ export function PostClassesField({ available, value, onChange }: PostClassesFiel
         <p className="text-xs text-muted-foreground">{t('posts.form.postClassesHint')}</p>
       ) : (
         <p className="text-xs text-muted-foreground">{t('posts.form.postClassesNoneDeclared')}</p>
+      )}
+      {conflict && (
+        <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="post-classes-conflict">
+          {t('posts.form.postClassesConflict')}
+        </p>
       )}
       {available.map((c) => (
         <label key={c.id} className="flex items-start gap-2 text-sm">

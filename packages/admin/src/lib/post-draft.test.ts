@@ -23,6 +23,7 @@ const LOADED: LoadedPostState = {
   publishedAtInput: '',
   noLayout: false,
   postClasses: ['wide'],
+  rawPostClasses: ['wide'],
   updatedAt: '2026-06-05T10:00:00.000Z',
 }
 
@@ -117,7 +118,11 @@ describe('draftDiffersFromLoaded', () => {
     expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), LOADED)).toBe(true)
     expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide', 'serif'] }), LOADED)).toBe(true)
     expect(
-      draftDiffersFromLoaded(draftFrom({ postClasses: ['serif', 'wide'] }), { ...LOADED, postClasses: ['wide', 'serif'] }),
+      draftDiffersFromLoaded(draftFrom({ postClasses: ['serif', 'wide'] }), {
+        ...LOADED,
+        postClasses: ['wide', 'serif'],
+        rawPostClasses: ['wide', 'serif'],
+      }),
     ).toBe(true)
     expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), LOADED)).toBe(false)
   })
@@ -126,5 +131,20 @@ describe('draftDiffersFromLoaded', () => {
     const legacy = draftFrom()
     delete legacy.postClasses
     expect(draftDiffersFromLoaded(legacy, LOADED)).toBe(false)
+  })
+
+  it('compares a draft list against the raw stored value, not the normalized one', () => {
+    // Saving the draft would replace a malformed stored value, so it differs.
+    const malformed: LoadedPostState = { ...LOADED, postClasses: ['wide'], rawPostClasses: ['wide', 'wide', 'Bad'] }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), malformed)).toBe(true)
+    const objectValue: LoadedPostState = { ...LOADED, postClasses: [], rawPostClasses: { plugin: 'x' } }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), objectValue)).toBe(true)
+    // ...while an untouched draft (no field) keeps it and does not differ.
+    const untouched = draftFrom()
+    delete untouched.postClasses
+    expect(draftDiffersFromLoaded(untouched, malformed)).toBe(false)
+    // An absent stored value equals an empty selection.
+    const none: LoadedPostState = { ...LOADED, postClasses: [], rawPostClasses: undefined }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), none)).toBe(false)
   })
 })

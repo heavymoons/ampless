@@ -111,6 +111,7 @@
       "postClassesUnknownHint": "クラスとして保持・出力されます。不要なら削除してください。",
       "postClassesRemove": "{id} を削除",
       "postClassesNoneDeclared": "現在のテーマは記事のスタイルを定義していません。",
+      "postClassesConflict": "保存されている metadata.postClasses の値は、有効な記事スタイル ID のリストではありません（プラグインが使っている値かもしれません）。保存しても変更されません。ここで記事のスタイルを変更すると、その値は置き換えられます。",
       "formatStaticLabel": "Static (zip / ファイル一括)",
       "static": {
         "pick": ".zip または複数ファイルを選択",

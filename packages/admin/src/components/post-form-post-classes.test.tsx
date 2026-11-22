@@ -239,4 +239,139 @@ describe('PostForm post styles', () => {
     expect(checkbox('Wide').checked).toBe(true)
     expect(checkbox('Serif').checked).toBe(false)
   })
+
+  // ── stored values that are not a clean id list ───────────────────────
+  describe('a malformed stored metadata.postClasses', () => {
+    const conflictWarning = () => container!.querySelector('[data-testid="post-classes-conflict"]')
+    async function typeTitle(value: string) {
+      const input = container!.querySelector('#title') as HTMLInputElement
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    const recover = async () => {
+      const btn = Array.from(container!.querySelectorAll('button')).find((b) => b.textContent === 'Restore')
+      await click(btn!)
+    }
+    const draftBase = {
+      title: 'Weekly (edited)',
+      slug: 'weekly',
+      excerpt: '',
+      format: 'markdown',
+      body: 'hello',
+      status: 'draft',
+      tags: '',
+      publishedAtInput: '',
+      noLayout: false,
+      baseUpdatedAt: null,
+      savedAt: 1,
+    }
+
+    it('keeps a non-array value on a title-only save and warns, even when the theme declares none', async () => {
+      await mount(post({ cache: 'deep', postClasses: { plugin: 'x' } as unknown as string[] }))
+      expect(fieldset()).not.toBeNull()
+      expect(conflictWarning()!.textContent).toContain(
+        'The stored metadata.postClasses value is not a list of valid post style ids',
+      )
+      await typeTitle('Weekly 2')
+      await submit()
+      expect(savedMetadata()).toEqual({ cache: 'deep', postClasses: { plugin: 'x' } })
+    })
+
+    it('keeps an array with invalid ids and duplicates byte-for-byte on a title-only save', async () => {
+      const raw = ['wide', 'Bad Id', 'wide', 3]
+      for (const available of [THEME, undefined]) {
+        await mount(post({ postClasses: raw as unknown as string[] }), available)
+        expect(conflictWarning()).not.toBeNull()
+        await typeTitle('Weekly 2')
+        await submit()
+        expect(JSON.stringify((savedMetadata() as { postClasses: unknown }).postClasses)).toBe(JSON.stringify(raw))
+        await act(async () => root?.unmount())
+        container?.remove()
+      }
+      root = null
+      container = null
+    })
+
+    it('toggling a class after the warning replaces the value with the normalized selection', async () => {
+      await mount(post({ cache: 'deep', postClasses: ['wide', 'Bad Id', 'wide'] as string[] }), THEME)
+      expect(conflictWarning()).not.toBeNull()
+      expect(checkbox('Wide').checked).toBe(true)
+      await click(checkbox('Serif'))
+      expect(conflictWarning()).toBeNull()
+      await submit()
+      expect(savedMetadata()).toEqual({ cache: 'deep', postClasses: ['wide', 'serif'] })
+    })
+
+    it('a clean list shows no warning and saves unchanged', async () => {
+      await mount(post({ postClasses: ['serif', 'legacy'] }), THEME)
+      expect(conflictWarning()).toBeNull()
+      await typeTitle('Weekly 2')
+      await submit()
+      expect(savedMetadata()).toEqual({ postClasses: ['serif', 'legacy'] })
+    })
+
+    it('keeps the value for no_layout html posts, where the field is hidden', async () => {
+      await mount(
+        { ...post({ no_layout: true, postClasses: { plugin: 'x' } as unknown as string[] }), format: 'html', body: '<p>x</p>' },
+        THEME,
+      )
+      expect(fieldset()).toBeNull()
+      await submit()
+      expect(savedMetadata()).toEqual({ no_layout: true, postClasses: { plugin: 'x' } })
+    })
+
+    it('an untouched autosave draft leaves postClasses out, and recovering it keeps the raw value', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const raw = { plugin: 'x' } as unknown as string[]
+      await mount(post({ postClasses: raw }), THEME)
+      await typeTitle('Weekly (edited)')
+      await act(async () => {
+        vi.advanceTimersByTime(1300)
+      })
+      const draft = JSON.parse(localStorage.getItem('ampless:draft:p1') ?? 'null')
+      expect(draft.title).toBe('Weekly (edited)')
+      expect('postClasses' in draft).toBe(false)
+      await act(async () => root?.unmount())
+      container?.remove()
+      vi.useRealTimers()
+
+      await mount(post({ postClasses: raw }), THEME)
+      await recover()
+      expect(conflictWarning()).not.toBeNull()
+      await submit()
+      expect(savedMetadata()).toEqual({ postClasses: { plugin: 'x' } })
+    })
+
+    it('recovering a touched draft applies its list over the raw value', async () => {
+      localStorage.setItem('ampless:draft:p1', JSON.stringify({ ...draftBase, postClasses: ['serif'] }))
+      await mount(post({ postClasses: { plugin: 'x' } as unknown as string[] }), THEME)
+      await recover()
+      expect(conflictWarning()).toBeNull()
+      expect(checkbox('Serif').checked).toBe(true)
+      await submit()
+      expect(savedMetadata()).toEqual({ postClasses: ['serif'] })
+    })
+
+    it('restoring a revision with the same raw value keeps it; a different value replaces it', async () => {
+      const raw = ['wide', 'Bad Id']
+      await mount(post({ cache: 'deep', postClasses: raw }), THEME)
+      await act(async () => {
+        restoreRevision!({ title: 'Old', slug: 'weekly', format: 'markdown', body: 'old', metadata: { postClasses: [...raw] } })
+      })
+      expect(conflictWarning()).not.toBeNull()
+      await submit()
+      expect(savedMetadata()).toEqual({ cache: 'deep', postClasses: ['wide', 'Bad Id'] })
+
+      await act(async () => {
+        restoreRevision!({ title: 'Older', slug: 'weekly', format: 'markdown', body: 'older', metadata: { postClasses: ['serif', 'Bad'] } })
+      })
+      expect(conflictWarning()).toBeNull()
+      expect(checkbox('Serif').checked).toBe(true)
+      expect(checkbox('Wide').checked).toBe(false)
+      await submit()
+      expect(savedMetadata()).toEqual({ cache: 'deep', postClasses: ['serif'] })
+    })
+  })
 })

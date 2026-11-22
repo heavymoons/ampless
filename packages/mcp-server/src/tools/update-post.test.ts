@@ -329,3 +329,151 @@ describe('updatePost — postClasses', () => {
     expect(writtenMetadata(calls)).toEqual({ cache: 'deep', postClasses: ['wide'] })
   })
 })
+
+// ---------------------------------------------------------------------------
+// postClasses merge: compare-and-swap on updatedAt
+// ---------------------------------------------------------------------------
+
+const mutationVars = (calls: Call[]) => calls.find((c) => c.op.includes('updatePost'))!.vars as Record<string, unknown>
+
+/**
+ * A fake AppSync backed by one stored row. `onRead` runs after each read is
+ * answered, so a test can simulate an editor saving between update_post's
+ * read and its write. The update enforces `condition.updatedAt` the way
+ * DynamoDB does and rejects like the real client does (message plus the
+ * attached `graphqlErrors`).
+ */
+function makeStore(row: Record<string, unknown>, onRead?: (row: Record<string, unknown>) => void) {
+  const writes: Record<string, unknown>[] = []
+  const graphql: GraphqlClient = {
+    async query(op: string, vars?: Record<string, unknown>) {
+      if (op.includes('getPost')) {
+        const snapshot = { ...row }
+        onRead?.(row)
+        return { getPost: snapshot } as never
+      }
+      if (op.includes('updatePost')) {
+        const input = vars!.input as Record<string, unknown>
+        const cond = (vars!.condition as { updatedAt?: { eq?: string; attributeExists?: boolean } } | undefined)
+          ?.updatedAt
+        const ok =
+          !cond ||
+          (cond.eq !== undefined && row.updatedAt === cond.eq) ||
+          (cond.attributeExists === false && row.updatedAt == null)
+        if (!ok) {
+          const errors = [
+            {
+              message: 'The conditional request failed (Service: DynamoDb, Status Code: 400)',
+              errorType: 'DynamoDB:ConditionalCheckFailedException',
+            },
+          ]
+          throw Object.assign(new Error(`AppSync GraphQL error: ${errors[0].message}`), { graphqlErrors: errors })
+        }
+        writes.push(input)
+        Object.assign(row, input, { updatedAt: '2026-06-05T00:00:00.000Z' })
+        return { updatePost: { ...row } } as never
+      }
+      return {} as never
+    },
+  }
+  return { graphql, writes }
+}
+
+describe('updatePost — postClasses merge is atomic', () => {
+  const withUpdatedAt = {
+    getPost: { ...existingWithMetadata.getPost, updatedAt: '2026-06-01T00:00:00.000Z' },
+  }
+
+  it('sends a condition on the updatedAt it read', async () => {
+    const { graphql, calls } = makeGraphql(withUpdatedAt, updatedPostResult)
+    await updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })
+    expect(mutationVars(calls).condition).toEqual({ updatedAt: { eq: '2026-06-01T00:00:00.000Z' } })
+  })
+
+  it('requires updatedAt to be absent when the read row has none', async () => {
+    const { graphql, calls } = makeGraphql(existingWithMetadata, updatedPostResult)
+    await updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })
+    expect(mutationVars(calls).condition).toEqual({ updatedAt: { attributeExists: false } })
+  })
+
+  it('sends no condition on the other paths', async () => {
+    const cases = [
+      { postId: 'post-123', title: 'T' },
+      { postId: 'post-123', status: 'published' as const },
+      { postId: 'post-123', metadata: { cache: 'hot' as const } },
+      { postId: 'post-123', metadata: { cache: 'hot' as const }, postClasses: ['wide'] },
+    ]
+    for (const args of cases) {
+      const { graphql, calls } = makeGraphql(withUpdatedAt, updatedPostResult)
+      await updatePost(graphql, args)
+      expect(Object.keys(mutationVars(calls))).toEqual(['input'])
+    }
+  })
+
+  it('fails without writing when an editor saves between the read and the write', async () => {
+    const row: Record<string, unknown> = {
+      ...existingPublishedPost.getPost,
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      metadata: JSON.stringify({ cache: 'deep' }),
+    }
+    const editorMetadata = JSON.stringify({ cache: 'hot', seo: { title: 'Editor' } })
+    const { graphql, writes } = makeStore(row, (r) => {
+      r.metadata = editorMetadata
+      r.updatedAt = '2026-06-01T00:00:05.000Z'
+    })
+
+    await expect(updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })).rejects.toThrow(
+      'Post post-123 was modified by someone else while update_post was merging postClasses into its metadata; nothing was written. Re-read the post and retry.',
+    )
+    expect(writes).toHaveLength(0)
+    expect(row.metadata).toBe(editorMetadata)
+    expect(row.updatedAt).toBe('2026-06-01T00:00:05.000Z')
+  })
+
+  it('writes when nothing changed in between', async () => {
+    const row: Record<string, unknown> = {
+      ...existingPublishedPost.getPost,
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      metadata: JSON.stringify({ cache: 'deep' }),
+    }
+    const { graphql, writes } = makeStore(row)
+    await updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(row.metadata as string)).toEqual({ cache: 'deep', postClasses: ['wide'] })
+  })
+
+  it('detects the conflict from the message alone (client without graphqlErrors)', async () => {
+    const graphql: GraphqlClient = {
+      async query(op: string) {
+        if (op.includes('getPost')) return withUpdatedAt as never
+        throw new Error('AppSync GraphQL error: The conditional request failed (Service: DynamoDb, Status Code: 400)')
+      },
+    }
+    await expect(updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })).rejects.toThrow(
+      /was modified by someone else/,
+    )
+  })
+
+  it('re-throws other errors unchanged', async () => {
+    const boom = new Error('AppSync GraphQL error: Not Authorized to access updatePost on type Mutation')
+    const graphql: GraphqlClient = {
+      async query(op: string) {
+        if (op.includes('getPost')) return withUpdatedAt as never
+        throw boom
+      },
+    }
+    await expect(updatePost(graphql, { postId: 'post-123', postClasses: ['wide'] })).rejects.toBe(boom)
+  })
+
+  it('does not translate a conditional failure on a non-merge path', async () => {
+    const err = Object.assign(new Error('AppSync GraphQL error: The conditional request failed'), {
+      graphqlErrors: [{ message: 'The conditional request failed', errorType: 'DynamoDB:ConditionalCheckFailedException' }],
+    })
+    const graphql: GraphqlClient = {
+      async query() {
+        throw err
+      },
+    }
+    await expect(updatePost(graphql, { postId: 'post-123', title: 'T' })).rejects.toBe(err)
+  })
+})

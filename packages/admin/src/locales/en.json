@@ -111,6 +111,7 @@
       "postClassesUnknownHint": "Kept and still rendered as a class. Remove it if it is no longer needed.",
       "postClassesRemove": "Remove {id}",
       "postClassesNoneDeclared": "The active theme declares no post styles.",
+      "postClassesConflict": "The stored metadata.postClasses value is not a list of valid post style ids (it may belong to a plugin). It is kept unchanged on save. Changing post styles here will replace it.",
       "formatStaticLabel": "Static (zip / file bundle)",
       "static": {
         "pick": "Pick a .zip or one or more files",

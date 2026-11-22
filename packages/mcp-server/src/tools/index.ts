@@ -79,7 +79,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'update_post',
     description:
-      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key. The top-level `postClasses` arg is the exception: without `metadata` it merges into the current metadata (other keys kept; an empty array removes the post classes) — see get_schema.notes.postClasses.',
+      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key. The top-level `postClasses` arg is the exception: without `metadata` it merges into the current metadata (other keys kept; an empty array removes the post classes). The merge is atomic: if the post is modified by someone else between the read and the write, the call fails without writing anything — re-read the post and retry. See get_schema.notes.postClasses.',
     inputSchema: updatePostSchema,
     handler: (args, ctx) =>
       updatePost(ctx.graphql, args as unknown as Parameters<typeof updatePost>[1]),
