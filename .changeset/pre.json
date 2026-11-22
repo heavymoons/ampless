@@ -92,6 +92,7 @@
     "auto-sync-create-ampless-1794897454519",
     "auto-sync-create-ampless-1795314002631",
     "auto-sync-create-ampless-1795314689057",
+    "auto-sync-create-ampless-1795318012535",
     "awsjson-shared-utils",
     "backend-aws-cdk-lib-2-278",
     "backend-revert-enum-required",
@@ -126,6 +127,7 @@
     "docs-move-to-wiki",
     "document-cli-mount-deploy",
     "drop-multi-site",
+    "dynamodb-pitr-default",
     "editor-bootstrap-codegen",
     "embed-admin-editor-installer",
     "embed-ampless-capability",
@@ -275,6 +277,7 @@
     "theme-color-pair-and-live-preview",
     "theme-dark-light-color-scheme",
     "tiptap-3-30-5",
+    "tiptap-3-35-0",
     "tiptap-extension-like-accepts-class-instances",
     "tiptap-to-markdown-embed-adapter",
     "underscore-route-unification",
@@ -287,6 +290,7 @@
     "upgrade-protect-tsconfig",
     "upgrade-recover-plugin-template-dirs",
     "upgrade-seed-plugins-readme",
+    "upgrade-tiptap-pin-preflight",
     "user-admin-pipeline-event-shape"
   ]
 }
