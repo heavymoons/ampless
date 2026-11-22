@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CreateTableCommand, DeleteTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   PutCommand,
   ScanCommand,
@@ -119,15 +120,22 @@ describe.skipIf(!endpoint)('reconcilePostTagsForPost on DynamoDB Local', () => {
     )
   }
 
-  /** Real client with a hook run before each TransactWriteItems (1-based index). */
+  const txKind = (command: TransactWriteCommand) =>
+    command.input.TransactItems?.[1]?.Delete ? 'delete' : 'put'
+
+  /**
+   * Real client with hooks around each guarded write of one kind (default:
+   * guarded Puts; 1-based index). Other calls pass straight through.
+   */
   function hooked(
     beforeTx: (n: number) => Promise<void>,
-    afterTx: (n: number) => Promise<void> = async () => {}
+    afterTx: (n: number) => Promise<void> = async () => {},
+    kind: 'put' | 'delete' = 'put'
   ): PostTagSyncClient {
     let n = 0
     return {
       async send(command) {
-        if (command instanceof TransactWriteCommand) {
+        if (command instanceof TransactWriteCommand && txKind(command) === kind) {
           n++
           await beforeTx(n)
           const res = await ddb.send(command as never)
@@ -137,6 +145,15 @@ describe.skipIf(!endpoint)('reconcilePostTagsForPost on DynamoDB Local', () => {
         return ddb.send(command as never)
       },
     }
+  }
+
+  async function republish(item: Record<string, unknown>) {
+    await ddb.send(
+      new PutCommand({
+        TableName: postTable,
+        Item: { ...item, updatedAt: new Date(Date.now() + 1).toISOString() },
+      })
+    )
   }
 
   const reconcile = (
@@ -299,5 +316,111 @@ describe.skipIf(!endpoint)('reconcilePostTagsForPost on DynamoDB Local', () => {
     await reconcile(ddb, postId, eventB)
     await reconcile(ddb, postId, eventA)
     expect(await rowsOf(postId)).toEqual([])
+  })
+  it("B writes before A deletes: the real guard refuses A's stale delete, the current row stays", async () => {
+    const postId = newPostId()
+    const item = publishedItem(postId, { tags: ['a'] })
+    await ddb.send(new PutCommand({ TableName: postTable, Item: item }))
+    await reconcile(ddb, postId, { previous: null, next: projection(item) })
+    await unpublish(postId)
+    const draftEvent = {
+      previous: projection(item),
+      next: projection({ ...item, status: 'draft' }),
+    }
+    // A reads the draft; before its first delete commits, the post is
+    // republished and B indexes it.
+    const a = hooked(
+      async (n) => {
+        if (n === 1) {
+          await republish(item)
+          await reconcile(ddb, postId, { previous: draftEvent.next, next: projection(item) })
+          expect(await rowsOf(postId)).toHaveLength(1)
+        }
+      },
+      undefined,
+      'delete'
+    )
+    const result = await reconcile(a, postId, draftEvent)
+    expect(result.guardFailures).toBe(1)
+    expect(await rowsOf(postId)).toHaveLength(1)
+  })
+
+  it('B writes before A deletes, then A crashes right after its refused delete: the current row stays', async () => {
+    const postId = newPostId()
+    const item = publishedItem(postId, { tags: ['a'] })
+    await ddb.send(new PutCommand({ TableName: postTable, Item: item }))
+    await reconcile(ddb, postId, { previous: null, next: projection(item) })
+    await unpublish(postId)
+    const draftEvent = {
+      previous: projection(item),
+      next: projection({ ...item, status: 'draft' }),
+    }
+    let refused = false
+    const crashingA: PostTagSyncClient = {
+      async send(command) {
+        if (refused) throw new Error('simulated crash after the refused delete')
+        if (command instanceof TransactWriteCommand && txKind(command) === 'delete') {
+          await republish(item)
+          await reconcile(ddb, postId, { previous: draftEvent.next, next: projection(item) })
+          try {
+            return await ddb.send(command as never)
+          } catch (err) {
+            refused = true
+            throw err
+          }
+        }
+        return ddb.send(command as never)
+      },
+    }
+    await expect(reconcile(crashingA, postId, draftEvent)).rejects.toThrow('simulated crash')
+    expect(refused).toBe(true)
+    expect(await rowsOf(postId)).toHaveLength(1)
+    // SQS retry of A's message.
+    await reconcile(ddb, postId, draftEvent)
+    expect(await rowsOf(postId)).toHaveLength(1)
+  })
+
+  it('a deleted post\'s rows are removed under the "item does not exist" guard; a re-created post keeps its rows', async () => {
+    const postId = newPostId()
+    const item = publishedItem(postId, { tags: ['a'] })
+    await ddb.send(new PutCommand({ TableName: postTable, Item: item }))
+    await reconcile(ddb, postId, { previous: null, next: projection(item) })
+    await ddb.send(new DeleteCommand({ TableName: postTable, Key: { postId } }))
+    const removeEvent = { previous: projection(item), next: null }
+    // Re-created before the delete commits: the guard refuses it.
+    const a = hooked(
+      async (n) => {
+        if (n === 1) {
+          await republish(item)
+          await reconcile(ddb, postId, { previous: null, next: projection(item) })
+        }
+      },
+      undefined,
+      'delete'
+    )
+    await reconcile(a, postId, removeEvent)
+    expect(await rowsOf(postId)).toHaveLength(1)
+    // Deleted for good: the guarded delete goes through.
+    await ddb.send(new DeleteCommand({ TableName: postTable, Key: { postId } }))
+    await reconcile(ddb, postId, removeEvent)
+    expect(await rowsOf(postId)).toEqual([])
+  })
+
+  it('leaves unrelated rows alone (another post under the same tag)', async () => {
+    const mine = newPostId()
+    const other = newPostId()
+    const mineItem = publishedItem(mine, { tags: ['shared'] })
+    const otherItem = publishedItem(other, { tags: ['shared'] })
+    for (const it of [mineItem, otherItem]) {
+      await ddb.send(new PutCommand({ TableName: postTable, Item: it }))
+      await reconcile(ddb, it.postId as string, { previous: null, next: projection(it) })
+    }
+    await unpublish(mine)
+    await reconcile(ddb, mine, {
+      previous: projection(mineItem),
+      next: projection({ ...mineItem, status: 'draft' }),
+    })
+    expect(await rowsOf(mine)).toEqual([])
+    expect(await rowsOf(other)).toHaveLength(1)
   })
 })

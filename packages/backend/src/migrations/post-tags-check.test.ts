@@ -78,6 +78,12 @@ function fakeDb(posts: object[], tagRows: object[]) {
         ) {
           throw guardCancelled()
         }
+        if (put!.Delete) {
+          const k = put!.Delete!.Key as { tag: string; publishedAtPostId: string }
+          writes.push(`delete ${k.tag}|${k.publishedAtPostId}`)
+          tagTable.delete(`${k.tag}|${k.publishedAtPostId}`)
+          return {}
+        }
         const item = put!.Put!.Item as unknown as PostTagItem
         if (failPutFor === item.postId) {
           const e = new Error('Rate exceeded')

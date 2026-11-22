@@ -33,9 +33,10 @@ refuses otherwise.
 --check-post-tags mode: scans PostTag and Post (strongly consistent) and
 reports stale PostTag rows (post deleted / draft / no tags / wrong key /
 outdated content) and missing rows. With --apply, rebuilds each affected
-post's rows from its current state, then checks again. Each row is written
-in a transaction that also checks the Post still holds the state the row was
-computed from, so a post edited mid-repair never gets rows of an old state.
+post's rows from its current state, then checks again. Each delete and put is
+a transaction that also checks the Post still holds the state the rebuild
+read, so a post edited mid-repair never gets rows of an old state and never
+loses rows of its current one.
 
 A dry-run that reports nothing to change does NOT by itself prove the
 migration is complete. Follow the RUNBOOK procedure: stop every writer,

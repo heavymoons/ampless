@@ -16,8 +16,8 @@
  * With `apply`, every affected post is rebuilt with the same authoritative
  * `reconcilePostTagsForPost` the trusted processor uses, passing the stale
  * keys found for that post as extra candidates, and the tables are checked
- * again. Each row is committed only while the Post still holds the state it
- * was computed from. Every write call (DeleteItem, TransactWriteItems) waits
+ * again. Each delete and put is committed only while the Post still holds
+ * the state the rebuild read. Every write call (a guarded TransactWriteItems) waits
  * for the shared write limiter first, so `maxWritesPerSecond` bounds the
  * writes within one post's rebuild as well as across posts. The two scans are not one snapshot, so the result is only
  * meaningful while writers are stopped and the event pipeline is drained

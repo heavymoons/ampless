@@ -35,7 +35,7 @@ const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown
 const ddbQueryResponses = vi.hoisted(() => new Map<string, unknown[]>())
 
 // In-memory Post rows (GetCommand, keyed by postId) and PostTag rows
-// (guarded TransactWrite Put / DeleteCommand, keyed by
+// (guarded TransactWrite Put / Delete, keyed by
 // `tag|publishedAtPostId`) for the post.index.refresh tests.
 const postRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
 const postTagRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
@@ -192,6 +192,11 @@ vi.mock('@aws-sdk/lib-dynamodb', async () => {
             const key = check!.ConditionCheck!.Key as { postId: string }
             if (!evaluatePostStateCondition(postRows.get(key.postId) ?? null, check!.ConditionCheck!)) {
               throw guardCancelled()
+            }
+            if (put!.Delete) {
+              const k = put!.Delete!.Key as { tag: string; publishedAtPostId: string }
+              postTagRows.delete(`${k.tag}|${k.publishedAtPostId}`)
+              return {}
             }
             const item = put!.Put!.Item as { tag: string; publishedAtPostId: string }
             postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
@@ -1328,7 +1333,7 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
     })
   })
 
-  it('puts every row through a transaction guarded on the Post state (no plain Put)', async () => {
+  it('writes every delete and put through a transaction guarded on the Post state (no plain write)', async () => {
     postRows.set('p1', { ...canonicalPublished, updatedAt: '2026-05-02T00:00:00.000Z' })
     const handler = createProcessorTrustedHandler({ site })
 
@@ -1339,20 +1344,24 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
     )
 
     const transacts = ddbCommands.filter((c) => 'TransactItems' in c.input)
-    expect(transacts).toHaveLength(1)
-    const [check, put] = transacts[0]!.input.TransactItems as Array<
-      Record<string, Record<string, unknown>>
-    >
-    expect(check!.ConditionCheck).toMatchObject({
-      TableName: 'posts',
-      Key: { postId: 'p1' },
-      ExpressionAttributeValues: expect.objectContaining({
-        ':status': 'published',
-        ':updatedAt': '2026-05-02T00:00:00.000Z',
-      }),
+    // The verbatim-keyed delete, then the canonical put.
+    expect(transacts).toHaveLength(2)
+    const kinds = transacts.map((t) => {
+      const [check, write] = t.input.TransactItems as Array<Record<string, Record<string, unknown>>>
+      expect(check!.ConditionCheck).toMatchObject({
+        TableName: 'posts',
+        Key: { postId: 'p1' },
+        ExpressionAttributeValues: expect.objectContaining({
+          ':status': 'published',
+          ':updatedAt': '2026-05-02T00:00:00.000Z',
+        }),
+      })
+      expect(write!.Put ?? write!.Delete).toMatchObject({ TableName: 'posttags' })
+      return write!.Put ? 'put' : 'delete'
     })
-    expect(put!.Put).toMatchObject({ TableName: 'posttags' })
-    expect(ddbCommands.some((c) => 'Item' in c.input)).toBe(false)
+    expect(kinds).toEqual(['delete', 'put'])
+    // No plain PutItem / DeleteItem.
+    expect(ddbCommands.some((c) => 'Item' in c.input || ('Key' in c.input && !('ConsistentRead' in c.input)))).toBe(false)
     expect([...postTagRows.keys()]).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
   })
 

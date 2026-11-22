@@ -472,6 +472,10 @@ interface CallInfo {
   /** 1-based count of this op kind across the store. */
   n: number
   actor: string
+  /** For 'transact': whether it guards a Put or a Delete. */
+  kind?: 'put' | 'delete'
+  /** 1-based count of guarded writes of this `kind` across the store. */
+  kn?: number
 }
 
 type Hook = (info: CallInfo, cmd: AnyCommand) => void | Promise<void>
@@ -519,16 +523,36 @@ function fakeStore(initialPost: Item | null, initialRows: PostTagItem[] = []) {
       return { Item: projected }
     }
     if (cmd instanceof DeleteCommand) {
-      rows.delete(keyOf(cmd.input.Key as PostTagKey))
+      // Plain DeleteCommand: only the old payload-only path (hazard tests).
+      // Same liveness invariant as a guarded delete.
+      const key = keyOf(cmd.input.Key as PostTagKey)
+      if (currentRows().some((r) => keyOf(r) === key)) {
+        violations.push(`deleted a current row ${key}`)
+      }
+      rows.delete(key)
       return {}
     }
     if (cmd instanceof TransactWriteCommand) {
-      const [check, put] = cmd.input.TransactItems!
-      if (!check?.ConditionCheck || !put?.Put || cmd.input.TransactItems!.length !== 2) {
-        throw new Error('fake: expected [ConditionCheck, Put]')
+      const [check, write] = cmd.input.TransactItems!
+      if (
+        !check?.ConditionCheck ||
+        !(write?.Put || write?.Delete) ||
+        cmd.input.TransactItems!.length !== 2
+      ) {
+        throw new Error('fake: expected [ConditionCheck, Put | Delete]')
       }
       if (!evaluatePostStateCondition(post, check.ConditionCheck)) throw guardCancelled()
-      commitRow(put.Put.Item as unknown as PostTagItem)
+      if (write.Put) {
+        commitRow(write.Put.Item as unknown as PostTagItem)
+      } else {
+        const key = keyOf(write.Delete!.Key as unknown as PostTagKey)
+        // Liveness invariant: a committed delete never removes a row of the
+        // current state.
+        if (currentRows().some((r) => keyOf(r) === key)) {
+          violations.push(`deleted a current row ${key}`)
+        }
+        rows.delete(key)
+      }
       return {}
     }
     // Plain PutCommand: only used to prove the invariant checker works.
@@ -542,7 +566,14 @@ function fakeStore(initialPost: Item | null, initialRows: PostTagItem[] = []) {
         const cmd = command as AnyCommand
         const op = opOf(cmd)
         counts[op] = (counts[op] ?? 0) + 1
-        const info = { op, n: counts[op]!, actor }
+        const info: CallInfo = { op, n: counts[op]!, actor }
+        if (cmd instanceof TransactWriteCommand) {
+          const kind = cmd.input.TransactItems?.[1]?.Delete ? 'delete' : 'put'
+          const ck = `transact:${kind}`
+          counts[ck] = (counts[ck] ?? 0) + 1
+          info.kind = kind
+          info.kn = counts[ck]
+        }
         await hooks.before?.(info, cmd)
         let result: unknown
         try {
@@ -612,7 +643,7 @@ function rebuild(
 async function applyPayloadOnly(store: Store, payload: PostIndexEventPayload): Promise<void> {
   const { deletes, puts } = computePostTagDiff(payload)
   for (const key of deletes) {
-    await store.client.send(new DeleteCommand({ TableName: 'tags', Key: key }))
+    await store.client.send(new DeleteCommand({ TableName: 'tags', Key: key }) as never)
   }
   for (const item of puts) {
     await store.client.send(new PutCommand({ TableName: 'tags', Item: item }) as never)
@@ -709,7 +740,7 @@ describe('reconcilePostTagsForPost', () => {
     await rebuild(store, null)
     const e2 = store.writePost({ ...s1, tags: ['tech', 'life'], title: 'Two' })
     store.hooks.after = (info) => {
-      if (info.op === 'delete' && info.n === 1) throw new Crash('after delete')
+      if (info.kind === 'delete' && info.kn === 1) throw new Crash('after delete')
     }
     await expect(rebuild(store, e2)).rejects.toThrow(/injected crash/)
     store.hooks.after = undefined
@@ -718,35 +749,91 @@ describe('reconcilePostTagsForPost', () => {
     expect(store.violations).toEqual([])
   })
 
-  it('(c) a stale worker deletes a valid row of a newer state, then crashes → missing only, retry restores', async () => {
+  it('(c) B writes before A deletes: the stale worker cannot remove the newer state\'s row, even if it then crashes', async () => {
     const s1 = published({ tags: ['news'], title: 'One' })
     const store = fakeStore(null)
     const eInsert = store.writePost(s1)
+    await rebuild(store, eInsert)
     const eDraft = store.writePost(draftOf(s1))
-    // The stale worker reads the draft …
-    let publishEvent: PostIndexEventPayload | undefined
+    // Worker A handles the unpublish: it reads the draft …
     store.hooks.before = async (info) => {
-      if (info.actor === 'stale' && info.op === 'delete' && info.n === 1) {
-        // … meanwhile the post is republished and a fresh worker indexes it.
+      if (info.actor === 'A' && info.kind === 'delete' && info.kn === 1) {
+        // … but before its delete commits, the post is republished and
+        // worker B indexes the new state.
         store.hooks.before = undefined
-        publishEvent = store.writePost(s1)
-        await rebuild(store, publishEvent, { client: store.clientFor('fresh') })
+        const ePublish = store.writePost(s1)
+        await rebuild(store, ePublish, { client: store.clientFor('B') })
         expect(store.rows.size).toBe(1)
       }
     }
-    store.hooks.after = (info) => {
-      if (info.actor === 'stale' && info.op === 'delete') throw new Crash('after stale delete')
-    }
-    await expect(rebuild(store, eDraft, { client: store.clientFor('stale') })).rejects.toThrow(
-      /injected crash/
-    )
-    // The stale delete removed the newer state's valid row: missing, not exposed.
-    expect(store.rows.size).toBe(0)
+    // A's delete is guarded on the draft state, which is no longer current:
+    // cancelled. A then crashes before it can re-read.
     store.hooks.after = undefined
-    await rebuild(store, eDraft) // SQS retry of the stale message
+    let aCalls = 0
+    const crashingA: PostTagSyncClient = {
+      async send(cmd) {
+        const res = await store.clientFor('A').send(cmd).catch((err) => {
+          aCalls++
+          throw err
+        })
+        return res
+      },
+    }
+    let failed: unknown
+    try {
+      await reconcilePostTagsForPost({
+        client: {
+          async send(cmd) {
+            // Crash on A's first call after its cancelled delete.
+            if (aCalls > 0) throw new Crash('A after cancelled delete')
+            return crashingA.send(cmd)
+          },
+        },
+        postTable: 'posts',
+        postTagTable: 'tags',
+        postId: 'p1',
+        candidates: candidateKeys(eDraft),
+        log: silent,
+      })
+    } catch (err) {
+      failed = err
+    }
+    expect(String(failed)).toMatch(/injected crash/)
+    // B's row of the current (published) state survived A entirely.
     expect(store.rowContents()).toEqual(store.currentRows())
-    await rebuild(store, eInsert)
+    // SQS retry of A's message: still correct.
+    await rebuild(store, eDraft)
     expect(store.rowContents()).toEqual(store.currentRows())
+    expect(store.violations).toEqual([])
+  })
+
+  it('(c) the same interleaving without a crash: A re-reads and keeps the current rows', async () => {
+    const s1 = published({ tags: ['news', 'tech'], title: 'One' })
+    const store = fakeStore(null)
+    await rebuild(store, store.writePost(s1))
+    const eDraft = store.writePost(draftOf(s1))
+    store.hooks.before = async (info) => {
+      if (info.actor === 'A' && info.kind === 'delete' && info.kn === 1) {
+        store.hooks.before = undefined
+        await rebuild(store, store.writePost(s1), { client: store.clientFor('B') })
+      }
+    }
+    const res = await rebuild(store, eDraft, { client: store.clientFor('A') })
+    expect(res.guardFailures).toBe(1)
+    expect(store.rowContents()).toEqual(store.currentRows())
+    expect(store.rows.size).toBe(2)
+    expect(store.violations).toEqual([])
+  })
+
+  it('leaves unrelated rows alone: other posts, and other keys of the same tag', async () => {
+    const other = published({ postId: 'p2', slug: 'other', title: 'Other', tags: ['news'] })
+    const otherRows = desiredPostTagRows(other)
+    const store = fakeStore(null, otherRows)
+    const s1 = published({ tags: ['news'], title: 'One' })
+    await rebuild(store, store.writePost(s1))
+    await rebuild(store, store.writePost(draftOf(s1)))
+    await rebuild(store, store.writePost(null))
+    expect(store.rowContents()).toEqual(otherRows)
     expect(store.violations).toEqual([])
   })
 
@@ -822,7 +909,7 @@ describe('reconcilePostTagsForPost', () => {
   })
 
   // ---------------------------------------------------------------------
-  it('reads the Post strongly with the state projection and guards every Put', async () => {
+  it('reads the Post strongly with the state projection and guards every Put and Delete', async () => {
     const store = fakeStore(canonicalPublished)
     const gets: Array<Record<string, unknown>> = []
     const transacts: Array<Record<string, unknown>> = []
@@ -841,12 +928,18 @@ describe('reconcilePostTagsForPost', () => {
         ...POST_STATE_PROJECTION,
       })
     }
-    expect(transacts).toHaveLength(2)
-    for (const t of transacts) {
-      const [check, put] = t.TransactItems as Array<Record<string, Record<string, unknown>>>
+    expect(transacts).toHaveLength(4) // 2 verbatim-key deletes, then 2 puts
+    const kinds = transacts.map((t) => {
+      const [check, write] = t.TransactItems as Array<Record<string, Record<string, unknown>>>
       expect(check!.ConditionCheck).toMatchObject({ TableName: 'posts', Key: { postId: 'p1' } })
-      expect(put!.Put).toMatchObject({ TableName: 'tags' })
-    }
+      expect(check!.ConditionCheck!.ConditionExpression).toContain('#status = :status')
+      expect((write!.Put ?? write!.Delete) as Record<string, unknown>).toMatchObject({
+        TableName: 'tags',
+      })
+      return write!.Put ? 'put' : 'delete'
+    })
+    expect(kinds).toEqual(['delete', 'delete', 'put', 'put'])
+    expect(store.counts.delete).toBeUndefined() // no unguarded DeleteItem
   })
 
   it('removes rows a previous attempt wrote when the post changes mid-rebuild', async () => {
@@ -871,7 +964,10 @@ describe('reconcilePostTagsForPost', () => {
     const res = await rebuild(store, { previous: rawPublished, next: null })
     expect(store.rows.size).toBe(0)
     expect(res).toMatchObject({ attempts: 1, deletes: 4, puts: 0, guardFailures: 0, rows: [] })
-    expect(store.counts.transact).toBeUndefined()
+    // Every delete is guarded on "the Post item still does not exist".
+    expect(store.counts['transact:delete']).toBe(4)
+    expect(store.counts['transact:put']).toBeUndefined()
+    expect(store.counts.delete).toBeUndefined()
   })
 
   it('unparseable publishedAt → no rows (logged), verbatim-keyed row removed', async () => {
@@ -896,7 +992,7 @@ describe('reconcilePostTagsForPost', () => {
     }
     await expect(rebuild(store, eventA)).rejects.toThrow('conflict')
     expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining('guarded put failed'),
+      expect.stringMatching(/guarded (put|delete) failed/),
       expect.anything()
     )
   })

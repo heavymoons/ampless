@@ -387,9 +387,9 @@ export function createProcessorTrustedHandler(
   // (e.g. a draft's title / excerpt on the public tag API). The rebuild
   // reads the Post with a strongly consistent GetItem and writes the rows
   // of its current state; the payload's previous / next only supply the
-  // keys to clean up. Each row is put in a TransactWriteItems guarded by a
-  // ConditionCheck that the Post still holds the state the row came from
-  // (IAM: ConditionCheckItem on Post via grantReadData, PutItem / DeleteItem
+  // keys to clean up. Each delete and each put is a TransactWriteItems
+  // guarded by a ConditionCheck that the Post still holds the state the
+  // rebuild read (IAM: ConditionCheckItem on Post via grantReadData, PutItem / DeleteItem
   // on PostTag via grantWriteData). Writes are sequential with no rate
   // limiter, bounded by one post's tag count. See `reconcilePostTagsForPost`
   // (posttag-sync.ts).

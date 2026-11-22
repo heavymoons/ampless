@@ -1,4 +1,4 @@
-import { DeleteCommand, GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
+import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
 import { canonicalizeAwsDateTime } from 'ampless'
 import type { ContentEventPayload, ContentFormat, PostIndexEventPayload } from 'ampless'
 
@@ -356,10 +356,17 @@ export interface PostStateCondition {
  * exactly: for each fingerprint attribute, `#a = :a` when it has a value,
  * `attribute_type(#a, :nullType)` when it is a DynamoDB NULL (equality with a
  * NULL operand is not a dependable comparison), `attribute_not_exists(#a)`
- * when absent. `postId` is always present on a read item, so the values map
- * is never empty. Pure.
+ * when absent. For `null` (no Post item) it asserts the item still does not
+ * exist: `attribute_not_exists(#postId)`. Pure.
  */
-export function buildPostStateCondition(state: NonNullable<PostState>): PostStateCondition {
+export function buildPostStateCondition(state: PostState): PostStateCondition {
+  if (state === null) {
+    return {
+      ConditionExpression: 'attribute_not_exists(#postId)',
+      ExpressionAttributeNames: { '#postId': 'postId' },
+      ExpressionAttributeValues: {},
+    }
+  }
   const clauses: string[] = []
   const names: Record<string, string> = {}
   const values: Record<string, unknown> = {}
@@ -384,8 +391,22 @@ export function buildPostStateCondition(state: NonNullable<PostState>): PostStat
   }
 }
 
+/** The `ConditionCheck` transaction item guarding a PostTag write on `state`. */
+function postStateCheck(postTable: string, postId: string, state: PostState) {
+  const { ExpressionAttributeValues, ...condition } = buildPostStateCondition(state)
+  return {
+    ConditionCheck: {
+      TableName: postTable,
+      Key: { postId },
+      ...condition,
+      // An empty values map is rejected by DynamoDB.
+      ...(Object.keys(ExpressionAttributeValues).length > 0 ? { ExpressionAttributeValues } : {}),
+    },
+  }
+}
+
 /**
- * True when a TransactWriteItems [ConditionCheck(Post), Put(PostTag)] was
+ * True when a TransactWriteItems [ConditionCheck(Post), Put/Delete(PostTag)] was
  * cancelled because the Post no longer holds the guarded state. Any other
  * cancellation (TransactionConflict, throttling, validation) is not.
  */
@@ -399,7 +420,7 @@ export function isPostStateGuardFailure(err: unknown): boolean {
 
 /** Minimal DynamoDBDocumentClient surface the rebuild needs (mockable). */
 export interface PostTagSyncClient {
-  send(command: GetCommand | DeleteCommand | TransactWriteCommand): Promise<unknown>
+  send(command: GetCommand | TransactWriteCommand): Promise<unknown>
 }
 
 export interface ReconcilePostTagsOpts {
@@ -419,7 +440,7 @@ export interface ReconcilePostTagsOpts {
   /** Summary line per rebuild. Default `console.log`. */
   log?: (line: string) => void
   /**
-   * Awaited immediately before every write call (DeleteItem and each
+   * Awaited immediately before every write call (each guarded
    * TransactWriteItems). The migration CLI passes its rate limiter here; the
    * trusted processor passes none.
    */
@@ -429,11 +450,11 @@ export interface ReconcilePostTagsOpts {
 export interface ReconcilePostTagsResult {
   postId: string
   attempts: number
-  /** DeleteItem calls issued (a delete of a missing key is a no-op). */
+  /** Guarded PostTag deletes committed (deleting a missing key is a no-op). */
   deletes: number
   /** Guarded PostTag Puts committed. */
   puts: number
-  /** Guarded Puts cancelled because the Post had changed. */
+  /** Guarded writes (delete or put) cancelled because the Post had changed. */
   guardFailures: number
   /** The rows of the state the last attempt verified. */
   rows: PostTagItem[]
@@ -446,27 +467,30 @@ export const DEFAULT_RECONCILE_MAX_ATTEMPTS = 5
  *
  *   1. Read the Post with a strongly consistent GetItem: state `s`, rows(s)
  *      (none for a draft, a deleted post, no tags, ...).
- *   2. Delete, one call at a time and unconditionally, every candidate key
- *      not in rows(s). A delete never makes anything public; deleting a
- *      valid row of a newer state only leaves it missing, which step 4 sees.
- *   3. Put each row of rows(s), one at a time, in a TransactWriteItems of a
+ *   2. Delete every candidate key not in rows(s), then put each row of
+ *      rows(s) — one call at a time, each a TransactWriteItems of a
  *      ConditionCheck that the Post still holds `s` exactly (every
- *      fingerprint attribute, see `buildPostStateCondition`) plus the Put.
- *      A row is therefore only ever committed while its state is current. If
- *      the guard fails, the Post changed: add rows(s)'s keys to the
- *      candidates and start again from 1.
- *   4. Read again strongly. Same fingerprint → done. Otherwise add rows(s)'s
- *      keys to the candidates and repeat with the new state.
+ *      fingerprint attribute, or "no item" for a deleted post; see
+ *      `buildPostStateCondition`) plus the Delete or Put. If a guard fails,
+ *      the Post changed: stop this attempt.
+ *   3. Read again strongly. Same fingerprint and no guard failure → done.
+ *      Otherwise add rows(s)'s keys to the candidates and repeat with the
+ *      new state.
  *
  * Throws after `maxAttempts` attempts without a stable state (logged), so
  * the SQS message is retried and eventually dead-lettered. Other read /
  * write errors are logged and propagate unchanged (nothing is retried here).
  *
+ * Every committed write is correct when it commits: a put writes a row of
+ * the current state, a delete removes a key that is not a row of the
+ * current state. So no worker — however stale its read, wherever it
+ * crashes — can expose an old state's row or remove a current one.
  * Why a row committed for `s` cannot outlive `s`: the Post can only leave
  * `s` through a later write, whose stream event has `previous = s`, so its
  * candidates contain rows(s)'s keys — and that event exists only after the
- * commit, so its rebuild runs after it. This holds across crashes at any
- * point: every committed row was valid at commit time.
+ * commit, so its rebuild runs after it. A row of the current state can only
+ * be missing if the refresh into that state has not (successfully) run yet:
+ * the SQS retry, or `--check-post-tags --apply` after a DLQ, writes it.
  */
 export async function reconcilePostTagsForPost(
   opts: ReconcilePostTagsOpts
@@ -503,48 +527,48 @@ export async function reconcilePostTagsForPost(
     const rows = desiredPostTagRows(postPayloadFromItem(state))
     const plan = planPostTagRebuild(candidates, rows)
 
-    for (const key of plan.deletes) {
+    // Every write — delete or put — is one TransactWriteItems guarded by a
+    // ConditionCheck that the Post still holds `state`, so each committed
+    // write is correct at its commit: a delete only removes a key outside
+    // rows(state) while `state` is current, a put only writes rows(state).
+    // A guard failure means the Post changed: stop and re-read.
+    const check = postStateCheck(postTable, postId, state)
+    let guarded = true
+    const writes: Array<{ kind: 'delete' | 'put'; key: PostTagKey; item?: PostTagItem }> = [
+      ...plan.deletes.map((key) => ({ kind: 'delete' as const, key })),
+      ...rows.map((item) => ({ kind: 'put' as const, key: item, item })),
+    ]
+    for (const w of writes) {
       await beforeWrite()
       try {
-        await client.send(new DeleteCommand({ TableName: postTagTable, Key: key }))
-      } catch (err) {
-        console.error(
-          `[posttag-sync] postId=${postId} delete failed tag=${key.tag} publishedAtPostId=${key.publishedAtPostId}`,
-          err
+        await client.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              check,
+              w.kind === 'delete'
+                ? {
+                    Delete: {
+                      TableName: postTagTable,
+                      Key: { tag: w.key.tag, publishedAtPostId: w.key.publishedAtPostId },
+                    },
+                  }
+                : { Put: { TableName: postTagTable, Item: w.item } },
+            ],
+          })
         )
-        throw err
-      }
-      deletes++
-    }
-
-    let guarded = true
-    if (rows.length > 0) {
-      // rows(s) is non-empty only for an existing, published item.
-      const condition = buildPostStateCondition(state!)
-      for (const row of rows) {
-        await beforeWrite()
-        try {
-          await client.send(
-            new TransactWriteCommand({
-              TransactItems: [
-                { ConditionCheck: { TableName: postTable, Key: { postId }, ...condition } },
-                { Put: { TableName: postTagTable, Item: row } },
-              ],
-            })
+        if (w.kind === 'delete') deletes++
+        else puts++
+      } catch (err) {
+        if (!isPostStateGuardFailure(err)) {
+          console.error(
+            `[posttag-sync] postId=${postId} guarded ${w.kind} failed tag=${w.key.tag} publishedAtPostId=${w.key.publishedAtPostId}`,
+            err
           )
-          puts++
-        } catch (err) {
-          if (!isPostStateGuardFailure(err)) {
-            console.error(
-              `[posttag-sync] postId=${postId} guarded put failed tag=${row.tag} publishedAtPostId=${row.publishedAtPostId}`,
-              err
-            )
-            throw err
-          }
-          guardFailures++
-          guarded = false
-          break
+          throw err
         }
+        guardFailures++
+        guarded = false
+        break
       }
     }
 

@@ -75,6 +75,12 @@ function harness(opts: {
           if (!evaluatePostStateCondition(posts.get(key.postId) ?? null, check!.ConditionCheck!)) {
             throw guardCancelled()
           }
+          if (put!.Delete) {
+            commands.push('TransactDelete')
+            const k = put!.Delete!.Key as Record<string, unknown>
+            tags.delete(`${String(k.tag)}|${String(k.publishedAtPostId)}`)
+            return {}
+          }
           const item = put!.Put!.Item as Record<string, unknown>
           tags.set(`${String(item.tag)}|${String(item.publishedAtPostId)}`, { ...item })
           return {}
@@ -227,7 +233,8 @@ describe('runCli', () => {
       const h = harness({ posts: [canonicalPost], tagRows: [staleRow] })
       expect(await h.run([...args, '--apply'])).toBe(0)
       expect(h.tags.size).toBe(0)
-      expect(h.commands).toContain('Delete')
+      expect(h.commands).toContain('TransactDelete')
+      expect(h.commands).not.toContain('Delete') // no unguarded DeleteItem
       expect(h.stdout.join('\n')).toContain('remaining:         0')
     })
 
@@ -237,7 +244,9 @@ describe('runCli', () => {
       const realSend = clients.doc.send.bind(clients.doc)
       // Deletes silently do nothing (e.g. a writer keeps recreating the row).
       clients.doc.send = async (command) => {
-        if (command instanceof DeleteCommand) return {}
+        if (command instanceof TransactWriteCommand && command.input.TransactItems?.[1]?.Delete) {
+          return {}
+        }
         return realSend(command as never)
       }
       h.createClients.mockReturnValue(clients)

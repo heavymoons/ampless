@@ -541,11 +541,13 @@ deployed.
   (webhooks and other plugins do not fire) and no PostHistory revision.
   It still refreshes the post's tag-page (PostTag) rows. That refresh
   rebuilds the rows from a strongly consistent read of the post's
-  current state, not from the event, and writes each row in a
+  current state, not from the event. Each delete and each put is a
   transaction that only succeeds while the post still matches that
-  state. A draft or deleted post's row therefore cannot be (re)written,
-  even when events are processed out of order (the trusted queue is SQS
-  standard) or a worker crashes mid-rebuild.
+  state, so a draft or deleted post's row cannot be (re)written and a
+  current row cannot be deleted, even when events are processed out of
+  order (the trusted queue is SQS standard) or a worker crashes
+  mid-rebuild. Removal is asynchronous: after an unpublish, the post's
+  rows stay visible until its refresh has been processed.
 - A dry-run that reports nothing to change does **not** by itself prove
   the migration is complete: a write can be in flight, and the PostTag
   refreshes run asynchronously after the Post writes. Completion is only
@@ -634,8 +636,8 @@ deployed.
    deleted post, an old key, or an outdated title / excerpt) and rows
    that are missing, and exits non-zero if it finds any. Add `--apply` to
    repair them: each affected post is rebuilt from its current state,
-   the same way the event processor does (each row is written only while
-   the post still matches the state it was built from). Writes are
+   the same way the event processor does (each delete and put commits
+   only while the post still matches the state it was built from). Writes are
    rate-limited one at a time (`--max-writes-per-second`). Repeat until it reports none.
    This also clears stale rows that earlier releases could leave behind.
 8. **Resume the writers.** The migration is complete when, with writers
