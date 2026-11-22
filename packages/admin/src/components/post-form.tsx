@@ -8,7 +8,6 @@ import {
   updatePost,
   deletePost,
   formatDate,
-  normalizePostClasses,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -20,11 +19,6 @@ import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
 import { PostHistoryPanel } from './post-history-panel.js'
 import { StaticUploader } from './static-uploader.js'
-import {
-  PostClassesField,
-  isMalformedPostClasses,
-  type EditorPostClass,
-} from './post-classes-field.js'
 import {
   uploadBundle,
   deleteBundle,
@@ -72,15 +66,7 @@ interface PostFormProps {
    * treated as trusted; see the iframe comment below for full rationale).
    */
   previewEndpoint?: string
-  /**
-   * Post custom classes the active theme declares (`target: 'post'`),
-   * resolved by the page factory. Offered as checkboxes in the post
-   * settings; stored ids outside this list are kept and flagged.
-   */
-  availablePostClasses?: ReadonlyArray<EditorPostClass>
 }
-
-const NO_POST_CLASSES: ReadonlyArray<EditorPostClass> = []
 
 const EMPTY_TIPTAP_DOC = { type: 'doc', content: [{ type: 'paragraph' }] }
 
@@ -152,11 +138,7 @@ function formatDraftTime(epochMs: number, timezone: string, locale: string): str
   }
 }
 
-export function PostForm({
-  post,
-  previewEndpoint = '/admin/preview',
-  availablePostClasses = NO_POST_CLASSES,
-}: PostFormProps) {
+export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
@@ -170,15 +152,6 @@ export function PostForm({
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
-  // Theme-defined post classes (`metadata.postClasses`). The field shows the
-  // normalized list (valid ids the active theme does not declare are kept
-  // and flagged), but the stored value is only rewritten once the user
-  // changes post styles (`postClassesTouched`): until then save keeps the
-  // raw value as-is, since a malformed one may belong to a plugin.
-  const [postClasses, setPostClasses] = useState<string[]>(() =>
-    normalizePostClasses(post?.metadata?.postClasses)
-  )
-  const [postClassesTouched, setPostClassesTouched] = useState(false)
   const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -286,18 +259,10 @@ export function PostForm({
   // always strip it — protects against stale flags surviving a format
   // switch and confusing the dispatcher. Returns undefined when the
   // resulting object would be empty, so we don't store a meaningless `{}`.
-  // `postClasses` is form-owned (all formats) only once the user changed
-  // post styles: then it is set when any are selected, otherwise the key is
-  // removed. Until then the spread keeps the stored value untouched, raw
-  // shape included.
   function buildMetadata(): PostMetadata | undefined {
     const next: PostMetadata = { ...(post?.metadata ?? {}) }
     if (noLayout && format === 'html') next.no_layout = true
     else delete next.no_layout
-    if (postClassesTouched) {
-      if (postClasses.length > 0) next.postClasses = [...postClasses]
-      else delete next.postClasses
-    }
     return Object.keys(next).length > 0 ? next : undefined
   }
 
@@ -327,8 +292,6 @@ export function PostForm({
     tags: (post?.tags ?? []).join(', '),
     publishedAtInput: isoToLocalInput(post?.publishedAt),
     noLayout: post?.metadata?.no_layout === true,
-    postClasses: normalizePostClasses(post?.metadata?.postClasses),
-    rawPostClasses: post?.metadata?.postClasses,
     updatedAt: post?.updatedAt ?? null,
   }
 
@@ -343,9 +306,6 @@ export function PostForm({
       tags: tagsInput,
       publishedAtInput,
       noLayout,
-      // Only a user change to post styles is persisted; an untouched draft
-      // leaves the field out so recovery keeps the loaded raw value.
-      ...(postClassesTouched ? { postClasses } : {}),
       baseUpdatedAt: post?.updatedAt ?? null,
       savedAt: Date.now(),
     }
@@ -365,14 +325,6 @@ export function PostForm({
     setTagsInput(draft.tags)
     setPublishedAtInput(draft.publishedAtInput)
     setNoLayout(draft.noLayout && draft.format === 'html')
-    // Drafts without the field (untouched post styles, or written before
-    // post classes existed) keep the loaded post's value, raw included.
-    setPostClasses(
-      draft.postClasses === undefined
-        ? loadedState.postClasses
-        : normalizePostClasses(draft.postClasses)
-    )
-    setPostClassesTouched(draft.postClasses !== undefined)
     setPendingBundle(null)
     // Force the tiptap editor to remount with the restored body.
     setEditorEpoch((e) => e + 1)
@@ -437,7 +389,7 @@ export function PostForm({
     // Re-arm on every tracked field change; the dirty gate decides whether
     // a write actually happens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout, postClasses])
+  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout])
 
   function insertMediaSnippet(url: string) {
     if (format === 'tiptap') return // tiptap handles images via its own MediaPicker
@@ -527,16 +479,12 @@ export function PostForm({
   // save — the user reviews and clicks Save, which creates a fresh
   // revision via the existing dispatcher path. Applies ONLY the content
   // fields below; the full `metadata` blob is intentionally NOT restored
-  // (buildMetadata rebuilds from the live post.metadata and only owns a
-  // few keys through form state, so restoring the blob wouldn't apply and
-  // could clobber plugin / SEO data). The snapshot still STORES metadata;
-  // we just don't apply it on restore in v1. The metadata keys we honour
-  // are the form-owned ones: `no_layout`, only for html revisions (matches
-  // buildMetadata's gating), and `postClasses`: the selection is the
-  // revision's, normalized (a revision without the key restores to no post
-  // classes, as it was rendered then). It counts as a post styles change —
-  // so save rewrites the key — only when the revision's raw value differs
-  // from the current post's; otherwise the current raw value is kept.
+  // (buildMetadata rebuilds from the live post.metadata and has no
+  // metadata state, so restoring the blob wouldn't apply and could
+  // clobber plugin / SEO data). The snapshot still STORES metadata; we
+  // just don't apply it on restore in v1. The one metadata key we honour
+  // is `no_layout`, and only for html revisions (matches buildMetadata's
+  // gating).
   function restoreRevision(rev: PostRevision) {
     const fmt = rev.format ?? 'markdown'
     setTitle(rev.title ?? '')
@@ -548,10 +496,6 @@ export function PostForm({
     setTagsInput((rev.tags ?? []).join(', '))
     setPublishedAtInput(isoToLocalInput(rev.publishedAt))
     setNoLayout(rev.metadata?.no_layout === true && fmt === 'html')
-    setPostClasses(normalizePostClasses(rev.metadata?.postClasses))
-    setPostClassesTouched(
-      JSON.stringify(rev.metadata?.postClasses) !== JSON.stringify(post?.metadata?.postClasses)
-    )
     // A new bundle pick (for static) is irrelevant to a restore — clear
     // any pending upload so it can't leak into the next save.
     setPendingBundle(null)
@@ -690,8 +634,7 @@ export function PostForm({
 
   // Build a Post-like object for preview-time rendering. Fields the
   // current form state owns; everything else falls back to either the
-  // existing post (on edit) or sensible defaults. `metadata` is the one
-  // save would write, so the preview wrapper gets the edited post classes.
+  // existing post (on edit) or sensible defaults.
   const previewPost: Post = {
     postId: post?.postId ?? 'preview',
     slug: slug || slugify(title) || 'preview',
@@ -702,7 +645,6 @@ export function PostForm({
     status,
     publishedAt: resolvedPublishedAt,
     tags: parseTags(tagsInput),
-    metadata: buildMetadata(),
   }
 
   // Phase 7: when the preview tab is active, debounce-POST the draft
@@ -755,9 +697,6 @@ export function PostForm({
     status,
     resolvedPublishedAt,
     tagsInput,
-    // Array identity changes on every edit; join so an unchanged list
-    // doesn't re-fetch.
-    postClasses.join(' '),
   ])
 
   return (
@@ -1113,23 +1052,6 @@ export function PostForm({
             </span>
           </label>
         </div>
-      )}
-
-      {/* Static bundles and no_layout html bypass the theme's post body
-          wrapper, so post styles would have no effect there. The stored
-          selection is still kept (buildMetadata keeps or writes it for every
-          format). */}
-      {format !== 'static' && !(format === 'html' && noLayout) && (
-        <PostClassesField
-          available={availablePostClasses}
-          value={postClasses}
-          conflict={!postClassesTouched && isMalformedPostClasses(post?.metadata?.postClasses)}
-          onChange={(next) => {
-            setPostClasses(next)
-            setPostClassesTouched(true)
-            markDirty()
-          }}
-        />
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}

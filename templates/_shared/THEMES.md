@@ -493,53 +493,6 @@ What to look for:
 - Empty link / tag / nav / footer configurations don't leave dead
   chrome behind.
 
-## Custom classes for posts and tables
-
-A theme can offer editors named styles for a whole post or a table.
-
-1. Declare them in `manifest.ts`. The id uses lowercase letters, digits
-   and hyphens:
-
-   ```ts
-   customClasses: [
-     { id: 'wide', label: { en: 'Wide', ja: 'ワイド' }, target: 'post' },
-     { id: 'compact', label: { en: 'Compact', ja: 'コンパクト' }, target: 'table' },
-   ],
-   ```
-
-2. Style them in `tokens.css`. A post class renders as
-   `ampless-post--<id>` on `#post-body`; a table class renders as
-   `tiptap-table--<id>` on the table. Scope the rules under
-   `[data-theme='my-blog']` if they should apply only while this theme
-   is active:
-
-   ```css
-   [data-theme='my-blog'] .ampless-post--wide { max-width: none; }
-   [data-theme='my-blog'] .tiptap-table--compact td { padding: 0.25rem 0.5rem; }
-   ```
-
-3. Declare the post body wrapper's base classes in the manifest and use
-   them on `#post-body` in `pages/post.tsx`:
-
-   ```ts
-   // manifest.ts
-   postBody: { className: 'prose prose-neutral dark:prose-invert max-w-none' },
-   ```
-
-   ```tsx
-   // pages/post.tsx
-   import manifest from '../manifest'
-   // ...
-   <div id="post-body" className={ampless.postBodyClassName(post, manifest.postBody?.className)}>
-   ```
-
-The admin preview uses the same `postBody.className` on its own
-`<main id="post-body">`, sets `data-theme` to the active theme, and
-loads the site's same-origin CSS, so these rules apply in the preview
-too. Ids that a post stores but the active theme does not declare
-(for example after a theme switch) still render. They stay unstyled
-until a theme declares them again.
-
 ## Theme-local components
 
 Theme-specific shared UI belongs in the theme, e.g.

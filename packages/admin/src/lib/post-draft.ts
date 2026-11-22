@@ -40,13 +40,6 @@ export interface PostDraft {
   publishedAtInput: string
   noLayout: boolean
   /**
-   * Selected theme post class ids (`metadata.postClasses`). Optional: only
-   * written once the user changed post styles. Drafts without it (untouched
-   * post styles, or written before post classes existed) keep the loaded
-   * post's value on recovery, raw shape included.
-   */
-  postClasses?: string[]
-  /**
    * The server post's `updatedAt` at the moment the draft was taken (or
    * null for a brand-new post). The base-version anchor: on recovery we
    * compare this against the freshly-loaded post's `updatedAt` to detect
@@ -135,14 +128,6 @@ export interface LoadedPostState {
   tags: string
   publishedAtInput: string
   noLayout: boolean
-  /** Normalized `metadata.postClasses` of the loaded post. */
-  postClasses: string[]
-  /**
-   * The loaded post's `metadata.postClasses` as stored (any shape, possibly
-   * undefined). A draft's list replaces this on save, so it is compared
-   * against this, not the normalized list.
-   */
-  rawPostClasses: unknown
   /** `post?.updatedAt ?? null` — the current server base version. */
   updatedAt: string | null
 }
@@ -167,15 +152,6 @@ export function draftDiffersFromLoaded(draft: PostDraft, loaded: LoadedPostState
   if (draft.tags !== loaded.tags) return true
   if (draft.publishedAtInput !== loaded.publishedAtInput) return true
   if (draft.noLayout !== loaded.noLayout) return true
-  // A draft without the field (post styles untouched, or written before post
-  // classes existed) does not differ on it. One with the field replaces the
-  // stored value on save, so compare against the raw value (absent = no
-  // classes): a list that would rewrite a malformed value is a change.
-  // Order matters: it is the rendered class order.
-  if (draft.postClasses !== undefined) {
-    const stored = loaded.rawPostClasses === undefined ? [] : loaded.rawPostClasses
-    if (!deepEqual(draft.postClasses, stored)) return true
-  }
   return !deepEqual(draft.body, loaded.body)
 }
 

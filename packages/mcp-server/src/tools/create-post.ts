@@ -6,7 +6,6 @@ import {
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { normalizePublishedAt } from './published-at.js'
-import { mergePostClasses, postClassesSchema, validatePostClassesArgs } from './post-classes.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -28,8 +27,6 @@ export interface CreatePostArgs {
   publishedAt?: string
   tags?: string[]
   metadata?: PostMetadata | Record<string, unknown>
-  /** Theme post class ids; merged into `metadata.postClasses`. */
-  postClasses?: string[]
 }
 
 export const createPostSchema = {
@@ -57,7 +54,7 @@ export const createPostSchema = {
     metadata: {
       type: 'object',
       description:
-        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (middleware rewrites /<slug> to the internal bare-HTML route); meaningful only with format=html. `cache` (auto|deep|hot) — override the per-post cache strategy. See `cacheStrategy` in get_schema.notes for details. `postClasses` (string[]) — theme-defined post class ids, rendered as `ampless-post--<id>` on the post body wrapper; prefer the top-level `postClasses` arg. Other keys pass through unchanged for themes/plugins.',
+        'Free-form per-post metadata. Reserved well-known keys: `no_layout` (boolean) — when true, the public page is served as bare HTML with no theme chrome (middleware rewrites /<slug> to the internal bare-HTML route); meaningful only with format=html. `cache` (auto|deep|hot) — override the per-post cache strategy. See `cacheStrategy` in get_schema.notes for details. Other keys pass through unchanged for themes/plugins.',
       properties: {
         no_layout: {
           type: 'boolean',
@@ -71,13 +68,8 @@ export const createPostSchema = {
           description:
             "Override the response Cache-Control strategy. 'auto' (default): no-store within `cms.config.cache.cooldownMs` of updatedAt, then `max-age=freshTtlSeconds`. 'deep': always `max-age=deepTtlSeconds`. 'hot': always no-store. Independent of no_layout; applies uniformly to themed, no_layout, and static posts.",
         },
-        postClasses: postClassesSchema,
       },
       additionalProperties: true,
-    },
-    postClasses: {
-      ...postClassesSchema,
-      description: `${postClassesSchema.description} Merged into metadata.postClasses (overrides it when both are given; an empty array stores none).`,
     },
   },
 } as const
@@ -86,11 +78,6 @@ export async function createPost(
   client: GraphqlClient,
   args: CreatePostArgs
 ): Promise<Post> {
-  // Validate before writing anything: invalid ids are rejected, not dropped.
-  const postClasses = validatePostClassesArgs(args)
-  let metadata = mergePostClasses(args.metadata, postClasses)
-  // `postClasses: []` with no metadata would otherwise store a bare `{}`.
-  if (args.metadata === undefined && metadata && Object.keys(metadata).length === 0) metadata = undefined
   const postId =
     args.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const status = args.status ?? 'draft'
@@ -114,7 +101,7 @@ export async function createPost(
       status,
       publishedAt,
       tags: args.tags,
-      metadata: metadata !== undefined ? encodeAwsJson(metadata) : undefined,
+      metadata: args.metadata !== undefined ? encodeAwsJson(args.metadata) : undefined,
     },
   })
 

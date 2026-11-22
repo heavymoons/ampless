@@ -62,7 +62,7 @@ export default async function DadsHome(_: ThemeRouteContext) {
                   {featured.title}
                 </Link>
               </h2>
-              <div className={ampless.postBodyClassName(featured, 'prose prose-neutral dark:prose-invert mt-6 max-w-none')}>
+              <div className="prose prose-neutral dark:prose-invert mt-6 max-w-none">
                 {await ampless.renderBody(featured)}
               </div>
             </div>

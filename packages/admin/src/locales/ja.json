@@ -105,13 +105,6 @@
       "status": "ステータス",
       "noLayout": "レイアウトを使わない",
       "noLayoutHint": "テーマのヘッダー / フッター / root layout を介さず、本文を HTTP レスポンス本体としてそのまま返します。本文に <!DOCTYPE html>…</html> が含まれる場合はフォーマット: HTML との組み合わせが最適です。",
-      "postClasses": "記事のスタイル",
-      "postClassesHint": "現在のテーマが記事全体に用意しているスタイルです。記事本文にクラスとして付きます。",
-      "postClassesUnknown": "{id}（現在のテーマで未定義）",
-      "postClassesUnknownHint": "クラスとして保持・出力されます。不要なら削除してください。",
-      "postClassesRemove": "{id} を削除",
-      "postClassesNoneDeclared": "現在のテーマは記事のスタイルを定義していません。",
-      "postClassesConflict": "保存されている metadata.postClasses の値は、有効な記事スタイル ID のリストではありません（プラグインが使っている値かもしれません）。保存しても変更されません。ここで記事のスタイルを変更すると、その値は置き換えられます。",
       "formatStaticLabel": "Static (zip / ファイル一括)",
       "static": {
         "pick": ".zip または複数ファイルを選択",
