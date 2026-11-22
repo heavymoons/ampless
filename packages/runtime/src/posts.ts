@@ -128,6 +128,55 @@ function toCorePost(p: PublicPostShape): Post {
 }
 
 /**
+ * Upper bound on resolver calls made to fill one page (see `fillPage`).
+ * Reaching it only happens when many consecutive index rows are dropped by
+ * the resolver; the caller still gets a valid `nextToken` to continue.
+ */
+const MAX_FILL_PAGES = 10
+
+/**
+ * Collect up to `limit` posts from a list resolver, following `nextToken`.
+ *
+ * The public list resolvers re-check each row's publishedAt by instant
+ * AFTER DynamoDB has applied `limit` (non-canonical rows such as a future
+ * `-05:00` value can sort before now as strings), so a single response can
+ * be short — even empty — while `nextToken` is still set. Callers such as
+ * the home page only read the first page, so keep requesting the remaining
+ * count until the page is full, the listing ends, or MAX_FILL_PAGES calls
+ * were made. Each call asks for exactly the remaining count, so the
+ * returned `nextToken` (from the last call) resumes right after the last
+ * returned item and nothing is skipped or repeated. For canonical data the
+ * first call already fills the page, so this is one call as before.
+ */
+async function fillPage(
+  label: string,
+  limit: number,
+  nextToken: string | undefined,
+  fetchPage: (args: {
+    limit: number
+    nextToken: string | undefined
+  }) => Promise<PublicPostConnectionShape | null>
+): Promise<ListPostsResult> {
+  const items: Post[] = []
+  let token: string | null | undefined = nextToken
+  let calls = 0
+  do {
+    const data = await fetchPage({ limit: limit - items.length, nextToken: token ?? undefined })
+    calls++
+    for (const p of data?.items ?? []) {
+      if (p !== null) items.push(toCorePost(p))
+    }
+    token = data?.nextToken ?? null
+  } while (items.length < limit && token && calls < MAX_FILL_PAGES)
+  if (items.length < limit && token) {
+    console.warn(
+      `[ampless] ${label}: page still has ${items.length}/${limit} items after ${calls} resolver calls; returning it with nextToken so the caller can continue`
+    )
+  }
+  return { items, nextToken: token ?? null }
+}
+
+/**
  * Build the post-fetching API from a user-provided amplify_outputs
  * blob. Uses a stateless Amplify server client: `generateServerClientUsingReqRes`
  * run with `nextServerContext: null` — Amplify's `sharedInMemoryStorage`
@@ -162,21 +211,20 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
 
   return {
     async listPublishedPosts(opts: ListPostsOptions = {}): Promise<ListPostsResult> {
-      const { data, errors } = await runWithAmplifyServerContext({
-        nextServerContext: null,
-        operation: (contextSpec) =>
-          client.queries.listPublishedPosts(contextSpec, {
-            from: opts.from,
-            to: opts.to,
-            limit: opts.limit ?? 20,
-            nextToken: opts.nextToken,
-          }),
+      return fillPage('listPublishedPosts', opts.limit ?? 20, opts.nextToken, async (args) => {
+        const { data, errors } = await runWithAmplifyServerContext({
+          nextServerContext: null,
+          operation: (contextSpec) =>
+            client.queries.listPublishedPosts(contextSpec, {
+              from: opts.from,
+              to: opts.to,
+              limit: args.limit,
+              nextToken: args.nextToken,
+            }),
+        })
+        if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts')
+        return data
       })
-      if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts')
-      const items = (data?.items ?? [])
-        .filter((p): p is PublicPostShape => p !== null)
-        .map(toCorePost)
-      return { items, nextToken: data?.nextToken ?? null }
     },
 
     async getPublishedPost(slug: string): Promise<Post | null> {
@@ -192,20 +240,19 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
       tag: string,
       opts: ListPostsByTagOptions = {}
     ): Promise<ListPostsResult> {
-      const { data, errors } = await runWithAmplifyServerContext({
-        nextServerContext: null,
-        operation: (contextSpec) =>
-          client.queries.listPostsByTag(contextSpec, {
-            tag,
-            limit: opts.limit ?? 20,
-            nextToken: opts.nextToken,
-          }),
+      return fillPage('listPostsByTag', opts.limit ?? 20, opts.nextToken, async (args) => {
+        const { data, errors } = await runWithAmplifyServerContext({
+          nextServerContext: null,
+          operation: (contextSpec) =>
+            client.queries.listPostsByTag(contextSpec, {
+              tag,
+              limit: args.limit,
+              nextToken: args.nextToken,
+            }),
+        })
+        if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts by tag')
+        return data
       })
-      if (errors) throw new Error(errors[0]?.message ?? 'Failed to list posts by tag')
-      const items = (data?.items ?? [])
-        .filter((p): p is PublicPostShape => p !== null)
-        .map(toCorePost)
-      return { items, nextToken: data?.nextToken ?? null }
     },
   }
 }

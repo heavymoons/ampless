@@ -125,8 +125,10 @@ describe('createPostsApi — stateless apiKey reads', () => {
     })
 
     it('forwards opts.limit and nextToken when provided', async () => {
+      // nextToken null ends the listing, so this is a single call (a short
+      // page WITH a token is followed up — see "page filling" below).
       mockListPublishedPosts.mockResolvedValueOnce({
-        data: { items: [], nextToken: 'tok' },
+        data: { items: [], nextToken: null },
         errors: null,
       })
 
@@ -137,6 +139,107 @@ describe('createPostsApi — stateless apiKey reads', () => {
         FAKE_CTX,
         expect.objectContaining({ limit: 5, nextToken: 'prev' })
       )
+    })
+  })
+
+  describe('page filling (resolvers may return short pages with a nextToken)', () => {
+    function row(id: string) {
+      return {
+        postId: id,
+        slug: id,
+        title: id,
+        format: 'markdown',
+        status: 'published',
+        publishedAt: '2026-01-01T00:00:00.000Z',
+        tags: [],
+      }
+    }
+
+    it('follows nextToken with the remaining limit until the page is full', async () => {
+      mockListPublishedPosts
+        .mockResolvedValueOnce({ data: { items: [row('a')], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({
+          data: { items: [row('b'), row('c')], nextToken: 't2' },
+          errors: null,
+        })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 3, from: 'F', to: 'T' })
+
+      expect(res.items.map((p) => p.postId)).toEqual(['a', 'b', 'c'])
+      expect(res.nextToken).toBe('t2')
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(2)
+      expect(mockListPublishedPosts).toHaveBeenNthCalledWith(1, FAKE_CTX, {
+        from: 'F',
+        to: 'T',
+        limit: 3,
+        nextToken: undefined,
+      })
+      expect(mockListPublishedPosts).toHaveBeenNthCalledWith(2, FAKE_CTX, {
+        from: 'F',
+        to: 'T',
+        limit: 2,
+        nextToken: 't1',
+      })
+    })
+
+    it('keeps going past an empty page that still has a nextToken', async () => {
+      mockListPostsByTag
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({ data: { items: [row('a')], nextToken: null }, errors: null })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPostsByTag('news', { limit: 2 })
+
+      expect(res.items.map((p) => p.postId)).toEqual(['a'])
+      expect(res.nextToken).toBeNull()
+      expect(mockListPostsByTag).toHaveBeenNthCalledWith(2, FAKE_CTX, {
+        tag: 'news',
+        limit: 2,
+        nextToken: 't1',
+      })
+    })
+
+    it('makes a single call when the first page is already full', async () => {
+      mockListPublishedPosts.mockResolvedValueOnce({
+        data: { items: [row('a'), row('b')], nextToken: 't1' },
+        errors: null,
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 2 })
+
+      expect(res.items).toHaveLength(2)
+      expect(res.nextToken).toBe('t1')
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops after 10 calls and returns the partial page with its nextToken', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      let n = 0
+      mockListPublishedPosts.mockImplementation(async () => ({
+        data: { items: [], nextToken: `t${++n}` },
+        errors: null,
+      }))
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 5 })
+
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(10)
+      expect(res.items).toEqual([])
+      expect(res.nextToken).toBe('t10')
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('listPublishedPosts'))
+      warn.mockRestore()
+    })
+
+    it('throws when a follow-up page returns errors', async () => {
+      mockListPostsByTag
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({ data: null, errors: [{ message: 'boom' }] })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      await expect(api.listPostsByTag('news', { limit: 2 })).rejects.toThrow('boom')
     })
   })
 

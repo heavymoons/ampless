@@ -48,41 +48,37 @@ describe('getPostDisplayStatus', () => {
     expect(getPostDisplayStatus({ status: 'published', publishedAt: null }, NOW)).toBe('published')
   })
 
-  it('compares lexically like the public resolvers, not by instant', () => {
-    // 20:30+09:00 is 11:30Z (past as an instant) but "20:30" > "12:00" lexically,
-    // so the public side still hides it.
+  it('compares by instant, like the public resolvers, for offset values', () => {
+    // 20:30+09:00 is 11:30Z: past as an instant, though "20:30" > "12:00" as a string.
     expect(
       getPostDisplayStatus({ status: 'published', publishedAt: '2026-06-01T20:30:00+09:00' }, NOW)
-    ).toBe('scheduled')
-    // Lexically earlier than now's canonical string -> visible.
-    expect(
-      getPostDisplayStatus({ status: 'published', publishedAt: '2026-06-01T11:30:00+09:00' }, NOW)
     ).toBe('published')
+    // 11:30-05:00 is 16:30Z: future as an instant, though "11:30" < "12:00" as a string.
+    expect(
+      getPostDisplayStatus({ status: 'published', publishedAt: '2026-06-01T11:30:00-05:00' }, NOW)
+    ).toBe('scheduled')
   })
 
-  it('offset value in the past as an instant is still scheduled (public hides it)', () => {
-    const now = Date.parse('2026-11-17T02:00:00.000Z')
+  it('offset value flips to published exactly at its instant', () => {
     const post = { status: 'published' as const, publishedAt: '2026-11-17T10:00:00+09:00' }
-    expect(Date.parse(post.publishedAt)).toBeLessThan(now) // 01:00Z
-    expect(getPostDisplayStatus(post, now)).toBe('scheduled')
-    const t = Date.UTC(2026, 10, 17, 10, 0, 0, 0)
-    expect(scheduledTransitionAt(post, now)).toBe(t)
+    const t = Date.UTC(2026, 10, 17, 1, 0, 0, 0)
+    expect(scheduledTransitionAt(post, t - 1)).toBe(t)
     expect(getPostDisplayStatus(post, t - 1)).toBe('scheduled')
     expect(getPostDisplayStatus(post, t)).toBe('published')
   })
 
-  it('value without milliseconds becomes visible at the next whole second', () => {
-    const post = { status: 'published' as const, publishedAt: '2026-11-17T01:00:00Z' }
+  it('value without milliseconds or seconds becomes visible at its instant', () => {
     const at = Date.UTC(2026, 10, 17, 1, 0, 0, 0)
-    // 'Z' > '.', so 01:00:00.000Z is still hidden.
-    expect(getPostDisplayStatus(post, at)).toBe('scheduled')
-    expect(getPostDisplayStatus(post, at + 999)).toBe('scheduled')
-    expect(scheduledTransitionAt(post, at)).toBe(at + 1000)
-    expect(getPostDisplayStatus(post, at + 1000)).toBe('published')
+    for (const publishedAt of ['2026-11-17T01:00:00Z', '2026-11-17T01:00Z']) {
+      const post = { status: 'published' as const, publishedAt }
+      expect(getPostDisplayStatus(post, at - 1)).toBe('scheduled')
+      expect(scheduledTransitionAt(post, at - 1)).toBe(at)
+      expect(getPostDisplayStatus(post, at)).toBe('published')
+    }
   })
 
-  it('beyond the last representable ms (year 9999) or unparseable values are scheduled with no transition', () => {
-    for (const publishedAt of ['9999-12-31T23:59:59.999Zx', 'not-a-date']) {
+  it('unparseable values are scheduled with no transition (resolvers fail closed)', () => {
+    for (const publishedAt of ['9999-12-31T23:59:59.999Zx', 'not-a-date', '2026-02-30T00:00:00Z']) {
       const post = { status: 'published' as const, publishedAt }
       expect(getPostDisplayStatus(post, NOW)).toBe('scheduled')
       expect(scheduledTransitionAt(post, NOW)).toBeUndefined()
@@ -148,9 +144,9 @@ describe('nextScheduledTransition', () => {
     expect(nextScheduledTransition(posts, NOW)).toBe(NOW + 2_000)
   })
 
-  it('uses the lexical transition for offset values', () => {
+  it('uses the instant for offset values', () => {
     const posts = [
-      { status: 'published' as const, publishedAt: '2026-06-01T21:00:02+09:00' }, // 21:00:02.000Z
+      { status: 'published' as const, publishedAt: '2026-06-02T06:00:02+09:00' }, // 21:00:02Z on 06-01
       { status: 'published' as const, publishedAt: 'not-a-date' },
     ]
     expect(nextScheduledTransition(posts, NOW)).toBe(Date.UTC(2026, 5, 1, 21, 0, 2))

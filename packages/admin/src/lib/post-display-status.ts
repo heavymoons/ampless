@@ -8,19 +8,23 @@
  * it as "scheduled" instead of "published". This is display-only — the
  * stored data and save logic are unchanged.
  *
- * The comparison intentionally mirrors the resolvers: it is a LEXICAL string
- * comparison against the canonical `new Date(now).toISOString()`
- * (`YYYY-MM-DDTHH:mm:ss.sssZ`, what `util.time.nowISO8601()` yields), not an
- * instant comparison. For canonical UTC values the two are identical. For
- * non-canonical stored values (offset `+09:00`, no milliseconds, ...) the
- * public side hides the post until the canonical now string is lexically
- * >= the stored string, so the admin shows that actual visibility rather
- * than the nominal instant. Unparseable strings follow the same rule
- * (`'not-a-date'` sorts after any ISO string, so it is scheduled forever).
+ * Like the resolvers, the comparison is between INSTANTS: `publishedAt` is
+ * an AWSDateTime that may carry an offset (`+09:00`), omit seconds, etc.
+ * when written through the API directly, so it is parsed with
+ * `parseAwsDateTime` (the same grammar AppSync accepts) rather than
+ * compared as a string. A value that does not parse is hidden by the
+ * resolvers (fail closed), so it shows as scheduled forever.
+ *
+ * Known gap: for a non-canonical positive-offset value the post's detail
+ * and tag pages are live at its instant, but the `byStatus`-backed home
+ * listing may only include it later (see list-published-posts.js); the
+ * admin shows "published" from the instant onward.
  *
  * Pure module (no React, no DOM) so it can be unit-tested without jsdom.
  * `now` is passed in (epoch ms) so callers can re-render when it changes.
  */
+
+import { parseAwsDateTime } from 'ampless'
 
 export type PostDisplayStatus = 'draft' | 'scheduled' | 'published'
 
@@ -31,44 +35,25 @@ interface PostStatusFields {
   publishedAt?: string | null
 }
 
-/** Latest instant whose ISO string is still a 4-digit-year string. */
-const MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999)
-const CANONICAL_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
-
 /**
- * Mirrors the resolvers' `publishedAt > nowISO` check (string comparison;
- * equal counts as published). Draft / missing / empty publishedAt is never
- * scheduled.
+ * Mirrors the resolvers' visibility rule (instant <= now is live; equal
+ * counts as published; unparseable is never live). Draft / missing / empty
+ * publishedAt is never scheduled.
  */
 function isScheduled(post: PostStatusFields, now: number): boolean {
   if (post.status !== 'published' || !post.publishedAt) return false
-  return post.publishedAt > new Date(now).toISOString()
+  const t = parseAwsDateTime(post.publishedAt)
+  return t === undefined || t > now
 }
 
 /**
- * Epoch ms of the first instant at which a scheduled post becomes visible,
- * i.e. the first ms `t` with `new Date(t).toISOString() >= publishedAt`.
+ * Epoch ms of the instant at which a scheduled post becomes visible.
  * `undefined` when the post is not scheduled at `now`, or when it never
- * becomes visible (beyond year 9999, or unparseable such as `'not-a-date'`).
+ * becomes visible (unparseable, such as `'not-a-date'`).
  */
 export function scheduledTransitionAt(post: PostStatusFields, now: number): number | undefined {
   if (!isScheduled(post, now)) return undefined
-  const p = post.publishedAt!
-  if (CANONICAL_ISO.test(p)) {
-    const t = Date.parse(p)
-    if (!Number.isNaN(t) && new Date(t).toISOString() === p) return t
-  }
-  // toISOString() is lexically monotonic over years 0000-9999, so binary
-  // search for the first ms whose ISO string is >= p. iso(now) < p holds.
-  if (new Date(MAX_MS).toISOString() < p) return undefined
-  let lo = now // iso(lo) < p
-  let hi = MAX_MS // iso(hi) >= p
-  while (hi - lo > 1) {
-    const mid = lo + Math.floor((hi - lo) / 2)
-    if (new Date(mid).toISOString() >= p) hi = mid
-    else lo = mid
-  }
-  return hi
+  return parseAwsDateTime(post.publishedAt)
 }
 
 export function getPostDisplayStatus(post: PostStatusFields, now: number): PostDisplayStatus {

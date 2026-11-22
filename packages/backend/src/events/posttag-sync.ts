@@ -1,3 +1,4 @@
+import { canonicalizeAwsDateTime } from 'ampless'
 import type { ContentEventPayload, ContentFormat, PostIndexEventPayload } from 'ampless'
 
 /**
@@ -52,38 +53,84 @@ export interface PostTagDiff {
  * tag list contribute to the index. Draft posts have zero entries —
  * unpublishing a post therefore manifests as deletes of every
  * previous entry plus zero new puts.
+ *
+ * `publishedAt` is written to the PostTag row (SK and attribute) in
+ * canonical fixed-width UTC, because the listPostsByTag resolver orders
+ * and bounds the SK lexically. The Post row itself may hold any
+ * AWSDateTime (`+09:00`, no seconds, ...) when written through the API
+ * directly. Rows written before canonicalization used the verbatim
+ * string, so deletes cover both the verbatim-keyed and canonical-keyed
+ * rows of `previous` — the next save of a legacy post replaces its old
+ * rows. A publishedAt that does not parse produces no rows (the resolver
+ * would hide them anyway).
  */
 export function computePostTagDiff(payload: PostIndexEventPayload): PostTagDiff {
-  const previousEntries = postTagItemsFromPost(payload.previous)
   const nextEntries = postTagItemsFromPost(payload.next)
   const nextKeys = new Set(nextEntries.map(itemKey))
-  const deletes = previousEntries
-    .filter((p) => !nextKeys.has(itemKey(p)))
-    .map<PostTagKey>((p) => ({ tag: p.tag, publishedAtPostId: p.publishedAtPostId }))
-  return { deletes, puts: nextEntries }
+  const deletes = new Map<string, PostTagKey>()
+  for (const key of previousKeys(payload.previous)) {
+    const k = itemKey(key)
+    if (!nextKeys.has(k)) deletes.set(k, key)
+  }
+  return { deletes: [...deletes.values()], puts: nextEntries }
+}
+
+/**
+ * The post, its verbatim publishedAt and its non-empty tags when it belongs
+ * in the index (published, with a publishedAt and at least one tag),
+ * otherwise `null`.
+ */
+function indexedPost(
+  p: ContentEventPayload | null
+): { post: ContentEventPayload; publishedAt: string; tags: string[] } | null {
+  if (!p) return null
+  if (p.status !== 'published') return null
+  if (!p.publishedAt) return null
+  const tags = (Array.isArray(p.tags) ? p.tags : []).filter(
+    (t): t is string => typeof t === 'string' && t.length > 0
+  )
+  if (tags.length === 0) return null
+  return { post: p, publishedAt: p.publishedAt, tags }
+}
+
+/** Every key `previous` may occupy: canonical-keyed and verbatim-keyed. */
+function previousKeys(p: ContentEventPayload | null): PostTagKey[] {
+  const indexed = indexedPost(p)
+  if (!indexed) return []
+  const { post, publishedAt, tags } = indexed
+  const canonical = canonicalizeAwsDateTime(publishedAt)
+  const stamps = canonical && canonical !== publishedAt ? [canonical, publishedAt] : [publishedAt]
+  return tags.flatMap((tag) =>
+    stamps.map((stamp) => ({ tag, publishedAtPostId: `${stamp}#${post.postId}` }))
+  )
 }
 
 function postTagItemsFromPost(p: ContentEventPayload | null): PostTagItem[] {
-  if (!p) return []
-  if (p.status !== 'published') return []
-  if (!p.publishedAt) return []
-  const tags = Array.isArray(p.tags) ? p.tags : []
-  return tags
-    .filter((t): t is string => typeof t === 'string' && t.length > 0)
-    .map((tag) => ({
-      tag,
-      publishedAtPostId: `${p.publishedAt}#${p.postId}`,
-      postId: p.postId,
-      publishedAt: p.publishedAt!,
-      slug: p.slug,
-      title: p.title,
-      tags,
-      // Omit when absent — PostTag rows are written via a direct DynamoDB put
-      // with no `removeUndefinedValues`, so an `undefined` attribute would
-      // throw "Unsupported type passed: undefined".
-      ...(p.format !== undefined && { format: p.format }),
-      ...(p.excerpt !== undefined && { excerpt: p.excerpt }),
-    }))
+  const indexed = indexedPost(p)
+  if (!indexed) return []
+  const { post, tags } = indexed
+  const publishedAt = canonicalizeAwsDateTime(indexed.publishedAt)
+  if (!publishedAt) {
+    console.error(
+      `[posttag-sync] post ${post.postId} has unparseable publishedAt ${JSON.stringify(indexed.publishedAt)}; no PostTag rows written`
+    )
+    return []
+  }
+  const allTags = Array.isArray(post.tags) ? post.tags : []
+  return tags.map((tag) => ({
+    tag,
+    publishedAtPostId: `${publishedAt}#${post.postId}`,
+    postId: post.postId,
+    publishedAt,
+    slug: post.slug,
+    title: post.title,
+    tags: allTags,
+    // Omit when absent — PostTag rows are written via a direct DynamoDB put
+    // with no `removeUndefinedValues`, so an `undefined` attribute would
+    // throw "Unsupported type passed: undefined".
+    ...(post.format !== undefined && { format: post.format }),
+    ...(post.excerpt !== undefined && { excerpt: post.excerpt }),
+  }))
 }
 
 function itemKey(item: PostTagItem | PostTagKey): string {
