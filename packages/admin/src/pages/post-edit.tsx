@@ -1,5 +1,5 @@
 import { EditPostPage } from '../components/edit-post-view.js'
-import { loadEditorTableClasses } from './table-classes.js'
+import { loadEditorThemeClasses } from './theme-classes.js'
 
 /**
  * Options for `createEditPostPage`.
@@ -23,8 +23,9 @@ export interface CreateEditPostPageOptions {
  *
  * The first argument is the `createAdmin(...)` object the templates
  * already pass. It is used (server-side, per request) to read the active
- * theme's table custom classes for the editor's table controls; anything
- * without `loadThemeConfig` simply yields no offered classes.
+ * theme's custom classes (table classes for the editor's table controls,
+ * post classes for the post settings); anything without `loadThemeConfig`
+ * simply yields no offered classes.
  */
 export function createEditPostPage(
   admin: unknown,
@@ -34,7 +35,14 @@ export function createEditPostPage(
   return async function EditPostPageWrapper(props: {
     params: Promise<{ postId: string }>
   }) {
-    const tableClasses = await loadEditorTableClasses(admin)
-    return <EditPostPage {...props} previewEndpoint={previewEndpoint} tableClasses={tableClasses} />
+    const { tableClasses, postClasses } = await loadEditorThemeClasses(admin)
+    return (
+      <EditPostPage
+        {...props}
+        previewEndpoint={previewEndpoint}
+        tableClasses={tableClasses}
+        postClasses={postClasses}
+      />
+    )
   }
 }

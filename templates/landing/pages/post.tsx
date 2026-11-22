@@ -8,6 +8,7 @@ import { LightboxBinder } from '@/components/lightbox-content'
 import { TagList } from '@/components/tag-list'
 import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
+import manifest from '../manifest'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -74,7 +75,7 @@ export default async function LandingPost({ params }: PostCtx) {
 
           <div
             id="post-body"
-            className="prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
+            className={ampless.postBodyClassName(post, manifest.postBody?.className)}
             style={proseStyle}
           >
             {await ampless.renderBody(post)}

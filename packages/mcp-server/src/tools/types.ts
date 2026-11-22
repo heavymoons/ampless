@@ -22,6 +22,13 @@ export interface ResolvedSite {
  * `ToolContext` into `dispatchToolCall`.
  */
 export interface GraphqlClient {
+  /**
+   * Run `operation` and resolve with its `data`. GraphQL-level errors
+   * reject with an Error whose message includes each error's message;
+   * implementations should also attach the raw list as
+   * `graphqlErrors` (with `errorType`) so tools can tell error kinds
+   * apart (e.g. `update_post` detecting a conditional-write conflict).
+   */
   query<T>(operation: string, variables?: Record<string, unknown>): Promise<T>
 }
 

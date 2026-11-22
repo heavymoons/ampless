@@ -8,6 +8,7 @@ import { SiteHeader } from '@/components/site-chrome/site-header'
 import { SiteSidebar } from '@/components/site-chrome/site-sidebar'
 import { SiteFooter } from '@/components/site-chrome/site-footer'
 import { CollapsibleSidebar } from '@/components/site-chrome/collapsible-sidebar'
+import manifest from '../manifest'
 
 type PostCtx = ThemeRouteContext<{ slug: string }>
 
@@ -73,7 +74,7 @@ export default async function DocsPost({ params }: PostCtx) {
 
             <div
               id="post-body"
-              className="prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
+              className={ampless.postBodyClassName(post, manifest.postBody?.className)}
               style={proseStyle}
             >
               {await ampless.renderBody(post)}

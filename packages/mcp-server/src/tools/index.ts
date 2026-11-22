@@ -69,7 +69,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'create_post',
     description:
-      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details.',
+      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details. Pass `postClasses: ["<id>", ...]` to apply theme-defined post styles (rendered as `ampless-post--<id>` on the post body; the theme declares the ids) — see get_schema.notes.postClasses.',
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, args as unknown as Parameters<typeof createPost>[1]),
@@ -79,7 +79,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'update_post',
     description:
-      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key.',
+      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key. The top-level `postClasses` arg is the exception: without `metadata` it merges into the current metadata (other keys kept; an empty array removes the post classes). The merge is atomic: if the post is modified by someone else between the read and the write, the call fails without writing anything — re-read the post and retry. See get_schema.notes.postClasses.',
     inputSchema: updatePostSchema,
     handler: (args, ctx) =>
       updatePost(ctx.graphql, args as unknown as Parameters<typeof updatePost>[1]),

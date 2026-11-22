@@ -22,6 +22,8 @@ const LOADED: LoadedPostState = {
   tags: 'a, b',
   publishedAtInput: '',
   noLayout: false,
+  postClasses: ['wide'],
+  rawPostClasses: ['wide'],
   updatedAt: '2026-06-05T10:00:00.000Z',
 }
 
@@ -36,6 +38,7 @@ function draftFrom(over: Partial<PostDraft> = {}): PostDraft {
     tags: LOADED.tags,
     publishedAtInput: LOADED.publishedAtInput,
     noLayout: LOADED.noLayout,
+    postClasses: LOADED.postClasses,
     baseUpdatedAt: LOADED.updatedAt,
     savedAt: 1_700_000_000_000,
     ...over,
@@ -109,5 +112,39 @@ describe('draftDiffersFromLoaded', () => {
 
   it('detects a tags-input change', () => {
     expect(draftDiffersFromLoaded(draftFrom({ tags: 'a, b, c' }), LOADED)).toBe(true)
+  })
+
+  it('detects a post classes change, including order', () => {
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), LOADED)).toBe(true)
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide', 'serif'] }), LOADED)).toBe(true)
+    expect(
+      draftDiffersFromLoaded(draftFrom({ postClasses: ['serif', 'wide'] }), {
+        ...LOADED,
+        postClasses: ['wide', 'serif'],
+        rawPostClasses: ['wide', 'serif'],
+      }),
+    ).toBe(true)
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), LOADED)).toBe(false)
+  })
+
+  it('treats a draft without postClasses (written before the field existed) as not differing on it', () => {
+    const legacy = draftFrom()
+    delete legacy.postClasses
+    expect(draftDiffersFromLoaded(legacy, LOADED)).toBe(false)
+  })
+
+  it('compares a draft list against the raw stored value, not the normalized one', () => {
+    // Saving the draft would replace a malformed stored value, so it differs.
+    const malformed: LoadedPostState = { ...LOADED, postClasses: ['wide'], rawPostClasses: ['wide', 'wide', 'Bad'] }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), malformed)).toBe(true)
+    const objectValue: LoadedPostState = { ...LOADED, postClasses: [], rawPostClasses: { plugin: 'x' } }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), objectValue)).toBe(true)
+    // ...while an untouched draft (no field) keeps it and does not differ.
+    const untouched = draftFrom()
+    delete untouched.postClasses
+    expect(draftDiffersFromLoaded(untouched, malformed)).toBe(false)
+    // An absent stored value equals an empty selection.
+    const none: LoadedPostState = { ...LOADED, postClasses: [], rawPostClasses: undefined }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: [] }), none)).toBe(false)
   })
 })

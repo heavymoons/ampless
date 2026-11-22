@@ -69,7 +69,7 @@ export default async function CorporateHome(_: ThemeRouteContext) {
                   {formatDate(featured.publishedAt, settings.dateFormat, settings.timezone)}
                 </time>
               )}
-              <div className="prose prose-neutral dark:prose-invert mt-6 max-w-none">
+              <div className={ampless.postBodyClassName(featured, 'prose prose-neutral dark:prose-invert mt-6 max-w-none')}>
                 {await ampless.renderBody(featured)}
               </div>
             </article>
