@@ -1998,7 +1998,7 @@ a contract enforced by trust (and future IAM hardening).
 | Area | Path / identifier | Access level | Phase |
 |---|---|---|---|
 | KvStore (admin settings) | DynamoDB `pk='siteconfig'`, `sk='plugins.<instanceId>.<fieldKey>'` | admin/editor via AppSync; plugin hook write helper is not provided today | Phase 2 |
-| KvStore (runtime state/cache) | DynamoDB `pk='pluginstate:<plugin>:...'` with optional TTL | admin/editor via AppSync; plugin hook write helper is not provided today | Current |
+| KvStore (runtime state/cache) | DynamoDB `pk='pluginstate:<plugin>:...'` with optional `ttl` (deleted only if the site opts KvStore in to table TTL; off by default) | admin/editor via AppSync; plugin hook write helper is not provided today | Current |
 | PluginSecret | DynamoDB `PluginSecret` table, `sk='plugins.<instanceId>.<fieldKey>'` | `trusted` only (IAM-only AppSync auth) | Phase 6a |
 | PluginSecretIndicator | DynamoDB `PluginSecretIndicator` table, `sk='plugins.<instanceId>.<fieldKey>'` | `trusted` + admin/editor (read indicator) | Phase 6a |
 | S3 plugin assets | `public/plugins/{instanceId ?? name}/*` | `trusted` only (`writePublicAsset`) | Phase 3 |

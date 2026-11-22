@@ -259,11 +259,13 @@ export interface CacheConfig {
  */
 export interface HistoryConfig {
   /**
-   * Days to retain each post revision before DynamoDB TTL deletes it.
-   * Default 0 = keep forever (no `ttl` attribute is written). DynamoDB TTL
-   * deletes within ~48h after expiry, so effective retention is
-   * retentionDays + up to ~2 days. Changing this only affects revisions
-   * written afterward — existing rows keep their original expiry.
+   * Days after which each post revision expires: sets its `ttl` attribute.
+   * Default 0 = keep forever (no `ttl` attribute is written). Expired rows
+   * are only deleted once DynamoDB TTL is enabled on the PostHistory table,
+   * which ampless leaves off — opt in from `amplify/backend.custom.ts`
+   * (see RUNBOOK.md). With TTL on, deletion typically lags expiry by up to
+   * ~2 days. Changing this only affects revisions written afterward —
+   * existing rows keep their original expiry.
    */
   retentionDays?: number
 }

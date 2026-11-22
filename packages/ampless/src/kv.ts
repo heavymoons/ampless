@@ -2,9 +2,12 @@
 //  - the persistence layer for site settings (`siteconfig` PK)
 //  - a TTL-backed cache for plugins / internal Lambdas (`cache:{ns}` PK)
 //
-// Items with `ttlSeconds` set are deleted automatically by DynamoDB's
-// TTL feature. Items written without a TTL are persisted forever and
-// read as configuration. The PK prefix is the only thing that
+// Items with `ttlSeconds` set carry a `ttl` attribute; DynamoDB deletes
+// them after expiry only if TTL is enabled on the KvStore table, which
+// ampless leaves off by default (opt in from `amplify/backend.custom.ts`,
+// see RUNBOOK.md). Until then expired items are still returned by reads.
+// Items written without a TTL are persisted forever and read as
+// configuration. The PK prefix is the only thing that
 // separates namespaces; callers pick a convention.
 //
 // The runtime injects a concrete implementation via `setKvStore()` —

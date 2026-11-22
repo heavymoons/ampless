@@ -305,7 +305,9 @@ async function writePostHistory(
 
 export interface CreateDispatcherHandlerOpts {
   /**
-   * Days to retain each PostHistory revision before DynamoDB TTL deletes it.
+   * Days after which each PostHistory revision expires (sets its `ttl`).
+   * Expired rows are deleted only if the site opts PostHistory in to
+   * DynamoDB TTL (off by default; see backend.ts / RUNBOOK.md).
    * `0` (the default) means keep every revision forever — no `ttl` attribute
    * is written. Supplied by the template shell from
    * `cms.config.history?.retentionDays`.

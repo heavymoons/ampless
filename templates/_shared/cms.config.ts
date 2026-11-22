@@ -46,6 +46,8 @@ export default defineConfig({
   // Post revision history. Every post save is snapshotted into the
   // PostHistory table by the event-dispatcher Lambda.
   // history: { retentionDays: 0 }, // 0 = keep every revision forever; e.g. 365 to expire after a year
+  // (expired revisions are only deleted once DynamoDB TTL is opted in for
+  // PostHistory in amplify/backend.custom.ts — see RUNBOOK.md)
   // AI-readable publishing. `/<slug>.md` serves a markdown projection of
   // each published post and `/llms.txt` serves a site-wide AI index
   // (both default: enabled). `publicMcp` (default: false) exposes an
