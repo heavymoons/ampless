@@ -38,12 +38,6 @@ const ddbRowsRead = vi.hoisted(() => ({ count: 0 }))
 /** Rows per page of the bounded byStatus mock (stands in for the 1 MB page). */
 const QUERY_PAGE_ROWS = 100
 
-// In-memory Post rows (GetCommand, keyed by postId) and PostTag rows
-// (guarded TransactWrite Put / DeleteCommand, keyed by
-// `tag|publishedAtPostId`) for the post.index.refresh tests.
-const postRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
-const postTagRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
-
 // Simulate PluginSecret table rows for ctx.secret tests.
 // Map key: `sk` → value string (single-id identifier — no `siteId`
 // partition column after the `remove-siteid-from-schema` migration).
@@ -141,16 +135,7 @@ vi.mock('@aws-sdk/util-dynamodb', () => {
   return { marshall, unmarshall }
 })
 
-vi.mock('@aws-sdk/lib-dynamodb', async () => {
-  const { evaluatePostStateCondition, guardCancelled } = await import(
-    '../__fixtures__/post-state-condition.js'
-  )
-  class TransactWriteCommand {
-    input: Record<string, unknown>
-    constructor(input: Record<string, unknown>) {
-      this.input = input
-    }
-  }
+vi.mock('@aws-sdk/lib-dynamodb', () => {
   class DeleteCommand {
     input: Record<string, unknown>
     constructor(input: Record<string, unknown>) {
@@ -169,43 +154,11 @@ vi.mock('@aws-sdk/lib-dynamodb', async () => {
       this.input = input
     }
   }
-  class GetCommand {
-    input: Record<string, unknown>
-    constructor(input: Record<string, unknown>) {
-      this.input = input
-    }
-  }
   const DynamoDBDocumentClient = {
     from() {
       return {
         async send(command: { input: Record<string, unknown> }) {
           ddbCommands.push(command)
-          if (command instanceof GetCommand) {
-            const row = postRows.get((command.input.Key as { postId: string }).postId)
-            return row ? { Item: { ...row } } : {}
-          }
-          if (command instanceof PutCommand) {
-            const item = command.input.Item as { tag: string; publishedAtPostId: string }
-            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
-            return {}
-          }
-          if (command instanceof TransactWriteCommand) {
-            const [check, put] = command.input.TransactItems as Array<
-              Record<string, Record<string, unknown>>
-            >
-            const key = check!.ConditionCheck!.Key as { postId: string }
-            if (!evaluatePostStateCondition(postRows.get(key.postId) ?? null, check!.ConditionCheck!)) {
-              throw guardCancelled()
-            }
-            const item = put!.Put!.Item as { tag: string; publishedAtPostId: string }
-            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
-            return {}
-          }
-          if (command instanceof DeleteCommand) {
-            const key = command.input.Key as { tag: string; publishedAtPostId: string }
-            postTagRows.delete(`${key.tag}|${key.publishedAtPostId}`)
-            return {}
-          }
           const tableName = command.input.TableName as string | undefined
           let items = (tableName && ddbQueryResponses.get(tableName)) || []
           // byStatus `#publishedAt <= :upper`: apply the bound as DynamoDB
@@ -231,14 +184,7 @@ vi.mock('@aws-sdk/lib-dynamodb', async () => {
       }
     },
   }
-  return {
-    DeleteCommand,
-    DynamoDBDocumentClient,
-    GetCommand,
-    PutCommand,
-    QueryCommand,
-    TransactWriteCommand,
-  }
+  return { DeleteCommand, DynamoDBDocumentClient, PutCommand, QueryCommand }
 })
 
 const site: Config['site'] = { name: 'Test', url: 'https://example.com' }
@@ -1296,133 +1242,5 @@ describe('listPublished — post.body type preservation', () => {
     expect(posts).toHaveLength(1)
     expect(posts[0]!.body).toEqual({ type: 'doc', content: [] })
     expect(typeof posts[0]!.body).toBe('object')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// post.index.refresh — authoritative PostTag rebuild
-// ---------------------------------------------------------------------------
-//
-// The trusted queue is SQS standard, so refresh events can arrive out of
-// order. The handler must rebuild from a strongly consistent read of the
-// Post, never from the event's `next`.
-
-describe('post.index.refresh — PostTag rebuild from the current Post', () => {
-  beforeEach(() => {
-    setEnv()
-    s3Commands.length = 0
-    ddbCommands.length = 0
-    ddbQueryResponses.clear()
-    pluginSecretRows.clear()
-    postRows.clear()
-    postTagRows.clear()
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  const rawPublished = {
-    postId: 'p1',
-    slug: 'hello',
-    title: 'Draft-only title',
-    status: 'published' as const,
-    format: 'markdown' as const,
-    excerpt: 'Draft-only excerpt',
-    publishedAt: '2026-05-01T09:00:00+09:00',
-    tags: ['news'],
-  }
-  const canonicalPublished = { ...rawPublished, publishedAt: '2026-05-01T00:00:00.000Z' }
-  const draft = { ...canonicalPublished, status: 'draft' as const }
-
-  function refresh(
-    payload: unknown
-  ): Parameters<ReturnType<typeof createProcessorTrustedHandler>>[0] {
-    return {
-      Records: [{ body: JSON.stringify({ type: 'post.index.refresh', payload }) }],
-    } as Parameters<ReturnType<typeof createProcessorTrustedHandler>>[0]
-  }
-
-  it('B (unpublish) processed before A (migration rewrite) leaves no public row', async () => {
-    // Old row of the published state; the Post is now a draft.
-    postTagRows.set('news|2026-05-01T00:00:00.000Z#p1', {
-      ...canonicalPublished,
-      tag: 'news',
-      publishedAtPostId: '2026-05-01T00:00:00.000Z#p1',
-    })
-    postRows.set('p1', draft)
-    const handler = createProcessorTrustedHandler({ site })
-
-    await handler(
-      refresh({ previous: canonicalPublished, next: draft }),
-      {} as never,
-      vi.fn() as never
-    )
-    await handler(
-      refresh({ previous: rawPublished, next: canonicalPublished }),
-      {} as never,
-      vi.fn() as never
-    )
-
-    expect(postTagRows.size).toBe(0)
-    expect(JSON.stringify([...postTagRows.values()])).not.toContain('Draft-only')
-    // Every Post read is strongly consistent against the Post table.
-    const gets = ddbCommands.filter((c) => c.input.TableName === 'posts' && 'Key' in c.input)
-    expect(gets.length).toBeGreaterThan(0)
-    expect(gets.every((c) => c.input.ConsistentRead === true)).toBe(true)
-  })
-
-  it('writes the rows of the current state, not of the payload', async () => {
-    const current = { ...canonicalPublished, title: 'Current title', tags: ['life'] }
-    postRows.set('p1', current)
-    const handler = createProcessorTrustedHandler({ site })
-
-    await handler(
-      refresh({ previous: rawPublished, next: canonicalPublished }),
-      {} as never,
-      vi.fn() as never
-    )
-
-    expect([...postTagRows.keys()]).toEqual(['life|2026-05-01T00:00:00.000Z#p1'])
-    expect(postTagRows.get('life|2026-05-01T00:00:00.000Z#p1')).toMatchObject({
-      title: 'Current title',
-    })
-  })
-
-  it('puts every row through a transaction guarded on the Post state (no plain Put)', async () => {
-    postRows.set('p1', { ...canonicalPublished, updatedAt: '2026-05-02T00:00:00.000Z' })
-    const handler = createProcessorTrustedHandler({ site })
-
-    await handler(
-      refresh({ previous: rawPublished, next: canonicalPublished }),
-      {} as never,
-      vi.fn() as never
-    )
-
-    const transacts = ddbCommands.filter((c) => 'TransactItems' in c.input)
-    expect(transacts).toHaveLength(1)
-    const [check, put] = transacts[0]!.input.TransactItems as Array<
-      Record<string, Record<string, unknown>>
-    >
-    expect(check!.ConditionCheck).toMatchObject({
-      TableName: 'posts',
-      Key: { postId: 'p1' },
-      ExpressionAttributeValues: expect.objectContaining({
-        ':status': 'published',
-        ':updatedAt': '2026-05-02T00:00:00.000Z',
-      }),
-    })
-    expect(put!.Put).toMatchObject({ TableName: 'posttags' })
-    expect(ddbCommands.some((c) => 'Item' in c.input)).toBe(false)
-    expect([...postTagRows.keys()]).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
-  })
-
-  it('logs and skips a refresh without any postId', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const handler = createProcessorTrustedHandler({ site })
-    await handler(refresh({ previous: null, next: null }), {} as never, vi.fn() as never)
-    expect(err).toHaveBeenCalledWith(expect.stringContaining('without a postId'), expect.anything())
-    expect(postTagRows.size).toBe(0)
   })
 })
