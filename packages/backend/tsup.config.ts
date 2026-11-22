@@ -11,6 +11,10 @@ export default defineConfig({
     'src/functions/api-key-renewer.ts',
     'src/functions/mcp-handler.ts',
     'src/functions/plugin-secret-handler.ts',
+    // `ampless-migrate-published-at` bin. The shebang lives in the source
+    // file (esbuild keeps an entry's hashbang and tsup marks it executable);
+    // a `banner` would stamp it onto every entry.
+    'src/migrations/cli.ts',
   ],
   format: ['esm'],
   dts: true,

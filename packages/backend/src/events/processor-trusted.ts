@@ -3,12 +3,7 @@ import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb'
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb'
-import {
-  DynamoDBDocumentClient,
-  DeleteCommand,
-  PutCommand,
-  QueryCommand,
-} from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import {
   formatPublicAssetUrl,
   isValidPluginKey,
@@ -21,7 +16,7 @@ import {
   type Post,
   type PostIndexEventPayload,
 } from 'ampless'
-import { computePostTagDiff } from './posttag-sync.js'
+import { candidateKeys, reconcilePostTagsForPost } from './posttag-sync.js'
 
 export interface CreateProcessorTrustedHandlerOpts {
   /**
@@ -400,41 +395,41 @@ export function createProcessorTrustedHandler(
   // --- Built-in: PostTag denormalized index ---
   //
   // For each Post mutation the dispatcher emits a `post.index.refresh`
-  // event carrying both the previous and next projection. This handler
-  // delegates the diff math to `computePostTagDiff` (pure, unit-tested
-  // in `posttag-sync.test.ts`) and applies the result via direct
-  // DynamoDB — faster than going through AppSync and a narrower IAM
-  // grant than full GraphQL mutate access on the PostTag model.
+  // event carrying both the previous and next projection. The event is
+  // only a trigger ("this postId changed"): the trusted queue is SQS
+  // standard, so events can arrive out of order, and writing `next` as-is
+  // would let an older event recreate rows of a state the post has left
+  // (e.g. a draft's title / excerpt on the public tag API). The rebuild
+  // reads the Post with a strongly consistent GetItem and writes the rows
+  // of its current state; the payload's previous / next only supply the
+  // keys to clean up. Each row is put in a TransactWriteItems guarded by a
+  // ConditionCheck that the Post still holds the state the row came from
+  // (IAM: ConditionCheckItem on Post via grantReadData, PutItem / DeleteItem
+  // on PostTag via grantWriteData). Writes are sequential with no rate
+  // limiter, bounded by one post's tag count. See `reconcilePostTagsForPost`
+  // (posttag-sync.ts).
+  // Writes go via direct DynamoDB — faster than AppSync and a narrower
+  // IAM grant than full GraphQL mutate access on the PostTag model.
   //
   // Centralising the logic here means write paths (admin, MCP tools,
   // future REST clients) don't need to call a sync helper — any Post
   // write that hits DynamoDB is automatically followed by a PostTag
   // rebuild via the Stream pipeline.
   async function rebuildPostTagsForPost(payload: PostIndexEventPayload): Promise<void> {
-    const { deletes, puts } = computePostTagDiff(payload)
-    await Promise.all([
-      ...deletes.map((key) =>
-        ddb.send(
-          new DeleteCommand({
-            TableName: POSTTAG_TABLE,
-            Key: key,
-          })
-        )
-      ),
-      ...puts.map((item) =>
-        ddb.send(
-          new PutCommand({
-            TableName: POSTTAG_TABLE,
-            Item: item,
-          })
-        )
-      ),
-    ])
-    const postId = payload.next?.postId ?? payload.previous?.postId ?? '(unknown)'
-    console.log(
-      `[posttag-sync] postId=${postId} ` +
-        `removed=${deletes.length} upserted=${puts.length}`
-    )
+    const postId = payload.next?.postId ?? payload.previous?.postId
+    if (!postId) {
+      // The dispatcher only emits this event when one side projects, so
+      // this is a malformed message; retrying it cannot help.
+      console.error('[posttag-sync] post.index.refresh without a postId; skipped', payload)
+      return
+    }
+    await reconcilePostTagsForPost({
+      client: ddb,
+      postTable: POST_TABLE,
+      postTagTable: POSTTAG_TABLE,
+      postId,
+      candidates: candidateKeys(payload),
+    })
   }
 
   // --- Built-in: site settings cache ---

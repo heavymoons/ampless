@@ -1,12 +1,22 @@
 import { defineBackend } from '@aws-amplify/backend'
 import { Effect, PolicyStatement, AnyPrincipal } from 'aws-cdk-lib/aws-iam'
 import type { CfnBucket } from 'aws-cdk-lib/aws-s3'
-import { Duration, Stack } from 'aws-cdk-lib'
+import { CfnResource, Duration, Stack, Token } from 'aws-cdk-lib'
+import {
+  CfnFunctionConfiguration,
+  type CfnDataSource,
+  type CfnResolver,
+} from 'aws-cdk-lib/aws-appsync'
 import { Queue } from 'aws-cdk-lib/aws-sqs'
 import { FunctionUrlAuthType, HttpMethod, StartingPosition } from 'aws-cdk-lib/aws-lambda'
 import { DynamoEventSource, SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Rule, Schedule } from 'aws-cdk-lib/aws-events'
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets'
+import {
+  PUBLISHED_AT_NORMALIZER_REQUEST_TEMPLATES,
+  PUBLISHED_AT_NORMALIZER_RESPONSE_TEMPLATE,
+  type PublishedAtNormalizerOperation,
+} from './data/post-published-at-normalizer.js'
 
 // `defineBackend`'s parameter is a record of resources. We can't import
 // stricter types (defineAuth / defineData / defineStorage / defineFunction
@@ -103,6 +113,88 @@ export function siteSettingsCacheS3Resources(bucketArn: string): string[] {
 }
 
 /**
+ * Insert the publishedAt normalizer into the generated
+ * `Mutation.<op>Post` pipeline, immediately before its data function
+ * (so after init / preAuth / auth / postAuth: unauthorized calls are
+ * rejected before it runs, and the data function reads its output from
+ * `$ctx.stash.transformedArgs`).
+ *
+ * This edits Amplify's generated resolver through the L1 escape hatch.
+ * Every lookup throws when it misses instead of skipping: if Amplify
+ * renames the resolver or the data function, or changes the pipeline
+ * shape, the synth must fail rather than silently deploy without
+ * normalization.
+ *
+ * Exported for backend.published-at.test.ts only (not re-exported from
+ * the package entry).
+ */
+export function insertPublishedAtNormalizer(
+  backend: AmplessBackend,
+  op: PublishedAtNormalizerOperation
+): void {
+  const cfn = backend.data.resources.cfnResources
+  const resolverKey = `Mutation.${op}Post`
+  const dataFnKey = `Mutation${op === 'create' ? 'Create' : 'Update'}PostDataResolverFn`
+  const where = `ampless publishedAt normalizer (${resolverKey})`
+
+  const resolver = cfn.cfnResolvers[resolverKey] as CfnResolver | undefined
+  if (!resolver) {
+    throw new Error(`${where}: resolver ${resolverKey} not found in cfnResolvers`)
+  }
+  const pipeline = resolver.pipelineConfig
+  if (
+    resolver.kind !== 'PIPELINE' ||
+    !pipeline ||
+    Token.isUnresolved(pipeline) ||
+    !Array.isArray((pipeline as CfnResolver.PipelineConfigProperty).functions)
+  ) {
+    throw new Error(`${where}: ${resolverKey} is not a pipeline resolver with a functions list`)
+  }
+  const functions = (pipeline as CfnResolver.PipelineConfigProperty).functions as string[]
+
+  const dataFn = cfn.cfnFunctionConfigurations[dataFnKey] as CfnFunctionConfiguration | undefined
+  if (!dataFn) {
+    throw new Error(`${where}: data function ${dataFnKey} not found in cfnFunctionConfigurations`)
+  }
+  const stack = Stack.of(resolver)
+  // Compare resolved values: the list holds the function-id tokens
+  // Amplify captured, which need not be the same token instances.
+  const resolved = (v: unknown) => JSON.stringify(stack.resolve(v))
+  const dataIndex = functions.findIndex((f) => resolved(f) === resolved(dataFn.attrFunctionId))
+  if (dataIndex === -1) {
+    throw new Error(`${where}: data function ${dataFnKey} is not in the ${resolverKey} pipeline`)
+  }
+
+  const noneDataSource = cfn.cfnDataSources['NONE_DS'] as CfnDataSource | undefined
+  if (!noneDataSource || noneDataSource.type !== 'NONE') {
+    throw new Error(`${where}: NONE data source NONE_DS not found in cfnDataSources`)
+  }
+
+  const id = `Ampless${op === 'create' ? 'Create' : 'Update'}PostPublishedAtNormalizer`
+  // Idempotent: a second call on the same backend leaves the pipeline as is.
+  if (stack.node.tryFindChild(id)) return
+  const normalizer = new CfnFunctionConfiguration(stack, id, {
+    apiId: resolver.apiId,
+    name: id,
+    description: 'ampless: canonicalize publishedAt and derive publishedAtSortKey (#406)',
+    // Resolved across the nested-stack boundary by CDK (a stack
+    // parameter, the same one Amplify's own NONE functions use).
+    dataSourceName: noneDataSource.attrName,
+    functionVersion: '2018-05-29',
+    requestMappingTemplate: PUBLISHED_AT_NORMALIZER_REQUEST_TEMPLATES[op],
+    responseMappingTemplate: PUBLISHED_AT_NORMALIZER_RESPONSE_TEMPLATE,
+  })
+  resolver.pipelineConfig = {
+    ...(pipeline as CfnResolver.PipelineConfigProperty),
+    functions: [
+      ...functions.slice(0, dataIndex),
+      normalizer.attrFunctionId,
+      ...functions.slice(dataIndex),
+    ],
+  }
+}
+
+/**
  * The end-to-end ampless backend wiring, parameterised on the resource
  * objects so users only have to compose the imports.
  *
@@ -115,6 +207,8 @@ export function siteSettingsCacheS3Resources(bucketArn: string): string[] {
  *      newly-confirmed users to Cognito groups.
  *   5. Enables DynamoDB point-in-time recovery on every model table
  *      (ampless + project models).
+ *   5b. Inserts the publishedAt normalizer into the createPost /
+ *      updatePost resolver pipelines.
  *   6. Enables DynamoDB Streams on Post + KvStore, provisions
  *      Trusted/Untrusted SQS queues with a shared DLQ, wires the
  *      dispatcher Lambda to both streams and both queues, and
@@ -349,6 +443,35 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   for (const model of Object.keys(amplifyTables)) {
     amplifyTables[model].pointInTimeRecoveryEnabled = true
   }
+
+  // --- Data: normalize Post.publishedAt on every GraphQL write (#406) ---
+  //
+  // Direct `createPost` / `updatePost` calls bypass the admin / MCP
+  // normalization, so a non-canonical `publishedAt` would reach the
+  // `byStatus` sort key verbatim. Insert a VTL function into both
+  // generated pipelines that canonicalizes it and derives
+  // `publishedAtSortKey` (see data/post-published-at-normalizer.ts).
+  insertPublishedAtNormalizer(backend, 'create')
+  insertPublishedAtNormalizer(backend, 'update')
+
+  // --- Data: never replace the Post table on an index change (#406) ---
+  //
+  // In `ampx sandbox` Amplify sets `replaceTableUponGsiUpdate` on every
+  // table (an aspect in @aws-amplify/backend-data) and always passes
+  // `allowDestructiveGraphqlSchemaUpdates: true`, so the table manager
+  // DELETES and recreates a table — emptying it — whenever its GSIs
+  // change, instead of adding the index in place. Adding `byStatusSorted`
+  // would therefore wipe a sandbox's posts. Branch deploys
+  // (`ampx pipeline-deploy`) never set the replace flag and add the GSI
+  // in place. Turning the destructive flag off for Post makes the
+  // sandbox take that same in-place path; a key-schema change (which
+  // ampless never makes) would then fail the deploy instead of dropping
+  // the data. The aspect only touches `replaceTableUponGsiUpdate`, so
+  // this construct-time override is not undone at synth.
+  ;(amplifyTables['Post'].resource as CfnResource).addPropertyOverride(
+    'allowDestructiveGraphqlSchemaUpdates',
+    false
+  )
 
   const eventsStack = backend.createStack('amplessEvents')
 

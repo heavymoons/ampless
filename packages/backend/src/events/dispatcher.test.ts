@@ -9,6 +9,11 @@ import type { DynamoDBRecord } from 'aws-lambda'
 process.env.TRUSTED_QUEUE_URL = 'https://sqs.test/trusted'
 process.env.UNTRUSTED_QUEUE_URL = 'https://sqs.test/untrusted'
 
+// When true, the `detectContentEvents` stub below delegates to the real
+// implementation so the representation-only suppression tests can assert
+// on content.* events.
+const realContentEvents = vi.hoisted(() => ({ value: false }))
+
 // Mock `ampless` — only the runtime value exports the dispatcher uses.
 vi.mock('ampless', async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>().catch(() => ({}))
@@ -18,7 +23,14 @@ vi.mock('ampless', async (importOriginal) => {
     // here we stub it to a no-op so PostHistory logic is isolated. Returning
     // [] means emitContentEvents only contributes post.index.refresh (which
     // is fine — these tests assert on PostHistory puts, not SQS payloads).
-    detectContentEvents: () => [],
+    detectContentEvents: (...args: unknown[]) =>
+      realContentEvents.value
+        ? (
+            (original as Record<string, unknown>).detectContentEvents as (
+              ...a: unknown[]
+            ) => unknown
+          )(...args)
+        : [],
   }
 })
 
@@ -125,7 +137,8 @@ vi.mock('@aws-sdk/util-dynamodb', () => {
 })
 
 // Dynamic import AFTER mocks + env so module-load wiring picks them up.
-const { createDispatcherHandler, handler } = await import('./dispatcher.js')
+const { createDispatcherHandler, handler, isPublishedAtRepresentationOnlyChange } =
+  await import('./dispatcher.js')
 
 // --- Helpers --------------------------------------------------------------
 
@@ -144,6 +157,7 @@ interface PostImage {
   tags?: string[]
   metadata?: string
   updatedAt?: string
+  publishedAtSortKey?: string
 }
 
 function marshalImage(post: PostImage): Record<string, Record<string, unknown>> {
@@ -159,6 +173,9 @@ function marshalImage(post: PostImage): Record<string, Record<string, unknown>> 
   if (post.tags !== undefined) img.tags = { L: post.tags.map((t) => ({ S: t })) }
   if (post.metadata !== undefined) img.metadata = { S: post.metadata }
   if (post.updatedAt !== undefined) img.updatedAt = { S: post.updatedAt }
+  if (post.publishedAtSortKey !== undefined) {
+    img.publishedAtSortKey = { S: post.publishedAtSortKey }
+  }
   return img
 }
 
@@ -204,6 +221,7 @@ beforeEach(() => {
   ddbPutInputs.length = 0
   historyStore.clear()
   ddbFailNext.value = false
+  realContentEvents.value = false
   process.env.AMPLESS_POST_HISTORY_TABLE = 'PostHistory-test'
 })
 
@@ -366,5 +384,149 @@ describe('default handler export', () => {
     await handler(streamEvent([postRecord('INSERT', SAMPLE_POST)]), {} as never, vi.fn() as never)
     expect(ddbPuts).toHaveLength(1)
     expect('ttl' in ddbPuts[0]!).toBe(false)
+  })
+})
+
+describe('publishedAt representation-only MODIFY (#406 migration writes)', () => {
+  function modifyRecord(
+    oldImage: Record<string, Record<string, unknown>>,
+    newImage: Record<string, Record<string, unknown>>
+  ): DynamoDBRecord {
+    return {
+      eventName: 'MODIFY',
+      eventSourceARN: POST_TABLE_ARN,
+      dynamodb: { OldImage: oldImage as never, NewImage: newImage as never },
+    } as DynamoDBRecord
+  }
+
+  // Event types sent to the trusted queue (both queues get the same entries).
+  function sentEventTypes(): string[] {
+    return sqsCommands
+      .filter((c) => c.input.QueueUrl === 'https://sqs.test/trusted')
+      .flatMap((c) => c.input.Entries as Array<{ MessageBody: string }>)
+      .map((e) => (JSON.parse(e.MessageBody) as { type: string }).type)
+  }
+
+  const LEGACY: PostImage = { ...SAMPLE_POST, publishedAt: '2026-06-01T09:00:00+09:00' }
+  const MIGRATED: PostImage = {
+    ...SAMPLE_POST,
+    publishedAt: '2026-06-01T00:00:00.000Z',
+    publishedAtSortKey: '2026-06-01T00:00:00.000Z#post-001',
+  }
+
+  async function run(record: DynamoDBRecord) {
+    realContentEvents.value = true
+    const h = createDispatcherHandler({ historyRetentionDays: 0 })
+    await h(streamEvent([record]), {} as never, vi.fn() as never)
+  }
+
+  it('suppresses content events and PostHistory for +09:00 → canonical with sortKey added, but still refreshes the index', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const record = modifyRecord(marshalImage(LEGACY), marshalImage(MIGRATED))
+    expect(isPublishedAtRepresentationOnlyChange(record)).toBe(true)
+    await run(record)
+    expect(sentEventTypes()).toEqual(['post.index.refresh'])
+    expect(ddbPuts).toHaveLength(0)
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('postId=post-001'))
+    // The index refresh carries the old (verbatim) and new (canonical)
+    // publishedAt so the PostTag rows can be re-keyed.
+    const body = JSON.parse(
+      (sqsCommands[0]!.input.Entries as Array<{ MessageBody: string }>)[0]!.MessageBody
+    ) as { payload: { previous: { publishedAt: string }; next: { publishedAt: string } } }
+    expect(body.payload.previous.publishedAt).toBe('2026-06-01T09:00:00+09:00')
+    expect(body.payload.next.publishedAt).toBe('2026-06-01T00:00:00.000Z')
+  })
+
+  it('suppresses a sortKey-only addition on an already-canonical publishedAt', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { publishedAtSortKey: _sk, ...withoutSortKey } = MIGRATED
+    const record = modifyRecord(marshalImage(withoutSortKey), marshalImage(MIGRATED))
+    expect(isPublishedAtRepresentationOnlyChange(record)).toBe(true)
+    await run(record)
+    expect(sentEventTypes()).toEqual(['post.index.refresh'])
+    expect(ddbPuts).toHaveLength(0)
+  })
+
+  it('suppresses a stray sortKey removal when publishedAt is absent', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { publishedAt: _pa, ...draft } = { ...SAMPLE_POST, status: 'draft' }
+    const record = modifyRecord(
+      marshalImage({ ...draft, publishedAtSortKey: '2026-06-01T00:00:00.000Z#post-001' }),
+      marshalImage(draft)
+    )
+    expect(isPublishedAtRepresentationOnlyChange(record)).toBe(true)
+    await run(record)
+    expect(sentEventTypes()).toEqual(['post.index.refresh'])
+    expect(ddbPuts).toHaveLength(0)
+  })
+
+  it('compares images independently of attribute key order', () => {
+    const oldImage = marshalImage(LEGACY)
+    const reversed = Object.fromEntries(Object.entries(marshalImage(MIGRATED)).reverse())
+    expect(isPublishedAtRepresentationOnlyChange(modifyRecord(oldImage, reversed))).toBe(true)
+  })
+
+  describe('real edits are not suppressed', () => {
+    const cases: Array<[string, PostImage, PostImage]> = [
+      ['title change', LEGACY, { ...MIGRATED, title: 'Changed' }],
+      ['updatedAt change', LEGACY, { ...MIGRATED, updatedAt: '2026-06-06T00:00:00.000Z' }],
+      ['status change', LEGACY, { ...MIGRATED, status: 'draft' }],
+      [
+        'instant change',
+        LEGACY,
+        {
+          ...MIGRATED,
+          publishedAt: '2026-06-01T01:00:00.000Z',
+          publishedAtSortKey: '2026-06-01T01:00:00.000Z#post-001',
+        },
+      ],
+      [
+        'unparseable → parseable',
+        { ...SAMPLE_POST, publishedAt: '2026-06-01T00:00:00.000z' },
+        MIGRATED,
+      ],
+      [
+        'publishedAt removed',
+        LEGACY,
+        (() => {
+          const { publishedAt: _pa, publishedAtSortKey: _sk, ...rest } = MIGRATED
+          return rest
+        })(),
+      ],
+    ]
+
+    for (const [label, before, after] of cases) {
+      it(label, async () => {
+        const record = modifyRecord(marshalImage(before), marshalImage(after))
+        expect(isPublishedAtRepresentationOnlyChange(record)).toBe(false)
+        await run(record)
+        expect(sentEventTypes()).toContain('content.updated')
+        expect(ddbPuts).toHaveLength(1)
+      })
+    }
+
+    it('a fully identical image is not classified as representation-only', () => {
+      const image = marshalImage(MIGRATED)
+      expect(isPublishedAtRepresentationOnlyChange(modifyRecord(image, { ...image }))).toBe(false)
+    })
+  })
+
+  it('INSERT and REMOVE are never representation-only', async () => {
+    const insert = {
+      ...modifyRecord(marshalImage(LEGACY), marshalImage(MIGRATED)),
+      eventName: 'INSERT',
+    } as DynamoDBRecord
+    const remove = {
+      ...modifyRecord(marshalImage(LEGACY), marshalImage(MIGRATED)),
+      eventName: 'REMOVE',
+    } as DynamoDBRecord
+    expect(isPublishedAtRepresentationOnlyChange(insert)).toBe(false)
+    expect(isPublishedAtRepresentationOnlyChange(remove)).toBe(false)
+
+    await run(postRecord('INSERT', MIGRATED))
+    expect(sentEventTypes()).toEqual(
+      expect.arrayContaining(['post.index.refresh', 'content.created', 'content.published'])
+    )
+    expect(ddbPuts).toHaveLength(1)
   })
 })
