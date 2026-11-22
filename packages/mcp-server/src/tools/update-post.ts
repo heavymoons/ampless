@@ -178,7 +178,7 @@ export async function updatePost(
  * attach the raw list as `graphqlErrors` (see `GraphqlClient` in
  * types.ts), so check the attached errorTypes, then the message.
  */
-function isConditionalCheckFailed(err: unknown): boolean {
+export function isConditionalCheckFailed(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   const graphqlErrors = (err as { graphqlErrors?: unknown }).graphqlErrors
   if (Array.isArray(graphqlErrors)) {

@@ -3,6 +3,7 @@
 import { generateClient } from 'aws-amplify/api'
 import {
   setPostsProvider,
+  PostUpdateConflictError,
   decodeAwsJson,
   encodeAwsJson,
   type Post,
@@ -111,11 +112,65 @@ interface PostHistoryModel {
   ): Promise<ConnectionResult<DataPostHistoryRow>>
 }
 
+// One GraphQL error as AppSync reports it. A DynamoDB conditional-write
+// rejection carries `errorType: 'DynamoDB:ConditionalCheckFailedException'`
+// and a message like "The conditional request failed".
+interface GraphqlError {
+  message?: string
+  errorType?: string | null
+}
+
 interface DataClient {
   models: {
     Post: PostModel
     PostHistory: PostHistoryModel
   }
+  // Raw GraphQL, for the one write `client.models` cannot express: a
+  // conditional `updatePost` (model `update` takes no `condition`). On
+  // GraphQL errors amplify rejects with the `{ data, errors }` result
+  // itself; a resolved result may also carry `errors`.
+  graphql(args: {
+    query: string
+    variables?: Record<string, unknown>
+  }): Promise<{ data?: Record<string, unknown> | null; errors?: GraphqlError[] | null }>
+}
+
+// `updatePost` with a mutation condition, selecting every field
+// `toCorePost` reads (same as the model client's default row).
+const CONDITIONAL_UPDATE_POST = /* GraphQL */ `
+  mutation UpdatePost($input: UpdatePostInput!, $condition: ModelPostConditionInput) {
+    updatePost(input: $input, condition: $condition) {
+      postId
+      slug
+      title
+      excerpt
+      format
+      body
+      status
+      publishedAt
+      tags
+      metadata
+      updatedAt
+    }
+  }
+`
+
+function isConditionalCheckFailed(errors: ReadonlyArray<GraphqlError> | null | undefined): boolean {
+  return (errors ?? []).some(
+    (e) =>
+      (typeof e?.errorType === 'string' && e.errorType.includes('ConditionalCheckFailedException')) ||
+      (typeof e?.message === 'string' &&
+        (e.message.includes('ConditionalCheckFailedException') ||
+          e.message.includes('The conditional request failed')))
+  )
+}
+
+// The GraphQL errors of a rejected `client.graphql` call: amplify rejects
+// with the `{ errors }` result; anything else (network failure, a plain
+// Error) has none.
+function graphqlErrorsOf(err: unknown): GraphqlError[] | undefined {
+  const errors = (err as { errors?: unknown } | null)?.errors
+  return Array.isArray(errors) ? (errors as GraphqlError[]) : undefined
 }
 
 // Body and metadata fields are AWSJSON scalars on the wire. The
@@ -194,6 +249,10 @@ export function installAdminPostsProvider(): void {
   const client = generateClient() as unknown as DataClient
 
   const provider: PostsProvider = {
+    // `update(..., { expectedUpdatedAt })` is a conditional `updatePost`
+    // mutation that throws `PostUpdateConflictError` on a mismatch.
+    supportsConditionalUpdate: true,
+
     async list(opts: ListOptions = {}) {
       const status = opts.status ?? 'published'
       const filter: Record<string, unknown> = {}
@@ -283,8 +342,8 @@ export function installAdminPostsProvider(): void {
       return toCorePost(data)
     },
 
-    async update(postId, patch) {
-      const { data, errors } = await client.models.Post.update({
+    async update(postId, patch, options) {
+      const input = {
         postId,
         ...(patch.slug !== undefined && { slug: patch.slug }),
         ...(patch.title !== undefined && { title: patch.title }),
@@ -295,8 +354,41 @@ export function installAdminPostsProvider(): void {
         ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
         ...(patch.tags !== undefined && { tags: patch.tags }),
         ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
-      })
-      if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
+      }
+      if (options?.expectedUpdatedAt === undefined) {
+        const { data, errors } = await client.models.Post.update(input)
+        if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
+        return toCorePost(data)
+      }
+
+      // Compare-and-swap on `updatedAt`: AppSync rejects the write when the
+      // row changed since the caller read it (or, for `null`, when the row
+      // has an `updatedAt` at all).
+      const expected = options.expectedUpdatedAt
+      const condition =
+        expected === null
+          ? { updatedAt: { attributeExists: false } }
+          : { updatedAt: { eq: expected } }
+      let result: Awaited<ReturnType<DataClient['graphql']>>
+      try {
+        result = await client.graphql({
+          query: CONDITIONAL_UPDATE_POST,
+          variables: { input, condition },
+        })
+      } catch (err) {
+        const errors = graphqlErrorsOf(err)
+        if (isConditionalCheckFailed(errors)) throw new PostUpdateConflictError()
+        console.error('[ampless admin] conditional updatePost failed:', errors ?? err)
+        if (errors) throw new Error(errors[0]?.message ?? 'Failed to update post')
+        throw err
+      }
+      const { errors } = result
+      if (isConditionalCheckFailed(errors)) throw new PostUpdateConflictError()
+      const data = result.data?.updatePost as DataPostRow | null | undefined
+      if ((errors && errors.length > 0) || !data) {
+        console.error('[ampless admin] conditional updatePost failed:', errors)
+        throw new Error(errors?.[0]?.message ?? 'Failed to update post')
+      }
       return toCorePost(data)
     },
 

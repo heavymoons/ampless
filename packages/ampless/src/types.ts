@@ -2,9 +2,11 @@ export type ContentFormat = 'tiptap' | 'markdown' | 'html' | 'static'
 
 /**
  * Body shape for `format: 'static'` posts. The actual asset bytes
- * live under S3 at `public/static/<slug>/<files...>` — the body here
- * is the manifest describing which entrypoint to serve and which files
- * are part of the bundle.
+ * live in S3 — under the immutable prefix
+ * `public/static/_v/<encoded slug>/<version>/` when `version` is set
+ * (and valid), else under the legacy `public/static/<slug>/` (see
+ * `staticBundlePrefix`). The body here is the manifest describing which
+ * entrypoint to serve and which files are part of the bundle.
  *
  * Stored as JSON in the `body` column (same encoding pattern as the
  * tiptap doc / html string / markdown string for the other formats).
@@ -23,6 +25,12 @@ export interface StaticPostBody {
   files: string[]
   /** ISO 8601 timestamp of the most recent upload. */
   uploadedAt: string
+  /**
+   * Immutable bundle id (`generateBundleVersion`). Set by uploads that
+   * write a fresh versioned prefix; absent (or invalid) means the legacy
+   * per-slug prefix.
+   */
+  version?: string
 }
 
 export type PostStatus = 'draft' | 'published'

@@ -535,7 +535,8 @@ A theme can offer editors named styles for a whole post or a table.
 
 The admin preview uses the same `postBody.className` on its own
 `<main id="post-body">`, sets `data-theme` to the active theme, and
-loads the site's same-origin CSS, so these rules apply in the preview
+loads the stylesheets the admin page loads (the site's own CSS and any
+CDN-hosted theme styles or fonts), so these rules apply in the preview
 too. Ids that a post stores but the active theme does not declare
 (for example after a theme switch) still render. They stay unstyled
 until a theme declares them again.

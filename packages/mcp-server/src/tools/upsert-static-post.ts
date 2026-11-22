@@ -8,6 +8,7 @@ import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { getPost } from './get-post.js'
 import { normalizePublishedAt } from './published-at.js'
+import { isConditionalCheckFailed } from './update-post.js'
 
 // PostTag denormalized index is rebuilt by the trusted-processor
 // Lambda directly off the Post DynamoDB stream — see
@@ -37,8 +38,8 @@ const CREATE_MUTATION = /* GraphQL */ `
 
 const UPDATE_MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
-  mutation UpdatePost($input: UpdatePostInput!) {
-    updatePost(input: $input) {
+  mutation UpdatePost($input: UpdatePostInput!, $condition: ModelPostConditionInput) {
+    updatePost(input: $input, condition: $condition) {
       ...PostFields
     }
   }
@@ -56,10 +57,30 @@ export interface UpsertStaticPostFields {
   metadata?: PostMetadata | Record<string, unknown>
 }
 
+export interface UpsertStaticPostOptions {
+  /**
+   * The row at `slug` as the caller already read it (`null` = none).
+   * When given, the helper does not read again, and an update is a
+   * compare-and-swap on this row's `updatedAt`: if the post changed since
+   * that read, nothing is written and `StaticPostConflictError` is thrown.
+   */
+  existing?: Post | null
+}
+
+/** The post changed between the caller's read and the conditional write. */
+export class StaticPostConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StaticPostConflictError'
+  }
+}
+
 export interface UpsertStaticPostResult {
   post: Post
   /** True when a new Post row was created, false on update. */
   created: boolean
+  /** The row this write replaced (`null` when one was created). */
+  previous: Post | null
 }
 
 export async function upsertStaticPost(
@@ -67,8 +88,10 @@ export async function upsertStaticPost(
   slug: string,
   body: StaticPostBody,
   fields: UpsertStaticPostFields,
+  options: UpsertStaticPostOptions = {},
 ): Promise<UpsertStaticPostResult> {
-  const existing = await getPost(graphql, { slug })
+  const conditional = options.existing !== undefined
+  const existing = conditional ? options.existing! : await getPost(graphql, { slug })
 
   if (existing) {
     // UPDATE path — only apply fields the caller passed.
@@ -97,12 +120,27 @@ export async function upsertStaticPost(
       input.publishedAt = new Date().toISOString()
     }
 
-    const data = await graphql.query<{
-      updatePost: Parameters<typeof toCorePost>[0]
-    }>(UPDATE_MUTATION, { input })
+    let data: { updatePost: Parameters<typeof toCorePost>[0] }
+    if (conditional) {
+      const condition = existing.updatedAt
+        ? { updatedAt: { eq: existing.updatedAt } }
+        : { updatedAt: { attributeExists: false } }
+      try {
+        data = await graphql.query(UPDATE_MUTATION, { input, condition })
+      } catch (err) {
+        if (isConditionalCheckFailed(err)) {
+          throw new StaticPostConflictError(
+            `Post at slug "${slug}" was modified by someone else while its static bundle was being saved; nothing was written.`,
+          )
+        }
+        throw err
+      }
+    } else {
+      data = await graphql.query(UPDATE_MUTATION, { input })
+    }
 
     const updated = toCorePost(data.updatePost)
-    return { post: updated, created: false }
+    return { post: updated, created: false, previous: existing }
   }
 
   // CREATE path — title is mandatory.
@@ -140,5 +178,5 @@ export async function upsertStaticPost(
   }>(CREATE_MUTATION, { input })
 
   const created = toCorePost(data.createPost)
-  return { post: created, created: true }
+  return { post: created, created: true, previous: null }
 }

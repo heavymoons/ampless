@@ -233,8 +233,9 @@ em { font-style: italic; }
  *
  * This gives pixel-accurate theme rendering (drop caps, theme tokens, dark
  * mode) in the preview without requiring the Route Handler to know the hashed
- * CSS bundle filenames. Only same-origin `<link>` stylesheets are copied (the
- * site's own bundles); external ones are skipped.
+ * CSS bundle filenames. The admin page's http(s) `<link>` stylesheets are
+ * copied, the site's own bundles and CDN-hosted ones alike (with their
+ * `integrity` / `crossorigin` / `media` / `referrerpolicy`).
  *
  * ## Mirroring the public post page's DOM
  *

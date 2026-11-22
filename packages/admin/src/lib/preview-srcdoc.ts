@@ -8,8 +8,10 @@
  * typography fallback. This helper:
  *
  *   1. Collects the parent document's real stylesheets:
- *      - same-origin `link[rel="stylesheet"]` hrefs (absolute-ified, for
- *        prod/Next hashed bundles); cross-origin links are skipped
+ *      - http(s) `link[rel~="stylesheet"]` hrefs, same- or cross-origin
+ *        (absolute-ified, for prod/Next hashed bundles and CDN theme styles /
+ *        fonts), with their `integrity` / `crossorigin` / `media` /
+ *        `referrerpolicy`; other schemes are skipped
  *      - inline `<style>` element contents (for Next.js dev/HMR style-tag injection)
  *   2. Injects the collected `<link>`/`<style>` tags right after `<head>` in the
  *      server-returned HTML.
@@ -43,10 +45,14 @@ export function buildPreviewSrcDoc(html: string): string {
   const linkTags: string[] = []
   const styleTags: string[] = []
 
-  // link[rel="stylesheet"] → absolutise href, emit a <link> tag. Only
-  // same-origin links (the site's own CSS bundles) are copied; third-party
-  // / external stylesheets the parent happens to load are skipped.
-  const linkEls = document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
+  // link[rel~="stylesheet"] → absolutise href, emit a <link> tag. These
+  // are stylesheets the admin page itself already loaded (its own bundles
+  // and CDN-hosted theme styles / fonts alike), so copying them into the
+  // preview adds no new origin and needs no CSP change. Only http(s) URLs
+  // are copied: `javascript:` / `data:` / `blob:` and unparsable hrefs are
+  // skipped. `integrity` / `crossorigin` / `media` / `referrerpolicy` are
+  // kept so an SRI-pinned CDN link still loads (and still verifies).
+  const linkEls = document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]')
   for (const el of linkEls) {
     const href = el.getAttribute('href')
     if (!href) continue
@@ -56,8 +62,13 @@ export function buildPreviewSrcDoc(html: string): string {
     } catch {
       continue
     }
-    if (url.origin !== location.origin) continue
-    linkTags.push(`<link rel="stylesheet" href="${escapeAttr(url.href)}">`)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') continue
+    let tag = `<link rel="stylesheet" href="${escapeAttr(url.href)}"`
+    for (const name of COPIED_LINK_ATTRS) {
+      const value = el.getAttribute(name)
+      if (value !== null) tag += ` ${name}="${escapeAttr(value)}"`
+    }
+    linkTags.push(`${tag}>`)
   }
 
   // inline <style> elements → copy textContent
@@ -141,6 +152,9 @@ export function buildPreviewSrcDoc(html: string): string {
 
   return result
 }
+
+/** `<link>` attributes carried over to the preview copy, when set. */
+const COPIED_LINK_ATTRS = ['integrity', 'crossorigin', 'media', 'referrerpolicy'] as const
 
 /** Escape a value for a double-quoted HTML attribute. */
 function escapeAttr(value: string): string {
