@@ -14,6 +14,7 @@ For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), star
   - [Promote / demote a user](#promote--demote-a-user)
   - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
   - [Restore a data table from point-in-time recovery](#restore-a-data-table-from-point-in-time-recovery)
+  - [DynamoDB TTL for KvStore / PostHistory (opt-in)](#dynamodb-ttl-for-kvstore--posthistory-opt-in)
   - [Inspect failed plugin events](#inspect-failed-plugin-events)
 - [Custom domains](#custom-domains)
   - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
@@ -216,6 +217,133 @@ export function customizeBackend(backend: AmplessBackend): void {
   backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore'].pointInTimeRecoveryEnabled = false
 }
 ```
+
+### DynamoDB TTL for KvStore / PostHistory (opt-in)
+
+**TTL is off by default.** Two tables write a `ttl` attribute (Unix epoch
+seconds):
+
+- **PostHistory** — each revision snapshot, when `cms.config.ts` sets
+  `history.retentionDays` > 0 (`0` / unset writes no `ttl`).
+- **KvStore** — rows written with `KvStore.put(pk, sk, value, { ttlSeconds })`
+  (plugin caches / state).
+
+ampless does **not** turn DynamoDB TTL on for either table, so nothing is
+deleted automatically and rows past their `ttl` stay in the table — and
+are still returned by reads (ampless does not filter them out).
+Earlier releases appeared to enable TTL in `backend.ts`, but the
+assignment never reached the deployed table (heavymoons/ampless#399).
+Upgrading does not change this: TTL stays exactly as it is on each table,
+including a TTL you enabled by hand.
+
+It stays opt-in because **enabling TTL makes DynamoDB delete every row
+whose `ttl` has already passed** — on a long-running site that can be
+months or years of revisions or cache rows at once — and those deletes
+cannot be undone except from a backup such as PITR. Turn it on per table, after the
+checks below.
+
+1. **Audit (read-only).** Find the live table name (`<Model>-<apiId>-NONE`,
+   see `aws dynamodb list-tables`), check the current TTL state, and count
+   the rows that would be deleted right away:
+
+   ```bash
+   aws dynamodb describe-time-to-live --region <region> --table-name <live table>
+
+   aws dynamodb scan --region <region> --table-name <live table> \
+     --select COUNT \
+     --filter-expression 'attribute_exists(#t) AND #t < :now' \
+     --expression-attribute-names '{"#t":"ttl"}' \
+     --expression-attribute-values "{\":now\":{\"N\":\"$(date +%s)\"}}"
+   ```
+
+   The CLI follows `LastEvaluatedKey` for you and reports the total
+   `Count` (rows already expired) and `ScannedCount` (rows read). A scan
+   reads the whole table and consumes read capacity, so run it at a quiet
+   time on large tables. Drop `AND #t < :now` to count every row that
+   carries a `ttl`, and swap `--select COUNT` for
+   `--projection-expression` with the key attributes (`postHistoryId` for
+   PostHistory, `pk, sk` for KvStore) to list them.
+
+2. **Decide what to keep.** Rows you want to keep must stop being
+   expired **before** you enable TTL: remove the attribute, or raise it.
+
+   ```bash
+   aws dynamodb update-item --region <region> --table-name <live table> \
+     --key '{"postHistoryId":{"S":"<id>"}}' \
+     --update-expression 'REMOVE #t' \
+     --expression-attribute-names '{"#t":"ttl"}'
+   ```
+
+   (KvStore's key is `{"pk":…,"sk":…}`; or use
+   `--update-expression 'SET #t = :later'` with a future epoch). Changing
+   `history.retentionDays` does not help here: it only affects revisions
+   written after the change; existing rows keep the `ttl` they were
+   written with. Writes to KvStore go through its stream like any edit
+   (the dispatcher only acts on `siteconfig` rows).
+
+3. **Confirm PITR is on** for the table — without it (or an on-demand
+   backup) a TTL deletion cannot be undone — and note the start of the restorable range:
+
+   ```bash
+   aws dynamodb describe-continuous-backups --region <region> --table-name <live table> \
+     --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription'
+   ```
+
+   `PointInTimeRecoveryStatus` should be `ENABLED`; `EarliestRestorableDateTime`
+   is the oldest moment you can restore to. If something is deleted that
+   you needed, follow [Restore a data table from point-in-time recovery](#restore-a-data-table-from-point-in-time-recovery)
+   with a restore time just before you enabled TTL. Rows copied back still
+   carry their past `ttl`, so remove or raise it as you copy, or TTL will
+   delete them again.
+
+4. **Opt in** in `amplify/backend.custom.ts` and deploy:
+
+   ```ts
+   export function customizeBackend(backend: AmplessBackend): void {
+     backend.data.resources.cfnResources.amplifyDynamoDbTables['PostHistory'].timeToLiveAttribute =
+       { attributeName: 'ttl', enabled: true }
+   }
+   ```
+
+   Use the same line with `'KvStore'` for KvStore. The property name
+   matters: it is `timeToLiveAttribute` (a setter on Amplify's table
+   wrapper). `timeToLiveSpecification` is not a setter there; assigning it
+   does nothing. Amplify's table manager applies the change in place with
+   `UpdateTimeToLive`; no table is replaced. To turn TTL off again, remove
+   the line and deploy.
+
+5. **Monitor.** The CloudWatch metric `TimeToLiveDeletedItemCount`
+   (namespace `AWS/DynamoDB`, dimension `TableName`) shows how many rows
+   TTL deleted. Expect a burst over the first few days that roughly
+   matches your audit count, then a steady trickle:
+
+   ```bash
+   aws cloudwatch get-metric-statistics --region <region> \
+     --namespace AWS/DynamoDB --metric-name TimeToLiveDeletedItemCount \
+     --dimensions Name=TableName,Value=<live table> \
+     --start-time <ISO time you enabled TTL> --end-time <now, ISO> \
+     --period 3600 --statistics Sum
+   ```
+
+**Caveats.**
+
+- Deletion is not immediate. AWS deletes expired rows typically within a
+  few days (the `UpdateTimeToLive` API reference says typically within
+  two days, i.e. ~48 hours), and until
+  then they are still returned by reads, queries and scans. ampless does
+  not filter expired rows on read.
+- DynamoDB ignores a `ttl` more than five years in the past, and any
+  `ttl` that is not a Number; such rows are never deleted by TTL.
+- A TTL change can take up to an hour to take effect, and another
+  enable/disable on the same table within that hour fails with
+  `ValidationException`. Don't toggle it in quick succession (e.g. deploy
+  the opt-in, then immediately revert it).
+- TTL deletes are free (no write capacity) and appear in the table's
+  stream as `REMOVE` records from `userIdentity.principalId`
+  `dynamodb.amazonaws.com`. ampless's dispatcher consumes the KvStore
+  stream but only reacts to `siteconfig` rows (a site-settings cache
+  rebuild), which are written without `ttl`; it does not consume the
+  PostHistory stream. Check any stream consumers you added yourself.
 
 ### Inspect failed plugin events
 

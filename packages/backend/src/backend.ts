@@ -296,22 +296,32 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   const kvTable = backend.data.resources.tables['KvStore']
   const cfnKvTable = backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore']
   cfnKvTable.streamSpecification = { streamViewType: 'NEW_AND_OLD_IMAGES' }
-  // DynamoDB TTL: rows whose `ttl` attribute is past `now` get garbage
-  // collected (≤48h delay). Lets KvStore double as a cache.
-  cfnKvTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
 
   const mcpTokenTable = backend.data.resources.tables['McpToken']
 
   // PostHistory (Phase A): per-post revision snapshots written by the
   // event-dispatcher Lambda from the Post stream. The grant + env var are
-  // wired after dispatcherFn is declared below; here we just enable TTL so
-  // revisions expire when `cms.config.history.retentionDays > 0` sets the
-  // `ttl` attribute (rows written with retentionDays 0/unset carry no ttl
-  // and persist forever).
+  // wired after dispatcherFn is declared below.
   const postHistoryTable = backend.data.resources.tables['PostHistory']
-  const cfnPostHistoryTable =
-    backend.data.resources.cfnResources.amplifyDynamoDbTables['PostHistory']
-  cfnPostHistoryTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
+
+  // --- Data: DynamoDB TTL is intentionally NOT enabled (#399) ---
+  //
+  // KvStore (`KvStore.put(..., { ttlSeconds })`) and PostHistory
+  // (`cms.config.history.retentionDays > 0`) write a `ttl` attribute, but
+  // table TTL stays off by default, so nothing is deleted automatically.
+  // Turning it on makes DynamoDB delete every row whose `ttl` has already
+  // passed — on an existing site that can be years of rows at once, and
+  // without PITR those deletes are irreversible. So it is an explicit,
+  // per-table opt-in after the audit in RUNBOOK.md ("DynamoDB TTL for
+  // KvStore / PostHistory"):
+  //
+  //   amplifyDynamoDbTables['PostHistory'].timeToLiveAttribute =
+  //     { attributeName: 'ttl', enabled: true }
+  //
+  // in `amplify/backend.custom.ts`. The wrapper's setter is
+  // `timeToLiveAttribute`; assigning `timeToLiveSpecification` (what
+  // earlier releases did here) is a plain JS property and never reaches
+  // the template.
 
   // --- Data: point-in-time recovery on every model table ---
   //

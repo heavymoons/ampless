@@ -40,6 +40,18 @@ import type { AmplessBackend } from '@ampless/backend'
 //     ].pointInTimeRecoveryEnabled = false
 //   }
 //
+// Example: opting PostHistory (or KvStore) in to DynamoDB TTL so rows
+// whose `ttl` has passed are deleted. ampless leaves TTL off: turning it
+// on deletes every already-expired row, irreversibly without PITR. Run
+// the audit in RUNBOOK.md first. The setter is `timeToLiveAttribute` —
+// assigning `timeToLiveSpecification` does nothing.
+//
+//   export function customizeBackend(backend: AmplessBackend): void {
+//     backend.data.resources.cfnResources.amplifyDynamoDbTables[
+//       'PostHistory'
+//     ].timeToLiveAttribute = { attributeName: 'ttl', enabled: true }
+//   }
+//
 // Example: adding your own Lambda function — define it in
 // `amplify/functions/<name>/resource.ts`, import it here, and attach
 // it inside `customizeBackend` via `backend.createStack(...)` or by

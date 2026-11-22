@@ -14,6 +14,7 @@ ampless で構築したサイトで、ときどき必要になる運用作業の
   - [ユーザーの昇格 / 降格](#promote--demote-a-user)
   - [パスワードリセット（管理者上書き）](#reset-a-users-password-admin-override)
   - [ポイントインタイムリカバリによるデータテーブルの復元](#ポイントインタイムリカバリによるデータテーブルの復元)
+  - [KvStore / PostHistory の DynamoDB TTL（オプトイン）](#dynamodb-ttl-のオプトイン)
   - [失敗したプラグインイベントを確認する](#inspect-failed-plugin-events)
 - [カスタムドメイン](#custom-domains)
   - [カスタムドメインを Amplify Hosting に追加する](#adding-a-custom-domain-to-amplify-hosting)
@@ -149,6 +150,79 @@ export function customizeBackend(backend: AmplessBackend): void {
   backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore'].pointInTimeRecoveryEnabled = false
 }
 ```
+
+### DynamoDB TTL のオプトイン
+
+**KvStore / PostHistory の TTL はデフォルトで無効です。** 次の 2 つのテーブルは `ttl` 属性（Unix エポック秒）を書き込みます：
+
+- **PostHistory** — `cms.config.ts` の `history.retentionDays` が 0 より大きいとき、リビジョンのスナップショットごとに書き込みます（`0` / 未設定なら `ttl` は書きません）。
+- **KvStore** — `KvStore.put(pk, sk, value, { ttlSeconds })` で書いた行（プラグインのキャッシュや状態）。
+
+ampless はどちらのテーブルでも DynamoDB の TTL を有効に**しません**。そのため自動削除は行われず、`ttl` を過ぎた行もテーブルに残り、読み取りでもそのまま返ります（ampless は読み取り時に期限切れの行を除外しません）。以前のリリースでは `backend.ts` で TTL を有効にしているように見えましたが、その代入はデプロイされるテーブルに反映されていませんでした（heavymoons/ampless#399）。アップグレードしてもこの状態は変わりません。手動で有効にした TTL も含め、各テーブルの TTL はそのまま維持されます。
+
+オプトインにしているのは、**TTL を有効にすると、`ttl` がすでに過ぎているすべての行を DynamoDB が削除する**ためです。長く運用しているサイトでは、数か月〜数年分のリビジョンやキャッシュ行が一度に対象になることがあり、PITR などのバックアップがなければ元に戻せません。以下の確認を済ませてから、テーブルごとに有効にしてください。
+
+1. **事前調査（読み取りのみ）。** ライブテーブルの名前（`<モデル名>-<apiId>-NONE`。`aws dynamodb list-tables` で確認）を調べ、現在の TTL の状態と、有効にした直後に削除される行の数を確認します：
+
+   ```bash
+   aws dynamodb describe-time-to-live --region <リージョン> --table-name <ライブテーブル>
+
+   aws dynamodb scan --region <リージョン> --table-name <ライブテーブル> \
+     --select COUNT \
+     --filter-expression 'attribute_exists(#t) AND #t < :now' \
+     --expression-attribute-names '{"#t":"ttl"}' \
+     --expression-attribute-values "{\":now\":{\"N\":\"$(date +%s)\"}}"
+   ```
+
+   CLI が `LastEvaluatedKey` をたどってページングし、合計の `Count`（すでに期限切れの行数）と `ScannedCount`（読み取った行数）を返します。スキャンはテーブル全体を読むため読み取りキャパシティを消費します。大きなテーブルでは負荷の少ない時間帯に実行してください。`AND #t < :now` を外すと `ttl` を持つすべての行の数になり、`--select COUNT` の代わりにキー属性（PostHistory は `postHistoryId`、KvStore は `pk, sk`）を `--projection-expression` に指定すると、対象の行を一覧できます。
+
+2. **残す行を決める。** 残したい行は、TTL を有効にする**前に**期限切れでない状態にしておく必要があります。属性を削除するか、値を引き上げます：
+
+   ```bash
+   aws dynamodb update-item --region <リージョン> --table-name <ライブテーブル> \
+     --key '{"postHistoryId":{"S":"<id>"}}' \
+     --update-expression 'REMOVE #t' \
+     --expression-attribute-names '{"#t":"ttl"}'
+   ```
+
+   （KvStore のキーは `{"pk":…,"sk":…}` です。将来のエポック秒にする場合は `--update-expression 'SET #t = :later'` を使います。）`history.retentionDays` を変えても既存の行には効きません。変更後に書かれたリビジョンにだけ反映され、既存の行は書き込み時の `ttl` のままです。KvStore への書き込みは通常の編集と同じくストリームを通ります（dispatcher が反応するのは `siteconfig` の行だけです）。
+
+3. **PITR が有効なことを確認する。** PITR（またはオンデマンドバックアップ）がなければ、TTL で削除された行は元に戻せません。復元できる範囲の開始時点も控えておきます：
+
+   ```bash
+   aws dynamodb describe-continuous-backups --region <リージョン> --table-name <ライブテーブル> \
+     --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription'
+   ```
+
+   `PointInTimeRecoveryStatus` が `ENABLED` であること、`EarliestRestorableDateTime` が復元できる最も古い時点です。必要な行が消えてしまった場合は、TTL を有効にする直前の時刻を指定して [ポイントインタイムリカバリによるデータテーブルの復元](#ポイントインタイムリカバリによるデータテーブルの復元) の手順に従ってください。書き戻した行は過去の `ttl` を持ったままなので、コピーするときに削除するか引き上げないと、TTL によって再び削除されます。
+
+4. **オプトインする。** `amplify/backend.custom.ts` に次を書いてデプロイします：
+
+   ```ts
+   export function customizeBackend(backend: AmplessBackend): void {
+     backend.data.resources.cfnResources.amplifyDynamoDbTables['PostHistory'].timeToLiveAttribute =
+       { attributeName: 'ttl', enabled: true }
+   }
+   ```
+
+   KvStore にも有効にする場合は、同じ行を `'KvStore'` で書きます。プロパティ名に注意してください。正しくは `timeToLiveAttribute`（Amplify のテーブルラッパーのセッター）です。`timeToLiveSpecification` はセッターではなく、代入しても何も起きません。変更は Amplify のテーブルマネージャーが `UpdateTimeToLive` でその場で適用し、テーブルの置き換えは発生しません。TTL を再び無効にするには、この行を削除してデプロイします。
+
+5. **監視する。** CloudWatch のメトリクス `TimeToLiveDeletedItemCount`（名前空間 `AWS/DynamoDB`、ディメンション `TableName`）で、TTL が削除した行数を確認できます。最初の数日は事前調査の件数に近い量がまとめて削除され、その後は少しずつ削除されるはずです：
+
+   ```bash
+   aws cloudwatch get-metric-statistics --region <リージョン> \
+     --namespace AWS/DynamoDB --metric-name TimeToLiveDeletedItemCount \
+     --dimensions Name=TableName,Value=<ライブテーブル> \
+     --start-time <TTL を有効にした時刻（ISO）> --end-time <現在時刻（ISO）> \
+     --period 3600 --statistics Sum
+   ```
+
+**注意点。**
+
+- 削除はすぐには行われません。AWS は期限切れの行を通常数日以内に削除します（`UpdateTimeToLive` の API リファレンスでは、通常 2 日、つまり約 48 時間以内とされています）。それまでは読み取り、クエリ、スキャンで返ります。ampless は読み取り時に期限切れの行を除外しません。
+- `ttl` が 5 年以上前の値の行や、`ttl` が Number 型でない行は、DynamoDB の TTL の対象外になり、削除されません。
+- TTL の変更が反映されるまで最大 1 時間かかることがあり、その間に同じテーブルで有効化・無効化をもう一度行うと `ValidationException` になります。短い間隔で切り替えないでください（例: オプトインをデプロイした直後に取り消す）。
+- TTL による削除は無料（書き込みキャパシティを消費しない）で、テーブルのストリームには `userIdentity.principalId` が `dynamodb.amazonaws.com` の `REMOVE` レコードとして流れます。ampless の dispatcher は KvStore のストリームを処理しますが、反応するのは `siteconfig` の行（サイト設定キャッシュの再生成）だけで、これらの行は `ttl` なしで書かれます。PostHistory のストリームは処理しません。自分で追加したストリームの処理があれば、そちらも確認してください。
 
 ### 失敗したプラグインイベントの確認
 

@@ -249,8 +249,9 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
     //   - Site settings: PK = `siteconfig`, SK = dotted key
     //     (`site.name`, `media.imageDisplay`, ...). No TTL → persistent.
     //   - Caches / plugin state: PK = whatever namespace the caller picks
-    //     (`cache:{ns}`, `pluginstate:{name}:...`). TTL set → DynamoDB
-    //     auto-deletes within ~48h of expiry.
+    //     (`cache:{ns}`, `pluginstate:{name}:...`). `ttl` set → deleted
+    //     after expiry only if the site opts the table in to DynamoDB TTL
+    //     (off by default; see backend.ts).
     //
     // Auth is admin/editor write only. Guests never read this table
     // directly — site settings are mirrored to S3 by the site-settings-
@@ -260,8 +261,8 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         pk: a.string().required(),
         sk: a.string().required(),
         value: a.json(),
-        // Unix epoch seconds. When set, DynamoDB removes the row
-        // automatically (TimeToLive enabled in backend.ts).
+        // Unix epoch seconds. DynamoDB removes the row after this only
+        // when table TTL is opted in (off by default; see backend.ts).
         ttl: a.integer(),
       })
       .identifier(['pk', 'sk'])
@@ -434,6 +435,7 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         tags: a.string().array(),
         metadata: a.json(),
         // Unix epoch 秒。retentionDays>0 のときだけ書く(0/未設定=無期限)。
+        // 実際に削除されるのはテーブル TTL をオプトインしたときだけ(既定は無効、backend.ts 参照)。
         ttl: a.integer(),
       })
       .identifier(['postHistoryId'])
