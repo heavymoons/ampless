@@ -11,7 +11,7 @@ Partial work on #389: single-post visibility, tag-index keys and plugin feeds no
 - **create-ampless**: the bundled `get-published-post` resolver decides visibility by instant. A future negative-offset post is no longer served early, a live positive-offset post is no longer hidden, and a `publishedAt` that does not parse is treated as not yet published. `list-published-posts` and `list-posts-by-tag` are unchanged from the previous release.
 - **@ampless/backend**:
   - The trusted processor writes PostTag rows (sort key and `publishedAt`) in canonical UTC, so tag pages order and bound those rows correctly. A post's old verbatim-keyed rows are deleted the next time it is saved.
-  - `listPublished()` (the source for plugin feeds and sitemaps) filters and orders by instant. It already read the whole published partition.
+  - `listPublished()` (the source for plugin feeds and sitemaps) filters and orders by instant. Its key bound moves from `<= now` to `<= <UTC minute of now + 18h>Z`, the largest AWSDateTime offset, so live positive-offset posts are included. Posts scheduled further ahead are still never read; the extra rows read are only those whose `publishedAt` string falls in the next 18 hours. As before, all live posts are read into memory for the plugin.
 - **@ampless/admin**: the "Scheduled" label follows the same instant-based rule as the single-post page.
 
 No data is migrated or rewritten. Remaining limitations, tracked in #406, for non-canonical `publishedAt` values (existing rows and new direct-API writes):

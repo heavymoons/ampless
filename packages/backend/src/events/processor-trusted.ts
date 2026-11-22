@@ -52,6 +52,9 @@ function requireEnv(name: string): string {
 
 const POST_BY_STATUS_INDEX = 'byStatus'
 
+/** Largest AWSDateTime zone offset (±18:00; see `parseAwsDateTime`). */
+const MAX_PUBLISHED_AT_OFFSET_MS = 18 * 60 * 60 * 1000
+
 // ---------------------------------------------------------------------------
 // AES-256-GCM decryption (node:crypto)
 // ---------------------------------------------------------------------------
@@ -196,24 +199,36 @@ export function createProcessorTrustedHandler(
   // after `now` (scheduled but not yet live) are excluded from
   // plugin-generated feeds and sitemaps.
   //
-  // The SK (publishedAt) is NOT used as a lexical `<= now` bound: direct
-  // API writes may store any AWSDateTime (`+09:00`, no seconds, ...), whose
-  // string order differs from its instant, so a lexical bound would expose
-  // negative-offset posts early and hide positive-offset posts late. This
-  // reads the whole partition anyway, so filter and order by the parsed
-  // instant instead (newest first; unparseable publishedAt fails closed).
+  // The SK (publishedAt) is compared as a string, and direct API writes may
+  // store any AWSDateTime (`+09:00`, no seconds, ...), whose string order
+  // differs from its instant. So:
+  //   - the key bound is `<= <UTC minute of (now + 18h)>Z`, not `<= now`. A
+  //     live post's stored wall-clock is at most now + 18h (AWSDateTime
+  //     offsets are capped at ±18:00; `parseAwsDateTime` rejects larger
+  //     ones), and `...HH:mmZ` sorts at or above every spelling within that
+  //     minute, so no live post is cut by the bound. Posts scheduled further
+  //     ahead are never read; compared with the previous `<= now` bound the
+  //     extra rows read are only those whose string falls in the next 18h
+  //     (plus one minute), e.g. posts scheduled for the coming hours.
+  //   - every row is re-checked by parsed instant (fail closed on
+  //     unparseable values), so a future negative-offset row that sorts
+  //     before now is not exposed, and the result is ordered newest-first
+  //     by instant.
+  // As before, every live post is read and held in memory (bodies
+  // included) for the plugin; that cost is unchanged by this bound.
   async function listPublished(): Promise<Post[]> {
     const rows: Array<{ post: Post; ms: number }> = []
     const nowMs = Date.now()
+    const upper = new Date(nowMs + MAX_PUBLISHED_AT_OFFSET_MS).toISOString().slice(0, 16) + 'Z'
     let exclusiveStartKey: Record<string, unknown> | undefined
     do {
       const res = await ddb.send(
         new QueryCommand({
           TableName: POST_TABLE,
           IndexName: POST_BY_STATUS_INDEX,
-          KeyConditionExpression: '#status = :status',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':status': 'published' },
+          KeyConditionExpression: '#status = :status AND #publishedAt <= :upper',
+          ExpressionAttributeNames: { '#status': 'status', '#publishedAt': 'publishedAt' },
+          ExpressionAttributeValues: { ':status': 'published', ':upper': upper },
           ScanIndexForward: false,
           ExclusiveStartKey: exclusiveStartKey as never,
         })
