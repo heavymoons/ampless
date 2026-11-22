@@ -178,8 +178,17 @@ export {
   isValidCustomClassId,
   tableCustomClassName,
   themeTableClasses,
+  postCustomClassName,
+  themeCustomClasses,
+  themePostClasses,
+  POST_CLASSES_METADATA_KEY,
+  POST_CLASSES_METADATA_KIND,
+  readPostClasses,
+  bypassesPostBodyWrapper,
+  postBodyClassName,
 } from './theme.js'
 export type {
+  PostClassesMetadata,
   ThemeManifest,
   ThemeCustomClass,
   ThemeCustomClassTarget,

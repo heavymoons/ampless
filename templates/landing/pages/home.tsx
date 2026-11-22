@@ -62,7 +62,7 @@ export default async function LandingHome(_: ThemeRouteContext) {
           <section className="mx-auto max-w-3xl px-6 py-16">
             <article>
               <h2 className="text-3xl font-bold tracking-tight">{featured.title}</h2>
-              <div className="prose prose-neutral dark:prose-invert mt-6 max-w-none">
+              <div className={ampless.postBodyClassName(featured, 'prose prose-neutral dark:prose-invert mt-6 max-w-none')}>
                 {await ampless.renderBody(featured)}
               </div>
             </article>

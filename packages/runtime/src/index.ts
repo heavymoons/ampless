@@ -17,6 +17,7 @@
 // dispatchers, and theme components.
 
 import type { Post, Config, ThemeManifest } from 'ampless'
+import { postBodyClassName } from 'ampless'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import type { AmplessOutputs } from './outputs.js'
@@ -242,6 +243,28 @@ export interface Ampless {
    */
   renderBody(post: Post): Promise<ReactNode>
   /**
+   * Class attribute for the theme's post body wrapper: `base` plus
+   * `ampless-post--<id>` for each theme-defined post class in the tagged
+   * `post.metadata['ampless:postClasses']` value (`PostClassesMetadata`;
+   * see `ThemeCustomClass` with `target: 'post'`). A plain
+   * `metadata.postClasses` key is never read, so values themes or plugins
+   * stored there earlier are not rendered. Themes use it on the element wrapping
+   * `renderBody`:
+   *
+   *     <div id="post-body" className={ampless.postBodyClassName(post, 'prose max-w-none')}>
+   *       {await ampless.renderBody(post)}
+   *     </div>
+   *
+   * Read-only: returns `base` unchanged for posts without the tagged value
+   * (byte-identical markup), and always for static posts and no_layout
+   * HTML posts (`bypassesPostBodyWrapper`) — including when a theme's
+   * home page renders one in a featured slot. Ids are re-validated on
+   * every call, so values written via MCP / GraphQL cannot break out of
+   * the attribute; ids the active theme does not declare still render
+   * (unstyled).
+   */
+  postBodyClassName(post: Pick<Post, 'format' | 'metadata'>, base?: string): string
+  /**
    * Sync string-shaped renderer used by the raw route handler. Skips
    * the `contentFields` registry — the raw route serves
    * `format: 'html', metadata.no_layout: true` posts whose bodies are
@@ -337,6 +360,7 @@ export function createAmpless(opts: CreateAmplessOpts): Ampless {
         ctxForPlugin,
       })
     },
+    postBodyClassName: (post, base) => postBodyClassName(post, base),
     renderBodyHtmlString: (post) => renderBodyHtmlString(post),
     postToMarkdown: async (post, o) => {
       if (o?.frontmatter === false) {

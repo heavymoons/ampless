@@ -493,6 +493,63 @@ What to look for:
 - Empty link / tag / nav / footer configurations don't leave dead
   chrome behind.
 
+## Custom classes for posts and tables
+
+A theme can declare named styles for a whole post or a table.
+
+1. Declare them in `manifest.ts`. The id uses lowercase letters, digits
+   and hyphens:
+
+   ```ts
+   customClasses: [
+     { id: 'wide', label: { en: 'Wide', ja: 'ワイド' }, target: 'post' },
+     { id: 'compact', label: { en: 'Compact', ja: 'コンパクト' }, target: 'table' },
+   ],
+   ```
+
+2. Style them in `tokens.css`. A post class renders as
+   `ampless-post--<id>` on the post body wrapper; a table class renders
+   as `tiptap-table--<id>` on the table. Scope the rules under
+   `[data-theme='my-blog']` if they should apply only while this theme
+   is active:
+
+   ```css
+   [data-theme='my-blog'] .ampless-post--wide { max-width: none; }
+   [data-theme='my-blog'] .tiptap-table--compact td { padding: 0.25rem 0.5rem; }
+   ```
+
+3. Build the post body wrapper's class with `ampless.postBodyClassName`
+   in `pages/post.tsx` (the bundled themes already do):
+
+   ```tsx
+   <div id="post-body" className={ampless.postBodyClassName(post, 'prose max-w-none')}>
+     {await ampless.renderBody(post)}
+   </div>
+   ```
+
+Post classes are read from the post's metadata key
+`ampless:postClasses`, and only when its value has this exact shape:
+
+```json
+{ "ampless:postClasses": { "kind": "ampless.post-classes", "version": 1, "ids": ["wide"] } }
+```
+
+Posts without it render the base classes unchanged. A plain
+`postClasses` key, or any other value under `ampless:postClasses`, is
+never read, so data that themes or plugins stored there earlier does not
+change how existing posts render. Invalid ids are dropped when the page
+renders.
+
+Static posts (`format: 'static'`) and no_layout HTML posts
+(`format: 'html'` with `metadata.no_layout: true`) never get post
+classes. Their own URLs don't use the theme's post body wrapper, and
+`postBodyClassName` returns the base classes for them everywhere else
+too, for example when the home page shows one as its featured post. Ids that a post stores but the active theme does
+not declare (for example after a theme switch) still render, unstyled.
+
+The admin editor cannot set post classes yet, and the admin preview
+does not show them yet.
+
 ## Theme-local components
 
 Theme-specific shared UI belongs in the theme, e.g.

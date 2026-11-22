@@ -469,6 +469,60 @@ http://localhost:3000/?v=theme-check-1
 - 読むべき本文のコントラストと行間が十分か。
 - リンク、タグ、ナビ、フッターが空設定のときに余計な余白を残していないか。
 
+## 記事と表のカスタムクラス
+
+テーマは、記事全体や表に使える名前付きのスタイルを宣言できます。
+
+1. `manifest.ts` で宣言します。id には英小文字、数字、ハイフンを使います。
+
+   ```ts
+   customClasses: [
+     { id: 'wide', label: { en: 'Wide', ja: 'ワイド' }, target: 'post' },
+     { id: 'compact', label: { en: 'Compact', ja: 'コンパクト' }, target: 'table' },
+   ],
+   ```
+
+2. `tokens.css` でスタイルを書きます。記事のクラスは本文のラッパーに
+   `ampless-post--<id>` として、表のクラスは表に `tiptap-table--<id>`
+   として付きます。このテーマが有効なときだけ効かせるなら
+   `[data-theme='my-blog']` の下に書きます。
+
+   ```css
+   [data-theme='my-blog'] .ampless-post--wide { max-width: none; }
+   [data-theme='my-blog'] .tiptap-table--compact td { padding: 0.25rem 0.5rem; }
+   ```
+
+3. `pages/post.tsx` で、本文ラッパーのクラスを `ampless.postBodyClassName`
+   で組み立てます（同梱テーマは対応済みです）。
+
+   ```tsx
+   <div id="post-body" className={ampless.postBodyClassName(post, 'prose max-w-none')}>
+     {await ampless.renderBody(post)}
+   </div>
+   ```
+
+記事のクラスは記事の metadata のキー `ampless:postClasses` から読みます。
+値が次の形のときだけ読みます。
+
+```json
+{ "ampless:postClasses": { "kind": "ampless.post-classes", "version": 1, "ids": ["wide"] } }
+```
+
+これがない記事では、ベースのクラスがそのまま出力されます。ただの `postClasses`
+キーや、`ampless:postClasses` の下にあるこれ以外の値は読まないので、テーマや
+プラグインがそこに保存してきたデータで既存記事の表示が変わることはありません。
+不正な id は描画時に捨てます。
+
+静的投稿（`format: 'static'`）と no_layout の HTML 投稿（`format: 'html'` で
+`metadata.no_layout: true`）には記事のクラスを付けません。これらの個別 URL は
+テーマの本文ラッパーを通りません。それ以外の場所、たとえばホームの featured
+記事として表示されるときも、`postBodyClassName` はベースのクラスだけを返します。記事に
+保存されていても有効なテーマが宣言していない id（テーマを切り替えた後など）も
+そのまま出力され、スタイルが当たらないだけです。
+
+管理画面のエディタではまだ記事のクラスを設定できず、管理画面のプレビューにも
+まだ反映されません。
+
 ## テーマ内コンポーネントの使いどころ
 
 テーマ専用の共通 UI は `themes/my-blog/components.tsx` のようにテーマ内へ置く。
