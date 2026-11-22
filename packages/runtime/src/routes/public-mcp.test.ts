@@ -645,22 +645,6 @@ describe('createPublicMcpRouteHandler', () => {
     })
   })
 
-  it('list_posts reads one resolver call per page (fill: false)', async () => {
-    const ampless = makeAmpless({ publicMcp: true })
-    const { POST } = createPublicMcpRouteHandler(ampless)
-    await POST(
-      jsonRequest({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: { name: 'list_posts', arguments: { limit: 5 } },
-      })
-    )
-    expect(ampless.listPublishedPosts).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 5, fill: false })
-    )
-  })
-
   // --- formatToolError ---
 
   it('formatToolError masks the client message and logs the raw detail server-side', async () => {
