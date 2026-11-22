@@ -11,6 +11,7 @@ import { marked, type Tokens } from 'marked'
 // runtime declares it explicitly). `ElementType` provides the `isTag`
 // type guard / element-type enum without pulling domhandler in directly.
 import { parseDocument, ElementType } from 'htmlparser2'
+import { isValidCustomClassId, tableCustomClassName } from 'ampless'
 import type {
   AmplessPlugin,
   ContentFieldRenderer,
@@ -129,7 +130,7 @@ function renderTiptapString(
       return `<img src="${src}" alt="${alt}"${title}${display} loading="lazy" />`
     }
     case 'table':
-      return `<table class="tiptap-table"><tbody>${children}</tbody></table>`
+      return `<table class="${tableClassName(node.attrs)}"><tbody>${children}</tbody></table>`
     case 'tableRow':
       return `<tr>${children}</tr>`
     case 'tableHeader':
@@ -145,6 +146,17 @@ function renderTiptapString(
     default:
       return children
   }
+}
+
+// `tiptap-table` plus `tiptap-table--<id>` for a theme-declared custom class
+// stored as `attrs.customClass`. The id is re-validated here (post bodies can
+// be written via MCP / GraphQL, not only through the admin) and anything not
+// matching CUSTOM_CLASS_ID_PATTERN is dropped, so the value can never break
+// out of the class attribute. Ids not declared by the active theme still
+// render: the class is simply unstyled until a theme styles it.
+function tableClassName(attrs: Record<string, unknown> | undefined): string {
+  const id = attrs?.customClass
+  return isValidCustomClassId(id) ? `tiptap-table ${tableCustomClassName(id)}` : 'tiptap-table'
 }
 
 function tableCellAttrs(attrs: Record<string, unknown> | undefined): string {
@@ -442,7 +454,7 @@ function renderTiptapNode(
     case 'table':
       return createElement(
         'table',
-        { key, className: 'tiptap-table' },
+        { key, className: tableClassName(node.attrs) },
         createElement('tbody', null, ...children),
       )
     case 'tableRow':

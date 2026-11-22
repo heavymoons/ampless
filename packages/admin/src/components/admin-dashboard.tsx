@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { listPostSummaries, type PostSummary } from 'ampless'
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ampless/runtime/ui'
 import { useT } from './i18n-provider.js'
+import { getPostDisplayStatus, nextScheduledTransition } from '../lib/post-display-status.js'
+import { useNow } from '../lib/use-now.js'
 
 /**
  * Admin home / dashboard. Lists post counts. Marked client-side because
@@ -27,7 +29,11 @@ export function AdminDashboard() {
       .finally(() => setLoading(false))
   }, [])
 
-  const published = posts.filter((p) => p.status === 'published').length
+  // Scheduled posts (published with a future publishedAt) are counted
+  // separately; `now` advances when the earliest one goes live.
+  const now = useNow((current) => nextScheduledTransition(posts, current))
+  const published = posts.filter((p) => getPostDisplayStatus(p, now) === 'published').length
+  const scheduled = posts.filter((p) => getPostDisplayStatus(p, now) === 'scheduled').length
   const drafts = posts.filter((p) => p.status === 'draft').length
   const countPending = loading || Boolean(loadError)
 
@@ -46,7 +52,7 @@ export function AdminDashboard() {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle>{t('dashboard.totalPosts')}</CardTitle>
@@ -62,6 +68,14 @@ export function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{countPending ? '-' : published}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('dashboard.scheduled')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{countPending ? '-' : scheduled}</p>
           </CardContent>
         </Card>
         <Card>

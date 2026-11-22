@@ -1,4 +1,5 @@
 import { NewPostPage } from '../components/new-post-view.js'
+import { loadEditorTableClasses } from './table-classes.js'
 
 /**
  * Options for `createNewPostPage`.
@@ -20,15 +21,16 @@ export interface CreateNewPostPageOptions {
  * Server Components and the `'use client'` boundary is preserved at
  * the cross-file reference.
  *
- * The first argument is intentionally ignored, same as
- * `createEditPostPage`.
+ * The first argument is the `createAdmin(...)` object, used the same way
+ * as in `createEditPostPage` (active theme's table custom classes).
  */
 export function createNewPostPage(
-  _admin: unknown,
+  admin: unknown,
   opts: CreateNewPostPageOptions = {},
 ) {
   const { previewEndpoint } = opts
-  return function NewPostPageWrapper() {
-    return <NewPostPage previewEndpoint={previewEndpoint} />
+  return async function NewPostPageWrapper() {
+    const tableClasses = await loadEditorTableClasses(admin)
+    return <NewPostPage previewEndpoint={previewEndpoint} tableClasses={tableClasses} />
   }
 }

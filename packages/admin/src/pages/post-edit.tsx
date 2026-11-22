@@ -1,4 +1,5 @@
 import { EditPostPage } from '../components/edit-post-view.js'
+import { loadEditorTableClasses } from './table-classes.js'
 
 /**
  * Options for `createEditPostPage`.
@@ -20,20 +21,20 @@ export interface CreateEditPostPageOptions {
  * Server Components and the `'use client'` boundary is preserved at
  * the cross-file reference.
  *
- * The first argument is intentionally ignored — the factory existed
- * before there was anything to hand it, and we kept the signature
- * stable so existing templates don't need to remove the `admin` arg.
- * The `opts.previewEndpoint` is the only piece the factory actually
- * consumes today.
+ * The first argument is the `createAdmin(...)` object the templates
+ * already pass. It is used (server-side, per request) to read the active
+ * theme's table custom classes for the editor's table controls; anything
+ * without `loadThemeConfig` simply yields no offered classes.
  */
 export function createEditPostPage(
-  _admin: unknown,
+  admin: unknown,
   opts: CreateEditPostPageOptions = {},
 ) {
   const { previewEndpoint } = opts
-  return function EditPostPageWrapper(props: {
+  return async function EditPostPageWrapper(props: {
     params: Promise<{ postId: string }>
   }) {
-    return <EditPostPage {...props} previewEndpoint={previewEndpoint} />
+    const tableClasses = await loadEditorTableClasses(admin)
+    return <EditPostPage {...props} previewEndpoint={previewEndpoint} tableClasses={tableClasses} />
   }
 }

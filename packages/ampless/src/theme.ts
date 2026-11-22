@@ -117,12 +117,84 @@ export type ThemeField =
   | ThemeFontFamilyField
   | ThemeLinkListField
 
+/**
+ * Where a theme-declared custom class can be applied. Only `table` is
+ * supported today: the class goes on the tiptap `table` node and renders
+ * as `tiptap-table--<id>` next to the base `tiptap-table` class.
+ */
+export type ThemeCustomClassTarget = 'table'
+
+/**
+ * A class the theme styles and that editors can opt a block into, e.g.
+ * `{ id: 'compact', label: 'Compact', target: 'table' }` with theme CSS for
+ * `.tiptap-table--compact`. The id must match `CUSTOM_CLASS_ID_PATTERN`.
+ */
+export interface ThemeCustomClass {
+  id: string
+  label: LocalizedString
+  description?: LocalizedString
+  target: ThemeCustomClassTarget
+}
+
 export interface ThemeManifest {
   /** Theme directory name (`themes/<name>/`). */
   name: string
   label: LocalizedString
   description?: LocalizedString
   fields: ReadonlyArray<ThemeField>
+  /**
+   * Optional classes this theme styles and lets editors apply to blocks
+   * (see `ThemeCustomClass`). The admin editor offers the active theme's
+   * entries; ids stored in posts keep rendering after a theme switch.
+   */
+  customClasses?: ReadonlyArray<ThemeCustomClass>
+}
+
+/**
+ * Allowed custom class ids: lowercase letters, digits and hyphens. The
+ * renderers re-check this on every render (post bodies can be written via
+ * MCP / GraphQL, not only through the admin), so an id can never break out
+ * of the `class` attribute.
+ */
+export const CUSTOM_CLASS_ID_PATTERN = /^[a-z0-9-]+$/
+
+/** Max length of a custom class id (keeps generated class names sane). */
+export const CUSTOM_CLASS_ID_MAX_LENGTH = 64
+
+/** True when `id` is a string usable as a custom class id. */
+export function isValidCustomClassId(id: unknown): id is string {
+  return (
+    typeof id === 'string' &&
+    id.length > 0 &&
+    id.length <= CUSTOM_CLASS_ID_MAX_LENGTH &&
+    CUSTOM_CLASS_ID_PATTERN.test(id)
+  )
+}
+
+/** Class name emitted for a table custom class id (`tiptap-table--<id>`). */
+export function tableCustomClassName(id: string): string {
+  return `tiptap-table--${id}`
+}
+
+/**
+ * Valid `target: 'table'` entries of a manifest, de-duplicated by id
+ * (first wins). Invalid ids are dropped with a console warning so a typo
+ * in a theme never reaches the editor or the markup.
+ */
+export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+  const out: ThemeCustomClass[] = []
+  const seen = new Set<string>()
+  for (const c of manifest.customClasses ?? []) {
+    if (c?.target !== 'table') continue
+    if (!isValidCustomClassId(c.id)) {
+      console.warn(`[ampless] theme "${manifest.name}": ignoring custom class with invalid id ${JSON.stringify(c?.id)}`)
+      continue
+    }
+    if (seen.has(c.id)) continue
+    seen.add(c.id)
+    out.push(c)
+  }
+  return out
 }
 
 export function defineTheme(m: ThemeManifest): ThemeManifest {
