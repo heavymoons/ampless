@@ -4,6 +4,7 @@ import {
   listPostSummaries,
   listPostHistory,
   mergePostMetadata,
+  mergeStaticContent,
   PostUpdateConflictError,
   setPostsProvider,
   supportsConditionalPostUpdate,
@@ -11,6 +12,7 @@ import {
   type PostsProvider,
   type PostSummary,
   type PostRevision,
+  type StaticContentGroup,
 } from './core.js'
 import type { Post } from './types.js'
 
@@ -336,5 +338,102 @@ describe('mergePostMetadata', () => {
       expect(mergePostMetadata({ seo: 1 }, {}, { seo: 2 })).toEqual({ metadata: { seo: 2 }, conflicts: ['seo'] })
       expect(mergePostMetadata({ seo: 1 }, { seo: 2 }, {})).toEqual({ metadata: undefined, conflicts: ['seo'] })
     })
+  })
+
+  describe('an own `__proto__` key (as JSON.parse creates it)', () => {
+    const md = (json: string) => JSON.parse(json) as Record<string, unknown>
+    const isPlainPrototype = (x: unknown) => Object.getPrototypeOf(x) === Object.prototype
+
+    it('unchanged on all sides: kept as an own key, prototype untouched', () => {
+      const { metadata, conflicts } = mergePostMetadata(
+        md('{"__proto__":{"x":1},"seo":1}'),
+        md('{"__proto__":{"x":1},"seo":2}'),
+        md('{"__proto__":{"x":1},"seo":1}')
+      )
+      expect(conflicts).toEqual([])
+      expect(Object.prototype.hasOwnProperty.call(metadata, '__proto__')).toBe(true)
+      expect(isPlainPrototype(metadata)).toBe(true)
+      expect(JSON.stringify(metadata)).toBe('{"__proto__":{"x":1},"seo":2}')
+      expect(({} as Record<string, unknown>).x).toBeUndefined()
+    })
+
+    it('changed on one side: that side wins, in either direction', () => {
+      const mine = mergePostMetadata(md('{"__proto__":{"x":1}}'), md('{"__proto__":{"x":2}}'), md('{"__proto__":{"x":1}}'))
+      expect(JSON.stringify(mine.metadata)).toBe('{"__proto__":{"x":2}}')
+      expect(isPlainPrototype(mine.metadata)).toBe(true)
+      const theirs = mergePostMetadata(md('{"__proto__":{"x":1}}'), md('{"__proto__":{"x":1}}'), md('{"__proto__":{"x":3}}'))
+      expect(JSON.stringify(theirs.metadata)).toBe('{"__proto__":{"x":3}}')
+      expect(isPlainPrototype(theirs.metadata)).toBe(true)
+      // Only one side has it at all.
+      const added = mergePostMetadata({}, {}, md('{"__proto__":"v"}'))
+      expect(JSON.stringify(added.metadata)).toBe('{"__proto__":"v"}')
+      expect(isPlainPrototype(added.metadata)).toBe(true)
+    })
+
+    it('changed differently on both sides: a conflict naming it, theirs as the placeholder', () => {
+      const { metadata, conflicts } = mergePostMetadata(
+        md('{"__proto__":{"x":1}}'),
+        md('{"__proto__":{"x":2}}'),
+        md('{"__proto__":{"x":3}}')
+      )
+      expect(conflicts).toEqual(['__proto__'])
+      expect(JSON.stringify(metadata)).toBe('{"__proto__":{"x":3}}')
+      expect(isPlainPrototype(metadata)).toBe(true)
+    })
+  })
+})
+
+describe('mergeStaticContent', () => {
+  const v1: StaticContentGroup = {
+    format: 'static',
+    body: { entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v1' },
+    files: { 'index.html': { size: 1, mimeType: 'text/html' } },
+  }
+  const v2: StaticContentGroup = {
+    format: 'static',
+    body: { entrypoint: 'index.html', files: ['app.js', 'index.html'], uploadedAt: 'v2' },
+    files: { 'app.js': { size: 2, mimeType: 'text/javascript' }, 'index.html': { size: 3, mimeType: 'text/html' } },
+  }
+  const v3: StaticContentGroup = { ...v2, body: { ...(v2.body as object), uploadedAt: 'v3' } }
+  // A deep copy, so equality is by value rather than identity.
+  const copy = (g: StaticContentGroup): StaticContentGroup => JSON.parse(JSON.stringify(g))
+
+  it('neither side changed the group: the stored group', () => {
+    const theirs = copy(v1)
+    expect(mergeStaticContent(v1, copy(v1), theirs)).toEqual({ value: theirs })
+    expect(mergeStaticContent(v1, copy(v1), theirs).value).toBe(theirs)
+  })
+
+  it('only mine changed it: mine', () => {
+    expect(mergeStaticContent(v1, v2, copy(v1)).value).toBe(v2)
+  })
+
+  it('only theirs changed it: theirs, so a stale manifest is never written', () => {
+    expect(mergeStaticContent(v1, copy(v1), v2).value).toBe(v2)
+  })
+
+  it('both changed it the same way: mine (equal to theirs)', () => {
+    expect(mergeStaticContent(v1, v2, copy(v2)).value).toBe(v2)
+  })
+
+  it('both changed it differently: a conflict', () => {
+    expect(mergeStaticContent(v1, v2, v3)).toEqual({ conflict: true })
+    // Only one field of the group differing is enough.
+    expect(mergeStaticContent(v1, { ...v1, files: v2.files }, { ...v1, body: v2.body })).toEqual({ conflict: true })
+  })
+
+  it('a format switch to or from static on one side is taken as a whole', () => {
+    const markdown: StaticContentGroup = { format: 'markdown', body: '# hi', files: undefined }
+    // Theirs switched static -> markdown; mine left the group.
+    expect(mergeStaticContent(v1, copy(v1), markdown).value).toBe(markdown)
+    // Mine switched markdown -> static; theirs left the group.
+    expect(mergeStaticContent(markdown, v1, copy(markdown)).value).toBe(v1)
+    // Mine switched away from static while theirs uploaded another bundle.
+    expect(mergeStaticContent(v1, markdown, v2)).toEqual({ conflict: true })
+  })
+
+  it('absent fields compare equal to absent fields', () => {
+    const noFiles: StaticContentGroup = { format: 'static', body: v1.body, files: undefined }
+    expect(mergeStaticContent(noFiles, { ...noFiles }, v2).value).toBe(v2)
   })
 })

@@ -10,6 +10,7 @@ import {
   deletePost,
   formatDate,
   mergePostMetadata,
+  mergeStaticContent,
   normalizePostClasses,
   PostUpdateConflictError,
   ConditionalUpdateUnsupportedError,
@@ -17,6 +18,7 @@ import {
   type PostMetadata,
   type PostRevision,
   type StaticPostBody,
+  type StaticContentGroup,
   type ContentFormat,
 } from 'ampless'
 import { Button, Input, Label, Textarea } from '@ampless/runtime/ui'
@@ -134,6 +136,23 @@ function isStaticBody(value: unknown): value is StaticPostBody {
     'files' in value &&
     Array.isArray((value as StaticPostBody).files)
   )
+}
+
+// Stands in for the manifest / `metadata.files` of a picked bundle that is
+// not uploaded yet, when merging the static group before the upload. It is
+// never written and never equals a stored value.
+const PENDING_UPLOAD = { pendingBundleUpload: true }
+
+// `metadata` with `files` set to the static group's value (removed when
+// absent). The spread keeps every own key, an own `__proto__` included.
+function withStaticFiles(
+  metadata: PostMetadata | undefined,
+  files: unknown
+): PostMetadata | undefined {
+  const next: Record<string, unknown> = { ...(metadata ?? {}) }
+  if (files === undefined) delete next.files
+  else next.files = files
+  return Object.keys(next).length > 0 ? (next as PostMetadata) : undefined
 }
 
 // Format a draft's `savedAt` epoch (date + time) in the project's
@@ -605,24 +624,24 @@ export function PostForm({
         existing: post?.publishedAt,
       })
 
-      // For static posts, push the pending bundle to S3 before saving
-      // the post row. The returned manifest becomes the body so the
-      // DB always references files that actually exist. If no new
-      // bundle was picked, we re-use the existing manifest (edit-only
-      // metadata changes shouldn't re-upload).
+      // For static posts, a pending bundle is pushed to S3 before the post
+      // row is written. The returned manifest becomes the body so the DB
+      // always references files that actually exist, and its per-file
+      // size / mimeType map is stamped onto `metadata.files` so the static
+      // delivery route can stream small files back without a HEAD
+      // round-trip on first read. On edit the upload happens only after
+      // the re-read below found no conflict: it replaces the files under
+      // the slug's S3 prefix, which a concurrently saved bundle also uses.
+      // If no new bundle was picked, we re-use the existing manifest
+      // (edit-only metadata changes shouldn't re-upload).
+      const pending = format === 'static' ? pendingBundle : null
+      const uploadPending = (p: NonNullable<typeof pendingBundle>) =>
+        uploadBundle({ slug: finalSlug, files: p.files, entrypoint: p.entrypoint })
       let nextBody: unknown = body
       if (format === 'static') {
-        if (pendingBundle) {
-          const result = await uploadBundle({
-            slug: finalSlug,
-            files: pendingBundle.files,
-            entrypoint: pendingBundle.entrypoint,
-          })
-          nextBody = result.body
-          // Stamp the per-file size / mimeType map onto the post
-          // metadata so the static delivery route can stream small
-          // files back without a HEAD round-trip on first read.
-          metadata = { ...(metadata ?? {}), files: result.filesMeta }
+        if (pending) {
+          // Set from the upload result below.
+          nextBody = undefined
         } else {
           // No new bundle picked. Prefer the current `body` if it is
           // already a valid static manifest — this is the case after
@@ -651,7 +670,8 @@ export function PostForm({
         // conditional on the re-read `updatedAt`, so a save landing in
         // between is reported instead of overwritten (a provider that
         // cannot do that is refused by `updatePost`, never written to
-        // unconditionally). The other fields stay last-write-wins.
+        // unconditionally). The other fields stay last-write-wins, except
+        // for static posts (below).
         const fresh = await getPostById(post!.postId)
         if (!fresh) throw new Error(t('posts.form.saveNotFound'))
         const { metadata: mergedMetadata, conflicts } = mergePostMetadata(
@@ -659,9 +679,49 @@ export function PostForm({
           metadata,
           fresh.metadata
         )
-        if (conflicts.length > 0) {
-          setError(t('posts.form.saveMetadataConflict', { keys: conflicts.join(', ') }))
+        // A static post's manifest (`body`), `format` and `metadata.files`
+        // belong together: merge them as one group whenever the loaded, the
+        // edited or the stored post is static, so a stale manifest is never
+        // paired with another bundle's `files` (or the reverse). `files`
+        // then comes from the group, not from the per-key metadata merge.
+        // Both conflicts are detected before any upload, so a conflicting
+        // save neither writes the post nor touches S3.
+        let metadataConflicts = conflicts
+        let mineGroup: StaticContentGroup | null = null
+        let staticGroup: StaticContentGroup | null = null
+        if (post!.format === 'static' || format === 'static' || fresh.format === 'static') {
+          metadataConflicts = conflicts.filter((k) => k !== 'files')
+          mineGroup = pending
+            ? // A new bundle always differs from any stored one; its real
+              // manifest is only known after the upload.
+              { format, body: PENDING_UPLOAD, files: PENDING_UPLOAD }
+            : { format, body: nextBody, files: metadata?.files }
+          const group = mergeStaticContent(
+            { format: post!.format, body: post!.body, files: post!.metadata?.files },
+            mineGroup,
+            { format: fresh.format, body: fresh.body, files: fresh.metadata?.files }
+          )
+          if (group.conflict) {
+            setError(t('posts.form.saveStaticConflict'))
+            return
+          }
+          staticGroup = group.value
+        }
+        if (metadataConflicts.length > 0) {
+          setError(t('posts.form.saveMetadataConflict', { keys: metadataConflicts.join(', ') }))
           return
+        }
+        let writeFormat: ContentFormat = format
+        let writeBody: unknown = nextBody
+        let writeMetadata = mergedMetadata
+        if (staticGroup) {
+          if (staticGroup === mineGroup && pending) {
+            const result = await uploadPending(pending)
+            staticGroup = { format: 'static', body: result.body, files: result.filesMeta }
+          }
+          writeFormat = staticGroup.format ?? format
+          writeBody = staticGroup.body
+          writeMetadata = withStaticFiles(mergedMetadata, staticGroup.files)
         }
         // This is a full-document save, not a partial patch: provider.update
         // omits `undefined` fields, so clearing excerpt / emptying metadata
@@ -674,16 +734,21 @@ export function PostForm({
             title,
             slug: finalSlug,
             excerpt,
-            format,
-            body: nextBody,
+            format: writeFormat,
+            body: writeBody,
             status,
             publishedAt,
             tags,
-            metadata: mergedMetadata ?? {},
+            metadata: writeMetadata ?? {},
           },
           { expectedUpdatedAt: fresh.updatedAt ?? null }
         )
       } else {
+        if (pending) {
+          const result = await uploadPending(pending)
+          nextBody = result.body
+          metadata = { ...(metadata ?? {}), files: result.filesMeta }
+        }
         await createPost({
           slug: finalSlug,
           title,

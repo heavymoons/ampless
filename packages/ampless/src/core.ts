@@ -277,7 +277,12 @@ export function mergePostMetadata(
       conflicts.push(k)
       value = tv
     }
-    if (value !== undefined) out[k] = value
+    // Define, not assign: `out[k] = value` with k === '__proto__' (an own
+    // key of `JSON.parse` output) would hit the prototype setter, dropping
+    // the key and changing the prototype of `out`.
+    if (value !== undefined) {
+      Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true })
+    }
   }
   return {
     metadata: Object.keys(out).length > 0 ? (out as PostMetadata) : undefined,
@@ -285,8 +290,57 @@ export function mergePostMetadata(
   }
 }
 
+// Own data property only. `x[k]` finds an own `__proto__` data property
+// before the inherited accessor, so that key reads correctly too.
 function ownValue(x: Record<string, unknown>, k: string): unknown {
   return Object.prototype.hasOwnProperty.call(x, k) ? x[k] : undefined
+}
+
+/**
+ * The fields of a post that belong together for `format: 'static'`: the
+ * bundle manifest in `body`, `format`, and the per-file map in
+ * `metadata.files`. Any field may be `undefined` (absent).
+ */
+export interface StaticContentGroup {
+  format: ContentFormat | undefined
+  body: unknown
+  files: unknown
+}
+
+/** Result of `mergeStaticContent`: the group to write, or a conflict. */
+export type StaticContentMergeResult =
+  | { value: StaticContentGroup; conflict?: undefined }
+  | { conflict: true; value?: undefined }
+
+/**
+ * Three-way merge of a post's `{ format, body, metadata.files }` as one
+ * atomic unit, so a static bundle manifest is never paired with another
+ * bundle's `metadata.files`. Callers use it when any of `base` (what an
+ * editor loaded), `mine` (what it wants to write) or `theirs` (stored now)
+ * has `format: 'static'`; then `metadata.files` must come from this
+ * result, not from `mergePostMetadata`. Groups compare deeply (each field
+ * by JSON; absent equals absent).
+ *
+ * - `mine` equals `base` (the editor left the group): take `theirs`.
+ * - `theirs` equals `base`, or equals `mine`: take `mine`.
+ * - Otherwise both changed it differently: `{ conflict: true }`, and the
+ *   caller must not write.
+ *
+ * `value` is one of the given group objects (by reference), so a caller
+ * can tell whose group was taken.
+ */
+export function mergeStaticContent(
+  base: StaticContentGroup,
+  mine: StaticContentGroup,
+  theirs: StaticContentGroup
+): StaticContentMergeResult {
+  if (sameGroup(mine, base)) return { value: theirs }
+  if (sameGroup(theirs, base) || sameGroup(mine, theirs)) return { value: mine }
+  return { conflict: true }
+}
+
+function sameGroup(x: StaticContentGroup, y: StaticContentGroup): boolean {
+  return sameValue(x.format, y.format) && sameValue(x.body, y.body) && sameValue(x.files, y.files)
 }
 
 // Deep equality by JSON; `undefined` (absent) equals only `undefined`.

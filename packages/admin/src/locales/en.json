@@ -117,6 +117,7 @@
       "saveConflict": "This post was changed elsewhere while saving. Your edits are kept — save again to retry.",
       "saveNotFound": "This post no longer exists, so it could not be saved. It may have been deleted elsewhere.",
       "saveMetadataConflict": "These settings were changed elsewhere while you edited them: {keys}. Nothing was saved — reload the post to see the other change.",
+      "saveStaticConflict": "The static bundle was changed elsewhere while you edited it. Nothing was saved — reload the post to see the other bundle.",
       "saveUnsupportedProvider": "The configured posts provider cannot save this post safely. It must implement conditional updates (supportsConditionalUpdate) so that a concurrent change is not overwritten. Nothing was saved.",
       "formatStaticLabel": "Static (zip / file bundle)",
       "static": {

@@ -13,6 +13,7 @@ export {
   hasPostsProvider,
   supportsConditionalPostUpdate,
   mergePostMetadata,
+  mergeStaticContent,
   PostUpdateConflictError,
   ConditionalUpdateUnsupportedError,
 } from './core.js'
@@ -23,6 +24,8 @@ export type {
   PostsProvider,
   UpdatePostOptions,
   PostMetadataMergeResult,
+  StaticContentGroup,
+  StaticContentMergeResult,
   PostSummary,
   PostRevision,
   ListPostHistoryOptions,

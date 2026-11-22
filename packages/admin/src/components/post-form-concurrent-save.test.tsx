@@ -18,6 +18,23 @@ vi.mock('next/navigation', () => ({
 }))
 // The history panel talks to AppSync; it plays no part here.
 vi.mock('./post-history-panel.js', () => ({ PostHistoryPanel: () => null }))
+// Only the S3 side of static bundles is stubbed: picking files still goes
+// through the real StaticUploader + bundle validation. Each upload returns
+// the next bundle version (`uploadedAt: 'v2'`, 'v3', …).
+let bundleVersion = 1
+const uploadBundle = vi.fn(async (opts: { slug: string; files: { path: string; data: Uint8Array }[]; entrypoint?: string }) => {
+  const version = `v${++bundleVersion}`
+  return {
+    body: { entrypoint: opts.entrypoint ?? 'index.html', files: opts.files.map((f) => f.path).sort(), uploadedAt: version },
+    filesMeta: Object.fromEntries(opts.files.map((f) => [f.path, { size: f.data.byteLength, mimeType: 'text/html' }])),
+  }
+})
+const deleteBundle = vi.fn(async () => undefined)
+vi.mock('../lib/static-bundle.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/static-bundle.js')>()),
+  uploadBundle: (...args: Parameters<typeof uploadBundle>) => uploadBundle(...args),
+  deleteBundle: () => deleteBundle(),
+}))
 
 const { setPostsProvider, PostUpdateConflictError } = await import('ampless')
 const { PostForm } = await import('./post-form.js')
@@ -152,15 +169,86 @@ async function submit() {
 const errorText = () => container!.querySelector('p.text-destructive')?.textContent ?? null
 const titleValue = () => (container!.querySelector('#title') as HTMLInputElement).value
 
+// A second, independent form instance (another editor) on the same post.
+interface Editor {
+  container: HTMLElement
+  typeTitle(value: string): Promise<void>
+  pickBundle(files: Record<string, string>): Promise<void>
+  submit(): Promise<void>
+  errorText(): string | null
+  titleValue(): string
+}
+const editorRoots: { root: Root; container: HTMLElement }[] = []
+// `[id="title"]`, not `#title`: with two forms in the document jsdom
+// resolves `#id` through the document-wide id lookup and misses the second.
+const TITLE = 'input[id="title"]'
+
+async function mountEditor(p: Post): Promise<Editor> {
+  const el = document.createElement('div')
+  document.body.appendChild(el)
+  const r = createRoot(el)
+  editorRoots.push({ root: r, container: el })
+  const { locale, dict } = resolveLocale('en')
+  await act(async () => {
+    r.render(
+      <I18nProvider locale={locale} dict={dict}>
+        <PostForm post={p} availablePostClasses={CLASSES} />
+      </I18nProvider>,
+    )
+  })
+  return {
+    container: el,
+    async typeTitle(value) {
+      const input = el.querySelector(TITLE) as HTMLInputElement
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    },
+    // Picks loose files in the real StaticUploader (no zip), which reads
+    // and validates them and hands the pending bundle to the form.
+    async pickBundle(files) {
+      const input = el.querySelector('input[type="file"]') as HTMLInputElement
+      const picked = Object.entries(files).map(([name, text]) => new File([text], name, { type: 'text/html' }))
+      Object.defineProperty(input, 'files', { configurable: true, value: picked })
+      await act(async () => {
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      // File reads resolve asynchronously; wait until the uploader shows
+      // the pending bundle.
+      for (let i = 0; i < 20 && !el.textContent?.includes('Pending upload'); i++) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+      }
+      expect(el.textContent).toContain('Pending upload')
+    },
+    async submit() {
+      await act(async () => {
+        el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      })
+    },
+    errorText: () => el.querySelector('p.text-destructive')?.textContent ?? null,
+    titleValue: () => (el.querySelector(TITLE) as HTMLInputElement).value,
+  }
+}
+
 beforeEach(() => {
   localStorage.clear()
   routerPush.mockClear()
+  uploadBundle.mockClear()
+  deleteBundle.mockClear()
+  bundleVersion = 1
 })
 afterEach(async () => {
   await act(async () => root?.unmount())
   container?.remove()
   root = null
   container = null
+  for (const e of editorRoots.splice(0)) {
+    await act(async () => e.root.unmount())
+    e.container.remove()
+  }
   // @ts-expect-error — clear the module-level provider for isolation.
   setPostsProvider(null)
   vi.restoreAllMocks()
@@ -272,5 +360,144 @@ describe('PostForm save racing a concurrent write (real core, in-memory CAS prov
     )
     expect(titleValue()).toBe('Weekly 2')
     expect(routerPush).not.toHaveBeenCalled()
+  })
+})
+
+// The stored metadata comes from `JSON.parse` (AWSJSON), so an own
+// `__proto__` key is legitimate data, not a prototype.
+describe('PostForm keeps an own `__proto__` metadata key', () => {
+  it('a title-only save writes it back unchanged', async () => {
+    const p: Post = { ...initialPost(), metadata: JSON.parse('{"__proto__":{"plugin":"x"},"seo":{"title":"S"}}') }
+    const store = makeStore(p, { conditional: true })
+    setPostsProvider(store.provider)
+    await mount(p)
+
+    await typeTitle('Weekly 2')
+    await submit()
+
+    expect(errorText()).toBeNull()
+    expect(store.update).toHaveBeenCalledTimes(1)
+    const written = store.update.mock.calls[0]![1].metadata!
+    expect(Object.prototype.hasOwnProperty.call(written, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(written)).toBe(Object.prototype)
+    expect(JSON.stringify(written)).toBe('{"__proto__":{"plugin":"x"},"seo":{"title":"S"}}')
+    expect(store.row.title).toBe('Weekly 2')
+  })
+})
+
+// Two real PostForm instances (editors A and B) saving the same post
+// through the real core and the in-memory CAS store.
+describe('two editors saving the same post', () => {
+  const v1Body = { entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v1' }
+  const v1Files = { 'index.html': { size: 9, mimeType: 'text/html' } }
+  const staticPost = (): Post => ({
+    ...initialPost(),
+    format: 'static',
+    body: v1Body,
+    metadata: { files: v1Files, plugin_x: { n: 1 } },
+  })
+
+  it('static: a title-only save after another editor replaced the bundle keeps that bundle, consistently', async () => {
+    const store = makeStore(staticPost(), { conditional: true })
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+    const b = await mountEditor(store.row)
+
+    await b.pickBundle({ 'index.html': '<p>v2</p>', 'about.html': '<p>about</p>' })
+    await b.submit()
+    expect(b.errorText()).toBeNull()
+    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    const afterB = store.row
+    expect(afterB.body).toEqual({ entrypoint: 'index.html', files: ['about.html', 'index.html'], uploadedAt: 'v2' })
+
+    // A still holds bundle v1 in its state.
+    await a.typeTitle('Weekly by A')
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    expect(uploadBundle).toHaveBeenCalledTimes(1) // A uploads nothing
+    expect(store.row.title).toBe('Weekly by A')
+    expect(store.row.format).toBe('static')
+    // Manifest and files both from B's v2 — never v1 body with v2 files.
+    expect(store.row.body).toEqual(afterB.body)
+    expect(store.row.metadata).toEqual(afterB.metadata)
+    expect(Object.keys((store.row.metadata as { files: object }).files).sort()).toEqual(
+      (store.row.body as { files: string[] }).files,
+    )
+    expect(store.row.metadata).toEqual({
+      files: { 'about.html': { size: 12, mimeType: 'text/html' }, 'index.html': { size: 9, mimeType: 'text/html' } },
+      plugin_x: { n: 1 },
+    })
+  })
+
+  it('static: both editors replacing the bundle — the second save is a static conflict and uploads nothing', async () => {
+    const store = makeStore(staticPost(), { conditional: true })
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+    const b = await mountEditor(store.row)
+
+    await b.pickBundle({ 'index.html': '<p>v2</p>', 'about.html': '<p>about</p>' })
+    await a.pickBundle({ 'index.html': '<p>by A</p>' })
+    await b.submit()
+    expect(b.errorText()).toBeNull()
+    const afterB = store.row
+    expect(uploadBundle).toHaveBeenCalledTimes(1)
+
+    await a.typeTitle('Weekly by A')
+    await a.submit()
+
+    expect(a.errorText()).toBe(
+      'The static bundle was changed elsewhere while you edited it. Nothing was saved — reload the post to see the other bundle.',
+    )
+    // Detected before the upload: A's bundle never reached S3, and B's
+    // consistent bundle is intact.
+    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    expect(deleteBundle).not.toHaveBeenCalled()
+    expect(store.update).toHaveBeenCalledTimes(1)
+    expect(store.row).toEqual(afterB)
+    // A keeps its state, pending bundle included.
+    expect(a.titleValue()).toBe('Weekly by A')
+    expect(a.container.textContent).toContain('Pending upload: 1 files')
+  })
+
+  it('static: a new bundle uploads and is written when nobody else changed the bundle', async () => {
+    const store = makeStore(staticPost(), { conditional: true })
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+    const b = await mountEditor(store.row)
+
+    await b.typeTitle('Weekly by B')
+    await b.submit()
+    await a.pickBundle({ 'index.html': '<p>by A</p>' })
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    expect(store.row.title).toBe('Weekly')
+    expect(store.row.body).toEqual({ entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v2' })
+    expect(store.row.metadata).toEqual({ files: { 'index.html': { size: 11, mimeType: 'text/html' } }, plugin_x: { n: 1 } })
+  })
+
+  it('non-static: body stays last-write-wins (unchanged behaviour)', async () => {
+    const store = makeStore(initialPost(), { conditional: true })
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+    const b = await mountEditor(store.row)
+
+    const textarea = b.container.querySelector('textarea.font-mono') as HTMLTextAreaElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'body by B')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await b.submit()
+    expect(store.row.body).toBe('body by B')
+
+    await a.typeTitle('Weekly by A')
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    expect(store.row.title).toBe('Weekly by A')
+    expect(store.row.body).toBe('hello') // A's loaded body overwrites B's
+    expect(uploadBundle).not.toHaveBeenCalled()
   })
 })
