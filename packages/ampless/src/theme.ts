@@ -143,6 +143,18 @@ export interface ThemeCustomClass {
   target: ThemeCustomClassTarget
 }
 
+/**
+ * Markup the theme uses for its post body wrapper (`#post-body`).
+ * `className` holds the wrapper's base classes; the theme's post page passes
+ * it to `ampless.postBodyClassName(post, manifest.postBody?.className)` and
+ * the admin preview reuses it, so the preview's `#post-body` carries the
+ * same classes as the public page (theme CSS scoped to them, or to
+ * `.ampless-post--<id>` next to them, applies in both).
+ */
+export interface ThemePostBody {
+  className?: string
+}
+
 export interface ThemeManifest {
   /** Theme directory name (`themes/<name>/`). */
   name: string
@@ -155,6 +167,8 @@ export interface ThemeManifest {
    * theme's entries; ids stored in posts keep rendering after a theme switch.
    */
   customClasses?: ReadonlyArray<ThemeCustomClass>
+  /** Optional post body wrapper markup (see `ThemePostBody`). */
+  postBody?: ThemePostBody
 }
 
 /**

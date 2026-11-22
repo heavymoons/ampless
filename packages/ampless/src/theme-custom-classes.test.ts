@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
+  defineTheme,
   isValidCustomClassId,
   normalizePostClasses,
   postBodyClassName,
@@ -81,5 +82,16 @@ describe('theme custom classes', () => {
       'prose ampless-post--wide ampless-post--serif',
     )
     expect(postBodyClassName({ postClasses: ['wide'] })).toBe('ampless-post--wide')
+  })
+
+  it('manifest.postBody.className is the optional base for postBodyClassName', () => {
+    const withBody = defineTheme({ name: 't', label: 'T', fields: [], postBody: { className: 'prose max-w-none' } })
+    expect(withBody.postBody?.className).toBe('prose max-w-none')
+    expect(postBodyClassName({ postClasses: ['wide'] }, withBody.postBody?.className)).toBe(
+      'prose max-w-none ampless-post--wide',
+    )
+    const without: ThemeManifest = { name: 't', label: 'T', fields: [] }
+    expect(postBodyClassName({ postClasses: ['wide'] }, without.postBody?.className)).toBe('ampless-post--wide')
+    expect(postBodyClassName({}, without.postBody?.className)).toBe('')
   })
 })

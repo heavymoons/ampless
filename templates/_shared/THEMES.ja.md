@@ -469,6 +469,42 @@ http://localhost:3000/?v=theme-check-1
 - 読むべき本文のコントラストと行間が十分か。
 - リンク、タグ、ナビ、フッターが空設定のときに余計な余白を残していないか。
 
+## 記事と表のカスタムクラス
+
+テーマは、記事全体や表に付けられる名前付きのスタイルを編集者に提供できる。
+
+1. `manifest.ts` で宣言する。id には英小文字、数字、ハイフンだけを使う。
+
+   ```ts
+   customClasses: [
+     { id: 'wide', label: { en: 'Wide', ja: 'ワイド' }, target: 'post' },
+     { id: 'compact', label: { en: 'Compact', ja: 'コンパクト' }, target: 'table' },
+   ],
+   ```
+
+2. `tokens.css` でスタイルを書く。記事用のクラスは `#post-body` に `ampless-post--<id>` として、表用のクラスは表に `tiptap-table--<id>` として付く。このテーマが有効なときだけ効かせたい場合は `[data-theme='my-blog']` の下に書く。
+
+   ```css
+   [data-theme='my-blog'] .ampless-post--wide { max-width: none; }
+   [data-theme='my-blog'] .tiptap-table--compact td { padding: 0.25rem 0.5rem; }
+   ```
+
+3. 記事本文ラッパーの基本クラスを manifest で宣言し、`pages/post.tsx` の `#post-body` で使う。
+
+   ```ts
+   // manifest.ts
+   postBody: { className: 'prose prose-neutral dark:prose-invert max-w-none' },
+   ```
+
+   ```tsx
+   // pages/post.tsx
+   import manifest from '../manifest'
+   // ...
+   <div id="post-body" className={ampless.postBodyClassName(post, manifest.postBody?.className)}>
+   ```
+
+管理画面のプレビューは同じ `postBody.className` を自身の `<main id="post-body">` に使い、`data-theme` に有効なテーマを設定し、サイトの同一オリジンの CSS を読み込む。そのため、これらのルールはプレビューでも効く。記事に保存されているが有効なテーマが宣言していない id（テーマを切り替えた後など）も、そのまま出力される。再びテーマが宣言するまで、スタイルは付かない。
+
 ## テーマ内コンポーネントの使いどころ
 
 テーマ専用の共通 UI は `themes/my-blog/components.tsx` のようにテーマ内へ置く。

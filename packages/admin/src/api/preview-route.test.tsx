@@ -172,7 +172,7 @@ describe('createPreviewRouteHandler', () => {
     const handler = createPreviewRouteHandler(admin)
     const res = await handler(makeRequest())
     const text = await res.text()
-    expect(text).toContain('<main class="prose prose-neutral dark:prose-invert max-w-none">')
+    expect(text).toContain('<main id="post-body" class="prose prose-neutral dark:prose-invert max-w-none">')
   })
 
   it('custom bodyClassName overrides the default on <main>', async () => {
@@ -180,7 +180,7 @@ describe('createPreviewRouteHandler', () => {
     const handler = createPreviewRouteHandler(admin, { bodyClassName: 'my-custom-wrapper' })
     const res = await handler(makeRequest())
     const text = await res.text()
-    expect(text).toContain('<main class="my-custom-wrapper">')
+    expect(text).toContain('<main id="post-body" class="my-custom-wrapper">')
     expect(text).not.toContain('prose prose-neutral')
   })
 
@@ -189,7 +189,7 @@ describe('createPreviewRouteHandler', () => {
     const res = await handler(makeRequest(makePost({ metadata: { postClasses: ['wide', 'serif', 'wide'] } })))
     const text = await res.text()
     expect(text).toContain(
-      '<main class="prose prose-neutral dark:prose-invert max-w-none ampless-post--wide ampless-post--serif">',
+      '<main id="post-body" class="prose prose-neutral dark:prose-invert max-w-none ampless-post--wide ampless-post--serif">',
     )
   })
 
@@ -199,8 +199,116 @@ describe('createPreviewRouteHandler', () => {
       makeRequest(makePost({ metadata: { postClasses: ['x" onmouseover="alert(1)', '<b>', 'ok'] } })),
     )
     const text = await res.text()
-    expect(text).toContain('<main class="prose prose-neutral dark:prose-invert max-w-none ampless-post--ok">')
+    expect(text).toContain('<main id="post-body" class="prose prose-neutral dark:prose-invert max-w-none ampless-post--ok">')
     expect(text).not.toContain('onmouseover')
+  })
+
+  it('uses the active theme manifest postBody.className as the #post-body base', async () => {
+    const base = 'prose max-w-none [&_img]:mx-auto'
+    const admin = makeAdmin({
+      loadThemeConfig: vi.fn().mockResolvedValue({
+        cssVars: {},
+        activeTheme: 'blog',
+        manifest: { name: 'blog', label: 'Blog', fields: [], postBody: { className: base } },
+        values: {},
+        colorScheme: 'auto',
+      }),
+    })
+    const handler = createPreviewRouteHandler(admin)
+    const res = await handler(makeRequest(makePost({ metadata: { postClasses: ['wide'] } })))
+    const text = await res.text()
+    // `&` in Tailwind arbitrary variants is entity-encoded; the browser
+    // decodes it back, so the DOM class list matches the public page.
+    expect(text).toContain('<main id="post-body" class="prose max-w-none [&amp;_img]:mx-auto ampless-post--wide">')
+  })
+
+  it('an explicit bodyClassName option wins over manifest postBody.className', async () => {
+    const admin = makeAdmin({
+      loadThemeConfig: vi.fn().mockResolvedValue({
+        cssVars: {},
+        activeTheme: 'blog',
+        manifest: { name: 'blog', label: 'Blog', fields: [], postBody: { className: 'from-manifest' } },
+        values: {},
+        colorScheme: 'auto',
+      }),
+    })
+    const handler = createPreviewRouteHandler(admin, { bodyClassName: 'from-option' })
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<main id="post-body" class="from-option">')
+    expect(text).not.toContain('from-manifest')
+  })
+
+  it('sets data-theme on <body> and omits data-color-scheme for auto', async () => {
+    const handler = createPreviewRouteHandler(makeAdmin())
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<body class="ampless-preview" data-theme="blog">')
+    expect(text).toContain('<html>')
+    expect(text).not.toContain('data-color-scheme')
+  })
+
+  it('sets data-color-scheme on <html> when the site pins a scheme', async () => {
+    const admin = makeAdmin({
+      loadThemeConfig: vi.fn().mockResolvedValue({
+        cssVars: {},
+        activeTheme: 'docs',
+        manifest: { name: 'docs', label: 'Docs', fields: [] },
+        values: {},
+        colorScheme: 'dark',
+      }),
+    })
+    const handler = createPreviewRouteHandler(admin)
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<html data-color-scheme="dark">')
+    expect(text).toContain('<body class="ampless-preview" data-theme="docs">')
+  })
+
+  it('HTML-escapes the base class, active theme and color scheme attribute values', async () => {
+    const admin = makeAdmin({
+      loadThemeConfig: vi.fn().mockResolvedValue({
+        cssVars: {},
+        activeTheme: 'x"><script>t</script>',
+        manifest: { name: 'x', label: 'X', fields: [], postBody: { className: 'a&b "c" <d>' } },
+        values: {},
+        colorScheme: 'light" onload="x',
+      }),
+    })
+    const handler = createPreviewRouteHandler(admin)
+    const res = await handler(makeRequest())
+    const text = await res.text()
+    expect(text).toContain('<main id="post-body" class="a&amp;b &quot;c&quot; &lt;d&gt;">')
+    expect(text).toContain('data-theme="x&quot;&gt;&lt;script&gt;t&lt;/script&gt;"')
+    expect(text).toContain('<html data-color-scheme="light&quot; onload=&quot;x">')
+    expect(text).not.toContain('<script>t</script>')
+  })
+
+  it('falls back to the option/default base without data-theme when loadThemeConfig throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const admin = makeAdmin({
+        loadThemeConfig: vi.fn().mockRejectedValue(new Error('storage not configured')),
+      })
+      const res = await createPreviewRouteHandler(admin)(
+        makeRequest(makePost({ metadata: { postClasses: ['wide'] } })),
+      )
+      expect(res.status).toBe(200)
+      const text = await res.text()
+      expect(text).toContain(
+        '<main id="post-body" class="prose prose-neutral dark:prose-invert max-w-none ampless-post--wide">',
+      )
+      expect(text).toContain('<html>')
+      expect(text).toContain('<body class="ampless-preview">')
+      expect(text).not.toContain('data-theme')
+      expect(text).not.toContain('data-color-scheme')
+      expect(warn).toHaveBeenCalledWith('[ampless admin] preview theme CSS unavailable:', expect.any(Error))
+
+      const withOption = await createPreviewRouteHandler(admin, { bodyClassName: 'opt' })(makeRequest())
+      expect(await withOption.text()).toContain('<main id="post-body" class="opt">')
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('plugin publicHead scripts are injected into <head> of the preview document', async () => {

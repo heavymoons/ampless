@@ -187,6 +187,7 @@ export type {
   ThemeManifest,
   ThemeCustomClass,
   ThemeCustomClassTarget,
+  ThemePostBody,
   ThemeField,
   ThemeFieldType,
   ThemeColorField,

@@ -14,6 +14,14 @@ export default defineTheme({
     en: 'Neutral monochrome with shadcn/ui defaults.',
     ja: 'シャドCN/UIのデフォルトに準じたニュートラル系モノクロ。',
   },
+  // Base classes of the post body wrapper (`#post-body`). pages/post.tsx
+  // passes them to `ampless.postBodyClassName`, and the admin preview
+  // reuses them so the preview's `#post-body` matches the public page.
+  // Tailwind's source detection scans this file, so these utilities are
+  // generated like any class written inline in a page.
+  postBody: {
+    className: 'prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto',
+  },
   fields: [
     {
       key: 'primary',
