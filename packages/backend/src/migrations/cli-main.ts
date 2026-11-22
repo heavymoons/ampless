@@ -33,7 +33,9 @@ refuses otherwise.
 --check-post-tags mode: scans PostTag and Post (strongly consistent) and
 reports stale PostTag rows (post deleted / draft / no tags / wrong key /
 outdated content) and missing rows. With --apply, rebuilds each affected
-post's rows from its current state, then checks again.
+post's rows from its current state, then checks again. Each row is written
+in a transaction that also checks the Post still holds the state the row was
+computed from, so a post edited mid-repair never gets rows of an old state.
 
 A dry-run that reports nothing to change does NOT by itself prove the
 migration is complete. Follow the RUNBOOK procedure: stop every writer,
@@ -47,7 +49,11 @@ Options:
                                  Required with --check-post-tags.
   --region <region>              AWS region (default: from the AWS config / env).
   --apply                        Write the changes (default: dry-run, no writes).
-  --max-writes-per-second <n>    Write throttle (default: 10).
+  --max-writes-per-second <n>    Upper bound on write calls per second with --apply
+                                 (UpdateItem / DeleteItem / TransactWriteItems).
+                                 Writes are issued one at a time and spaced evenly,
+                                 including within one post's rebuild; no burst
+                                 (default: 10).
   --json                         Print the summary as JSON on stdout (logs go to stderr).
   -h, --help                     Show this help.
 

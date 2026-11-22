@@ -284,7 +284,7 @@ AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け
 **ツールが保証すること・しないこと。**
 
 - 書き込みは投稿ごとに 1 回の条件付き `UpdateItem` で、`publishedAt` / `publishedAtSortKey` だけを書きます。条件は、**この 2 つ**の属性が（強い整合性の）スキャンで読んだ値のままであることです。その間にどちらかを変えた編集があれば書き込みは失敗し、conflict として報告して何もしません。ほかの属性への編集は conflict に**なりません**。移行の書き込みはそのまま成功しますが、ほかの属性は書かないので、その編集を上書きしません。`updatedAt` は変えません。
-- 書き込みは通常の保存と同じく Post のストリームを通ります。dispatcher は `publishedAt` の書き方（と `publishedAtSortKey`）だけが変わったことを見分け、`content.updated` イベントを**出しません**（webhook などのプラグインは動きません）。PostHistory の版も書きません。タグページ用（PostTag）の行は更新します。この更新は、イベントの中身ではなく、投稿の現在の状態を強い整合性で読んで作り直すので、イベントが順不同で処理されても正しく保たれます（trusted キューは SQS 標準キューです）。
+- 書き込みは通常の保存と同じく Post のストリームを通ります。dispatcher は `publishedAt` の書き方（と `publishedAtSortKey`）だけが変わったことを見分け、`content.updated` イベントを**出しません**（webhook などのプラグインは動きません）。PostHistory の版も書きません。タグページ用（PostTag）の行は更新します。この更新は、イベントの中身ではなく、投稿の現在の状態を強い整合性で読んで作り直し、各行を「投稿がその状態のままであること」を条件にしたトランザクションで書きます。そのため、イベントが順不同で処理されても（trusted キューは SQS 標準キューです）、処理の途中でワーカーが止まっても、下書きや削除済みの投稿の行が書かれることはありません。
 - dry-run で変更対象が 0 件でも、それだけでは移行の完了を**証明しません**。書き込みが処理中のことがあり、PostTag の更新は Post の書き込みの後に非同期で行われるからです。完了は、書き込みをすべて止めた状態で、次の手順を通して確かめます。編集中のサイトでツールを動かしてもデータは安全ですが、その報告は変わり続ける対象についてのものになります。
 
 **手順**
@@ -311,10 +311,11 @@ AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け
    pnpm exec ampless-migrate-published-at --table <PostTable> --region <region> --apply
    ```
 
-   書き込み速度は `--max-writes-per-second`（既定 10）で制限します。dry-run で変更対象が 0 件になるまで再実行します。
-6. **イベントの処理が終わるのを待ちます。** 次がすべて同時に成り立つ必要があります。
-   - event-dispatcher Lambda の Post ストリームの `IteratorAge` メトリクスが 0 に戻っている（CloudWatch → Lambda → dispatcher 関数）。
-   - trusted イベントキュー（`amplessEvents` スタックの `TrustedEventsQueue`）の `ApproximateNumberOfMessages`、`ApproximateNumberOfMessagesNotVisible`、`ApproximateNumberOfMessagesDelayed` がすべて 0。
+   書き込みは 1 件ずつ行い、速度は `--max-writes-per-second`（既定 10）で制限します。dry-run で変更対象が 0 件になるまで再実行します。
+6. **イベントの処理が終わるのを待ちます。** 次の項目は処理が終わった目安で、証明ではありません（判定に使うのは手順 7 です）。すべてが同時に成り立つことを確かめます。
+   - event-dispatcher Lambda の Post ストリームの `IteratorAge` メトリクスが 0 に戻り、そのまま変わらない（CloudWatch → Lambda → dispatcher 関数）。データポイントが無いことは 0 ではありません。apply の実行全体を含む期間で確認します。
+   - その期間の dispatcher の `Errors` メトリクスが 0 で、ロググループに `[event-dispatcher]` のエラーが無い。Post ストリームには失敗時の送り先が無いので、再試行しても失敗したバッチは**捨てられ**、そのイベントはキューに届きません。それが起きたことは、エラーにしか表れません。
+   - trusted イベントキュー（`amplessEvents` スタックの `TrustedEventsQueue`）の `ApproximateNumberOfMessages`、`ApproximateNumberOfMessagesNotVisible`、`ApproximateNumberOfMessagesDelayed` がすべて 0（近似値なので、1 分ほど空けて何回か読みます）。
 
      ```bash
      aws sqs get-queue-attributes --queue-url <trusted-queue-url> \
@@ -323,6 +324,8 @@ AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け
      ```
 
    - デッドレターキュー（`EventsDlq`）に今回のメッセージが無い。あれば先に進む前に確認してください（[失敗したプラグインイベントの確認](#失敗したプラグインイベントの確認)）。`post.index.refresh` が失敗していれば、その投稿のタグ行は作り直されていません。
+
+   これらが何を示していても、失われたイベントを見つけられるのは手順 7 だけです。
 7. **タグページ用のインデックスを投稿と照合します**（強い整合性の読み取り）:
 
    ```bash
@@ -330,7 +333,7 @@ AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け
      --post-tag-table <PostTagTable> --region <region> --check-post-tags
    ```
 
-   あってはならない PostTag の行（下書きや削除済みの投稿、古いキー、古いタイトル・抜粋など）と、足りない行を報告し、見つかれば 0 以外の終了コードで終わります。`--apply` を付けると修復します。対象の投稿ごとに、イベント処理と同じ方法で現在の状態から作り直します。報告が 0 件になるまで繰り返します。以前のリリースが残した古い行もこれで消えます。
+   あってはならない PostTag の行（下書きや削除済みの投稿、古いキー、古いタイトル・抜粋など）と、足りない行を報告し、見つかれば 0 以外の終了コードで終わります。`--apply` を付けると修復します。対象の投稿ごとに、イベント処理と同じ方法で現在の状態から作り直します（各行は、投稿が作り直しに使った状態のままである間だけ書かれます）。書き込みは 1 件ずつ、`--max-writes-per-second` で速度を制限して行います。報告が 0 件になるまで繰り返します。以前のリリースが残した古い行もこれで消えます。
 8. **書き込みを再開します。** 書き込みを止めた状態で、手順 4 の変更対象が 0 件、手順 6 の処理が終わっていて、手順 7 の不一致が 0 件であれば、移行は完了です。
 
 ### 失敗したプラグインイベントの確認

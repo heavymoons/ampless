@@ -1,4 +1,4 @@
-import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
+import { DeleteCommand, GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
 import { canonicalizeAwsDateTime } from 'ampless'
 import type { ContentEventPayload, ContentFormat, PostIndexEventPayload } from 'ampless'
 
@@ -37,10 +37,9 @@ export interface PostTagDiff {
   /** Rows whose key no longer exists in the new projection — DeleteItem. */
   deletes: PostTagKey[]
   /**
-   * Rows present in the new projection — PutItem. Unconditional Put
-   * doubles as upsert, which is exactly the desired behaviour: any
-   * orphan left from a partial earlier run self-heals on the next
-   * refresh, and we never need a conditional + fallback dance.
+   * Rows present in the new projection. The rebuild writes each as an
+   * upsert guarded by the Post state it was computed from (see
+   * `reconcilePostTagsForPost`).
    */
   puts: PostTagItem[]
 }
@@ -270,9 +269,137 @@ export function postPayloadFromItem(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Guarded rebuild: every PostTag row is committed only while the Post still
+// holds the exact state the row was computed from.
+// ---------------------------------------------------------------------------
+
+/**
+ * The Post attributes a PostTag row depends on, plus `updatedAt` (bumped on
+ * every AppSync write) and the `postId` key. Together they are the state
+ * "fingerprint": the guard asserts each one is unchanged when a row is
+ * committed.
+ */
+export const POST_STATE_ATTRIBUTES = [
+  'postId',
+  'status',
+  'publishedAt',
+  'tags',
+  'slug',
+  'title',
+  'excerpt',
+  'format',
+  'updatedAt',
+] as const
+
+type PostStateAttribute = (typeof POST_STATE_ATTRIBUTES)[number]
+
+/**
+ * The fingerprint attributes of a Post item as read (DocumentClient
+ * unmarshalled). An attribute absent from the item is absent here; a
+ * DynamoDB NULL is `null`. `null` (the whole state) = no Post item.
+ */
+export type PostState = Partial<Record<PostStateAttribute, unknown>> | null
+
+/**
+ * GetItem projection for the fingerprint attributes. `status` (and others)
+ * are DynamoDB reserved words, so every name goes through
+ * ExpressionAttributeNames.
+ */
+export const POST_STATE_PROJECTION = {
+  ProjectionExpression: POST_STATE_ATTRIBUTES.map((a) => `#${a}`).join(', '),
+  ExpressionAttributeNames: Object.fromEntries(POST_STATE_ATTRIBUTES.map((a) => [`#${a}`, a])),
+}
+
+/** Pick the fingerprint attributes of a read item. Pure. */
+export function postStateFromItem(item: Record<string, unknown> | null | undefined): PostState {
+  if (!item) return null
+  const state: Partial<Record<PostStateAttribute, unknown>> = {}
+  for (const a of POST_STATE_ATTRIBUTES) if (item[a] !== undefined) state[a] = item[a]
+  return state
+}
+
+/** Sets (SS / NS) as tagged sorted arrays, so stableStringify can tell them apart. */
+function normalizeForFingerprint(value: unknown): unknown {
+  if (value instanceof Set) {
+    return { $set: [...value].map((v) => stableStringify(v)).sort() }
+  }
+  if (Array.isArray(value)) return value.map(normalizeForFingerprint)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        normalizeForFingerprint(v),
+      ])
+    )
+  }
+  return value
+}
+
+/**
+ * Equality key of a Post state: equal strings ⇔ every fingerprint attribute
+ * is equal (absent ≠ null; list order matters). `'absent'` for no item. Pure.
+ */
+export function postStateFingerprint(state: PostState): string {
+  if (state === null) return 'absent'
+  return stableStringify(normalizeForFingerprint(state))
+}
+
+export interface PostStateCondition {
+  ConditionExpression: string
+  ExpressionAttributeNames: Record<string, string>
+  ExpressionAttributeValues: Record<string, unknown>
+}
+
+/**
+ * ConditionCheck expression asserting the Post item still holds `state`
+ * exactly: for each fingerprint attribute, `#a = :a` when it has a value,
+ * `attribute_type(#a, :nullType)` when it is a DynamoDB NULL (equality with a
+ * NULL operand is not a dependable comparison), `attribute_not_exists(#a)`
+ * when absent. `postId` is always present on a read item, so the values map
+ * is never empty. Pure.
+ */
+export function buildPostStateCondition(state: NonNullable<PostState>): PostStateCondition {
+  const clauses: string[] = []
+  const names: Record<string, string> = {}
+  const values: Record<string, unknown> = {}
+  for (const a of POST_STATE_ATTRIBUTES) {
+    const name = `#${a}`
+    names[name] = a
+    const v = state[a]
+    if (v === undefined) {
+      clauses.push(`attribute_not_exists(${name})`)
+    } else if (v === null) {
+      clauses.push(`attribute_type(${name}, :nullType)`)
+      values[':nullType'] = 'NULL'
+    } else {
+      clauses.push(`${name} = :${a}`)
+      values[`:${a}`] = v
+    }
+  }
+  return {
+    ConditionExpression: clauses.join(' AND '),
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  }
+}
+
+/**
+ * True when a TransactWriteItems [ConditionCheck(Post), Put(PostTag)] was
+ * cancelled because the Post no longer holds the guarded state. Any other
+ * cancellation (TransactionConflict, throttling, validation) is not.
+ */
+export function isPostStateGuardFailure(err: unknown): boolean {
+  const e = err as { name?: string; CancellationReasons?: Array<{ Code?: string }> } | null
+  return (
+    e?.name === 'TransactionCanceledException' &&
+    e.CancellationReasons?.[0]?.Code === 'ConditionalCheckFailed'
+  )
+}
+
 /** Minimal DynamoDBDocumentClient surface the rebuild needs (mockable). */
 export interface PostTagSyncClient {
-  send(command: GetCommand | PutCommand | DeleteCommand): Promise<unknown>
+  send(command: GetCommand | DeleteCommand | TransactWriteCommand): Promise<unknown>
 }
 
 export interface ReconcilePostTagsOpts {
@@ -291,15 +418,23 @@ export interface ReconcilePostTagsOpts {
   maxAttempts?: number
   /** Summary line per rebuild. Default `console.log`. */
   log?: (line: string) => void
+  /**
+   * Awaited immediately before every write call (DeleteItem and each
+   * TransactWriteItems). The migration CLI passes its rate limiter here; the
+   * trusted processor passes none.
+   */
+  beforeWrite?: () => Promise<void>
 }
 
 export interface ReconcilePostTagsResult {
   postId: string
   attempts: number
   /** DeleteItem calls issued (a delete of a missing key is a no-op). */
-  removed: number
-  /** PutItem calls issued. */
-  upserted: number
+  deletes: number
+  /** Guarded PostTag Puts committed. */
+  puts: number
+  /** Guarded Puts cancelled because the Post had changed. */
+  guardFailures: number
   /** The rows of the state the last attempt verified. */
   rows: PostTagItem[]
 }
@@ -309,73 +444,125 @@ export const DEFAULT_RECONCILE_MAX_ATTEMPTS = 5
 /**
  * Rebuild one post's PostTag rows from its current state:
  *
- *   1. Read the Post with a strongly consistent GetItem and compute its
- *      desired rows (none for a draft, a deleted post, no tags, ...).
- *   2. Delete every candidate key that is not desired, put the desired rows.
- *   3. Re-read the Post strongly. If its desired rows (full content) are
- *      unchanged, done. Otherwise repeat from 2 with the new state, adding
- *      the rows just written to the candidates so they are removed if no
- *      longer desired.
+ *   1. Read the Post with a strongly consistent GetItem: state `s`, rows(s)
+ *      (none for a draft, a deleted post, no tags, ...).
+ *   2. Delete, one call at a time and unconditionally, every candidate key
+ *      not in rows(s). A delete never makes anything public; deleting a
+ *      valid row of a newer state only leaves it missing, which step 4 sees.
+ *   3. Put each row of rows(s), one at a time, in a TransactWriteItems of a
+ *      ConditionCheck that the Post still holds `s` exactly (every
+ *      fingerprint attribute, see `buildPostStateCondition`) plus the Put.
+ *      A row is therefore only ever committed while its state is current. If
+ *      the guard fails, the Post changed: add rows(s)'s keys to the
+ *      candidates and start again from 1.
+ *   4. Read again strongly. Same fingerprint → done. Otherwise add rows(s)'s
+ *      keys to the candidates and repeat with the new state.
  *
- * Throws after `maxAttempts` attempts without a stable state (logged), so the
- * SQS message is retried and eventually dead-lettered. Read / write errors
- * propagate unchanged.
+ * Throws after `maxAttempts` attempts without a stable state (logged), so
+ * the SQS message is retried and eventually dead-lettered. Other read /
+ * write errors are logged and propagate unchanged (nothing is retried here).
  *
- * Why the order of refresh events does not matter: every row a run writes
- * comes from a state it read, and the refresh event of that state's
- * successor has it as `previous`, so its candidates cover those keys. The run
- * that finishes last verifies the newest state after its own writes.
+ * Why a row committed for `s` cannot outlive `s`: the Post can only leave
+ * `s` through a later write, whose stream event has `previous = s`, so its
+ * candidates contain rows(s)'s keys — and that event exists only after the
+ * commit, so its rebuild runs after it. This holds across crashes at any
+ * point: every committed row was valid at commit time.
  */
 export async function reconcilePostTagsForPost(
   opts: ReconcilePostTagsOpts
 ): Promise<ReconcilePostTagsResult> {
   const maxAttempts = opts.maxAttempts ?? DEFAULT_RECONCILE_MAX_ATTEMPTS
   const log = opts.log ?? ((line: string) => console.log(line))
+  const beforeWrite = opts.beforeWrite ?? (() => Promise.resolve())
   const { client, postTable, postTagTable, postId } = opts
 
-  async function readCurrent(): Promise<ContentEventPayload | null> {
-    const res = (await client.send(
-      new GetCommand({
-        TableName: postTable,
-        Key: { postId },
-        ConsistentRead: true,
-        ...POST_PAYLOAD_PROJECTION,
-      })
-    )) as { Item?: Record<string, unknown> }
-    return postPayloadFromItem(res.Item)
+  async function readState(): Promise<PostState> {
+    try {
+      const res = (await client.send(
+        new GetCommand({
+          TableName: postTable,
+          Key: { postId },
+          ConsistentRead: true,
+          ...POST_STATE_PROJECTION,
+        })
+      )) as { Item?: Record<string, unknown> }
+      return postStateFromItem(res.Item)
+    } catch (err) {
+      console.error(`[posttag-sync] postId=${postId} Post read failed`, err)
+      throw err
+    }
   }
 
   let candidates = candidateKeys(null, opts.candidates ?? [])
-  let desired = desiredPostTagRows(await readCurrent())
-  let removed = 0
-  let upserted = 0
+  let deletes = 0
+  let puts = 0
+  let guardFailures = 0
+  let state = await readState()
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const { deletes, puts } = planPostTagRebuild(candidates, desired)
-    await Promise.all([
-      ...deletes.map((key) =>
-        client.send(new DeleteCommand({ TableName: postTagTable, Key: key }))
-      ),
-      ...puts.map((item) => client.send(new PutCommand({ TableName: postTagTable, Item: item }))),
-    ])
-    removed += deletes.length
-    upserted += puts.length
+    const rows = desiredPostTagRows(postPayloadFromItem(state))
+    const plan = planPostTagRebuild(candidates, rows)
 
-    const after = desiredPostTagRows(await readCurrent())
-    if (postTagRowsFingerprint(after) === postTagRowsFingerprint(desired)) {
-      log(
-        `[posttag-sync] postId=${postId} attempts=${attempt} removed=${removed} upserted=${upserted}`
-      )
-      return { postId, attempts: attempt, removed, upserted, rows: desired }
+    for (const key of plan.deletes) {
+      await beforeWrite()
+      try {
+        await client.send(new DeleteCommand({ TableName: postTagTable, Key: key }))
+      } catch (err) {
+        console.error(
+          `[posttag-sync] postId=${postId} delete failed tag=${key.tag} publishedAtPostId=${key.publishedAtPostId}`,
+          err
+        )
+        throw err
+      }
+      deletes++
     }
-    // The post changed while we wrote: what we just put may now be stale.
-    candidates = candidateKeys(null, [...candidates, ...desired])
-    desired = after
+
+    let guarded = true
+    if (rows.length > 0) {
+      // rows(s) is non-empty only for an existing, published item.
+      const condition = buildPostStateCondition(state!)
+      for (const row of rows) {
+        await beforeWrite()
+        try {
+          await client.send(
+            new TransactWriteCommand({
+              TransactItems: [
+                { ConditionCheck: { TableName: postTable, Key: { postId }, ...condition } },
+                { Put: { TableName: postTagTable, Item: row } },
+              ],
+            })
+          )
+          puts++
+        } catch (err) {
+          if (!isPostStateGuardFailure(err)) {
+            console.error(
+              `[posttag-sync] postId=${postId} guarded put failed tag=${row.tag} publishedAtPostId=${row.publishedAtPostId}`,
+              err
+            )
+            throw err
+          }
+          guardFailures++
+          guarded = false
+          break
+        }
+      }
+    }
+
+    // Whatever this attempt committed must be removed if no longer desired.
+    candidates = candidateKeys(null, [...candidates, ...rows])
+    const next = await readState()
+    if (guarded && postStateFingerprint(next) === postStateFingerprint(state)) {
+      log(
+        `[posttag-sync] postId=${postId} attempts=${attempt} deletes=${deletes} puts=${puts} guardFailures=${guardFailures}`
+      )
+      return { postId, attempts: attempt, deletes, puts, guardFailures, rows }
+    }
+    state = next
   }
 
   const message =
     `[posttag-sync] postId=${postId} did not converge after ${maxAttempts} attempts ` +
-    `(removed=${removed} upserted=${upserted}); the post kept changing during the rebuild`
+    `(deletes=${deletes} puts=${puts} guardFailures=${guardFailures}); the post kept changing during the rebuild`
   console.error(message)
   throw new Error(message)
 }

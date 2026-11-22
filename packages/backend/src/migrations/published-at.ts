@@ -42,6 +42,7 @@
 import { DescribeTableCommand, type DescribeTableCommandOutput } from '@aws-sdk/client-dynamodb'
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { canonicalizeAwsDateTime, parseAwsDateTime } from 'ampless'
+import { createWriteLimiter } from './write-limiter.js'
 
 /** The projected Post attributes the migration reads. */
 export interface PublishedAtMigrationItem {
@@ -149,7 +150,10 @@ export interface RunPublishedAtMigrationOpts {
   tableName: string
   /** Write changes. When false (default) only reports what would change. */
   apply?: boolean
-  /** Upper bound on UpdateItem calls per second. Default 10. */
+  /**
+   * Upper bound on UpdateItem calls per second, enforced before each call
+   * (no burst). Default 10.
+   */
   maxWritesPerSecond?: number
   /** Scan page size (DynamoDB `Limit`). Default: DynamoDB's 1 MB pages. */
   pageSize?: number
@@ -157,6 +161,8 @@ export interface RunPublishedAtMigrationOpts {
   log?: (line: string) => void
   /** Injectable for tests. Default: setTimeout-based sleep. */
   sleep?: (ms: number) => Promise<void>
+  /** Injectable clock (ms) for tests. Default `Date.now`. */
+  now?: () => number
 }
 
 export interface PublishedAtMigrationSummary {
@@ -178,8 +184,6 @@ export interface PublishedAtMigrationSummary {
   failed: Array<{ postId: string | null; action: string; error: string }>
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`
   return String(err)
@@ -194,13 +198,12 @@ export async function runPublishedAtMigration(
   opts: RunPublishedAtMigrationOpts
 ): Promise<PublishedAtMigrationSummary> {
   const apply = opts.apply ?? false
-  const maxWritesPerSecond = opts.maxWritesPerSecond ?? 10
-  if (!Number.isFinite(maxWritesPerSecond) || maxWritesPerSecond <= 0) {
-    throw new Error(`maxWritesPerSecond must be a positive number (got ${maxWritesPerSecond})`)
-  }
-  const writeIntervalMs = 1000 / maxWritesPerSecond
+  const limiter = createWriteLimiter({
+    maxWritesPerSecond: opts.maxWritesPerSecond ?? 10,
+    ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.sleep ? { sleep: opts.sleep } : {}),
+  })
   const log = opts.log ?? ((line: string) => console.log(line))
-  const sleep = opts.sleep ?? defaultSleep
 
   const summary: PublishedAtMigrationSummary = {
     apply,
@@ -274,6 +277,7 @@ export async function runPublishedAtMigration(
       }
       if (!apply) continue
 
+      await limiter.acquire()
       try {
         await opts.client.send(
           new UpdateCommand(buildPublishedAtUpdate(opts.tableName, postId, plan))
@@ -292,7 +296,6 @@ export async function runPublishedAtMigration(
           summary.failed.push({ postId, action: plan.kind, error: errorMessage(err) })
         }
       }
-      await sleep(writeIntervalMs)
     }
 
     exclusiveStartKey = page.LastEvaluatedKey

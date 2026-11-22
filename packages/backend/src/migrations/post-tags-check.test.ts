@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DeleteCommand, GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb'
+import { DeleteCommand, GetCommand, ScanCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb'
 import type { ContentEventPayload } from 'ampless'
 import { desiredPostTagRows, type PostTagItem } from '../events/posttag-sync.js'
 import { comparePostTags, runPostTagCheck, type PostTagCheckClient } from './post-tags-check.js'
+import { evaluatePostStateCondition, guardCancelled } from '../__fixtures__/post-state-condition.js'
 
 const POSTS = 'Post-abc-NONE'
 const TAGS = 'PostTag-abc-NONE'
@@ -24,8 +25,8 @@ function post(opts: Partial<ContentEventPayload> = {}): ContentEventPayload {
 
 /**
  * In-memory Post + PostTag tables behind a fake DocumentClient: Scan (paged
- * by Limit), strongly consistent Get, Put, Delete. `onScan` may mutate state
- * to simulate an edit or a failure.
+ * by Limit), strongly consistent Get, guarded TransactWrite Put, Delete.
+ * `writeTimes` records the fake clock at every write call.
  */
 function fakeDb(posts: object[], tagRows: object[]) {
   const postTable = new Map<string, Record<string, unknown>>(
@@ -40,6 +41,8 @@ function fakeDb(posts: object[], tagRows: object[]) {
   const scans: Array<Record<string, unknown>> = []
   const gets: Array<Record<string, unknown>> = []
   const writes: string[] = []
+  const writeTimes: number[] = []
+  const clock = { now: 0 }
   let failPutFor: string | undefined
 
   function scanPage(all: Array<Record<string, unknown>>, input: Record<string, unknown>) {
@@ -66,8 +69,16 @@ function fakeDb(posts: object[], tagRows: object[]) {
         const row = postTable.get((input.Key as { postId: string }).postId)
         return row ? { Item: structuredClone(row) } : {}
       }
-      if (command instanceof PutCommand) {
-        const item = input.Item as PostTagItem
+      if (command instanceof TransactWriteCommand) {
+        writeTimes.push(clock.now)
+        const [check, put] = input.TransactItems as Array<Record<string, Record<string, unknown>>>
+        const key = check!.ConditionCheck!.Key as { postId: string }
+        if (
+          !evaluatePostStateCondition(postTable.get(key.postId) ?? null, check!.ConditionCheck!)
+        ) {
+          throw guardCancelled()
+        }
+        const item = put!.Put!.Item as unknown as PostTagItem
         if (failPutFor === item.postId) {
           const e = new Error('Rate exceeded')
           e.name = 'ProvisionedThroughputExceededException'
@@ -78,6 +89,7 @@ function fakeDb(posts: object[], tagRows: object[]) {
         return {}
       }
       if (command instanceof DeleteCommand) {
+        writeTimes.push(clock.now)
         const key = input.Key as { tag: string; publishedAtPostId: string }
         writes.push(`delete ${key.tag}|${key.publishedAtPostId}`)
         tagTable.delete(`${key.tag}|${key.publishedAtPostId}`)
@@ -93,6 +105,15 @@ function fakeDb(posts: object[], tagRows: object[]) {
     scans,
     gets,
     writes,
+    writeTimes,
+    clock,
+    /** A fake clock + sleep for the write limiter. */
+    timing: {
+      now: () => clock.now,
+      sleep: async (ms: number) => {
+        clock.now += ms
+      },
+    },
     failPutsFor(postId: string) {
       failPutFor = postId
     },
@@ -238,14 +259,13 @@ describe('runPostTagCheck', () => {
 
   it('apply: rebuilds each affected post authoritatively and re-checks to zero', async () => {
     const db = scenario()
-    const sleep = vi.fn(() => Promise.resolve())
     const summary = await runPostTagCheck({
       client: db.client,
       postTable: POSTS,
       postTagTable: TAGS,
       apply: true,
       log: silent,
-      sleep,
+      ...db.timing,
     })
     expect(summary.repaired).toBe(2) // p1, p2 (p3 untouched)
     expect(summary.failed).toEqual([])
@@ -264,10 +284,27 @@ describe('runPostTagCheck', () => {
       `news|${CANONICAL}#p1`,
       `tech|${CANONICAL}#p1`,
     ])
-    // Rate limit: one sleep per repaired post, scaled by its writes (10/s).
-    expect(sleep).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledWith(200) // p1: 2 puts
-    expect(sleep).toHaveBeenCalledWith(100) // p2: 1 delete
+    // Rate limit (10/s): every write call — including the two puts of p1's
+    // rebuild — starts ≥ 100 ms after the previous one; the first is immediate.
+    expect(db.writeTimes).toEqual([0, 100, 200])
+  })
+
+  it('apply: the limiter spaces writes by 1000 / maxWritesPerSecond within and across posts', async () => {
+    const p1 = post({ tags: ['a', 'b', 'c'] })
+    const p2 = post({ postId: 'p2', slug: 'p2', tags: ['d', 'e'] })
+    const stale = { ...desiredPostTagRows(p1)[0]!, tag: 'old' }
+    const db = fakeDb([p1, p2], [stale])
+    await runPostTagCheck({
+      client: db.client,
+      postTable: POSTS,
+      postTagTable: TAGS,
+      apply: true,
+      maxWritesPerSecond: 4,
+      log: silent,
+      ...db.timing,
+    })
+    // p1: 1 delete + 3 puts, p2: 2 puts — six calls, 250 ms apart.
+    expect(db.writeTimes).toEqual([0, 250, 500, 750, 1000, 1250])
   })
 
   it('apply: a stale row under a key the post no longer derives is removed via extra candidates', async () => {

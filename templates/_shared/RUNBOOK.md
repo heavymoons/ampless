@@ -541,8 +541,11 @@ deployed.
   (webhooks and other plugins do not fire) and no PostHistory revision.
   It still refreshes the post's tag-page (PostTag) rows. That refresh
   rebuilds the rows from a strongly consistent read of the post's
-  current state, not from the event, so it stays correct when events
-  are processed out of order (the trusted queue is SQS standard).
+  current state, not from the event, and writes each row in a
+  transaction that only succeeds while the post still matches that
+  state. A draft or deleted post's row therefore cannot be (re)written,
+  even when events are processed out of order (the trusted queue is SQS
+  standard) or a worker crashes mid-rebuild.
 - A dry-run that reports nothing to change does **not** by itself prove
   the migration is complete: a write can be in flight, and the PostTag
   refreshes run asynchronously after the Post writes. Completion is only
@@ -587,16 +590,25 @@ deployed.
    pnpm exec ampless-migrate-published-at --table <PostTable> --region <region> --apply
    ```
 
-   Writes are rate-limited (`--max-writes-per-second`, default 10).
-   Re-run the dry-run until it reports nothing to change.
-6. **Wait for the event pipeline to drain.** All of these must hold at
-   the same time:
+   Writes are issued one at a time and rate-limited
+   (`--max-writes-per-second`, default 10). Re-run the dry-run until it reports nothing to change.
+6. **Wait for the event pipeline to drain.** These are signs, not proof
+   (step 7 is the check that counts). Look for all of them at the same
+   time:
    - the event-dispatcher Lambda's `IteratorAge` metric for the Post
-     stream is back to 0 (CloudWatch → Lambda → the dispatcher function),
+     stream is back to 0 and stays there (CloudWatch → Lambda → the
+     dispatcher function). A missing data point is not 0: look at a
+     window that covers the whole apply run;
+   - the dispatcher's `Errors` metric is 0 over that window, and its log
+     group has no `[event-dispatcher]` errors. The Post stream has no
+     failure destination: a batch that still fails after its retries is
+     **dropped**, so its events never reach the queue — only its errors
+     show that it happened;
    - the trusted events queue (`TrustedEventsQueue` in the
      `amplessEvents` stack) shows 0 for `ApproximateNumberOfMessages`,
      `ApproximateNumberOfMessagesNotVisible` and
-     `ApproximateNumberOfMessagesDelayed`:
+     `ApproximateNumberOfMessagesDelayed` (these are approximate; read
+     them more than once, a minute apart):
 
      ```bash
      aws sqs get-queue-attributes --queue-url <trusted-queue-url> \
@@ -608,6 +620,8 @@ deployed.
      If it does, inspect them ([Inspect failed plugin events](#inspect-failed-plugin-events))
      before going on — a failed `post.index.refresh` means a post's tag
      rows were not rebuilt.
+
+   Whatever these show, a lost event can only be caught by step 7.
 7. **Check the tag-page index** against the posts (strongly consistent
    reads):
 
@@ -620,7 +634,9 @@ deployed.
    deleted post, an old key, or an outdated title / excerpt) and rows
    that are missing, and exits non-zero if it finds any. Add `--apply` to
    repair them: each affected post is rebuilt from its current state,
-   the same way the event processor does. Repeat until it reports none.
+   the same way the event processor does (each row is written only while
+   the post still matches the state it was built from). Writes are
+   rate-limited one at a time (`--max-writes-per-second`). Repeat until it reports none.
    This also clears stale rows that earlier releases could leave behind.
 8. **Resume the writers.** The migration is complete when, with writers
    stopped, step 4 reports nothing to change, step 6 is drained and

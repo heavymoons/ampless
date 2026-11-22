@@ -35,8 +35,8 @@ const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown
 const ddbQueryResponses = vi.hoisted(() => new Map<string, unknown[]>())
 
 // In-memory Post rows (GetCommand, keyed by postId) and PostTag rows
-// (Put/DeleteCommand, keyed by `tag|publishedAtPostId`) for the
-// post.index.refresh tests.
+// (guarded TransactWrite Put / DeleteCommand, keyed by
+// `tag|publishedAtPostId`) for the post.index.refresh tests.
 const postRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
 const postTagRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
 
@@ -137,7 +137,16 @@ vi.mock('@aws-sdk/util-dynamodb', () => {
   return { marshall, unmarshall }
 })
 
-vi.mock('@aws-sdk/lib-dynamodb', () => {
+vi.mock('@aws-sdk/lib-dynamodb', async () => {
+  const { evaluatePostStateCondition, guardCancelled } = await import(
+    '../__fixtures__/post-state-condition.js'
+  )
+  class TransactWriteCommand {
+    input: Record<string, unknown>
+    constructor(input: Record<string, unknown>) {
+      this.input = input
+    }
+  }
   class DeleteCommand {
     input: Record<string, unknown>
     constructor(input: Record<string, unknown>) {
@@ -176,6 +185,18 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
             postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
             return {}
           }
+          if (command instanceof TransactWriteCommand) {
+            const [check, put] = command.input.TransactItems as Array<
+              Record<string, Record<string, unknown>>
+            >
+            const key = check!.ConditionCheck!.Key as { postId: string }
+            if (!evaluatePostStateCondition(postRows.get(key.postId) ?? null, check!.ConditionCheck!)) {
+              throw guardCancelled()
+            }
+            const item = put!.Put!.Item as { tag: string; publishedAtPostId: string }
+            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
+            return {}
+          }
           if (command instanceof DeleteCommand) {
             const key = command.input.Key as { tag: string; publishedAtPostId: string }
             postTagRows.delete(`${key.tag}|${key.publishedAtPostId}`)
@@ -188,7 +209,14 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
       }
     },
   }
-  return { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand }
+  return {
+    DeleteCommand,
+    DynamoDBDocumentClient,
+    GetCommand,
+    PutCommand,
+    QueryCommand,
+    TransactWriteCommand,
+  }
 })
 
 const site: Config['site'] = { name: 'Test', url: 'https://example.com' }
@@ -1298,6 +1326,34 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
     expect(postTagRows.get('life|2026-05-01T00:00:00.000Z#p1')).toMatchObject({
       title: 'Current title',
     })
+  })
+
+  it('puts every row through a transaction guarded on the Post state (no plain Put)', async () => {
+    postRows.set('p1', { ...canonicalPublished, updatedAt: '2026-05-02T00:00:00.000Z' })
+    const handler = createProcessorTrustedHandler({ site })
+
+    await handler(
+      refresh({ previous: rawPublished, next: canonicalPublished }),
+      {} as never,
+      vi.fn() as never
+    )
+
+    const transacts = ddbCommands.filter((c) => 'TransactItems' in c.input)
+    expect(transacts).toHaveLength(1)
+    const [check, put] = transacts[0]!.input.TransactItems as Array<
+      Record<string, Record<string, unknown>>
+    >
+    expect(check!.ConditionCheck).toMatchObject({
+      TableName: 'posts',
+      Key: { postId: 'p1' },
+      ExpressionAttributeValues: expect.objectContaining({
+        ':status': 'published',
+        ':updatedAt': '2026-05-02T00:00:00.000Z',
+      }),
+    })
+    expect(put!.Put).toMatchObject({ TableName: 'posttags' })
+    expect(ddbCommands.some((c) => 'Item' in c.input)).toBe(false)
+    expect([...postTagRows.keys()]).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
   })
 
   it('logs and skips a refresh without any postId', async () => {

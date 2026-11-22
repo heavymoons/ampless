@@ -509,30 +509,30 @@ describe('runPublishedAtMigration', () => {
     expect(summary.scanned).toBe(6)
   })
 
-  it('throttles each write by 1000 / maxWritesPerSecond ms (default 10/s)', async () => {
-    const sleep = vi.fn(() => Promise.resolve())
-    const t = fakeTable(sampleRows())
-    await runPublishedAtMigration({
-      client: t.client,
-      tableName: TABLE,
-      apply: true,
-      log: silent,
-      sleep,
-    })
-    expect(sleep).toHaveBeenCalledTimes(t.updates.length)
-    expect(sleep).toHaveBeenCalledWith(100)
-
-    const sleep2 = vi.fn(() => Promise.resolve())
-    const t2 = fakeTable(sampleRows())
-    await runPublishedAtMigration({
-      client: t2.client,
-      tableName: TABLE,
-      apply: true,
-      maxWritesPerSecond: 4,
-      log: silent,
-      sleep: sleep2,
-    })
-    expect(sleep2).toHaveBeenCalledWith(250)
+  it('spaces writes ≥ 1000 / maxWritesPerSecond ms apart, waiting BEFORE each write (default 10/s)', async () => {
+    for (const [rate, gap] of [
+      [undefined, 100],
+      [4, 250],
+    ] as const) {
+      const clock = { now: 0 }
+      const times: number[] = []
+      const t = fakeTable(sampleRows())
+      t.onBeforeUpdate(() => times.push(clock.now))
+      await runPublishedAtMigration({
+        client: t.client,
+        tableName: TABLE,
+        apply: true,
+        ...(rate !== undefined ? { maxWritesPerSecond: rate } : {}),
+        log: silent,
+        now: () => clock.now,
+        sleep: async (ms) => {
+          clock.now += ms
+        },
+      })
+      expect(t.updates.length).toBe(3)
+      // First write immediate, every later one exactly one interval after.
+      expect(times).toEqual([0, gap, 2 * gap])
+    }
   })
 
   it('does not sleep in dry-run', async () => {

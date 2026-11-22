@@ -16,7 +16,10 @@
  * With `apply`, every affected post is rebuilt with the same authoritative
  * `reconcilePostTagsForPost` the trusted processor uses, passing the stale
  * keys found for that post as extra candidates, and the tables are checked
- * again. The two scans are not one snapshot, so the result is only
+ * again. Each row is committed only while the Post still holds the state it
+ * was computed from. Every write call (DeleteItem, TransactWriteItems) waits
+ * for the shared write limiter first, so `maxWritesPerSecond` bounds the
+ * writes within one post's rebuild as well as across posts. The two scans are not one snapshot, so the result is only
  * meaningful while writers are stopped and the event pipeline is drained
  * (see the RUNBOOK); a post edited during the check can show up as a
  * mismatch that its own refresh event is about to fix.
@@ -25,7 +28,7 @@ import {
   ScanCommand,
   type DeleteCommand,
   type GetCommand,
-  type PutCommand,
+  type TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb'
 import type { ContentEventPayload } from 'ampless'
 import {
@@ -38,6 +41,7 @@ import {
   type PostTagItem,
   type PostTagKey,
 } from '../events/posttag-sync.js'
+import { createWriteLimiter } from './write-limiter.js'
 
 export type PostTagMismatch =
   | {
@@ -51,7 +55,7 @@ export type PostTagMismatch =
 
 /** Minimal DynamoDBDocumentClient surface the check needs (mockable). */
 export interface PostTagCheckClient {
-  send(command: ScanCommand | GetCommand | PutCommand | DeleteCommand): Promise<unknown>
+  send(command: ScanCommand | GetCommand | DeleteCommand | TransactWriteCommand): Promise<unknown>
 }
 
 export interface RunPostTagCheckOpts {
@@ -60,7 +64,10 @@ export interface RunPostTagCheckOpts {
   postTagTable: string
   /** Repair the mismatches. When false (default) only reports them. */
   apply?: boolean
-  /** Upper bound on PostTag writes per second during repair. Default 10. */
+  /**
+   * Upper bound on PostTag write calls per second during repair (DeleteItem
+   * and TransactWriteItems), enforced before each call. Default 10.
+   */
   maxWritesPerSecond?: number
   /** Scan page size (DynamoDB `Limit`). Default: DynamoDB's 1 MB pages. */
   pageSize?: number
@@ -68,6 +75,8 @@ export interface RunPostTagCheckOpts {
   log?: (line: string) => void
   /** Injectable for tests. Default: setTimeout-based sleep. */
   sleep?: (ms: number) => Promise<void>
+  /** Injectable clock (ms) for tests. Default `Date.now`. */
+  now?: () => number
 }
 
 export interface PostTagCheckSummary {
@@ -164,8 +173,6 @@ export function comparePostTags(
   return mismatches
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return `${err.name}: ${err.message}`
   return String(err)
@@ -230,13 +237,12 @@ function describeMismatch(m: PostTagMismatch): string {
  */
 export async function runPostTagCheck(opts: RunPostTagCheckOpts): Promise<PostTagCheckSummary> {
   const apply = opts.apply ?? false
-  const maxWritesPerSecond = opts.maxWritesPerSecond ?? 10
-  if (!Number.isFinite(maxWritesPerSecond) || maxWritesPerSecond <= 0) {
-    throw new Error(`maxWritesPerSecond must be a positive number (got ${maxWritesPerSecond})`)
-  }
-  const writeIntervalMs = 1000 / maxWritesPerSecond
+  const limiter = createWriteLimiter({
+    maxWritesPerSecond: opts.maxWritesPerSecond ?? 10,
+    ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.sleep ? { sleep: opts.sleep } : {}),
+  })
   const log = opts.log ?? ((line: string) => console.log(line))
-  const sleep = opts.sleep ?? defaultSleep
 
   const first = await checkOnce(opts)
   for (const m of first.mismatches) log(describeMismatch(m))
@@ -266,23 +272,21 @@ export async function runPostTagCheck(opts: RunPostTagCheckOpts): Promise<PostTa
       summary.failed.push({ postId: null, error })
       continue
     }
-    let writes = 1
     try {
-      const res = await reconcilePostTagsForPost({
+      await reconcilePostTagsForPost({
         client: opts.client,
         postTable: opts.postTable,
         postTagTable: opts.postTagTable,
         postId,
         candidates: staleKeys,
         log,
+        beforeWrite: () => limiter.acquire(),
       })
       summary.repaired++
-      writes = Math.max(1, res.removed + res.upserted)
     } catch (err) {
       console.error(`[check-post-tags] repair failed for postId=${postId}`, err)
       summary.failed.push({ postId, error: errorMessage(err) })
     }
-    await sleep(writes * writeIntervalMs)
   }
 
   const after = await checkOnce(opts)

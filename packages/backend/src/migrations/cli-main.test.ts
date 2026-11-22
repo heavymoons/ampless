@@ -3,11 +3,12 @@ import type { DescribeTableCommandOutput } from '@aws-sdk/client-dynamodb'
 import {
   DeleteCommand,
   GetCommand,
-  PutCommand,
   ScanCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import { runCli, USAGE, type CliClients } from './cli-main.js'
+import { evaluatePostStateCondition, guardCancelled } from '../__fixtures__/post-state-condition.js'
 
 // Every client is a fake; no AWS SDK client is constructed and nothing
 // leaves the process.
@@ -67,9 +68,14 @@ function harness(opts: {
           const row = posts.get((input.Key as { postId: string }).postId)
           return row ? { Item: { ...row } } : {}
         }
-        if (command instanceof PutCommand) {
-          commands.push('Put')
-          const item = input.Item as Record<string, unknown>
+        if (command instanceof TransactWriteCommand) {
+          commands.push('Transact')
+          const [check, put] = input.TransactItems as Array<Record<string, Record<string, unknown>>>
+          const key = check!.ConditionCheck!.Key as { postId: string }
+          if (!evaluatePostStateCondition(posts.get(key.postId) ?? null, check!.ConditionCheck!)) {
+            throw guardCancelled()
+          }
+          const item = put!.Put!.Item as Record<string, unknown>
           tags.set(`${String(item.tag)}|${String(item.publishedAtPostId)}`, { ...item })
           return {}
         }
@@ -125,6 +131,8 @@ describe('runCli', () => {
     expect(USAGE).toContain('Exit codes:')
     expect(USAGE).toContain('does NOT by itself prove')
     expect(USAGE).toContain('only on publishedAt / publishedAtSortKey')
+    // The throttle is described as it behaves: before each call, no burst.
+    expect(USAGE).toContain("including within one post's rebuild; no burst")
     expect(h.createClients).not.toHaveBeenCalled()
   })
 

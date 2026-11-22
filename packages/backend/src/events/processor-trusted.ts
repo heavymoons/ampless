@@ -387,7 +387,12 @@ export function createProcessorTrustedHandler(
   // (e.g. a draft's title / excerpt on the public tag API). The rebuild
   // reads the Post with a strongly consistent GetItem and writes the rows
   // of its current state; the payload's previous / next only supply the
-  // keys to clean up. See `reconcilePostTagsForPost` (posttag-sync.ts).
+  // keys to clean up. Each row is put in a TransactWriteItems guarded by a
+  // ConditionCheck that the Post still holds the state the row came from
+  // (IAM: ConditionCheckItem on Post via grantReadData, PutItem / DeleteItem
+  // on PostTag via grantWriteData). Writes are sequential with no rate
+  // limiter, bounded by one post's tag count. See `reconcilePostTagsForPost`
+  // (posttag-sync.ts).
   // Writes go via direct DynamoDB — faster than AppSync and a narrower
   // IAM grant than full GraphQL mutate access on the PostTag model.
   //
