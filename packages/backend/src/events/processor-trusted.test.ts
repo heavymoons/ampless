@@ -33,6 +33,10 @@ const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown
 // values in attribute descriptors like `{ N: ... }`. Default (no entry
 // for a table) is `{ Items: [] }`, so existing tests are unaffected.
 const ddbQueryResponses = vi.hoisted(() => new Map<string, unknown[]>())
+/** Rows returned by bounded byStatus queries (see the DynamoDB mock). */
+const ddbRowsRead = vi.hoisted(() => ({ count: 0 }))
+/** Rows per page of the bounded byStatus mock (stands in for the 1 MB page). */
+const QUERY_PAGE_ROWS = 100
 
 // Simulate PluginSecret table rows for ctx.secret tests.
 // Map key: `sk` → value string (single-id identifier — no `siteId`
@@ -156,7 +160,25 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
         async send(command: { input: Record<string, unknown> }) {
           ddbCommands.push(command)
           const tableName = command.input.TableName as string | undefined
-          const items = (tableName && ddbQueryResponses.get(tableName)) || []
+          let items = (tableName && ddbQueryResponses.get(tableName)) || []
+          // byStatus `#publishedAt <= :upper`: apply the bound as DynamoDB
+          // does (string compare on the SK, descending), and page it so
+          // load tests can count the rows actually read.
+          const values = command.input.ExpressionAttributeValues as Record<string, unknown> | undefined
+          const upper = values?.[':upper']
+          if (typeof upper === 'string' && command.input.IndexName === 'byStatus') {
+            items = (items as Array<{ publishedAt?: string }>)
+              .filter((r) => typeof r.publishedAt === 'string' && r.publishedAt <= upper)
+              .sort((a, b) => (a.publishedAt! < b.publishedAt! ? 1 : -1))
+            const start = (command.input.ExclusiveStartKey as { i?: number } | undefined)?.i ?? 0
+            const page = items.slice(start, start + QUERY_PAGE_ROWS)
+            ddbRowsRead.count += page.length
+            const next = start + page.length
+            return {
+              Items: page,
+              ...(next < items.length && { LastEvaluatedKey: { i: next } }),
+            }
+          }
           return { Items: items }
         },
       }
@@ -844,8 +866,8 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 // ---------------------------------------------------------------------------
 //
 // The byStatus SK (publishedAt) may hold any AWSDateTime written through the
-// API (`+09:00`, `-05:00`, no seconds, ...), so listPublished must not rely
-// on a lexical `<= now` key bound. It reads the partition, keeps rows whose
+// API (`+09:00`, `-05:00`, no seconds, ...), so listPublished bounds the key
+// at now + 18h (the largest offset) instead of `<= now`, keeps rows whose
 // parsed instant is <= now, and orders newest-first by instant.
 
 describe('listPublished — scheduled-publish filtering by instant', () => {
@@ -899,7 +921,7 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
     }
   }
 
-  it('queries the published partition without a lexical publishedAt bound', async () => {
+  it('bounds the query at the UTC minute of now + 18h (max AWSDateTime offset)', async () => {
     await listPublishedViaHook()
     const queryCmd = ddbCommands.find(
       (cmd) =>
@@ -907,8 +929,45 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
         cmd.input.IndexName === 'byStatus'
     )
     expect(queryCmd).toBeDefined()
-    expect(queryCmd!.input.KeyConditionExpression).toBe('#status = :status')
-    expect(queryCmd!.input.ExpressionAttributeValues).toEqual({ ':status': 'published' })
+    expect(queryCmd!.input.KeyConditionExpression).toBe(
+      '#status = :status AND #publishedAt <= :upper'
+    )
+    expect(queryCmd!.input.ExpressionAttributeValues).toEqual({
+      ':status': 'published',
+      ':upper': '2026-01-01T21:00Z', // NOW 03:00Z + 18h
+    })
+  })
+
+  it('load: 10,000 far-future scheduled posts are never read; only the 18h window is', async () => {
+    const future = Array.from({ length: 10_000 }, (_, i) =>
+      row(`sched-${i}`, new Date(NOW + (19 + i) * 3_600_000).toISOString())
+    )
+    const soon = Array.from({ length: 30 }, (_, i) =>
+      row(`soon-${i}`, new Date(NOW + (i + 1) * 30 * 60_000).toISOString())
+    ) // within the next 15h: read, then dropped by instant
+    const live = Array.from({ length: 250 }, (_, i) =>
+      row(`live-${String(i).padStart(3, '0')}`, new Date(NOW - (i + 1) * 3_600_000).toISOString())
+    )
+    ddbQueryResponses.set('posts', [...future, ...soon, ...live])
+    ddbRowsRead.count = 0
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts.map((p) => p.postId)).toEqual(live.map((r) => r.postId))
+    // 250 live + 30 in-window scheduled rows; none of the 10,000 beyond it.
+    expect(ddbRowsRead.count).toBe(280)
+    const queries = ddbCommands.filter((cmd) => cmd.input.IndexName === 'byStatus')
+    expect(queries).toHaveLength(3) // 280 rows / 100-row pages
+  })
+
+  it('includes a live +18:00 post (string 18h ahead) and drops a future one in the window', async () => {
+    ddbQueryResponses.set('posts', [
+      row('plus18-live', '2026-01-01T20:59:00+18:00'), // = 2026-01-01T02:59Z
+      row('plus18-future', '2026-01-01T21:00:30+18:00'), // = 03:00:30Z, same bound minute
+      row('canonical-past', '2026-01-01T01:00:00.000Z'),
+    ])
+    const posts = await listPublishedViaHook()
+    expect(posts.map((p) => p.postId)).toEqual(['plus18-live', 'canonical-past'])
   })
 
   it('excludes future posts by instant, including negative offsets that sort as past', async () => {
@@ -920,7 +979,10 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
       row('past-plus9', '2026-01-01T11:00:00+09:00'), // = 02:00Z
       row('future-minus5', '2025-12-31T23:00:00-05:00'), // = 04:00Z
       row('past-canonical', '2025-12-31T00:00:00.000Z'),
-      row('bad', 'not-a-date'),
+      // Unparseable but inside the key window (sorts before the bound).
+      row('bad', '2025-12-30T00:00:00Zgarbage'),
+      // Outside the window: never read at all.
+      row('bad-outside', 'not-a-date'),
     ])
 
     const posts = await listPublishedViaHook()
