@@ -16,25 +16,51 @@ const routerPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush, refresh: vi.fn(), replace: vi.fn(), back: vi.fn() }),
 }))
-// The history panel talks to AppSync; it plays no part here.
-vi.mock('./post-history-panel.js', () => ({ PostHistoryPanel: () => null }))
-// Only the S3 side of static bundles is stubbed: picking files still goes
-// through the real StaticUploader + bundle validation. Each upload returns
-// the next bundle version (`uploadedAt: 'v2'`, 'v3', …).
-let bundleVersion = 1
-const uploadBundle = vi.fn(async (opts: { slug: string; files: { path: string; data: Uint8Array }[]; entrypoint?: string }) => {
-  const version = `v${++bundleVersion}`
-  return {
-    body: { entrypoint: opts.entrypoint ?? 'index.html', files: opts.files.map((f) => f.path).sort(), uploadedAt: version },
-    filesMeta: Object.fromEntries(opts.files.map((f) => [f.path, { size: f.data.byteLength, mimeType: 'text/html' }])),
-  }
-})
-const deleteBundle = vi.fn(async () => undefined)
-vi.mock('../lib/static-bundle.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/static-bundle.js')>()),
-  uploadBundle: (...args: Parameters<typeof uploadBundle>) => uploadBundle(...args),
-  deleteBundle: () => deleteBundle(),
+// The history panel talks to AppSync; the stub only hands out its
+// `onRestore` so a test can restore a revision.
+let restoreRevision: ((rev: unknown) => void) | null = null
+vi.mock('./post-history-panel.js', () => ({
+  PostHistoryPanel: ({ onRestore }: { onRestore: (rev: unknown) => void }) => {
+    restoreRevision = onRestore
+    return null
+  },
 }))
+// In-memory S3 behind `aws-amplify/storage`: the real
+// `lib/static-bundle.js` (upload / delete helpers) and the real
+// StaticUploader run on top of it. Keys map to their bytes.
+const s3 = new Map<string, Uint8Array>()
+const s3Uploads: string[] = []
+const s3Removes: string[] = []
+vi.mock('aws-amplify/storage', () => ({
+  uploadData: ({ path, data }: { path: string; data: Uint8Array }) => ({
+    result: (async () => {
+      s3Uploads.push(path)
+      s3.set(path, new Uint8Array(data))
+      return { path }
+    })(),
+  }),
+  list: async ({ path }: { path: string }) => ({
+    items: [...s3.keys()].filter((k) => k.startsWith(path)).map((k) => ({ path: k })),
+  }),
+  remove: async ({ path }: { path: string }) => {
+    s3Removes.push(path)
+    s3.delete(path)
+    return { path }
+  },
+}))
+const bytes = (text: string) => new TextEncoder().encode(text)
+const text = (key: string) => {
+  const b = s3.get(key)
+  return b === undefined ? undefined : new TextDecoder().decode(b)
+}
+const s3Snapshot = () => Object.fromEntries([...s3.keys()].sort().map((k) => [k, text(k)]))
+// Every S3 key the stored post serves (the runtime's layout: the version
+// prefix for a valid `body.version`, else the legacy per-slug prefix).
+function liveKeys(p: Post): string[] {
+  const b = p.body as { files: string[]; version?: string }
+  const prefix = b.version ? `public/static/_v/${encodeURIComponent(p.slug)}/${b.version}/` : `public/static/${p.slug}/`
+  return b.files.map((f) => `${prefix}${f}`)
+}
 
 const { setPostsProvider, PostUpdateConflictError } = await import('ampless')
 const { PostForm } = await import('./post-form.js')
@@ -64,6 +90,10 @@ function makeStore(initial: Post, { conditional }: { conditional: boolean }) {
   // Runs once, right after the next getById took its snapshot and before it
   // resolves — i.e. between the form's re-read and its write.
   let afterNextGetById: (() => void) | null = null
+  // Runs once at the start of the next update, before its compare-and-swap
+  // — i.e. after the form's bundle upload and before its write lands.
+  let beforeNextUpdate: (() => void) | null = null
+  let deleted = false
 
   function apply(patch: Partial<Post>) {
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
@@ -71,6 +101,9 @@ function makeStore(initial: Post, { conditional }: { conditional: boolean }) {
   }
 
   const update = vi.fn(async (postId: string, data: Partial<Post>, options?: UpdatePostOptions) => {
+    const hook = beforeNextUpdate
+    beforeNextUpdate = null
+    hook?.()
     if (postId !== row.postId) throw new Error(`no post ${postId}`)
     if (conditional && options?.expectedUpdatedAt !== undefined) {
       if ((row.updatedAt ?? null) !== options.expectedUpdatedAt) throw new PostUpdateConflictError()
@@ -96,7 +129,10 @@ function makeStore(initial: Post, { conditional }: { conditional: boolean }) {
     getById,
     create: notImpl,
     update,
-    remove: notImpl,
+    remove: async (postId: string) => {
+      if (postId !== row.postId) throw new Error(`no post ${postId}`)
+      deleted = true
+    },
     listPostHistory: async () => ({ items: [] }),
   }
   return {
@@ -112,6 +148,12 @@ function makeStore(initial: Post, { conditional }: { conditional: boolean }) {
     },
     onNextGetById(fn: () => void) {
       afterNextGetById = fn
+    },
+    onBeforeNextUpdate(fn: () => void) {
+      beforeNextUpdate = fn
+    },
+    get deleted() {
+      return deleted
     },
   }
 }
@@ -236,9 +278,10 @@ async function mountEditor(p: Post): Promise<Editor> {
 beforeEach(() => {
   localStorage.clear()
   routerPush.mockClear()
-  uploadBundle.mockClear()
-  deleteBundle.mockClear()
-  bundleVersion = 1
+  s3.clear()
+  s3Uploads.length = 0
+  s3Removes.length = 0
+  restoreRevision = null
 })
 afterEach(async () => {
   await act(async () => root?.unmount())
@@ -386,19 +429,31 @@ describe('PostForm keeps an own `__proto__` metadata key', () => {
 })
 
 // Two real PostForm instances (editors A and B) saving the same post
-// through the real core and the in-memory CAS store.
-describe('two editors saving the same post', () => {
-  const v1Body = { entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v1' }
-  const v1Files = { 'index.html': { size: 9, mimeType: 'text/html' } }
-  const staticPost = (): Post => ({
-    ...initialPost(),
-    format: 'static',
-    body: v1Body,
-    metadata: { files: v1Files, plugin_x: { n: 1 } },
-  })
+// through the real core, the in-memory CAS store and the in-memory S3.
+const HTML = 'text/html; charset=utf-8'
+const v1Body = { entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v1' }
+const v1Files = { 'index.html': { size: 9, mimeType: HTML } }
+const LEGACY_KEY = 'public/static/weekly/index.html'
+// A legacy (unversioned) static post with its bundle in S3.
+const staticPost = (): Post => ({
+  ...initialPost(),
+  format: 'static',
+  body: v1Body,
+  metadata: { files: v1Files, plugin_x: { n: 1 } },
+})
+// A static post whose bundle is the immutable version `v1`.
+const VERSIONED_KEY = 'public/static/_v/weekly/v1/index.html'
+const versionedPost = (): Post => ({ ...staticPost(), body: { ...v1Body, version: 'v1' } })
+function seedS3(p: Post) {
+  for (const key of liveKeys(p)) s3.set(key, bytes('<p>v1</p>'))
+}
+const versionOf = (p: Post) => (p.body as { version?: string }).version
+const VERSION_RE = /^[a-z0-9]+-[0-9a-f]{10}$/
 
+describe('two editors saving the same post', () => {
   it('static: a title-only save after another editor replaced the bundle keeps that bundle, consistently', async () => {
     const store = makeStore(staticPost(), { conditional: true })
+    seedS3(store.row)
     setPostsProvider(store.provider)
     const a = await mountEditor(store.row)
     const b = await mountEditor(store.row)
@@ -406,16 +461,19 @@ describe('two editors saving the same post', () => {
     await b.pickBundle({ 'index.html': '<p>v2</p>', 'about.html': '<p>about</p>' })
     await b.submit()
     expect(b.errorText()).toBeNull()
-    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    expect(s3Uploads).toHaveLength(2)
     const afterB = store.row
-    expect(afterB.body).toEqual({ entrypoint: 'index.html', files: ['about.html', 'index.html'], uploadedAt: 'v2' })
+    expect(afterB.body).toMatchObject({ entrypoint: 'index.html', files: ['about.html', 'index.html'] })
+    expect(versionOf(afterB)).toMatch(VERSION_RE)
+    const s3AfterB = s3Snapshot()
 
     // A still holds bundle v1 in its state.
     await a.typeTitle('Weekly by A')
     await a.submit()
 
     expect(a.errorText()).toBeNull()
-    expect(uploadBundle).toHaveBeenCalledTimes(1) // A uploads nothing
+    expect(s3Uploads).toHaveLength(2) // A uploads nothing
+    expect(s3Snapshot()).toEqual(s3AfterB) // ...and deletes nothing
     expect(store.row.title).toBe('Weekly by A')
     expect(store.row.format).toBe('static')
     // Manifest and files both from B's v2 — never v1 body with v2 files.
@@ -425,13 +483,15 @@ describe('two editors saving the same post', () => {
       (store.row.body as { files: string[] }).files,
     )
     expect(store.row.metadata).toEqual({
-      files: { 'about.html': { size: 12, mimeType: 'text/html' }, 'index.html': { size: 9, mimeType: 'text/html' } },
+      files: { 'about.html': { size: 12, mimeType: HTML }, 'index.html': { size: 9, mimeType: HTML } },
       plugin_x: { n: 1 },
     })
+    for (const key of liveKeys(store.row)) expect(s3.has(key)).toBe(true)
   })
 
   it('static: both editors replacing the bundle — the second save is a static conflict and uploads nothing', async () => {
     const store = makeStore(staticPost(), { conditional: true })
+    seedS3(store.row)
     setPostsProvider(store.provider)
     const a = await mountEditor(store.row)
     const b = await mountEditor(store.row)
@@ -441,7 +501,8 @@ describe('two editors saving the same post', () => {
     await b.submit()
     expect(b.errorText()).toBeNull()
     const afterB = store.row
-    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    const s3AfterB = s3Snapshot()
+    expect(s3Uploads).toHaveLength(2)
 
     await a.typeTitle('Weekly by A')
     await a.submit()
@@ -451,8 +512,8 @@ describe('two editors saving the same post', () => {
     )
     // Detected before the upload: A's bundle never reached S3, and B's
     // consistent bundle is intact.
-    expect(uploadBundle).toHaveBeenCalledTimes(1)
-    expect(deleteBundle).not.toHaveBeenCalled()
+    expect(s3Uploads).toHaveLength(2)
+    expect(s3Snapshot()).toEqual(s3AfterB)
     expect(store.update).toHaveBeenCalledTimes(1)
     expect(store.row).toEqual(afterB)
     // A keeps its state, pending bundle included.
@@ -462,6 +523,7 @@ describe('two editors saving the same post', () => {
 
   it('static: a new bundle uploads and is written when nobody else changed the bundle', async () => {
     const store = makeStore(staticPost(), { conditional: true })
+    seedS3(store.row)
     setPostsProvider(store.provider)
     const a = await mountEditor(store.row)
     const b = await mountEditor(store.row)
@@ -472,10 +534,10 @@ describe('two editors saving the same post', () => {
     await a.submit()
 
     expect(a.errorText()).toBeNull()
-    expect(uploadBundle).toHaveBeenCalledTimes(1)
+    expect(s3Uploads).toHaveLength(1)
     expect(store.row.title).toBe('Weekly')
-    expect(store.row.body).toEqual({ entrypoint: 'index.html', files: ['index.html'], uploadedAt: 'v2' })
-    expect(store.row.metadata).toEqual({ files: { 'index.html': { size: 11, mimeType: 'text/html' } }, plugin_x: { n: 1 } })
+    expect(store.row.body).toMatchObject({ entrypoint: 'index.html', files: ['index.html'] })
+    expect(store.row.metadata).toEqual({ files: { 'index.html': { size: 11, mimeType: HTML } }, plugin_x: { n: 1 } })
   })
 
   it('non-static: body stays last-write-wins (unchanged behaviour)', async () => {
@@ -498,6 +560,245 @@ describe('two editors saving the same post', () => {
     expect(a.errorText()).toBeNull()
     expect(store.row.title).toBe('Weekly by A')
     expect(store.row.body).toBe('hello') // A's loaded body overwrites B's
-    expect(uploadBundle).not.toHaveBeenCalled()
+    expect(s3Uploads).toHaveLength(0)
+  })
+})
+
+// The bundle a stored post references is never modified before that post's
+// replacement is committed: uploads go to a fresh immutable version prefix.
+describe('static bundle storage: immutable versions, swapped by the post write', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+  })
+
+  for (const [layout, make] of [
+    ['legacy', staticPost],
+    ['versioned', versionedPost],
+  ] as const) {
+    it(`${layout}: a write landing between A's upload and A's write — A conflicts, the live bundle is intact, A's upload is removed`, async () => {
+      const store = makeStore(make(), { conditional: true })
+      seedS3(store.row)
+      setPostsProvider(store.provider)
+      const s3Before = s3Snapshot()
+      const a = await mountEditor(store.row)
+
+      await a.pickBundle({ 'index.html': '<p>by A</p>', 'extra.html': '<p>extra</p>' })
+      // B's save (here a title edit, keeping the bundle) lands after A has
+      // uploaded its files and before A's write.
+      store.onBeforeNextUpdate(() => {
+        expect(s3Uploads).toHaveLength(2) // A's upload is done
+        store.concurrentWrite({ title: 'Weekly by B' })
+      })
+      await a.submit()
+
+      expect(a.errorText()).toBe(CONFLICT_MESSAGE)
+      // The stored post is B's, and every file it serves still exists with
+      // its original bytes.
+      expect(store.row.title).toBe('Weekly by B')
+      expect(store.row.body).toEqual(make().body)
+      for (const key of liveKeys(store.row)) expect(text(key)).toBe('<p>v1</p>')
+      // A's uploaded version is cleaned up: S3 is exactly as before.
+      expect(s3Uploads.every((k) => k.startsWith('public/static/_v/weekly/'))).toBe(true)
+      expect(s3Snapshot()).toEqual(s3Before)
+      // A keeps its state, pending bundle included.
+      expect(a.container.textContent).toContain('Pending upload: 2 files')
+    })
+  }
+
+  it('legacy: replacing the bundle writes a versioned body and leaves the legacy files untouched', async () => {
+    const store = makeStore(staticPost(), { conditional: true })
+    seedS3(store.row)
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+
+    await a.pickBundle({ 'index.html': '<p>by A</p>', 'about.html': '<p>about</p>' })
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    const version = versionOf(store.row)
+    expect(version).toMatch(VERSION_RE)
+    expect(store.row.body).toMatchObject({ entrypoint: 'index.html', files: ['about.html', 'index.html'], version })
+    expect(text(`public/static/_v/weekly/${version}/index.html`)).toBe('<p>by A</p>')
+    expect(text(`public/static/_v/weekly/${version}/about.html`)).toBe('<p>about</p>')
+    expect(text(LEGACY_KEY)).toBe('<p>v1</p>')
+    expect(s3Removes).toEqual([])
+    expect(routerPush).toHaveBeenCalledWith('/admin/posts')
+  })
+
+  it('versioned: replacing the bundle again garbage-collects the previous version after the write', async () => {
+    const store = makeStore(versionedPost(), { conditional: true })
+    seedS3(store.row)
+    s3.set(LEGACY_KEY, bytes('<p>legacy</p>')) // an unrelated legacy orphan
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+
+    await a.pickBundle({ 'index.html': '<p>by A</p>' })
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    const version = versionOf(store.row)!
+    expect(version).toMatch(VERSION_RE)
+    expect(version).not.toBe('v1')
+    expect(s3Snapshot()).toEqual({
+      [LEGACY_KEY]: '<p>legacy</p>',
+      [`public/static/_v/weekly/${version}/index.html`]: '<p>by A</p>',
+    })
+    expect(s3Removes).toEqual([VERSIONED_KEY])
+  })
+
+  it('a cleanup failure after a successful replace is logged and does not fail the save', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = makeStore(versionedPost(), { conditional: true })
+    seedS3(store.row)
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+    await a.pickBundle({ 'index.html': '<p>by A</p>' })
+    const storage = await import('aws-amplify/storage')
+    vi.spyOn(storage, 'remove').mockRejectedValue(new Error('S3 down'))
+
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    expect(versionOf(store.row)).toMatch(VERSION_RE)
+    expect(routerPush).toHaveBeenCalledWith('/admin/posts')
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to remove replaced static bundle version v1'),
+      expect.any(Error),
+    )
+    expect(s3.has(VERSIONED_KEY)).toBe(true) // left as an orphan
+  })
+
+  it('restoring a static revision is refused: body, format and files stay, and a later save keeps the bundle', async () => {
+    const store = makeStore(versionedPost(), { conditional: true })
+    seedS3(store.row)
+    setPostsProvider(store.provider)
+    const s3Before = s3Snapshot()
+    const a = await mountEditor(store.row)
+
+    // An older revision with another bundle (whose files are gone).
+    await act(async () => {
+      restoreRevision!({
+        title: 'Old title',
+        slug: 'weekly',
+        format: 'static',
+        body: { entrypoint: 'old.html', files: ['old.html'], uploadedAt: 'v0', version: 'v0' },
+        status: 'draft',
+        metadata: { files: { 'old.html': { size: 3, mimeType: HTML } } },
+      })
+    })
+
+    const notice = a.container.querySelector('[data-testid="static-restore-rejected"]')
+    expect(notice?.textContent).toContain("This revision can't be restored here because it would change the static bundle")
+    // Nothing was applied.
+    expect(a.titleValue()).toBe('Weekly')
+    expect((a.container.querySelector('select#format') as HTMLSelectElement).value).toBe('static')
+    expect(a.container.textContent).toContain('Current bundle: 1 files (entry: index.html)')
+
+    // A non-static revision onto the static post is refused the same way.
+    await act(async () => {
+      restoreRevision!({ title: 'Markdown era', slug: 'weekly', format: 'markdown', body: 'old', status: 'draft' })
+    })
+    expect(a.titleValue()).toBe('Weekly')
+    expect((a.container.querySelector('select#format') as HTMLSelectElement).value).toBe('static')
+
+    await a.typeTitle('Weekly 2')
+    await a.submit()
+
+    expect(a.errorText()).toBeNull()
+    expect(store.row.title).toBe('Weekly 2')
+    expect(store.row.format).toBe('static')
+    expect(store.row.body).toEqual(versionedPost().body)
+    expect(store.row.metadata).toEqual(versionedPost().metadata)
+    expect(s3Snapshot()).toEqual(s3Before)
+    expect(s3Uploads).toEqual([])
+  })
+
+  it('a static revision with the current manifest (title-only change) still restores', async () => {
+    const store = makeStore(versionedPost(), { conditional: true })
+    seedS3(store.row)
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+
+    await act(async () => {
+      restoreRevision!({ ...versionedPost(), title: 'Old title' })
+    })
+
+    expect(a.container.querySelector('[data-testid="static-restore-rejected"]')).toBeNull()
+    expect(a.titleValue()).toBe('Old title')
+  })
+
+  it('deleting a static post removes its legacy prefix and every versioned bundle of the slug', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const store = makeStore(versionedPost(), { conditional: true })
+    seedS3(store.row)
+    s3.set(LEGACY_KEY, bytes('<p>legacy</p>'))
+    s3.set('public/static/_v/weekly/orphan-1/index.html', bytes('orphan'))
+    // Other slugs are not touched.
+    s3.set('public/static/_v/weekly-2/v1/index.html', bytes('other'))
+    s3.set('public/static/weekly-2/index.html', bytes('other'))
+    setPostsProvider(store.provider)
+    const a = await mountEditor(store.row)
+
+    const del = Array.from(a.container.querySelectorAll('button')).find((b) => b.textContent === 'Delete')!
+    await click(del)
+
+    expect(store.deleted).toBe(true)
+    expect(s3Snapshot()).toEqual({
+      'public/static/_v/weekly-2/v1/index.html': 'other',
+      'public/static/weekly-2/index.html': 'other',
+    })
+  })
+
+  it('creating a static post uploads a version; a failed create removes it again', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = makeStore(initialPost(), { conditional: true })
+    store.provider.create = vi.fn(async () => {
+      throw new Error('create failed')
+    })
+    setPostsProvider(store.provider)
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const r = createRoot(el)
+    editorRoots.push({ root: r, container: el })
+    const { locale, dict } = resolveLocale('en')
+    await act(async () => {
+      r.render(
+        <I18nProvider locale={locale} dict={dict}>
+          <PostForm availablePostClasses={CLASSES} />
+        </I18nProvider>,
+      )
+    })
+    const select = el.querySelector('select#format') as HTMLSelectElement
+    await act(async () => {
+      select.value = 'static'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const title = el.querySelector(TITLE) as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, 'New LP')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const input = el.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['<p>new</p>'], 'index.html', { type: 'text/html' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    for (let i = 0; i < 20 && !el.textContent?.includes('Pending upload'); i++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    await act(async () => {
+      el.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(el.querySelector('p.text-destructive')?.textContent).toBe('create failed')
+    expect(s3Uploads).toHaveLength(1)
+    expect(s3Uploads[0]).toMatch(/^public\/static\/_v\/new-lp\/[a-z0-9]+-[0-9a-f]{10}\/index\.html$/)
+    expect(s3Snapshot()).toEqual({})
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('failed to remove'), expect.anything())
   })
 })

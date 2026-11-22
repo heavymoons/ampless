@@ -1,5 +1,6 @@
 import { bundlePrefix, validateBundlePath } from 'ampless'
-import type { StorageClient } from './types.js'
+import type { GraphqlClient, StorageClient } from './types.js'
+import { assertLegacyStaticSlug } from './static-bundle-storage.js'
 
 export interface DeleteStaticFileArgs {
   slug: string
@@ -10,7 +11,11 @@ export const deleteStaticFileSchema = {
   type: 'object',
   required: ['slug', 'filename'],
   properties: {
-    slug: { type: 'string' },
+    slug: {
+      type: 'string',
+      description:
+        'Bundle slug (legacy prefix public/static/<slug>/). Refused when the post at this slug uses a versioned bundle (replace it with upload_static_bundle).',
+    },
     filename: {
       type: 'string',
       description:
@@ -29,8 +34,12 @@ export const deleteStaticFileSchema = {
  * there — S3 DeleteObject is idempotent and the public-API ergonomics
  * are nicer if the caller can issue cleanups without first checking
  * existence.
+ *
+ * Works on the legacy per-slug prefix only: fails closed when the post at
+ * the slug uses a versioned (immutable) bundle.
  */
 export async function deleteStaticFile(
+  graphql: GraphqlClient,
   storage: StorageClient,
   args: DeleteStaticFileArgs,
 ) {
@@ -40,6 +49,7 @@ export async function deleteStaticFile(
   }
 
   const prefix = bundlePrefix(args.slug)
+  await assertLegacyStaticSlug(graphql, args.slug, 'delete_static_file')
   const key = `${prefix}${args.filename}`
 
   // Probe existence so we can report `deleted: true / false` instead

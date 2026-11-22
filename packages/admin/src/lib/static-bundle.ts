@@ -11,6 +11,9 @@ import {
   findAbsolutePathRefs,
   validateBundle,
   bundlePrefix,
+  generateBundleVersion,
+  versionedBundlePrefix,
+  versionedBundlesPrefix,
   pickDefaultEntrypoint,
   stripCommonPrefix,
   MAX_BUNDLE_BYTES,
@@ -18,7 +21,8 @@ import {
 
 // Re-export the pure helpers + types so existing consumers
 // (`./static-bundle.js`) keep their import path. The browser-specific
-// pieces (`extractZip`, `uploadBundle`, `deleteBundle`) live below.
+// pieces (`extractZip`, `uploadBundle`, `deleteBundle`,
+// `deleteBundleVersion`, `deleteAllBundleVersions`) live below.
 export {
   mimeTypeFor,
   validateBundlePath,
@@ -81,8 +85,11 @@ export interface UploadOptions {
 }
 
 export interface UploadBundleResult {
-  /** The Post `body` manifest (entrypoint + sorted file list + timestamp). */
-  body: StaticPostBody
+  /**
+   * The Post `body` manifest (entrypoint + sorted file list + timestamp +
+   * the new immutable `version`).
+   */
+  body: StaticPostBody & { version: string }
   /**
    * Per-file size / mimeType map. Lands in `post.metadata.files` so
    * the static delivery route can stream small files back through
@@ -92,9 +99,17 @@ export interface UploadBundleResult {
 }
 
 /**
- * Wipe the existing prefix, then upload every file. Order matters —
- * doing the prefix clear first means a re-upload always replaces
- * (not merges) the bundle, so removed files don't linger in S3.
+ * Upload every file into a NEW immutable version prefix
+ * `public/static/_v/<slug>/<version>/` and return the manifest pointing
+ * at it. Nothing is deleted: the bundle the post currently references
+ * (versioned or legacy) stays intact until the caller's post write
+ * commits, so a refused or failed write never leaves the live post
+ * pointing at altered files. The caller cleans up this version if its
+ * write fails (`deleteBundleVersion`) and garbage-collects the previous
+ * version after a successful one.
+ *
+ * If an individual upload fails, the files already uploaded to the new
+ * version are removed (best-effort) before the error is re-thrown.
  *
  * Returns both the manifest (for `post.body`) and a per-file size /
  * mimeType map (for `post.metadata.files`). Callers wire the latter
@@ -117,38 +132,36 @@ export async function uploadBundle(opts: UploadOptions): Promise<UploadBundleRes
     throw new Error(`Entrypoint "${entrypoint}" is not present in the bundle.`)
   }
 
-  // Clear the existing prefix so removed files vanish. A missing prior
-  // bundle is not an error (list() returns empty); a genuine failure here
-  // means stale objects could survive the replace, leaving the S3 prefix
-  // inconsistent with the new manifest — surface it instead of swallowing.
-  try {
-    await deleteBundle(opts.slug)
-  } catch (err) {
-    console.error(
-      '[ampless static-bundle] failed to clear existing bundle before replace:',
-      err,
-    )
-    throw err
-  }
-
-  const prefix = bundlePrefix(opts.slug)
+  const version = generateBundleVersion()
+  const prefix = versionedBundlePrefix(opts.slug, version)
   let uploaded = 0
   const filesMeta: Record<string, StaticPostFileMeta> = {}
-  for (const f of opts.files) {
-    const mimeType = mimeTypeFor(f.path)
-    const task = uploadData({
-      path: `${prefix}${f.path}`,
-      data: f.data,
-      // Forcing Content-Type at upload means CloudFront / browsers see
-      // it directly when serving the file via the public bucket URL.
-      // (The runtime route handler overrides it for the proxied path,
-      // but tooling that hits S3 directly benefits from a correct CT.)
-      options: { contentType: mimeType },
+  try {
+    for (const f of opts.files) {
+      const mimeType = mimeTypeFor(f.path)
+      const task = uploadData({
+        path: `${prefix}${f.path}`,
+        data: f.data,
+        // Forcing Content-Type at upload means CloudFront / browsers see
+        // it directly when serving the file via the public bucket URL.
+        // (The runtime route handler overrides it for the proxied path,
+        // but tooling that hits S3 directly benefits from a correct CT.)
+        options: { contentType: mimeType },
+      })
+      await task.result
+      filesMeta[f.path] = { size: f.data.byteLength, mimeType }
+      uploaded += f.data.byteLength
+      opts.onProgress?.(uploaded, totalBytes)
+    }
+  } catch (err) {
+    console.error('[ampless static-bundle] upload failed; removing the partial version:', err)
+    await deleteBundleVersion(opts.slug, version).catch((cleanupErr) => {
+      console.error(
+        `[ampless static-bundle] failed to remove partial bundle version ${prefix}:`,
+        cleanupErr,
+      )
     })
-    await task.result
-    filesMeta[f.path] = { size: f.data.byteLength, mimeType }
-    uploaded += f.data.byteLength
-    opts.onProgress?.(uploaded, totalBytes)
+    throw err
   }
 
   return {
@@ -156,19 +169,40 @@ export async function uploadBundle(opts: UploadOptions): Promise<UploadBundleRes
       entrypoint,
       files: opts.files.map((f) => f.path).sort(),
       uploadedAt: new Date().toISOString(),
+      version,
     },
     filesMeta,
   }
 }
 
-/**
- * Recursively delete everything under the bundle's S3 prefix. Used
- * when a static post is deleted or just before a fresh upload.
- */
-export async function deleteBundle(slug: string): Promise<void> {
-  const prefix = bundlePrefix(slug)
-  const result = await list({ path: prefix })
+// Delete every object under `prefix` (all pages).
+async function removePrefix(prefix: string): Promise<void> {
+  const result = await list({ path: prefix, options: { listAll: true } })
   for (const item of result.items) {
     await remove({ path: item.path })
   }
+}
+
+/**
+ * Recursively delete everything under the bundle's legacy per-slug
+ * prefix `public/static/<slug>/`. Used when a static post is deleted.
+ * Throws for a slug reserved for the versioned area (see `bundlePrefix`),
+ * so it can never reach versioned bundles.
+ */
+export async function deleteBundle(slug: string): Promise<void> {
+  await removePrefix(bundlePrefix(slug))
+}
+
+/** Delete one immutable bundle version of `slug`. */
+export async function deleteBundleVersion(slug: string, version: string): Promise<void> {
+  await removePrefix(versionedBundlePrefix(slug, version))
+}
+
+/**
+ * Delete every versioned bundle of `slug` (`public/static/_v/<slug>/`),
+ * including orphans a failed cleanup left behind. Used when a static
+ * post is deleted.
+ */
+export async function deleteAllBundleVersions(slug: string): Promise<void> {
+  await removePrefix(versionedBundlesPrefix(slug))
 }

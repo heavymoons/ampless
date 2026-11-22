@@ -114,6 +114,7 @@
       "postClassesNoneDeclared": "The active theme declares no post styles.",
       "postClassesConflict": "The stored metadata.postClasses value is not a list of valid post style ids (it may belong to a plugin). It is kept unchanged on save. Changing post styles here will replace it.",
       "postClassesNotRestored": "Post styles were not restored from this revision: the revision's or the current stored metadata.postClasses value is not a list of post style ids. The current value is kept unchanged.",
+      "staticRestoreRejected": "This revision can't be restored here because it would change the static bundle: older bundle files may no longer exist. Nothing was restored. To go back to an older bundle, upload its zip again; to stop using a static bundle, change the format instead.",
       "saveConflict": "This post was changed elsewhere while saving. Your edits are kept — save again to retry.",
       "saveNotFound": "This post no longer exists, so it could not be saved. It may have been deleted elsewhere.",
       "saveMetadataConflict": "These settings were changed elsewhere while you edited them: {keys}. Nothing was saved — reload the post to see the other change.",

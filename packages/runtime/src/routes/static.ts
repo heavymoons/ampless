@@ -1,6 +1,6 @@
 import { createServerRunner } from '@aws-amplify/adapter-nextjs'
 import { getUrl } from 'aws-amplify/storage/server'
-import type { PostMetadata, StaticPostFileMeta } from 'ampless'
+import { staticBundlePrefix, type PostMetadata, type StaticPostFileMeta } from 'ampless'
 import type { Ampless } from '../index.js'
 import {
   streamS3Object,
@@ -17,7 +17,10 @@ export type StaticRouteHandler = (req: Request, ctx: Ctx) => Promise<Response>
 /**
  * Internal route handler for `format: 'static'` posts — the body is a
  * manifest describing a bundle of files in S3 at
- * `public/static/<slug>/`. The bundle entrypoint is served at
+ * `staticBundlePrefix(slug, body)`: the immutable
+ * `public/static/_v/<encoded slug>/<version>/` when the body carries a
+ * valid `version`, else the legacy `public/static/<slug>/` (unchanged
+ * keys for bundles written before versioning). The bundle entrypoint is served at
  * `/<slug>/`, every internal file at `/<slug>/<relative-path>`.
  *
  * Mounted at `app/static/[slug]/[[...path]]/route.ts`; reached via
@@ -66,6 +69,17 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
         ? (metadata.files as Record<string, StaticPostFileMeta>)
         : undefined
 
+    // Where this post's bundle lives. Throws only for a legacy body on a
+    // slug reserved for the versioned area (`_v`), which never has a
+    // servable legacy bundle.
+    let prefix: string
+    try {
+      prefix = staticBundlePrefix(slug, post.body)
+    } catch (err) {
+      console.error(`[static-route] no bundle prefix for slug ${slug}:`, err)
+      return new Response('Not Found', { status: 404 })
+    }
+
     if (restSegments.length === 0) {
       const url = new URL(request.url)
       if (!url.pathname.endsWith('/')) {
@@ -87,7 +101,7 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
           : 'index.html'
       return serveStaticAsset({
         runWithAmplifyServerContext,
-        slug,
+        prefix,
         rest: entrypoint,
         filesMeta,
       })
@@ -116,7 +130,7 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
 
     return serveStaticAsset({
       runWithAmplifyServerContext,
-      slug,
+      prefix,
       rest,
       filesMeta,
     })
@@ -125,7 +139,8 @@ export function createStaticRouteHandler(ampless: Ampless): StaticRouteHandler {
 
 interface ServeStaticAssetArgs {
   runWithAmplifyServerContext: ReturnType<typeof createServerRunner>['runWithAmplifyServerContext']
-  slug: string
+  /** Bundle prefix from `staticBundlePrefix` (ends with `/`). */
+  prefix: string
   rest: string
   filesMeta: Record<string, StaticPostFileMeta> | undefined
 }
@@ -145,11 +160,11 @@ interface ServeStaticAssetArgs {
  */
 async function serveStaticAsset({
   runWithAmplifyServerContext,
-  slug,
+  prefix,
   rest,
   filesMeta,
 }: ServeStaticAssetArgs): Promise<Response> {
-  const key = `public/static/${slug}/${rest}`
+  const key = `${prefix}${rest}`
   const persisted = filesMeta?.[rest]
   const meta: ResolvedAssetMeta | undefined = persisted
     ? { size: persisted.size, mimeType: persisted.mimeType }

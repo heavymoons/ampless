@@ -3,7 +3,8 @@ import { createStaticRouteHandler } from '@ampless/runtime/routes'
 
 // Internal handler for `format: 'static'` posts — the body is a
 // manifest pointing at a bundle of files in S3 at
-// `public/static/<slug>/`. Reached via middleware rewrite from
+// `public/static/_v/<slug>/<version>/` (versioned bundles) or the
+// legacy `public/static/<slug>/`. Reached via middleware rewrite from
 // `/<slug>(/<path>)` — never directly. Each request becomes a short-
 // lived S3 presigned redirect (302) for the entrypoint or the
 // requested bundle file. The browser URL stays `/<slug>(/<path>)`;

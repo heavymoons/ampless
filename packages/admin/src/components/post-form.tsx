@@ -14,6 +14,7 @@ import {
   normalizePostClasses,
   PostUpdateConflictError,
   ConditionalUpdateUnsupportedError,
+  staticBundleVersion,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -34,6 +35,8 @@ import {
 import {
   uploadBundle,
   deleteBundle,
+  deleteBundleVersion,
+  deleteAllBundleVersions,
   type ExtractedFile,
 } from '../lib/static-bundle.js'
 import { useT } from './i18n-provider.js'
@@ -155,6 +158,18 @@ function withStaticFiles(
   return Object.keys(next).length > 0 ? (next as PostMetadata) : undefined
 }
 
+// Best-effort removal of one bundle version that no stored post references
+// (any more): a just-uploaded version whose post write failed, or the
+// previous version after a successful replace. A failure only leaves an
+// orphan in S3, so it is logged and never fails the save.
+async function removeBundleVersion(slug: string, version: string, why: string): Promise<void> {
+  try {
+    await deleteBundleVersion(slug, version)
+  } catch (err) {
+    console.error(`[ampless admin] failed to remove ${why} static bundle version ${version} of "${slug}":`, err)
+  }
+}
+
 // Format a draft's `savedAt` epoch (date + time) in the project's
 // configured timezone/locale so it reads naturally in the recovery
 // banner. Falls back to a plain locale string if Intl chokes on the TZ.
@@ -205,6 +220,9 @@ export function PostForm({
   // Set when a revision restore left post styles alone because the
   // revision's or the current stored value is not a clean id list.
   const [postClassesNotRestored, setPostClassesNotRestored] = useState(false)
+  // Set when a revision restore was refused because it would change a
+  // static bundle (see restoreRevision).
+  const [staticRestoreRejected, setStaticRestoreRejected] = useState(false)
   const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -400,6 +418,7 @@ export function PostForm({
     )
     setPostClassesTouched(draft.postClasses !== undefined)
     setPostClassesNotRestored(false)
+    setStaticRestoreRejected(false)
     setPendingBundle(null)
     // Force the tiptap editor to remount with the restored body.
     setEditorEpoch((e) => e + 1)
@@ -568,8 +587,24 @@ export function PostForm({
   // clean id list: a malformed one (legacy or plugin-owned) would be
   // normalized away and, once touched, erased on save. Then post styles
   // stay as they are (current raw value kept) and a notice says why.
+  // A restore that would change a static bundle — the revision or the form
+  // is static, and the revision's manifest is not the form's current one —
+  // is refused as a whole and nothing is applied: an older manifest may
+  // point at bundle files that were garbage-collected after a replace, and
+  // `metadata.files` (never restored) would no longer match it. Restoring
+  // only the other fields would leave a half-applied revision, so the user
+  // re-uploads the old zip instead. A static revision with the current
+  // manifest (e.g. one that differs only in title) restores normally.
   function restoreRevision(rev: PostRevision) {
     const fmt = rev.format ?? 'markdown'
+    if (
+      (fmt === 'static' || format === 'static') &&
+      !(fmt === 'static' && format === 'static' && JSON.stringify(rev.body) === JSON.stringify(body))
+    ) {
+      setStaticRestoreRejected(true)
+      return
+    }
+    setStaticRestoreRejected(false)
     setTitle(rev.title ?? '')
     setSlug(rev.slug ?? '')
     setExcerpt(rev.excerpt ?? '')
@@ -629,11 +664,14 @@ export function PostForm({
       // always references files that actually exist, and its per-file
       // size / mimeType map is stamped onto `metadata.files` so the static
       // delivery route can stream small files back without a HEAD
-      // round-trip on first read. On edit the upload happens only after
-      // the re-read below found no conflict: it replaces the files under
-      // the slug's S3 prefix, which a concurrently saved bundle also uses.
-      // If no new bundle was picked, we re-use the existing manifest
-      // (edit-only metadata changes shouldn't re-upload).
+      // round-trip on first read. The upload goes to a new immutable
+      // version prefix and deletes nothing, so the bundle the stored post
+      // references stays intact whatever happens to this save: if the
+      // post write is refused or fails, only the new, unreferenced version
+      // is removed again. On edit the upload happens only after the
+      // re-read below found no conflict. If no new bundle was picked, we
+      // re-use the existing manifest (edit-only metadata changes shouldn't
+      // re-upload).
       const pending = format === 'static' ? pendingBundle : null
       const uploadPending = (p: NonNullable<typeof pendingBundle>) =>
         uploadBundle({ slug: finalSlug, files: p.files, entrypoint: p.entrypoint })
@@ -644,15 +682,14 @@ export function PostForm({
           nextBody = undefined
         } else {
           // No new bundle picked. Prefer the current `body` if it is
-          // already a valid static manifest — this is the case after
-          // restoring a static revision (restoreRevision sets `body` to
-          // the revision's manifest, and the save branch must honour it
-          // instead of silently re-writing the current manifest). Else
-          // fall back to the originally-loaded manifest (edit-only
-          // metadata change — preserves metadata.files via buildMetadata's
-          // spread of post.metadata). If neither is a manifest there is
-          // nothing to reference (e.g. restoring a static revision onto a
-          // post that never had a bundle).
+          // already a valid static manifest (restoreRevision only ever
+          // applies a static revision whose manifest equals the current
+          // one, so this is the loaded bundle). Else fall back to the
+          // originally-loaded manifest (edit-only metadata change —
+          // preserves metadata.files via buildMetadata's spread of
+          // post.metadata). If neither is a manifest there is nothing to
+          // reference (e.g. switching a post that never had a bundle to
+          // static without picking one).
           const fallbackManifest = isStaticBody(body) ? body : initialStaticBody
           if (!fallbackManifest) throw new Error(t('posts.form.static.noBundle'))
           nextBody = fallbackManifest
@@ -714,9 +751,12 @@ export function PostForm({
         let writeFormat: ContentFormat = format
         let writeBody: unknown = nextBody
         let writeMetadata = mergedMetadata
+        // The version this save uploaded, until the write has committed.
+        let uploadedVersion: string | null = null
         if (staticGroup) {
           if (staticGroup === mineGroup && pending) {
             const result = await uploadPending(pending)
+            uploadedVersion = result.body.version
             staticGroup = { format: 'static', body: result.body, files: result.filesMeta }
           }
           writeFormat = staticGroup.format ?? format
@@ -728,38 +768,68 @@ export function PostForm({
         // must send an explicit value or the stored value would survive.
         // Send `excerpt` verbatim ('' clears it) and `metadata ?? {}` ('{}'
         // clears stale keys like a leftover `no_layout`).
-        await updatePost(
-          post!.postId,
-          {
-            title,
-            slug: finalSlug,
-            excerpt,
-            format: writeFormat,
-            body: writeBody,
-            status,
-            publishedAt,
-            tags,
-            metadata: writeMetadata ?? {},
-          },
-          { expectedUpdatedAt: fresh.updatedAt ?? null }
-        )
+        try {
+          await updatePost(
+            post!.postId,
+            {
+              title,
+              slug: finalSlug,
+              excerpt,
+              format: writeFormat,
+              body: writeBody,
+              status,
+              publishedAt,
+              tags,
+              metadata: writeMetadata ?? {},
+            },
+            { expectedUpdatedAt: fresh.updatedAt ?? null }
+          )
+        } catch (err) {
+          // Nothing references the version just uploaded: remove it. The
+          // stored post's own bundle was never touched.
+          if (uploadedVersion) await removeBundleVersion(finalSlug, uploadedVersion, 'unreferenced')
+          throw err
+        }
+        if (uploadedVersion) {
+          // The write replaced exactly `fresh` (compare-and-swap), so its
+          // bundle is no longer referenced. A versioned one is ours to
+          // delete: nothing else writes into a version prefix. A legacy
+          // per-slug prefix is left in place, since MCP per-file tools may
+          // still be working on it; it stays as an orphan until the post
+          // is deleted.
+          const previousVersion = fresh.format === 'static' ? staticBundleVersion(fresh.body) : undefined
+          if (previousVersion) {
+            await removeBundleVersion(fresh.slug, previousVersion, 'replaced')
+          } else if (fresh.format === 'static') {
+            console.info(
+              `[ampless admin] static post "${fresh.slug}" now uses a versioned bundle; its legacy files under public/static/${fresh.slug}/ are left in place.`
+            )
+          }
+        }
       } else {
+        let uploadedVersion: string | null = null
         if (pending) {
           const result = await uploadPending(pending)
+          uploadedVersion = result.body.version
           nextBody = result.body
           metadata = { ...(metadata ?? {}), files: result.filesMeta }
         }
-        await createPost({
-          slug: finalSlug,
-          title,
-          excerpt: excerpt || undefined,
-          format,
-          body: nextBody,
-          status,
-          publishedAt,
-          tags,
-          metadata,
-        })
+        try {
+          await createPost({
+            slug: finalSlug,
+            title,
+            excerpt: excerpt || undefined,
+            format,
+            body: nextBody,
+            status,
+            publishedAt,
+            tags,
+            metadata,
+          })
+        } catch (err) {
+          if (uploadedVersion) await removeBundleVersion(finalSlug, uploadedVersion, 'unreferenced')
+          throw err
+        }
       }
       // Explicit save succeeded — the recovery draft is obsolete. Clear
       // this post's key (and the shared 'new' key on first create, since
@@ -796,13 +866,21 @@ export function PostForm({
     if (!confirm(t('posts.form.deleteConfirm', { title: post.title }))) return
     setSaving(true)
     try {
-      // Clear the bundle's S3 files before the post row goes away so
-      // we don't orphan ~megabytes of assets. Errors are swallowed —
-      // a partial S3 delete shouldn't block the post deletion.
-      if (post.format === 'static') {
-        await deleteBundle(post.slug).catch(() => undefined)
-      }
       await deletePost(post.postId)
+      // Then clear the bundle's S3 files so we don't orphan ~megabytes of
+      // assets: the legacy per-slug prefix and every versioned bundle of
+      // the slug (the current one and any orphan a failed cleanup left).
+      // Done after the row is gone, so a failed delete never leaves a live
+      // post without its files. Errors are logged, not surfaced — the post
+      // is already deleted.
+      if (post.format === 'static') {
+        await deleteBundle(post.slug).catch((err) => {
+          console.error(`[ampless admin] failed to remove legacy static bundle of "${post.slug}":`, err)
+        })
+        await deleteAllBundleVersions(post.slug).catch((err) => {
+          console.error(`[ampless admin] failed to remove versioned static bundles of "${post.slug}":`, err)
+        })
+      }
       router.push('/admin/posts')
       router.refresh()
     } catch (err) {
@@ -1267,6 +1345,23 @@ export function PostForm({
             variant="outline"
             size="sm"
             onClick={() => setPostClassesNotRestored(false)}
+          >
+            {t('common.dismiss')}
+          </Button>
+        </div>
+      )}
+
+      {staticRestoreRejected && (
+        <div
+          className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
+          data-testid="static-restore-rejected"
+        >
+          <p>{t('posts.form.staticRestoreRejected')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setStaticRestoreRejected(false)}
           >
             {t('common.dismiss')}
           </Button>
