@@ -154,8 +154,15 @@ function postTagItemsFromPost(p: ContentEventPayload | null): PostTagItem[] {
   }))
 }
 
+/**
+ * Unambiguous in-memory identity of a PostTag row. JSON-encoded so that no
+ * pair of distinct (tag, publishedAtPostId) values can collide: both parts
+ * can contain any character (tags and postIds written through the API
+ * directly are free-form), so a plain delimiter such as `tag|key` would map
+ * `('a|b', 'c')` and `('a', 'b|c')` to the same string.
+ */
 function itemKey(item: PostTagItem | PostTagKey): string {
-  return `${item.tag}|${item.publishedAtPostId}`
+  return JSON.stringify([item.tag, item.publishedAtPostId])
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +213,7 @@ export function planPostTagRebuild(candidates: PostTagKey[], desired: PostTagIte
   return { deletes: [...deletes.values()], puts: desired }
 }
 
-/** `tag|publishedAtPostId` — the identity of a PostTag row. */
+/** Unambiguous identity of a PostTag row (see `itemKey`). */
 export function postTagKeyString(key: PostTagKey): string {
   return itemKey(key)
 }

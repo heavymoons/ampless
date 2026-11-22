@@ -35,7 +35,10 @@ function harness(opts: {
 }) {
   const posts = new Map((opts.posts ?? []).map((p) => [p.postId as string, { ...p }]))
   const tags = new Map(
-    (opts.tagRows ?? []).map((r) => [`${String(r.tag)}|${String(r.publishedAtPostId)}`, { ...r }])
+    (opts.tagRows ?? []).map((r) => [
+      JSON.stringify([String(r.tag), String(r.publishedAtPostId)]),
+      { ...r },
+    ])
   )
   const commands: string[] = []
   const stdout: string[] = []
@@ -78,17 +81,17 @@ function harness(opts: {
           if (put!.Delete) {
             commands.push('TransactDelete')
             const k = put!.Delete!.Key as Record<string, unknown>
-            tags.delete(`${String(k.tag)}|${String(k.publishedAtPostId)}`)
+            tags.delete(JSON.stringify([String(k.tag), String(k.publishedAtPostId)]))
             return {}
           }
           const item = put!.Put!.Item as Record<string, unknown>
-          tags.set(`${String(item.tag)}|${String(item.publishedAtPostId)}`, { ...item })
+          tags.set(JSON.stringify([String(item.tag), String(item.publishedAtPostId)]), { ...item })
           return {}
         }
         if (command instanceof DeleteCommand) {
           commands.push('Delete')
           const key = input.Key as Record<string, unknown>
-          tags.delete(`${String(key.tag)}|${String(key.publishedAtPostId)}`)
+          tags.delete(JSON.stringify([String(key.tag), String(key.publishedAtPostId)]))
           return {}
         }
         throw new Error('unexpected command')

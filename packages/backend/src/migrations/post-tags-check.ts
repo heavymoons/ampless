@@ -112,11 +112,15 @@ function rowContent(row: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
-/** The post a PostTag row belongs to: its `postId`, else the SK suffix. */
+/**
+ * The post a PostTag row belongs to: its `postId`, else the SK suffix. The
+ * SK is `<publishedAt>#<postId>`; a publishedAt never contains `#` but a
+ * postId may, so the postId is everything after the FIRST `#`.
+ */
 function rowPostId(row: Record<string, unknown>): string | null {
   if (typeof row.postId === 'string' && row.postId !== '') return row.postId
   const sk = row.publishedAtPostId
-  if (typeof sk === 'string' && sk.includes('#')) return sk.slice(sk.lastIndexOf('#') + 1) || null
+  if (typeof sk === 'string' && sk.includes('#')) return sk.slice(sk.indexOf('#') + 1) || null
   return null
 }
 

@@ -17,6 +17,7 @@ import {
   postPayloadFromItem,
   postStateFingerprint,
   postStateFromItem,
+  postTagKeyString,
   postTagRowsFingerprint,
   reconcilePostTagsForPost,
   stableStringify,
@@ -336,6 +337,26 @@ describe('planPostTagRebuild', () => {
   })
 })
 
+describe('PostTag key identity with delimiter-bearing values', () => {
+  // ('a|b', 'c') and ('a', 'b|c') join to the same `a|b|c`.
+  const k1 = { tag: 'a|b', publishedAtPostId: 'c' }
+  const k2 = { tag: 'a', publishedAtPostId: 'b|c' }
+
+  it('postTagKeyString keeps them distinct', () => {
+    expect(postTagKeyString(k1)).not.toBe(postTagKeyString(k2))
+  })
+
+  it('candidateKeys keeps both instead of deduplicating one away', () => {
+    expect(candidateKeys(null, [k1, k2])).toEqual([k1, k2])
+  })
+
+  it('planPostTagRebuild deletes the colliding candidate that is not desired', () => {
+    const desired = [{ ...k1, postId: 'p', publishedAt: CANONICAL, slug: 's', title: 't', tags: [] }]
+    const plan = planPostTagRebuild([k1, k2], desired as never)
+    expect(plan.deletes).toEqual([k2])
+  })
+})
+
 describe('stableStringify / postTagRowsFingerprint', () => {
   it('ignores object key order and row order, but not content', () => {
     expect(stableStringify({ b: 1, a: [1, { d: 2, c: 3 }] })).toBe(
@@ -488,7 +509,8 @@ function opOf(cmd: AnyCommand): string {
   throw new Error('unexpected command')
 }
 
-const keyOf = (r: { tag: string; publishedAtPostId: string }) => `${r.tag}|${r.publishedAtPostId}`
+const keyOf = (r: { tag: string; publishedAtPostId: string }) =>
+  JSON.stringify([r.tag, r.publishedAtPostId])
 
 function fakeStore(initialPost: Item | null, initialRows: PostTagItem[] = []) {
   let post: Row | null = initialPost ? (structuredClone(initialPost) as Row) : null
@@ -901,7 +923,7 @@ describe('reconcilePostTagsForPost', () => {
   it('(f) A then B (in order): canonical rows after A, empty after B', async () => {
     const store = fakeStore(canonicalPublished, oldRows())
     await rebuild(store, eventA)
-    expect([...store.rows.keys()].sort()).toEqual([`news|${CANONICAL}#p1`, `tech|${CANONICAL}#p1`])
+    expect([...store.rows.values()].map(({ row }) => `${row.tag}|${row.publishedAtPostId}`).sort()).toEqual([`news|${CANONICAL}#p1`, `tech|${CANONICAL}#p1`])
     store.writePost(draft)
     await rebuild(store, eventB)
     expect(store.rows.size).toBe(0)
@@ -955,7 +977,7 @@ describe('reconcilePostTagsForPost', () => {
     // remove the row it wrote for `a`.
     const res = await rebuild(store, null)
     expect(res.attempts).toBe(2)
-    expect([...store.rows.keys()]).toEqual(['life|2026-06-01T00:00:00.000Z#p1'])
+    expect([...store.rows.values()].map(({ row }) => `${row.tag}|${row.publishedAtPostId}`)).toEqual(['life|2026-06-01T00:00:00.000Z#p1'])
     expect(store.violations).toEqual([])
   })
 

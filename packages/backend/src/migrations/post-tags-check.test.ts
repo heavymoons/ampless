@@ -35,7 +35,7 @@ function fakeDb(posts: object[], tagRows: object[]) {
   const tagTable = new Map<string, Record<string, unknown>>(
     tagRows.map((r) => {
       const row = r as { tag: string; publishedAtPostId: string }
-      return [`${row.tag}|${row.publishedAtPostId}`, { ...r }]
+      return [JSON.stringify([row.tag, row.publishedAtPostId]), { ...r }]
     })
   )
   const scans: Array<Record<string, unknown>> = []
@@ -81,7 +81,7 @@ function fakeDb(posts: object[], tagRows: object[]) {
         if (put!.Delete) {
           const k = put!.Delete!.Key as { tag: string; publishedAtPostId: string }
           writes.push(`delete ${k.tag}|${k.publishedAtPostId}`)
-          tagTable.delete(`${k.tag}|${k.publishedAtPostId}`)
+          tagTable.delete(JSON.stringify([k.tag, k.publishedAtPostId]))
           return {}
         }
         const item = put!.Put!.Item as unknown as PostTagItem
@@ -91,14 +91,17 @@ function fakeDb(posts: object[], tagRows: object[]) {
           throw e
         }
         writes.push(`put ${item.tag}|${item.publishedAtPostId}`)
-        tagTable.set(`${item.tag}|${item.publishedAtPostId}`, structuredClone(item) as never)
+        tagTable.set(
+          JSON.stringify([item.tag, item.publishedAtPostId]),
+          structuredClone(item) as never
+        )
         return {}
       }
       if (command instanceof DeleteCommand) {
         writeTimes.push(clock.now)
         const key = input.Key as { tag: string; publishedAtPostId: string }
         writes.push(`delete ${key.tag}|${key.publishedAtPostId}`)
-        tagTable.delete(`${key.tag}|${key.publishedAtPostId}`)
+        tagTable.delete(JSON.stringify([key.tag, key.publishedAtPostId]))
         return {}
       }
       throw new Error('unexpected command')
@@ -190,6 +193,62 @@ describe('comparePostTags', () => {
         postId: 'p1',
         key: { tag: tech!.tag, publishedAtPostId: tech!.publishedAtPostId },
       },
+    ])
+  })
+
+  // Tags and postIds written through the API directly are free-form, so a
+  // delimiter-joined key would collide: (tag 'a', postId 'x|T#y') and
+  // (tag 'a|T#x', postId 'y') both give `a|T#x|T#y`.
+  const COLLIDING_ID = `x|${CANONICAL}#y`
+  const collidingPublished = () => post({ postId: COLLIDING_ID, tags: ['a'], title: 'Public' })
+  const collidingDraft = () =>
+    post({ postId: 'y', tags: [`a|${CANONICAL}#x`], status: 'draft', title: 'Draft title' })
+
+  it('keeps delimiter-bearing (tag, key) pairs of different posts apart', () => {
+    const pub = collidingPublished()
+    const draft = collidingDraft()
+    const [pubRow] = desiredPostTagRows(pub).map((r) => ({ ...r }))
+    const [draftRow] = desiredPostTagRows({ ...draft, status: 'published' }).map((r) => ({ ...r }))
+    // The two rows really do collide under `tag|publishedAtPostId`.
+    expect(`${pubRow!.tag}|${pubRow!.publishedAtPostId}`).toBe(
+      `${draftRow!.tag}|${draftRow!.publishedAtPostId}`
+    )
+    const posts = new Map<string, ContentEventPayload | null>([
+      [COLLIDING_ID, pub],
+      ['y', draft],
+    ])
+    // Correct rows of the published post only: nothing to report.
+    expect(comparePostTags(posts, [pubRow!])).toEqual([])
+    // Add the draft's stale row: reported as stale for `y`, and the published
+    // post's row is not mistaken for it (nor reported missing / changed).
+    expect(comparePostTags(posts, [pubRow!, draftRow!])).toEqual([
+      {
+        kind: 'stale',
+        postId: 'y',
+        key: { tag: draftRow!.tag, publishedAtPostId: draftRow!.publishedAtPostId },
+        reason: 'not-indexed',
+      },
+    ])
+    // Only the draft's row: the published post's row is reported missing.
+    expect(comparePostTags(posts, [draftRow!])).toEqual([
+      {
+        kind: 'stale',
+        postId: 'y',
+        key: { tag: draftRow!.tag, publishedAtPostId: draftRow!.publishedAtPostId },
+        reason: 'not-indexed',
+      },
+      {
+        kind: 'missing',
+        postId: COLLIDING_ID,
+        key: { tag: pubRow!.tag, publishedAtPostId: pubRow!.publishedAtPostId },
+      },
+    ])
+  })
+
+  it('takes the postId after the first # of the sort key (a postId may contain #)', () => {
+    const row = { tag: 'news', publishedAtPostId: `${CANONICAL}#gone#with#hashes` }
+    expect(comparePostTags(new Map(), [row])).toEqual([
+      { kind: 'stale', postId: 'gone#with#hashes', key: row, reason: 'post-missing' },
     ])
   })
 
@@ -285,11 +344,9 @@ describe('runPostTagCheck', () => {
     const dump = JSON.stringify([...db.tagTable.values()])
     expect(dump).not.toContain('Draft title')
     expect(dump).not.toContain('Draft excerpt')
-    expect([...db.tagTable.keys()].sort()).toEqual([
-      `life|${CANONICAL}#p3`,
-      `news|${CANONICAL}#p1`,
-      `tech|${CANONICAL}#p1`,
-    ])
+    expect(
+      [...db.tagTable.values()].map((r) => `${String(r.tag)}|${String(r.publishedAtPostId)}`).sort()
+    ).toEqual([`life|${CANONICAL}#p3`, `news|${CANONICAL}#p1`, `tech|${CANONICAL}#p1`])
     // Rate limit (10/s): every write call — including the two puts of p1's
     // rebuild — starts ≥ 100 ms after the previous one; the first is immediate.
     expect(db.writeTimes).toEqual([0, 100, 200])
@@ -369,6 +426,31 @@ describe('runPostTagCheck', () => {
       expect.stringContaining('repair failed for postId=p1'),
       expect.anything()
     )
+  })
+
+  it("apply: delimiter-bearing pairs across posts — removes only the draft's row, keeps the public one", async () => {
+    const pub = post({ postId: `x|${CANONICAL}#y`, tags: ['a'], title: 'Public' })
+    const draft = post({
+      postId: 'y',
+      tags: [`a|${CANONICAL}#x`],
+      status: 'draft',
+      title: 'Draft title',
+    })
+    const [pubRow] = desiredPostTagRows(pub)
+    const [draftRow] = desiredPostTagRows({ ...draft, status: 'published' })
+    const db = fakeDb([pub, draft], [pubRow!, draftRow!])
+    const summary = await runPostTagCheck({
+      client: db.client,
+      postTable: POSTS,
+      postTagTable: TAGS,
+      apply: true,
+      log: silent,
+      ...db.timing,
+    })
+    expect(summary.mismatches).toHaveLength(1)
+    expect(summary.remaining).toEqual([])
+    expect([...db.tagTable.values()]).toEqual([pubRow])
+    expect(JSON.stringify([...db.tagTable.values()])).not.toContain('Draft title')
   })
 
   it('clean tables → zero mismatches, no writes', async () => {

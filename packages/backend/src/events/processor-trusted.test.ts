@@ -182,7 +182,7 @@ vi.mock('@aws-sdk/lib-dynamodb', async () => {
           }
           if (command instanceof PutCommand) {
             const item = command.input.Item as { tag: string; publishedAtPostId: string }
-            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
+            postTagRows.set(JSON.stringify([item.tag, item.publishedAtPostId]), { ...item })
             return {}
           }
           if (command instanceof TransactWriteCommand) {
@@ -195,16 +195,16 @@ vi.mock('@aws-sdk/lib-dynamodb', async () => {
             }
             if (put!.Delete) {
               const k = put!.Delete!.Key as { tag: string; publishedAtPostId: string }
-              postTagRows.delete(`${k.tag}|${k.publishedAtPostId}`)
+              postTagRows.delete(JSON.stringify([k.tag, k.publishedAtPostId]))
               return {}
             }
             const item = put!.Put!.Item as { tag: string; publishedAtPostId: string }
-            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
+            postTagRows.set(JSON.stringify([item.tag, item.publishedAtPostId]), { ...item })
             return {}
           }
           if (command instanceof DeleteCommand) {
             const key = command.input.Key as { tag: string; publishedAtPostId: string }
-            postTagRows.delete(`${key.tag}|${key.publishedAtPostId}`)
+            postTagRows.delete(JSON.stringify([key.tag, key.publishedAtPostId]))
             return {}
           }
           const tableName = command.input.TableName as string | undefined
@@ -1289,7 +1289,7 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
 
   it('B (unpublish) processed before A (migration rewrite) leaves no public row', async () => {
     // Old row of the published state; the Post is now a draft.
-    postTagRows.set('news|2026-05-01T00:00:00.000Z#p1', {
+    postTagRows.set(JSON.stringify(['news', '2026-05-01T00:00:00.000Z#p1']), {
       ...canonicalPublished,
       tag: 'news',
       publishedAtPostId: '2026-05-01T00:00:00.000Z#p1',
@@ -1327,8 +1327,8 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
       vi.fn() as never
     )
 
-    expect([...postTagRows.keys()]).toEqual(['life|2026-05-01T00:00:00.000Z#p1'])
-    expect(postTagRows.get('life|2026-05-01T00:00:00.000Z#p1')).toMatchObject({
+    expect([...postTagRows.values()].map((r) => `${String(r.tag)}|${String(r.publishedAtPostId)}`)).toEqual(['life|2026-05-01T00:00:00.000Z#p1'])
+    expect(postTagRows.get(JSON.stringify(['life', '2026-05-01T00:00:00.000Z#p1']))).toMatchObject({
       title: 'Current title',
     })
   })
@@ -1362,7 +1362,7 @@ describe('post.index.refresh — PostTag rebuild from the current Post', () => {
     expect(kinds).toEqual(['delete', 'put'])
     // No plain PutItem / DeleteItem.
     expect(ddbCommands.some((c) => 'Item' in c.input || ('Key' in c.input && !('ConsistentRead' in c.input)))).toBe(false)
-    expect([...postTagRows.keys()]).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
+    expect([...postTagRows.values()].map((r) => `${String(r.tag)}|${String(r.publishedAtPostId)}`)).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
   })
 
   it('logs and skips a refresh without any postId', async () => {
