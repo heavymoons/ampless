@@ -35,11 +35,12 @@ import { util, runtime } from '@aws-appsync/utils'
 //     unparseable are dropped. This stops a negative-offset row (e.g.
 //     `...T00:00:00-05:00`, lexically "earlier" than its instant) from
 //     going public before its time.
-//   - limitation: the key range is not widened, so a non-canonical
+//   - limitation (#406): the key range is not widened, so a non-canonical
 //     positive-offset row (`...+09:00`) that is already live stays outside
 //     the lexical `<= now` bound until its local wall-clock passes, i.e. it
 //     appears in this listing late (never early), and mixed-offset rows may
-//     be ordered by string rather than instant. Re-saving the post's
+//     be ordered by string rather than instant. This applies to new direct
+//     API writes too until write-time normalization lands. Re-saving the post's
 //     publishedAt in the admin UI rewrites it in canonical UTC.
 // A page may therefore hold fewer than `limit` items only when such
 // non-canonical rows were dropped; canonical data is unaffected.

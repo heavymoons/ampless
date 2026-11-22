@@ -120,7 +120,12 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('publishedAt visibility is decided by instant, consistently', () => {
+// NOTE: these cases feed rows straight to the response handler, i.e. they
+// assume DynamoDB already returned the row. They check the instant re-check
+// only. Whether a row survives the lexical KEY condition is covered by the
+// end-to-end describe at the bottom of this file, which is where the
+// remaining (#389) gap for non-canonical Post rows shows up.
+describe('response re-check decides visibility by instant, consistently', () => {
   it.each([
     // [publishedAt, visible at NOW]
     ['2026-01-01T02:59:59.999Z', true], // canonical past
@@ -134,7 +139,7 @@ describe('publishedAt visibility is decided by instant, consistently', () => {
     ['2026-01-01T03:00Z', true], // no seconds, = now
     ['2026-01-01T03:00:00Z', true], // no millis, = now
     ['not-a-date', false], // unparseable fails closed
-  ])('%s → visible=%s in get / list / tag', (publishedAt, visible) => {
+  ])('%s → visible=%s in get / list / tag response', (publishedAt, visible) => {
     expect(getVisible(publishedAt)).toBe(visible)
     expect(listVisible(publishedAt)).toBe(visible)
     expect(tagVisible(publishedAt)).toBe(visible)
@@ -207,5 +212,92 @@ describe('listPostsByTag key bound', () => {
     const { req } = runList(listPostsByTag, { tag: 'news' }, [])
     const query = req.query as { expressionValues: Record<string, string> }
     expect(query.expressionValues[':upper']).toBe(`${NOW}#￿`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// End-to-end: request key condition (evaluated lexically, as DynamoDB does on
+// a string sort key) + response re-check. This is the honest picture of what
+// a caller sees, including the gap this change does NOT close.
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the resolver's key condition to `rows` the way DynamoDB would: the
+ * sort key is compared as a string, rows are returned in SK order
+ * (descending, as both list resolvers request), then the response runs.
+ */
+function runQuery(
+  mod: ResolverModule,
+  args: Record<string, unknown>,
+  rows: Array<Record<string, unknown>>,
+  skAttr: string
+) {
+  const c = ctx(args)
+  const req = mod.request(c) as Record<string | symbol, unknown>
+  if (req[EARLY_RETURN]) return { items: [] as Array<Record<string, unknown>> }
+  const query = req.query as { expression: string; expressionValues: Record<string, string> }
+  const upper = query.expressionValues[':upper']!
+  const from = query.expressionValues[':from']
+  const hit = rows
+    .filter((r) => {
+      const sk = String(r[skAttr])
+      return sk <= upper && (from === undefined || sk >= from)
+    })
+    .sort((a, b) => (String(a[skAttr]) < String(b[skAttr]) ? 1 : -1))
+  c.result = { items: hit, nextToken: null }
+  return mod.response(c) as { items: Array<Record<string, unknown>> }
+}
+
+describe('end-to-end with lexical key conditions', () => {
+  it('never exposes a future negative-offset Post row early (listPublishedPosts)', () => {
+    // Sorts lexically before NOW (03:00Z) but is 04:00Z.
+    const res = runQuery(listPublishedPosts, {}, [post('2025-12-31T23:00:00-05:00')], 'publishedAt')
+    expect(res.items).toEqual([])
+  })
+
+  it('KNOWN GAP (#406): an already-live +09:00 Post row is cut by the byStatus key bound', () => {
+    // 11:00+09:00 = 02:00Z, live at NOW, but its string sorts after
+    // "2026-01-01T03:00:00.000Z", so DynamoDB never returns it. This holds
+    // for existing rows AND for new rows written via the API, because the
+    // Post row (the byStatus SK) is stored verbatim. Closing it requires
+    // write-time normalization + a backfill (#406).
+    const live = post('2026-01-01T11:00:00+09:00')
+    expect(getVisible('2026-01-01T11:00:00+09:00')).toBe(true)
+    expect(runQuery(listPublishedPosts, {}, [live], 'publishedAt').items).toEqual([])
+  })
+
+  it('KNOWN GAP (#406): mixed-offset Post rows are ordered by string, not instant', () => {
+    const plus9 = post('2026-01-01T00:30:00+09:00') // = 2025-12-31T15:30Z
+    const utc = post('2025-12-31T20:00:00.000Z')
+    const res = runQuery(listPublishedPosts, {}, [utc, plus9], 'publishedAt')
+    // Chronologically utc (20:00Z) is newer, but the +09:00 string sorts higher.
+    expect(res.items.map((i) => i.publishedAt)).toEqual([plus9.publishedAt, utc.publishedAt])
+  })
+
+  it('a new +09:00 post is listed correctly by tag, because posttag-sync keys PostTag rows in canonical UTC', async () => {
+    const { computePostTagDiff } = await import('../events/posttag-sync.js')
+    const { puts } = computePostTagDiff({
+      previous: null,
+      next: {
+        postId: 'p1',
+        slug: 's1',
+        title: 't',
+        status: 'published',
+        publishedAt: '2026-01-01T11:00:00+09:00', // = 02:00Z, live
+        tags: ['news'],
+      },
+    } as never)
+    const res = runQuery(listPostsByTag, { tag: 'news' }, puts as never, 'publishedAtPostId')
+    expect(res.items.map((i) => i.postId)).toEqual(['p1'])
+  })
+
+  it('KNOWN GAP (#406): a legacy verbatim-keyed +09:00 PostTag row is cut until the post is re-saved', () => {
+    const res = runQuery(
+      listPostsByTag,
+      { tag: 'news' },
+      [tagRow('2026-01-01T11:00:00+09:00')],
+      'publishedAtPostId'
+    )
+    expect(res.items).toEqual([])
   })
 })
