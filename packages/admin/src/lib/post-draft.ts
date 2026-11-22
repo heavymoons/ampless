@@ -40,6 +40,12 @@ export interface PostDraft {
   publishedAtInput: string
   noLayout: boolean
   /**
+   * Selected theme post class ids (`metadata.postClasses`). Optional:
+   * drafts written before post classes existed lack it, and recovery then
+   * keeps the loaded post's classes.
+   */
+  postClasses?: string[]
+  /**
    * The server post's `updatedAt` at the moment the draft was taken (or
    * null for a brand-new post). The base-version anchor: on recovery we
    * compare this against the freshly-loaded post's `updatedAt` to detect
@@ -128,6 +134,8 @@ export interface LoadedPostState {
   tags: string
   publishedAtInput: string
   noLayout: boolean
+  /** Normalized `metadata.postClasses` of the loaded post. */
+  postClasses: string[]
   /** `post?.updatedAt ?? null` — the current server base version. */
   updatedAt: string | null
 }
@@ -152,6 +160,9 @@ export function draftDiffersFromLoaded(draft: PostDraft, loaded: LoadedPostState
   if (draft.tags !== loaded.tags) return true
   if (draft.publishedAtInput !== loaded.publishedAtInput) return true
   if (draft.noLayout !== loaded.noLayout) return true
+  // A draft without the field (written before post classes existed) does
+  // not differ on it. Order matters: it is the rendered class order.
+  if (draft.postClasses !== undefined && !deepEqual(draft.postClasses, loaded.postClasses)) return true
   return !deepEqual(draft.body, loaded.body)
 }
 

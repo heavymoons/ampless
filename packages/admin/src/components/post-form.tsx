@@ -8,6 +8,7 @@ import {
   updatePost,
   deletePost,
   formatDate,
+  normalizePostClasses,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -19,6 +20,7 @@ import { TiptapEditor } from '../editor/tiptap-editor.js'
 import { MediaPicker } from './media-picker.js'
 import { PostHistoryPanel } from './post-history-panel.js'
 import { StaticUploader } from './static-uploader.js'
+import { PostClassesField, type EditorPostClass } from './post-classes-field.js'
 import {
   uploadBundle,
   deleteBundle,
@@ -66,7 +68,15 @@ interface PostFormProps {
    * treated as trusted; see the iframe comment below for full rationale).
    */
   previewEndpoint?: string
+  /**
+   * Post custom classes the active theme declares (`target: 'post'`),
+   * resolved by the page factory. Offered as checkboxes in the post
+   * settings; stored ids outside this list are kept and flagged.
+   */
+  availablePostClasses?: ReadonlyArray<EditorPostClass>
 }
+
+const NO_POST_CLASSES: ReadonlyArray<EditorPostClass> = []
 
 const EMPTY_TIPTAP_DOC = { type: 'doc', content: [{ type: 'paragraph' }] }
 
@@ -138,7 +148,11 @@ function formatDraftTime(epochMs: number, timezone: string, locale: string): str
   }
 }
 
-export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormProps) {
+export function PostForm({
+  post,
+  previewEndpoint = '/admin/preview',
+  availablePostClasses = NO_POST_CLASSES,
+}: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
@@ -152,6 +166,12 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
   const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
+  // Theme-defined post classes (`metadata.postClasses`). Normalized on load:
+  // invalid ids would never render anyway, so they are not carried forward;
+  // valid ids the active theme does not declare are kept (and flagged).
+  const [postClasses, setPostClasses] = useState<string[]>(() =>
+    normalizePostClasses(post?.metadata?.postClasses)
+  )
   const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -259,10 +279,14 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   // always strip it — protects against stale flags surviving a format
   // switch and confusing the dispatcher. Returns undefined when the
   // resulting object would be empty, so we don't store a meaningless `{}`.
+  // `postClasses` is form-owned the same way (all formats): set when any are
+  // selected, otherwise the key is removed.
   function buildMetadata(): PostMetadata | undefined {
     const next: PostMetadata = { ...(post?.metadata ?? {}) }
     if (noLayout && format === 'html') next.no_layout = true
     else delete next.no_layout
+    if (postClasses.length > 0) next.postClasses = [...postClasses]
+    else delete next.postClasses
     return Object.keys(next).length > 0 ? next : undefined
   }
 
@@ -292,6 +316,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     tags: (post?.tags ?? []).join(', '),
     publishedAtInput: isoToLocalInput(post?.publishedAt),
     noLayout: post?.metadata?.no_layout === true,
+    postClasses: normalizePostClasses(post?.metadata?.postClasses),
     updatedAt: post?.updatedAt ?? null,
   }
 
@@ -306,6 +331,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       tags: tagsInput,
       publishedAtInput,
       noLayout,
+      postClasses,
       baseUpdatedAt: post?.updatedAt ?? null,
       savedAt: Date.now(),
     }
@@ -325,6 +351,13 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     setTagsInput(draft.tags)
     setPublishedAtInput(draft.publishedAtInput)
     setNoLayout(draft.noLayout && draft.format === 'html')
+    // Drafts written before post classes existed lack the field: keep the
+    // loaded post's classes rather than clearing them.
+    setPostClasses(
+      draft.postClasses === undefined
+        ? loadedState.postClasses
+        : normalizePostClasses(draft.postClasses)
+    )
     setPendingBundle(null)
     // Force the tiptap editor to remount with the restored body.
     setEditorEpoch((e) => e + 1)
@@ -389,7 +422,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     // Re-arm on every tracked field change; the dirty gate decides whether
     // a write actually happens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout])
+  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout, postClasses])
 
   function insertMediaSnippet(url: string) {
     if (format === 'tiptap') return // tiptap handles images via its own MediaPicker
@@ -479,12 +512,13 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   // save — the user reviews and clicks Save, which creates a fresh
   // revision via the existing dispatcher path. Applies ONLY the content
   // fields below; the full `metadata` blob is intentionally NOT restored
-  // (buildMetadata rebuilds from the live post.metadata and has no
-  // metadata state, so restoring the blob wouldn't apply and could
-  // clobber plugin / SEO data). The snapshot still STORES metadata; we
-  // just don't apply it on restore in v1. The one metadata key we honour
-  // is `no_layout`, and only for html revisions (matches buildMetadata's
-  // gating).
+  // (buildMetadata rebuilds from the live post.metadata and only owns a
+  // few keys through form state, so restoring the blob wouldn't apply and
+  // could clobber plugin / SEO data). The snapshot still STORES metadata;
+  // we just don't apply it on restore in v1. The metadata keys we honour
+  // are the form-owned ones: `no_layout`, only for html revisions (matches
+  // buildMetadata's gating), and `postClasses` (a revision without the key
+  // restores to no post classes, as it was rendered then).
   function restoreRevision(rev: PostRevision) {
     const fmt = rev.format ?? 'markdown'
     setTitle(rev.title ?? '')
@@ -496,6 +530,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     setTagsInput((rev.tags ?? []).join(', '))
     setPublishedAtInput(isoToLocalInput(rev.publishedAt))
     setNoLayout(rev.metadata?.no_layout === true && fmt === 'html')
+    setPostClasses(normalizePostClasses(rev.metadata?.postClasses))
     // A new bundle pick (for static) is irrelevant to a restore — clear
     // any pending upload so it can't leak into the next save.
     setPendingBundle(null)
@@ -634,7 +669,8 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
 
   // Build a Post-like object for preview-time rendering. Fields the
   // current form state owns; everything else falls back to either the
-  // existing post (on edit) or sensible defaults.
+  // existing post (on edit) or sensible defaults. `metadata` is the one
+  // save would write, so the preview wrapper gets the edited post classes.
   const previewPost: Post = {
     postId: post?.postId ?? 'preview',
     slug: slug || slugify(title) || 'preview',
@@ -645,6 +681,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     status,
     publishedAt: resolvedPublishedAt,
     tags: parseTags(tagsInput),
+    metadata: buildMetadata(),
   }
 
   // Phase 7: when the preview tab is active, debounce-POST the draft
@@ -697,6 +734,9 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     status,
     resolvedPublishedAt,
     tagsInput,
+    // Array identity changes on every edit; join so an unchanged list
+    // doesn't re-fetch.
+    postClasses.join(' '),
   ])
 
   return (
@@ -1052,6 +1092,20 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
             </span>
           </label>
         </div>
+      )}
+
+      {/* Static bundles and no_layout html bypass the theme's post body
+          wrapper, so post styles would have no effect there. The stored
+          selection is still kept (buildMetadata writes it for every format). */}
+      {format !== 'static' && !(format === 'html' && noLayout) && (
+        <PostClassesField
+          available={availablePostClasses}
+          value={postClasses}
+          onChange={(next) => {
+            setPostClasses(next)
+            markDirty()
+          }}
+        />
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}

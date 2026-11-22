@@ -72,7 +72,7 @@ export default async function CorporatePost({ params }: PostCtx) {
 
           <div
             id="post-body"
-            className="prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto"
+            className={ampless.postBodyClassName(post, 'prose prose-neutral dark:prose-invert max-w-none [&_img]:max-w-[var(--ampless-img-max-width)] [&_img]:mx-auto')}
             style={proseStyle}
           >
             {await ampless.renderBody(post)}

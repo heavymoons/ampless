@@ -1,4 +1,4 @@
-import type { Post } from 'ampless'
+import { postBodyClassName, type Post } from 'ampless'
 import { renderThemeCss } from '@ampless/runtime'
 import type { Admin } from '../index.js'
 
@@ -332,6 +332,12 @@ export function createPreviewRouteHandler(
       console.warn('[ampless admin] preview theme CSS unavailable:', err)
     }
 
+    // Theme-defined post classes (`metadata.postClasses`) go on the wrapper
+    // like the themes' `#post-body`. `postBodyClassName` keeps only ids
+    // matching CUSTOM_CLASS_ID_PATTERN (no quotes / spaces / markup), so the
+    // draft cannot break out of the attribute; `bodyClassName` itself is
+    // operator config, interpolated as before.
+    const mainClassName = postBodyClassName(draft?.metadata, bodyClassName)
     const html =
       `<!doctype html>` +
       `<html>` +
@@ -342,7 +348,7 @@ export function createPreviewRouteHandler(
       headMarkup +
       `</head>` +
       `<body class="ampless-preview">` +
-      `<main class="${bodyClassName}">${fragment}</main>` +
+      `<main class="${mainClassName}">${fragment}</main>` +
       `</body>` +
       `</html>`
 

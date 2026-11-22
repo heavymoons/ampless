@@ -184,6 +184,25 @@ describe('createPreviewRouteHandler', () => {
     expect(text).not.toContain('prose prose-neutral')
   })
 
+  it('appends the draft metadata.postClasses as ampless-post--<id> on <main>', async () => {
+    const handler = createPreviewRouteHandler(makeAdmin())
+    const res = await handler(makeRequest(makePost({ metadata: { postClasses: ['wide', 'serif', 'wide'] } })))
+    const text = await res.text()
+    expect(text).toContain(
+      '<main class="prose prose-neutral dark:prose-invert max-w-none ampless-post--wide ampless-post--serif">',
+    )
+  })
+
+  it('drops invalid postClasses ids so they cannot break out of the class attribute', async () => {
+    const handler = createPreviewRouteHandler(makeAdmin())
+    const res = await handler(
+      makeRequest(makePost({ metadata: { postClasses: ['x" onmouseover="alert(1)', '<b>', 'ok'] } })),
+    )
+    const text = await res.text()
+    expect(text).toContain('<main class="prose prose-neutral dark:prose-invert max-w-none ampless-post--ok">')
+    expect(text).not.toContain('onmouseover')
+  })
+
   it('plugin publicHead scripts are injected into <head> of the preview document', async () => {
     // This is the core regression guard for the mermaid/highlight fix:
     // publicHeadForPreview returns a React element (a <script> tag) and

@@ -105,6 +105,12 @@
       "status": "Status",
       "noLayout": "No layout",
       "noLayoutHint": "Serve this post as bare HTML — no theme header, footer, or root layout. The body is returned as the entire response. Best paired with format: HTML when the body contains a full <!DOCTYPE html>…</html> document.",
+      "postClasses": "Post styles",
+      "postClassesHint": "Styles the active theme offers for the whole post. They are added as classes to the post body.",
+      "postClassesUnknown": "{id} (not declared by the active theme)",
+      "postClassesUnknownHint": "Kept and still rendered as a class. Remove it if it is no longer needed.",
+      "postClassesRemove": "Remove {id}",
+      "postClassesNoneDeclared": "The active theme declares no post styles.",
       "formatStaticLabel": "Static (zip / file bundle)",
       "static": {
         "pick": "Pick a .zip or one or more files",

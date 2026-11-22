@@ -11,6 +11,8 @@
 // and propagated to the public site through the normal site-settings
 // S3 cache. See https://github.com/heavymoons/ampless/wiki/THEMES for authoring details.
 
+import type { PostMetadata } from './types.js'
+
 export type ThemeFieldType =
   | 'color'
   | 'text'
@@ -118,16 +120,21 @@ export type ThemeField =
   | ThemeLinkListField
 
 /**
- * Where a theme-declared custom class can be applied. Only `table` is
- * supported today: the class goes on the tiptap `table` node and renders
- * as `tiptap-table--<id>` next to the base `tiptap-table` class.
+ * Where a theme-declared custom class can be applied:
+ *   - `table`: the class goes on the tiptap `table` node and renders as
+ *     `tiptap-table--<id>` next to the base `tiptap-table` class.
+ *   - `post`: the class is stored in `PostMetadata.postClasses` and renders
+ *     as `ampless-post--<id>` on the theme's post body wrapper (the theme
+ *     calls `ampless.postBodyClassName(post, base)`).
  */
-export type ThemeCustomClassTarget = 'table'
+export type ThemeCustomClassTarget = 'table' | 'post'
 
 /**
- * A class the theme styles and that editors can opt a block into, e.g.
- * `{ id: 'compact', label: 'Compact', target: 'table' }` with theme CSS for
- * `.tiptap-table--compact`. The id must match `CUSTOM_CLASS_ID_PATTERN`.
+ * A class the theme styles and that editors can opt a block (or a whole
+ * post) into, e.g. `{ id: 'compact', label: 'Compact', target: 'table' }`
+ * with theme CSS for `.tiptap-table--compact`, or
+ * `{ id: 'wide', label: 'Wide', target: 'post' }` with CSS for
+ * `.ampless-post--wide`. The id must match `CUSTOM_CLASS_ID_PATTERN`.
  */
 export interface ThemeCustomClass {
   id: string
@@ -143,9 +150,9 @@ export interface ThemeManifest {
   description?: LocalizedString
   fields: ReadonlyArray<ThemeField>
   /**
-   * Optional classes this theme styles and lets editors apply to blocks
-   * (see `ThemeCustomClass`). The admin editor offers the active theme's
-   * entries; ids stored in posts keep rendering after a theme switch.
+   * Optional classes this theme styles and lets editors apply to blocks or
+   * whole posts (see `ThemeCustomClass`). The admin editor offers the active
+   * theme's entries; ids stored in posts keep rendering after a theme switch.
    */
   customClasses?: ReadonlyArray<ThemeCustomClass>
 }
@@ -176,16 +183,24 @@ export function tableCustomClassName(id: string): string {
   return `tiptap-table--${id}`
 }
 
+/** Class name emitted for a post custom class id (`ampless-post--<id>`). */
+export function postCustomClassName(id: string): string {
+  return `ampless-post--${id}`
+}
+
 /**
- * Valid `target: 'table'` entries of a manifest, de-duplicated by id
+ * Valid entries of a manifest for one `target`, de-duplicated by id
  * (first wins). Invalid ids are dropped with a console warning so a typo
  * in a theme never reaches the editor or the markup.
  */
-export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+export function themeCustomClasses(
+  manifest: Pick<ThemeManifest, 'customClasses' | 'name'>,
+  target: ThemeCustomClassTarget,
+): ThemeCustomClass[] {
   const out: ThemeCustomClass[] = []
   const seen = new Set<string>()
   for (const c of manifest.customClasses ?? []) {
-    if (c?.target !== 'table') continue
+    if (c?.target !== target) continue
     if (!isValidCustomClassId(c.id)) {
       console.warn(`[ampless] theme "${manifest.name}": ignoring custom class with invalid id ${JSON.stringify(c?.id)}`)
       continue
@@ -195,6 +210,47 @@ export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' 
     out.push(c)
   }
   return out
+}
+
+/** Valid `target: 'table'` entries of a manifest (see `themeCustomClasses`). */
+export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+  return themeCustomClasses(manifest, 'table')
+}
+
+/** Valid `target: 'post'` entries of a manifest (see `themeCustomClasses`). */
+export function themePostClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+  return themeCustomClasses(manifest, 'post')
+}
+
+/**
+ * Normalize a stored `PostMetadata.postClasses` value. Metadata is free-form
+ * JSON that MCP / GraphQL can write directly, so anything that is not an
+ * array yields `[]`; inside an array, non-strings and invalid ids are
+ * dropped and duplicates removed (first occurrence keeps its position).
+ */
+export function normalizePostClasses(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const id of value) {
+    if (isValidCustomClassId(id) && !out.includes(id)) out.push(id)
+  }
+  return out
+}
+
+/**
+ * Class attribute for a theme's post body wrapper: `base` followed by
+ * `ampless-post--<id>` for each valid id in `metadata.postClasses`.
+ * Returns `base` unchanged when there are none, so posts without classes
+ * render byte-identical markup. Ids are re-validated here (not only on
+ * write), so the result is always safe inside a `class` attribute as long
+ * as `base` is. Ids the active theme does not declare still render — they
+ * are just unstyled until a theme declares them again.
+ */
+export function postBodyClassName(metadata: PostMetadata | null | undefined, base = ''): string {
+  const ids = normalizePostClasses(metadata?.postClasses)
+  if (ids.length === 0) return base
+  const extra = ids.map(postCustomClassName).join(' ')
+  return base ? `${base} ${extra}` : extra
 }
 
 export function defineTheme(m: ThemeManifest): ThemeManifest {

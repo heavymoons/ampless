@@ -64,3 +64,17 @@ describe('tool registry classification', () => {
     }
   })
 })
+
+describe('post tool schemas', () => {
+  it('create_post and update_post accept a top-level postClasses id list', () => {
+    for (const name of ['create_post', 'update_post']) {
+      const schema = tools.find((t) => t.name === name)!.inputSchema as {
+        properties: Record<string, { type?: string; items?: { pattern?: string }; description?: string }>
+      }
+      const prop = schema.properties.postClasses!
+      expect(prop.type, name).toBe('array')
+      expect(prop.items?.pattern, name).toBe('^[a-z0-9-]+$')
+      expect(prop.description, name).toContain('ampless-post--<id>')
+    }
+  })
+})

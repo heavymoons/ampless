@@ -115,6 +115,8 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         //   no_layout: boolean — serve the post as bare HTML (no theme
         //     chrome). The runtime's post dispatcher redirects to the
         //     raw route handler when this is true.
+        //   postClasses: string[] — theme-defined post class ids, rendered
+        //     as `ampless-post--<id>` on the theme's post body wrapper.
         // Other keys are passed through unchanged for plugin / app use.
         metadata: a.json(),
       })

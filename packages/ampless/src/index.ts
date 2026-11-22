@@ -177,6 +177,11 @@ export {
   isValidCustomClassId,
   tableCustomClassName,
   themeTableClasses,
+  postCustomClassName,
+  themeCustomClasses,
+  themePostClasses,
+  normalizePostClasses,
+  postBodyClassName,
 } from './theme.js'
 export type {
   ThemeManifest,

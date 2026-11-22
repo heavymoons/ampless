@@ -58,6 +58,7 @@ describe('createAmpless', () => {
     expect(typeof a.postMetadata).toBe('function')
     expect(typeof a.siteMetadata).toBe('function')
     expect(typeof a.renderBody).toBe('function')
+    expect(typeof a.postBodyClassName).toBe('function')
     expect(typeof a.renderThemeCss).toBe('function')
     expect(typeof a.publicAssetUrl).toBe('function')
     expect(typeof a.isStorageConfigured).toBe('function')
@@ -94,5 +95,35 @@ describe('createAmpless', () => {
     expect(a.publicAssetUrl('public/foo.json')).toBe(
       'https://b.s3.us-east-1.amazonaws.com/public/foo.json'
     )
+  })
+
+  describe('postBodyClassName', () => {
+    const a = createAmpless({
+      outputs: {},
+      cmsConfig: { site: { name: 'X', url: 'https://x.example.com' } },
+      themes: { themes: { fake: fakeTheme }, defaultTheme: 'fake' },
+    })
+    const base = 'prose prose-neutral dark:prose-invert max-w-none'
+
+    it('returns the base string unchanged when the post has no classes', () => {
+      expect(a.postBodyClassName({}, base)).toBe(base)
+      expect(a.postBodyClassName({ metadata: { cache: 'deep' } }, base)).toBe(base)
+      expect(a.postBodyClassName({ metadata: { postClasses: [] } }, base)).toBe(base)
+      expect(a.postBodyClassName({})).toBe('')
+    })
+
+    it('drops invalid ids, including attribute break-out attempts', () => {
+      expect(
+        a.postBodyClassName({ metadata: { postClasses: ['x" onmouseover=alert(1)', 'Wide', 'a b', 7] as never } }, base),
+      ).toBe(base)
+      expect(a.postBodyClassName({ metadata: { postClasses: 'wide' as never } }, base)).toBe(base)
+    })
+
+    it('appends ampless-post--<id> in stored order, de-duplicated', () => {
+      expect(a.postBodyClassName({ metadata: { postClasses: ['serif', 'wide', 'serif'] } }, base)).toBe(
+        `${base} ampless-post--serif ampless-post--wide`,
+      )
+      expect(a.postBodyClassName({ metadata: { postClasses: ['wide'] } })).toBe('ampless-post--wide')
+    })
   })
 })
