@@ -503,7 +503,7 @@ http://localhost:3000/?v=theme-check-1
    <div id="post-body" className={ampless.postBodyClassName(post, manifest.postBody?.className)}>
    ```
 
-管理画面のプレビューは同じ `postBody.className` を自身の `<main id="post-body">` に使い、`data-theme` に有効なテーマを設定し、サイトの同一オリジンの CSS を読み込む。そのため、これらのルールはプレビューでも効く。記事に保存されているが有効なテーマが宣言していない id（テーマを切り替えた後など）も、そのまま出力される。再びテーマが宣言するまで、スタイルは付かない。
+管理画面のプレビューは同じ `postBody.className` を自身の `<main id="post-body">` に使い、`data-theme` に有効なテーマを設定し、管理画面が読み込んでいるスタイルシート（サイト自身の CSS と、CDN にあるテーマのスタイルやフォント）を読み込む。そのため、これらのルールはプレビューでも効く。記事に保存されているが有効なテーマが宣言していない id（テーマを切り替えた後など）も、そのまま出力される。再びテーマが宣言するまで、スタイルは付かない。
 
 ## テーマ内コンポーネントの使いどころ
 

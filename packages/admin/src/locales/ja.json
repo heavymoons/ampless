@@ -10,6 +10,7 @@
     "loadError": "読み込みに失敗しました。",
     "default": "デフォルト",
     "remove": "削除",
+    "dismiss": "閉じる",
     "create": "作成",
     "yes": "はい",
     "no": "いいえ",
@@ -112,6 +113,9 @@
       "postClassesRemove": "{id} を削除",
       "postClassesNoneDeclared": "現在のテーマは記事のスタイルを定義していません。",
       "postClassesConflict": "保存されている metadata.postClasses の値は、有効な記事スタイル ID のリストではありません（プラグインが使っている値かもしれません）。保存しても変更されません。ここで記事のスタイルを変更すると、その値は置き換えられます。",
+      "postClassesNotRestored": "この版からは記事のスタイルを復元しませんでした。版または現在の metadata.postClasses の値が記事スタイル ID のリストではないためです。現在の値はそのまま保持されます。",
+      "saveConflict": "保存中にこの記事が別の場所で変更されました。編集内容はそのまま残っています。もう一度保存してください。",
+      "saveNotFound": "この記事は存在しないため保存できませんでした。別の場所で削除された可能性があります。",
       "formatStaticLabel": "Static (zip / ファイル一括)",
       "static": {
         "pick": ".zip または複数ファイルを選択",

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   listPostSummaries,
   listPostHistory,
+  mergePostMetadata,
+  PostUpdateConflictError,
   setPostsProvider,
+  updatePost,
   type PostsProvider,
   type PostSummary,
   type PostRevision,
@@ -142,5 +145,91 @@ describe('listPostSummaries', () => {
     ])
     expect(summaries[0]).not.toHaveProperty('body')
     expect(summaries[0]).not.toHaveProperty('metadata')
+  })
+})
+
+describe('updatePost options', () => {
+  afterEach(() => {
+    // @ts-expect-error — intentionally clearing for isolation.
+    setPostsProvider(null)
+  })
+
+  it('forwards expectedUpdatedAt to the provider', async () => {
+    const updateFn = vi.fn().mockResolvedValue(SAMPLE_POST)
+    setPostsProvider(makeProvider({ update: updateFn }))
+
+    await updatePost('post-1', { title: 'T' }, { expectedUpdatedAt: '2026-06-01T00:00:00.000Z' })
+    await updatePost('post-1', { title: 'T' }, { expectedUpdatedAt: null })
+
+    expect(updateFn).toHaveBeenNthCalledWith(1, 'post-1', { title: 'T' }, { expectedUpdatedAt: '2026-06-01T00:00:00.000Z' })
+    expect(updateFn).toHaveBeenNthCalledWith(2, 'post-1', { title: 'T' }, { expectedUpdatedAt: null })
+  })
+
+  it('calls a provider without options exactly as before', async () => {
+    // A provider written against the two-argument signature still type-checks.
+    const legacyUpdate = vi.fn(async (_postId: string, _data: Partial<Post>) => SAMPLE_POST)
+    setPostsProvider(makeProvider({ update: legacyUpdate }))
+
+    await updatePost('post-1', { title: 'T' })
+
+    expect(legacyUpdate.mock.calls[0]).toEqual(['post-1', { title: 'T' }])
+  })
+
+  it('PostUpdateConflictError is an Error with its own name', () => {
+    const err = new PostUpdateConflictError()
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('PostUpdateConflictError')
+    expect(new PostUpdateConflictError('custom').message).toBe('custom')
+  })
+})
+
+describe('mergePostMetadata', () => {
+  it('takes the stored value for keys the editor left unchanged', () => {
+    expect(
+      mergePostMetadata(
+        { postClasses: ['a'], cache: 'deep' },
+        { postClasses: ['a'], cache: 'deep' },
+        { postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } }
+      )
+    ).toEqual({ postClasses: ['b'], cache: 'deep', plugin_x: { n: 1 } })
+  })
+
+  it("takes the editor's value for keys it changed", () => {
+    expect(
+      mergePostMetadata(
+        { postClasses: ['a'], cache: 'deep' },
+        { postClasses: ['c'], cache: 'deep' },
+        { postClasses: ['b'], cache: 'hot', plugin_x: 1 }
+      )
+    ).toEqual({ postClasses: ['c'], cache: 'hot', plugin_x: 1 })
+  })
+
+  it('deletes a key the editor removed, and keeps a removal someone else made', () => {
+    expect(
+      mergePostMetadata(
+        { postClasses: ['a'], no_layout: true },
+        { no_layout: true },
+        { postClasses: ['b'] }
+      )
+    ).toEqual(undefined)
+    expect(mergePostMetadata({ cache: 'deep', seo: 1 }, { cache: 'deep', seo: 1 }, { seo: 1 })).toEqual({ seo: 1 })
+  })
+
+  it('adds a key the editor introduced', () => {
+    expect(mergePostMetadata(undefined, { no_layout: true }, { cache: 'hot' })).toEqual({
+      no_layout: true,
+      cache: 'hot',
+    })
+  })
+
+  it('compares deeply, so a re-created equal object counts as unchanged', () => {
+    expect(
+      mergePostMetadata({ seo: { title: 'X' } }, { seo: { title: 'X' } }, { seo: { title: 'Y' } })
+    ).toEqual({ seo: { title: 'Y' } })
+  })
+
+  it('returns undefined for an empty result', () => {
+    expect(mergePostMetadata(undefined, undefined, undefined)).toBeUndefined()
+    expect(mergePostMetadata({ a: 1 }, {}, { a: 1 })).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@
     "loadError": "Failed to load.",
     "default": "Default",
     "remove": "Remove",
+    "dismiss": "Dismiss",
     "create": "Create",
     "yes": "Yes",
     "no": "No",
@@ -112,6 +113,9 @@
       "postClassesRemove": "Remove {id}",
       "postClassesNoneDeclared": "The active theme declares no post styles.",
       "postClassesConflict": "The stored metadata.postClasses value is not a list of valid post style ids (it may belong to a plugin). It is kept unchanged on save. Changing post styles here will replace it.",
+      "postClassesNotRestored": "Post styles were not restored from this revision: the revision's or the current stored metadata.postClasses value is not a list of post style ids. The current value is kept unchanged.",
+      "saveConflict": "This post was changed elsewhere while saving. Your edits are kept — save again to retry.",
+      "saveNotFound": "This post no longer exists, so it could not be saved. It may have been deleted elsewhere.",
       "formatStaticLabel": "Static (zip / file bundle)",
       "static": {
         "pick": "Pick a .zip or one or more files",

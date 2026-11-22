@@ -80,12 +80,41 @@ export interface SummaryListOptions {
   status?: 'draft' | 'published' | 'all'
 }
 
+/** Options for `updatePost` / `PostsProvider.update`. */
+export interface UpdatePostOptions {
+  /**
+   * Compare-and-swap on the stored `updatedAt`: the write only succeeds if
+   * the row's `updatedAt` still equals this value (`null` = the row has no
+   * `updatedAt`). On a mismatch the provider writes nothing and throws
+   * `PostUpdateConflictError`. Omit (`undefined`) for an unconditional write.
+   */
+  expectedUpdatedAt?: string | null
+}
+
+/**
+ * Thrown by `updatePost` when `options.expectedUpdatedAt` no longer matches
+ * the stored post: someone else saved it in between, and nothing was
+ * written. Re-read the post and retry.
+ */
+export class PostUpdateConflictError extends Error {
+  constructor(message = 'The post was modified by someone else; nothing was written.') {
+    super(message)
+    this.name = 'PostUpdateConflictError'
+  }
+}
+
 export interface PostsProvider {
   list(opts?: ListOptions): Promise<Post[]>
   get(slug: string): Promise<Post | null>
   getById(postId: string): Promise<Post | null>
   create(data: CreatePostInput): Promise<Post>
-  update(postId: string, data: Partial<Post>): Promise<Post>
+  /**
+   * `options` is optional so providers written before it existed still
+   * type-check. A provider that supports `options.expectedUpdatedAt` MUST
+   * make the write conditional and throw `PostUpdateConflictError` on a
+   * mismatch; one that ignores it writes unconditionally (last write wins).
+   */
+  update(postId: string, data: Partial<Post>, options?: UpdatePostOptions): Promise<Post>
   remove(postId: string): Promise<void>
   listPostHistory(
     postId: string,
@@ -142,9 +171,50 @@ export async function createPost(data: CreatePostInput): Promise<Post> {
   return provider.create(data)
 }
 
-export async function updatePost(postId: string, data: Partial<Post>): Promise<Post> {
+export async function updatePost(
+  postId: string,
+  data: Partial<Post>,
+  options?: UpdatePostOptions
+): Promise<Post> {
   if (!provider) throw new Error('No posts provider configured. Call setPostsProvider() first.')
-  return provider.update(postId, data)
+  // Without options, call exactly as before (two arguments).
+  return options === undefined ? provider.update(postId, data) : provider.update(postId, data, options)
+}
+
+/**
+ * Three-way merge of a post's `metadata`, per top-level key. `base` is the
+ * metadata an editor loaded, `mine` what it wants to write, `theirs` the
+ * stored value now. A key the editor left unchanged (`mine[k]` deep-equals
+ * `base[k]`, absent equals absent) takes `theirs[k]`, so a concurrent
+ * change by someone else (e.g. MCP `update_post` setting `postClasses`)
+ * survives; a key the editor changed takes `mine[k]`, or is deleted when
+ * `mine` lacks it. Returns `undefined` for an empty result.
+ */
+export function mergePostMetadata(
+  base: PostMetadata | undefined,
+  mine: PostMetadata | undefined,
+  theirs: PostMetadata | undefined
+): PostMetadata | undefined {
+  const b = (base ?? {}) as Record<string, unknown>
+  const m = (mine ?? {}) as Record<string, unknown>
+  const t = (theirs ?? {}) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  const keys = new Set([...Object.keys(b), ...Object.keys(m), ...Object.keys(t)])
+  for (const k of keys) {
+    const changed = !sameValue(m, b, k)
+    const src = changed ? m : t
+    if (Object.prototype.hasOwnProperty.call(src, k) && src[k] !== undefined) out[k] = src[k]
+  }
+  return Object.keys(out).length > 0 ? (out as PostMetadata) : undefined
+}
+
+// Deep equality of `x[k]` and `y[k]` by JSON; a missing (or undefined)
+// key equals a missing key.
+function sameValue(x: Record<string, unknown>, y: Record<string, unknown>, k: string): boolean {
+  const xv = x[k]
+  const yv = y[k]
+  if (xv === undefined || yv === undefined) return xv === yv
+  return JSON.stringify(xv) === JSON.stringify(yv)
 }
 
 export async function deletePost(postId: string): Promise<void> {

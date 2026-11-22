@@ -6,9 +6,12 @@ import { Image as ImageIcon } from 'lucide-react'
 import {
   createPost,
   updatePost,
+  getPostById,
   deletePost,
   formatDate,
+  mergePostMetadata,
   normalizePostClasses,
+  PostUpdateConflictError,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -179,6 +182,9 @@ export function PostForm({
     normalizePostClasses(post?.metadata?.postClasses)
   )
   const [postClassesTouched, setPostClassesTouched] = useState(false)
+  // Set when a revision restore left post styles alone because the
+  // revision's or the current stored value is not a clean id list.
+  const [postClassesNotRestored, setPostClassesNotRestored] = useState(false)
   const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -373,6 +379,7 @@ export function PostForm({
         : normalizePostClasses(draft.postClasses)
     )
     setPostClassesTouched(draft.postClasses !== undefined)
+    setPostClassesNotRestored(false)
     setPendingBundle(null)
     // Force the tiptap editor to remount with the restored body.
     setEditorEpoch((e) => e + 1)
@@ -537,6 +544,10 @@ export function PostForm({
   // classes, as it was rendered then). It counts as a post styles change —
   // so save rewrites the key — only when the revision's raw value differs
   // from the current post's; otherwise the current raw value is kept.
+  // Post classes are applied only when both raw values are absent or a
+  // clean id list: a malformed one (legacy or plugin-owned) would be
+  // normalized away and, once touched, erased on save. Then post styles
+  // stay as they are (current raw value kept) and a notice says why.
   function restoreRevision(rev: PostRevision) {
     const fmt = rev.format ?? 'markdown'
     setTitle(rev.title ?? '')
@@ -548,10 +559,15 @@ export function PostForm({
     setTagsInput((rev.tags ?? []).join(', '))
     setPublishedAtInput(isoToLocalInput(rev.publishedAt))
     setNoLayout(rev.metadata?.no_layout === true && fmt === 'html')
-    setPostClasses(normalizePostClasses(rev.metadata?.postClasses))
-    setPostClassesTouched(
-      JSON.stringify(rev.metadata?.postClasses) !== JSON.stringify(post?.metadata?.postClasses)
-    )
+    const revPostClasses: unknown = rev.metadata?.postClasses
+    const currentPostClasses: unknown = post?.metadata?.postClasses
+    if (isMalformedPostClasses(revPostClasses) || isMalformedPostClasses(currentPostClasses)) {
+      setPostClassesNotRestored(true)
+    } else {
+      setPostClassesNotRestored(false)
+      setPostClasses(normalizePostClasses(revPostClasses))
+      setPostClassesTouched(JSON.stringify(revPostClasses) !== JSON.stringify(currentPostClasses))
+    }
     // A new bundle pick (for static) is irrelevant to a restore — clear
     // any pending upload so it can't leak into the next save.
     setPendingBundle(null)
@@ -624,22 +640,36 @@ export function PostForm({
       }
 
       if (isEdit) {
+        // Metadata is shared with plugins and MCP (e.g. `update_post`
+        // setting `postClasses`), which may have changed it since this form
+        // loaded. Re-read the post and merge three ways per key: keys this
+        // form left as loaded take the stored value, keys it changed take
+        // the form's. The write is conditional on the re-read `updatedAt`,
+        // so a save landing in between is reported instead of overwritten.
+        // The other fields stay last-write-wins, as before.
+        const fresh = await getPostById(post!.postId)
+        if (!fresh) throw new Error(t('posts.form.saveNotFound'))
+        const mergedMetadata = mergePostMetadata(post!.metadata, metadata, fresh.metadata)
         // This is a full-document save, not a partial patch: provider.update
         // omits `undefined` fields, so clearing excerpt / emptying metadata
         // must send an explicit value or the stored value would survive.
         // Send `excerpt` verbatim ('' clears it) and `metadata ?? {}` ('{}'
         // clears stale keys like a leftover `no_layout`).
-        await updatePost(post!.postId, {
-          title,
-          slug: finalSlug,
-          excerpt,
-          format,
-          body: nextBody,
-          status,
-          publishedAt,
-          tags,
-          metadata: metadata ?? {},
-        })
+        await updatePost(
+          post!.postId,
+          {
+            title,
+            slug: finalSlug,
+            excerpt,
+            format,
+            body: nextBody,
+            status,
+            publishedAt,
+            tags,
+            metadata: mergedMetadata ?? {},
+          },
+          { expectedUpdatedAt: fresh.updatedAt ?? null }
+        )
       } else {
         await createPost({
           slug: finalSlug,
@@ -662,7 +692,16 @@ export function PostForm({
       router.push('/admin/posts')
       router.refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      // A conflict keeps every form field as is (nothing was written), so
+      // saving again re-reads and merges against the newer post.
+      if (
+        err instanceof PostUpdateConflictError ||
+        (err instanceof Error && err.name === 'PostUpdateConflictError')
+      ) {
+        setError(t('posts.form.saveConflict'))
+      } else {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setSaving(false)
     }
@@ -1127,9 +1166,27 @@ export function PostForm({
           onChange={(next) => {
             setPostClasses(next)
             setPostClassesTouched(true)
+            setPostClassesNotRestored(false)
             markDirty()
           }}
         />
+      )}
+
+      {postClassesNotRestored && (
+        <div
+          className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
+          data-testid="post-classes-not-restored"
+        >
+          <p>{t('posts.form.postClassesNotRestored')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPostClassesNotRestored(false)}
+          >
+            {t('common.dismiss')}
+          </Button>
+        </div>
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}

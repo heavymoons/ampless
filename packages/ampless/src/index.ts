@@ -11,12 +11,15 @@ export {
   listPostSummaries,
   setPostsProvider,
   hasPostsProvider,
+  mergePostMetadata,
+  PostUpdateConflictError,
 } from './core.js'
 export type {
   ListOptions,
   SummaryListOptions,
   CreatePostInput,
   PostsProvider,
+  UpdatePostOptions,
   PostSummary,
   PostRevision,
   ListPostHistoryOptions,
