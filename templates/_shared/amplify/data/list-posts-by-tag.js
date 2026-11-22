@@ -29,6 +29,12 @@ import { util } from '@aws-appsync/utils'
 // publishedAt does not parse. A legacy negative-offset row therefore never
 // goes public early; a legacy positive-offset row stays above the lexical
 // bound, appearing late, until the post's next save rewrites it.
+//
+// Short pages: DynamoDB applies `limit` BEFORE this response handler, so
+// when legacy rows are dropped a page can hold fewer than `limit` items
+// (even none) while `nextToken` is still set. Callers must keep following
+// `nextToken`; the official runtime (`@ampless/runtime` createPostsApi)
+// fills each page that way. Canonical rows are never dropped here.
 export function request(ctx) {
   const { tag, limit, nextToken } = ctx.args
   const nowMs = util.time.nowEpochMilliSeconds()

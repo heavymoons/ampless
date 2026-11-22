@@ -18,10 +18,12 @@ vi.mock('@aws-appsync/utils', () => ({
       nowISO8601: () => new Date(nowMs).toISOString(),
       parseISO8601ToEpochMilliSeconds: (s: string) => parseAwsDateTime(s),
       epochMilliSecondsToFormatted: (ms: number, format: string, zone: string) => {
-        if (format !== "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" || zone !== 'UTC') {
-          throw new Error(`unexpected format ${format} ${zone}`)
-        }
-        return new Date(ms).toISOString()
+        if (zone !== 'UTC') throw new Error(`unexpected zone ${zone}`)
+        const iso = new Date(ms).toISOString()
+        // Both patterns verified with `aws appsync evaluate-code`.
+        if (format === "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'") return iso
+        if (format === "yyyy-MM-dd'T'HH:mm") return iso.slice(0, 16)
+        throw new Error(`unexpected format ${format}`)
       },
     },
     dynamodb: { toMapValues: (v: Record<string, unknown>) => v },
@@ -165,16 +167,38 @@ describe('listPublishedPosts key bounds', () => {
     expect(query.expressionValues[':upper']).toBe(NOW)
   })
 
-  it('canonicalizes offset from/to arguments before using them as key bounds', () => {
+  it('widens offset from/to arguments to safe key bounds (never narrower than the raw strings)', () => {
     const { req } = runList(
       listPublishedPosts,
-      { from: '2026-01-01T09:00:00+09:00', to: '2026-01-01T10:00:00+09:00' },
+      { from: '2026-01-01T09:00:00+09:00', to: '2026-01-01T02:00:00+01:00' },
       []
     )
     const query = req.query as { expression: string; expressionValues: Record<string, string> }
     expect(query.expression).toBe('#status = :status AND #publishedAt BETWEEN :from AND :upper')
-    expect(query.expressionValues[':from']).toBe('2026-01-01T00:00:00.000Z')
-    expect(query.expressionValues[':upper']).toBe('2026-01-01T01:00:00.000Z')
+    // min(raw from, UTC minute floor of from)
+    expect(query.expressionValues[':from']).toBe('2026-01-01T00:00')
+    // max(raw to, UTC minute of to + 'Z') = raw to ('T02' > 'T01')
+    expect(query.expressionValues[':upper']).toBe('2026-01-01T02:00:00+01:00')
+  })
+
+  it('never puts the upper key above the canonical now key', () => {
+    // 10:00+09:00 = 01:00Z is before now, but its raw string sorts after NOW.
+    const { req } = runList(listPublishedPosts, { to: '2026-01-01T10:00:00+09:00' }, [])
+    const query = req.query as { expressionValues: Record<string, string> }
+    expect(query.expressionValues[':upper']).toBe(NOW)
+  })
+
+  it('uses `<minute>Z` as the upper key for a canonical `to`', () => {
+    const { req } = runList(listPublishedPosts, { to: '2026-01-01T01:00:00.000Z' }, [])
+    const query = req.query as { expressionValues: Record<string, string> }
+    expect(query.expressionValues[':upper']).toBe('2026-01-01T01:00Z')
+  })
+
+  it('returns early by instant when `from` is after `to`, even if the raw strings are ordered', () => {
+    // Raw strings: from < to, but by instant from (05:00Z) > to (01:00Z).
+    const c = ctx({ from: '2026-01-01T00:00:00-05:00', to: '2026-01-01T01:00:00.000Z' })
+    const req = listPublishedPosts.request(c) as Record<symbol, unknown>
+    expect(req[EARLY_RETURN]).toBe(true)
   })
 
   it('returns early when an offset `from` is after now', () => {
@@ -299,5 +323,65 @@ describe('end-to-end with lexical key conditions', () => {
       'publishedAtPostId'
     )
     expect(res.items).toEqual([])
+  })
+})
+
+describe('listPublishedPosts from/to bounds keep equal instants spelled differently', () => {
+  const run = (args: Record<string, unknown>, rows: Array<Record<string, unknown>>) =>
+    runQuery(listPublishedPosts, args, rows, 'publishedAt').items.map((i) => i.publishedAt)
+
+  it.each(['2026-01-01T01:00:00Z', '2026-01-01T01:00:00.000Z', '2026-01-01T10:00:00+09:00'])(
+    'stored 2026-01-01T01:00:00Z is included with to=%s',
+    (to) => {
+      expect(run({ to }, [post('2026-01-01T01:00:00Z')])).toEqual(['2026-01-01T01:00:00Z'])
+    }
+  )
+
+  it('stored minute-only 01:00Z is included with to=01:00:00.000Z', () => {
+    expect(run({ to: '2026-01-01T01:00:00.000Z' }, [post('2026-01-01T01:00Z')])).toEqual([
+      '2026-01-01T01:00Z',
+    ])
+  })
+
+  it('stored 01:00:00.000000Z is included with from=01:00:00.000Z', () => {
+    expect(
+      run({ from: '2026-01-01T01:00:00.000Z' }, [post('2026-01-01T01:00:00.000000Z')])
+    ).toEqual(['2026-01-01T01:00:00.000000Z'])
+  })
+
+  it('a row 30s after `to` in the same minute is read but dropped by instant', () => {
+    const c = ctx({ to: '2026-01-01T01:00:00.000Z' })
+    const req = listPublishedPosts.request(c) as {
+      query: { expressionValues: Record<string, string> }
+    }
+    // The key bound admits it...
+    expect('2026-01-01T01:00:30.000Z' <= req.query.expressionValues[':upper']!).toBe(true)
+    // ...and the response removes it.
+    expect(
+      run({ to: '2026-01-01T01:00:00.000Z' }, [
+        post('2026-01-01T01:00:30.000Z'),
+        post('2026-01-01T00:59:00.000Z'),
+      ])
+    ).toEqual(['2026-01-01T00:59:00.000Z'])
+  })
+
+  it('returns every in-range row the raw-string bounds (main) returned', () => {
+    // main used the raw from/to strings as key bounds. Each row below is in
+    // [from, to] by instant AND inside the raw-string range, so main
+    // returned it; the widened bounds must still return it.
+    const from = '2026-01-01T00:00:00.000Z'
+    const to = '2026-01-01T10:00:00+09:00' // = 01:00Z; raw string sorts after NOW
+    // main's key range: [from, to < now ? to : now] compared as strings.
+    const mainUpper = to < NOW ? to : NOW
+    const rows = [
+      post('2026-01-01T00:30:00.000Z'),
+      post('2026-01-01T01:30:00+01:00'), // = 00:30Z
+      post('2026-01-01T02:00:00+01:00'), // = 01:00Z (equal to `to`)
+    ]
+    for (const r of rows) {
+      const sk = String(r.publishedAt)
+      expect(sk >= from && sk <= mainUpper).toBe(true)
+    }
+    expect(run({ from, to }, rows).sort()).toEqual(rows.map((r) => r.publishedAt).sort())
   })
 })
