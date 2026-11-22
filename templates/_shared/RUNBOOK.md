@@ -15,6 +15,7 @@ For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), star
   - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
   - [Restore a data table from point-in-time recovery](#restore-a-data-table-from-point-in-time-recovery)
   - [DynamoDB TTL for KvStore / PostHistory (opt-in)](#dynamodb-ttl-for-kvstore--posthistory-opt-in)
+  - [Normalize stored post publish dates (one-time migration)](#normalize-stored-post-publish-dates-one-time-migration)
   - [Inspect failed plugin events](#inspect-failed-plugin-events)
 - [Custom domains](#custom-domains)
   - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
@@ -506,6 +507,66 @@ one-change-per-hour caveat below).
   stream but only reacts to `siteconfig` rows (a site-settings cache
   rebuild), which are written without `ttl`; it does not consume the
   PostHistory stream. Check any stream consumers you added yourself.
+
+### Normalize stored post publish dates (one-time migration)
+
+AppSync's `AWSDateTime` accepts many spellings of one instant
+(`2026-05-01T09:00:00+09:00`, `2026-05-01T00:00Z`, nanoseconds, ...).
+Since this release every `createPost` / `updatePost` — admin UI, MCP and
+direct GraphQL calls alike — stores `publishedAt` as canonical UTC
+(`YYYY-MM-DDTHH:mm:ss.sssZ`) and also writes a derived
+`publishedAtSortKey` (`<publishedAt>#<postId>`). A value that is not a
+valid date in years 0000–9999 UTC is rejected with `ValidationError`.
+
+Posts saved **before** the upgrade keep their old string until they are
+saved again. Such a row can be listed late or out of order, its tag-page
+row keeps its old key, and it has no `publishedAtSortKey` (a later
+release switches the post list to the index built on it). Rewrite them
+once per site, after the upgrade is deployed:
+
+1. **Deploy the upgrade first.** The migration relies on new writes
+   already being canonical, so it never chases a moving target, and on
+   the event dispatcher of this release recognising its writes (below).
+2. **Find the Post table name** (`Post-<apiId>-NONE`) in the DynamoDB
+   console, or:
+
+   ```bash
+   aws dynamodb list-tables --query "TableNames[?starts_with(@, 'Post-')]"
+   ```
+
+   With several environments in one account, match `<apiId>` against
+   the AppSync API of the branch you are migrating.
+3. **Dry-run** (the default; reads only):
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region>
+   ```
+
+   It lists every post whose `publishedAt` would be rewritten (raw value,
+   canonical value, instant) or whose `publishedAtSortKey` is missing or
+   stale, and every value it cannot parse. Unparseable values are never
+   written: fix them by setting the publish date in the admin editor.
+4. **Apply**, after reviewing the dry-run:
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region> --apply
+   ```
+
+   Each post is one conditional `UpdateItem` that only sets
+   `publishedAt` / `publishedAtSortKey`, and only if both still hold the
+   values the scan read. A post edited meanwhile is skipped and reported
+   as a conflict; `updatedAt` and every other attribute are left as they
+   are. Writes are rate-limited (`--max-writes-per-second`, default 10).
+   The site can stay online.
+5. **Re-run the dry-run until it reports nothing to change.** It is
+   idempotent; conflicts from step 4 are picked up on the next run.
+
+**What the writes trigger.** They go through the Post stream like any
+save. The dispatcher sees that only the spelling of `publishedAt` (and
+`publishedAtSortKey`) changed and therefore emits **no**
+`content.updated` event (so webhooks and other plugins do not fire) and
+writes no PostHistory revision. It still refreshes the post's tag-page
+rows, which replaces rows keyed by the old string.
 
 ### Inspect failed plugin events
 

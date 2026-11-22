@@ -15,6 +15,7 @@ ampless で構築したサイトで、ときどき必要になる運用作業の
   - [パスワードリセット（管理者上書き）](#reset-a-users-password-admin-override)
   - [ポイントインタイムリカバリによるデータテーブルの復元](#ポイントインタイムリカバリによるデータテーブルの復元)
   - [KvStore / PostHistory の DynamoDB TTL（オプトイン）](#dynamodb-ttl-のオプトイン)
+  - [投稿の公開日時の保存値を正規化する（1 回だけの移行）](#投稿の公開日時の保存値を正規化する1-回だけの移行)
   - [失敗したプラグインイベントを確認する](#inspect-failed-plugin-events)
 - [カスタムドメイン](#custom-domains)
   - [カスタムドメインを Amplify Hosting に追加する](#adding-a-custom-domain-to-amplify-hosting)
@@ -273,6 +274,38 @@ TTL を再び無効にするには、オプトインの行を削除してデプ�
 - `ttl` が 5 年以上前の値の行や、`ttl` が Number 型でない行は、DynamoDB の TTL の対象外になり、削除されません。
 - TTL の変更が反映されるまで最大 1 時間かかることがあり、その間に同じテーブルで有効化・無効化をもう一度行うと `ValidationException` になります。短い間隔で切り替えないでください（例: オプトインをデプロイした直後に取り消す）。
 - TTL による削除は無料（書き込みキャパシティを消費しない）で、テーブルのストリームには `userIdentity.principalId` が `dynamodb.amazonaws.com` の `REMOVE` レコードとして流れます。ampless の dispatcher は KvStore のストリームを処理しますが、反応するのは `siteconfig` の行（サイト設定キャッシュの再生成）だけで、これらの行は `ttl` なしで書かれます。PostHistory のストリームは処理しません。自分で追加したストリームの処理があれば、そちらも確認してください。
+
+### 投稿の公開日時の保存値を正規化する（1 回だけの移行）
+
+AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け付けます（`2026-05-01T09:00:00+09:00`、`2026-05-01T00:00Z`、ナノ秒など）。このリリースから、`createPost` / `updatePost` はすべて（管理画面、MCP、GraphQL の直接呼び出しのいずれでも）`publishedAt` を UTC の正規形（`YYYY-MM-DDTHH:mm:ss.sssZ`）で保存し、あわせて `publishedAtSortKey`（`<publishedAt>#<postId>`）を書きます。UTC で 0000〜9999 年の正しい日時でない値は `ValidationError` で拒否されます。
+
+アップグレード**前**に保存された投稿は、次に保存されるまで元の文字列のままです。そうした行は一覧に遅れて出たり順序がずれたりすることがあり、タグページ用の行も古いキーのまま残ります。また `publishedAtSortKey` を持ちません（今後のリリースで、投稿一覧をこのキーのインデックスに切り替えます）。アップグレードをデプロイした後、サイトごとに 1 回書き換えます。
+
+1. **先にアップグレードをデプロイします。** 移行は、新しい書き込みがすでに正規化されていること（対象が増え続けないこと）と、このリリースの event dispatcher が移行の書き込みを見分けること（下記）を前提にしています。
+2. **Post テーブル名**（`Post-<apiId>-NONE`）を DynamoDB コンソールで調べるか、次を実行します。
+
+   ```bash
+   aws dynamodb list-tables --query "TableNames[?starts_with(@, 'Post-')]"
+   ```
+
+   1 つのアカウントに複数の環境がある場合は、`<apiId>` を移行するブランチの AppSync API と照合してください。
+3. **dry-run**（既定。読み取りのみ）:
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region>
+   ```
+
+   `publishedAt` を書き換える投稿（元の値、正規値、時刻）、`publishedAtSortKey` が無いかずれている投稿、読めない値の投稿を一覧にします。読めない値は書き換えません。管理画面で公開日時を設定し直して直してください。
+4. dry-run を確認してから **apply** します。
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region> --apply
+   ```
+
+   投稿ごとに 1 回の条件付き `UpdateItem` を行い、`publishedAt` / `publishedAtSortKey` だけを書きます。条件は、両方の値がスキャン時に読んだ値のままであることです。その間に編集された投稿は書き換えず、conflict として報告します。`updatedAt` などほかの属性は変えません。書き込み速度は `--max-writes-per-second`（既定 10）で制限します。サイトは止めなくて構いません。
+5. **dry-run で変更対象が 0 件になるまで再実行します。** 冪等なので、手順 4 の conflict は次の実行で処理されます。
+
+**書き込みで起きること。** 通常の保存と同じく Post のストリームを通ります。dispatcher は `publishedAt` の書き方（と `publishedAtSortKey`）だけが変わったことを見分け、`content.updated` イベントを**出しません**（webhook などのプラグインは動きません）。PostHistory の版も書きません。投稿のタグページ用の行は更新するので、古い文字列のキーの行は置き換わります。
 
 ### 失敗したプラグインイベントの確認
 
