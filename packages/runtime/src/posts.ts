@@ -137,18 +137,62 @@ const FILL_CHUNK = 100
  */
 const MAX_FILL_CALLS = 20
 
-const CURSOR_PREFIX = 'ampless-c1.'
+const CURSOR_PREFIX = 'ampless-c2.'
+
+/** Decode-side caps: cursors come back from public callers. */
+const MAX_CURSOR_KEY_LENGTH = 1024
+const MAX_CURSOR_TIE_IDS = 200
+
+type ListOperation = 'listPublishedPosts' | 'listPostsByTag'
+
+/**
+ * Index sort key of a returned item, rebuilt from its fields: the `byStatus`
+ * GSI sorts by the stored `publishedAt` string, PostTag by
+ * `${publishedAt}#${postId}` (both resolvers return `publishedAt` exactly as
+ * stored). `undefined` when the item has no publishedAt, which neither index
+ * can hold.
+ */
+function sortKeyOf(operation: ListOperation, post: Post): string | undefined {
+  if (!post.publishedAt) return undefined
+  return operation === 'listPostsByTag' ? `${post.publishedAt}#${post.postId}` : post.publishedAt
+}
+
+/** DynamoDB orders string sort keys by their UTF-8 bytes. */
+function compareKeys(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+}
+
+/**
+ * Position inside the listing, as a sort key rather than an offset: every
+ * item whose key sorts after `k` (lists are newest first, i.e. descending)
+ * or that equals `k` and is listed in `ids` was already returned.
+ */
+interface Anchor {
+  k: string
+  ids: string[]
+}
 
 interface ChunkCursor {
   /** AppSync nextToken the chunk starts at (null = start of the listing). */
   t: string | null
-  /** Visible items of that chunk already returned to the caller. */
-  s: number
+  /** Sort key of the last returned item, or null when nothing is anchored. */
+  k: string | null
+  /** postIds already returned whose sort key equals `k` (GSI tie set). */
+  ids: string[]
   /** Chunk size the cursor was produced with. */
   c: number
 }
 
-function encodeCursor(cursor: ChunkCursor): string {
+function encodeCursor(t: string | null, anchor: Anchor | undefined, c: number): string {
+  const ids = anchor?.ids ?? []
+  if (ids.length > MAX_CURSOR_TIE_IDS) {
+    // Would not decode; fail loudly rather than hand out a cursor that
+    // silently restarts somewhere else.
+    throw new Error(
+      `[ampless] list cursor: ${ids.length} posts share the sort key ${JSON.stringify(anchor?.k)}; more than ${MAX_CURSOR_TIE_IDS} cannot be paged past`
+    )
+  }
+  const cursor: ChunkCursor = { t, k: anchor?.k ?? null, ids, c }
   return CURSOR_PREFIX + Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
 }
 
@@ -160,15 +204,19 @@ function decodeCursor(token: string): ChunkCursor | undefined {
     ) as Partial<ChunkCursor>
     if (
       (parsed.t === null || typeof parsed.t === 'string') &&
-      Number.isInteger(parsed.s) &&
-      (parsed.s as number) >= 0 &&
+      (parsed.k === null ||
+        (typeof parsed.k === 'string' && parsed.k.length <= MAX_CURSOR_KEY_LENGTH)) &&
+      Array.isArray(parsed.ids) &&
+      parsed.ids.length <= MAX_CURSOR_TIE_IDS &&
+      parsed.ids.every((id) => typeof id === 'string') &&
+      (parsed.k !== null || parsed.ids.length === 0) &&
       Number.isInteger(parsed.c) &&
       (parsed.c as number) > 0 &&
       // Cursors reach public callers (e.g. the public MCP `nextCursor`), so
       // never let one ask the resolver for more than a normal chunk.
       (parsed.c as number) <= FILL_CHUNK
     ) {
-      return { t: parsed.t, s: parsed.s as number, c: parsed.c as number }
+      return { t: parsed.t, k: parsed.k, ids: parsed.ids, c: parsed.c as number }
     }
   } catch {
     // fall through: not one of ours
@@ -184,13 +232,13 @@ function decodeCursor(token: string): ChunkCursor | undefined {
  * was collected and `nextToken` resumes the scan right after it.
  */
 export class PostListScanLimitError extends Error {
-  readonly operation: 'listPublishedPosts' | 'listPostsByTag'
+  readonly operation: ListOperation
   readonly items: Post[]
   readonly nextToken: string
   readonly calls: number
 
   constructor(
-    operation: 'listPublishedPosts' | 'listPostsByTag',
+    operation: ListOperation,
     items: Post[],
     nextToken: string,
     calls: number,
@@ -224,12 +272,26 @@ export class PostListScanLimitError extends Error {
  * Chunk mode: once a response is short while the listing continues, later
  * calls read FILL_CHUNK rows at a time. When a chunk holds more visible
  * posts than the page needs, the returned `nextToken` is a runtime cursor
- * (`ampless-c1.…`: the chunk's start token plus how many of its visible
- * posts were already returned), so the next page re-reads that chunk and
- * skips them. Like offset pagination, a change between two page requests
- * (a post published, unpublished or becoming live) can duplicate or skip
- * one post at such a boundary. Any token without the prefix is treated as
- * a raw AppSync token, so tokens from older runtimes keep working.
+ * (`ampless-c2.…`): the chunk's start token plus a KEYSET anchor — the sort
+ * key of the last returned post and the ids of returned posts sharing that
+ * key. The next page re-reads the chunk and drops every post at or before
+ * the anchor (key sorting after it, or equal and already returned). Both
+ * halves are positions, not counts: an AppSync token wraps a DynamoDB
+ * ExclusiveStartKey, which stays valid when that row is deleted, and the
+ * anchor is a sort-key value. So posts deleted, unpublished, inserted or
+ * becoming live between two page requests never shift the position — no
+ * post after the cursor is skipped or repeated. As with any keyset cursor,
+ * a post inserted (or becoming live) at a position BEFORE the cursor is
+ * not shown on later pages. Equal sort keys (the GSI orders ties in no
+ * documented way) are handled by the tie id set, not by their order. Any
+ * token without the prefix is treated as a raw AppSync token, so tokens
+ * from older runtimes keep working.
+ *
+ * The sort key is rebuilt from the returned item (`publishedAt`, plus
+ * `#postId` for PostTag), which the resolvers return exactly as stored. An
+ * item without publishedAt cannot be anchored; then the rest of its chunk
+ * is returned with the chunk's raw end token (a page larger than `limit`,
+ * never a skipped post) and the oddity is logged.
  *
  * Bound: at most MAX_FILL_CALLS resolver calls per page. If the page is
  * still short and the listing continues, this throws PostListScanLimitError
@@ -239,7 +301,7 @@ export class PostListScanLimitError extends Error {
  * logged. A short page is only ever returned with `nextToken: null`.
  */
 async function fillPage(
-  operation: 'listPublishedPosts' | 'listPostsByTag',
+  operation: ListOperation,
   limit: number,
   nextToken: string | undefined,
   fetchPage: (args: {
@@ -254,12 +316,12 @@ async function fillPage(
 
   const resumed = nextToken ? decodeCursor(nextToken) : undefined
   let chunkStart: string | null
-  let skip = 0
   let chunkSize = FILL_CHUNK
+  let anchor: Anchor | undefined
   if (resumed) {
     chunkStart = resumed.t
-    skip = resumed.s
     chunkSize = resumed.c
+    anchor = resumed.k === null ? undefined : { k: resumed.k, ids: resumed.ids }
   } else {
     // Fast path: exactly `limit`, caller's token.
     const data = await fetchPage({ limit, nextToken })
@@ -270,30 +332,65 @@ async function fillPage(
     chunkStart = token
   }
 
+  /** Not yet returned: after the anchor, or an untaken member of its tie set. */
+  const afterAnchor = (post: Post): boolean => {
+    if (!anchor) return true
+    const key = sortKeyOf(operation, post)
+    if (key === undefined) return true
+    const cmp = compareKeys(key, anchor.k)
+    if (cmp > 0) return false
+    if (cmp === 0) return !anchor.ids.includes(post.postId)
+    return true
+  }
+
+  /** Move the anchor to `post`, which was just returned. */
+  const advanceAnchor = (post: Post): boolean => {
+    const key = sortKeyOf(operation, post)
+    if (key === undefined) return false
+    anchor =
+      anchor && anchor.k === key
+        ? {
+            k: key,
+            ids: anchor.ids.includes(post.postId) ? anchor.ids : [...anchor.ids, post.postId],
+          }
+        : { k: key, ids: [post.postId] }
+    return true
+  }
+
+  // In the fast path's items the anchor starts at the last one returned.
+  for (const p of items) advanceAnchor(p)
+
   // Chunk mode.
   for (;;) {
     if (calls >= MAX_FILL_CALLS) {
-      const cursor = encodeCursor({ t: chunkStart, s: skip, c: chunkSize })
+      const cursor = encodeCursor(chunkStart, anchor, chunkSize)
       const err = new PostListScanLimitError(operation, items, cursor, calls, limit)
       console.error(`[ampless] ${err.message}`, { operation, limit, calls, collected: items.length })
       throw err
     }
     const data = await fetchPage({ limit: chunkSize, nextToken: chunkStart ?? undefined })
     calls++
-    const chunk = visible(data).slice(skip)
+    const chunk = visible(data).filter(afterAnchor)
     const token = data?.nextToken ?? null
     const needed = limit - items.length
-    if (chunk.length >= needed) {
-      items.push(...chunk.slice(0, needed))
-      if (chunk.length > needed) {
-        return { items, nextToken: encodeCursor({ t: chunkStart, s: skip + needed, c: chunkSize }) }
+    if (chunk.length > needed) {
+      const taken = chunk.slice(0, needed)
+      let anchored = true
+      for (const p of taken) anchored = advanceAnchor(p) && anchored
+      if (!anchored) {
+        console.error(
+          `[ampless] ${operation}: a returned post has no publishedAt, so the page cannot be anchored mid-chunk; returning the whole chunk (${items.length + chunk.length} posts) with its end token`
+        )
+        items.push(...chunk)
+        return { items, nextToken: token }
       }
-      return { items, nextToken: token }
+      items.push(...taken)
+      return { items, nextToken: encodeCursor(chunkStart, anchor, chunkSize) }
     }
     items.push(...chunk)
-    if (!token) return { items, nextToken: null }
+    for (const p of chunk) advanceAnchor(p)
+    if (items.length >= limit || !token) return { items, nextToken: token }
     chunkStart = token
-    skip = 0
   }
 }
 

@@ -4,7 +4,12 @@
 //   - the key condition is evaluated on the sort key as a STRING,
 //   - rows come back in SK-descending order (scanIndexForward: false),
 //   - `limit` is applied BEFORE the resolver's response handler runs,
-//   - `nextToken` is an opaque cursor that resumes after the last row read.
+//   - `nextToken` encodes the LastEvaluatedKey (sort key + postId) and
+//     resumes strictly after that key POSITION, even when that row has been
+//     deleted meanwhile (DynamoDB ExclusiveStartKey semantics),
+//   - sort keys compare by UTF-8 bytes; equal keys are ordered by a
+//     configurable postId tiebreak (the GSI's tie order is undocumented, so
+//     tests run under both orders).
 // createPostsApi is wired to those resolvers through the mocked Amplify
 // client, so these tests show what the official runtime (home / tag pages)
 // actually returns.
@@ -73,7 +78,22 @@ let postTagRows: Row[] = []
 /** Every resolver invocation, for call-count assertions. */
 const calls: Array<{ resolver: string; args: Record<string, unknown> }> = []
 
-/** A DynamoDB-like Query: lexical key condition, SK desc, limit, cursor. */
+/** Tie order among rows with equal sort keys; the real GSI documents none. */
+let tieOrder: 'asc' | 'desc' = 'asc'
+
+function byteCompare(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+}
+
+/** Index position order: sort key descending, then the postId tiebreak. */
+function positionOrder(skA: string, idA: string, skB: string, idB: string): number {
+  const bySk = byteCompare(skB, skA)
+  if (bySk !== 0) return bySk
+  const byId = idA < idB ? -1 : idA > idB ? 1 : 0
+  return tieOrder === 'asc' ? byId : -byId
+}
+
+/** A DynamoDB-like Query: byte-wise key condition, SK desc, limit, key cursor. */
 function fakeQuery(
   req: Row,
   rows: Row[],
@@ -83,20 +103,30 @@ function fakeQuery(
   const upper = query.expressionValues[':upper']!
   const from = query.expressionValues[':from']
   const tag = query.expressionValues[':tag']
+  const sk = (r: Row) => String(r[skAttr])
+  const id = (r: Row) => String(r.postId)
   const matching = rows
     .filter((r) => (tag === undefined ? true : r.tag === tag))
-    .filter((r) => {
-      const sk = String(r[skAttr])
-      return sk <= upper && (from === undefined || sk >= from)
-    })
-    .sort((a, b) => (String(a[skAttr]) < String(b[skAttr]) ? 1 : -1))
-  const after = req.nextToken === undefined ? undefined : String(req.nextToken)
+    .filter(
+      (r) => byteCompare(sk(r), upper) <= 0 && (from === undefined || byteCompare(sk(r), from) >= 0)
+    )
+    .sort((a, b) => positionOrder(sk(a), id(a), sk(b), id(b)))
+  const start =
+    req.nextToken === undefined
+      ? undefined
+      : (JSON.parse(String(req.nextToken)) as { sk: string; id: string })
   const remaining =
-    after === undefined ? matching : matching.filter((r) => String(r[skAttr]) < after)
+    start === undefined
+      ? matching
+      : matching.filter((r) => positionOrder(sk(r), id(r), start.sk, start.id) > 0)
   const limit = req.limit as number
   const page = remaining.slice(0, limit)
   const more = remaining.length > page.length
-  return { items: page, nextToken: more ? String(page[page.length - 1]![skAttr]) : null }
+  const last = page[page.length - 1]
+  return {
+    items: page,
+    nextToken: more && last ? JSON.stringify({ sk: sk(last), id: id(last) }) : null,
+  }
 }
 
 /** Run one AppSync invocation of `mod`: request → fake DynamoDB → response. */
@@ -190,6 +220,7 @@ beforeEach(() => {
   calls.length = 0
   byStatusRows = []
   postTagRows = []
+  tieOrder = 'asc'
 })
 
 describe('listPublishedPosts pagination (resolver + DynamoDB limit semantics)', () => {
@@ -363,7 +394,7 @@ describe('first page past many future negative-offset rows (reviewer reproductio
       expect(pages.flat()).toEqual(liveIds)
       expect(pages.flat().some((id) => id.startsWith('future-'))).toBe(false)
       // At least one boundary fell inside a chunk (runtime cursor).
-      expect(tokens.some((t) => t.startsWith('ampless-c1.'))).toBe(true)
+      expect(tokens.some((t) => t.startsWith('ampless-c2.'))).toBe(true)
     }
   )
 
@@ -385,7 +416,7 @@ describe('first page past many future negative-offset rows (reviewer reproductio
     expect(pages.flat()).toEqual(liveIds)
     expect(calls.every((c) => c.args.limit === 7)).toBe(true)
     expect(calls).toHaveLength(5)
-    expect(tokens.some((t) => t.startsWith('ampless-c1.'))).toBe(false)
+    expect(tokens.some((t) => t.startsWith('ampless-c2.'))).toBe(false)
   })
 })
 
@@ -416,7 +447,7 @@ describe('scan limit: more dropped rows than one page may read', () => {
     const e = err as PostListScanLimitError
     expect(e.calls).toBe(20)
     expect(e.items).toEqual([])
-    expect(e.nextToken).toMatch(/^ampless-c1\./)
+    expect(e.nextToken).toMatch(/^ampless-c2\./)
     expect(calls).toHaveLength(20)
     expect(error).toHaveBeenCalledTimes(1)
     error.mockRestore()
@@ -441,5 +472,250 @@ describe('scan limit: more dropped rows than one page may read', () => {
       calls: 20,
     })
     error.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Cursor stability: posts changing between two page requests
+// ---------------------------------------------------------------------------
+//
+// The runtime cursor is a keyset position (chunk-start AppSync token + the
+// sort key / tie ids of the last returned post), so changes before the
+// cursor must not shift where the next page starts. For every scenario the
+// rest of the listing must be exactly: the posts visible NOW whose position
+// is after the cursor (sort key below the anchor, or equal and not yet
+// returned), each once and in index order, with no future post and no short
+// page while a token remains. A post inserted / becoming live BEFORE the
+// cursor is, as with any keyset cursor, not shown on later pages.
+
+const NOW_ISO = () => new Date(nowMs).toISOString()
+
+/**
+ * Visible to the resolvers right now: within the canonical-now key bound
+ * (`now` for byStatus, `now#U+FFFF` for PostTag — equivalent on the
+ * publishedAt prefix) and live by instant.
+ */
+function visibleNow(row: Row): boolean {
+  const ms = parseAwsDateTime(row.publishedAt)
+  if (ms === undefined || ms > nowMs) return false
+  return byteCompare(String(row.publishedAt), NOW_ISO()) <= 0
+}
+
+function expectedRest(
+  rows: Row[],
+  skAttr: string,
+  firstPage: Array<{ postId: string; publishedAt?: string }>,
+  keyOf: (p: { postId: string; publishedAt?: string }) => string
+): string[] {
+  const last = firstPage[firstPage.length - 1]!
+  const k = keyOf(last)
+  const returned = new Set(firstPage.map((p) => p.postId))
+  return rows
+    .filter((r) => visibleNow(r))
+    .filter((r) => {
+      const cmp = byteCompare(String(r[skAttr]), k)
+      return cmp < 0 || (cmp === 0 && !returned.has(String(r.postId)))
+    })
+    .sort((a, b) =>
+      positionOrder(String(a[skAttr]), String(a.postId), String(b[skAttr]), String(b.postId))
+    )
+    .map((r) => String(r.postId))
+}
+
+/** Page on from `token`, asserting no short page while a token remains. */
+async function restPages(
+  fetch: (
+    nextToken?: string
+  ) => Promise<{ items: Array<{ postId: string }>; nextToken: string | null }>,
+  token: string,
+  limit: number
+): Promise<string[]> {
+  const ids: string[] = []
+  let next: string | undefined = token
+  while (next) {
+    const res = await fetch(next)
+    if (res.nextToken) expect(res.items).toHaveLength(limit)
+    ids.push(...res.items.map((p) => p.postId))
+    next = res.nextToken ?? undefined
+  }
+  return ids
+}
+
+describe.each(['asc', 'desc'] as const)(
+  'cursor stability under changes between page requests (tie order %s)',
+  (order) => {
+    const LIMIT = 10
+    // 6 future -05:00 rows (sorting just below NOW) force chunk mode, then 40
+    // live canonical posts one hour apart.
+    const live = liveCanonical(40)
+    const liveIds = live.map((r) => r.id)
+    const seed = () => {
+      tieOrder = order
+      byStatusRows = [
+        ...FUTURE_MINUS5.map((r) => post(r.id, r.at)),
+        ...live.map((r) => post(r.id, r.at)),
+      ]
+    }
+    const list = (nextToken?: string) => api().listPublishedPosts({ limit: LIMIT, nextToken })
+    const keyOf = (p: { publishedAt?: string }) => String(p.publishedAt)
+
+    async function firstPage() {
+      seed()
+      const first = await list()
+      expect(first.items.map((p) => p.postId)).toEqual(liveIds.slice(0, LIMIT))
+      // The boundary falls inside a chunk, so this is a runtime cursor.
+      expect(first.nextToken).toMatch(/^ampless-c2\./)
+      return first
+    }
+
+    const remove = (ids: string[]) => {
+      byStatusRows = byStatusRows.filter((r) => !ids.includes(String(r.postId)))
+    }
+
+    async function checkRest(first: Awaited<ReturnType<typeof list>>) {
+      const want = expectedRest(byStatusRows, 'publishedAt', first.items, keyOf)
+      const got = await restPages(list, first.nextToken!, LIMIT)
+      expect(got).toEqual(want)
+      expect(new Set(got).size).toBe(got.length)
+      expect(got.some((id) => id.startsWith('future-'))).toBe(false)
+      return got
+    }
+
+    it('reviewer case: deleting all 10 returned posts → next page starts at old item 11', async () => {
+      const first = await firstPage()
+      remove(liveIds.slice(0, 10))
+      const got = await checkRest(first)
+      expect(got.slice(0, 10)).toEqual(liveIds.slice(10, 20))
+      expect(got).toEqual(liveIds.slice(10))
+    })
+
+    it('deleting the anchor itself and posts before it', async () => {
+      const first = await firstPage()
+      remove([liveIds[9]!, liveIds[0]!, liveIds[5]!])
+      expect(await checkRest(first)).toEqual(liveIds.slice(10))
+    })
+
+    it('deleting several posts after the anchor', async () => {
+      const first = await firstPage()
+      remove([liveIds[10]!, liveIds[11]!, liveIds[25]!])
+      expect(await checkRest(first)).toEqual(
+        liveIds.slice(10).filter((id) => ![liveIds[10], liveIds[11], liveIds[25]].includes(id))
+      )
+    })
+
+    it('unpublishing several posts on both sides of the anchor', async () => {
+      const first = await firstPage()
+      // Unpublished posts leave the byStatus `published` partition.
+      remove([liveIds[2]!, liveIds[8]!, liveIds[12]!, liveIds[13]!])
+      expect(await checkRest(first)).toEqual(
+        liveIds.slice(10).filter((id) => id !== liveIds[12] && id !== liveIds[13])
+      )
+    })
+
+    it('inserting live posts before the anchor (not shown) and after it (shown)', async () => {
+      const first = await firstPage()
+      const before = ['ins-before-a', 'ins-before-b'].map((id, i) =>
+        post(id, new Date(Date.parse(NOW) - 30 * 60_000 - i * 60_000).toISOString())
+      )
+      const after = ['ins-after-a', 'ins-after-b', 'ins-after-c'].map((id, i) =>
+        post(id, new Date(Date.parse(live[15]!.at) - 10 * 60_000 - i * 60_000).toISOString())
+      )
+      // Also inside the re-read chunk, between its start (after live-03) and
+      // the anchor (live-09): an offset cursor would shift by these.
+      const insideChunk = ['ins-before-c', 'ins-before-d'].map((id, i) =>
+        post(id, new Date(Date.parse(live[5]!.at) - 10 * 60_000 - i * 60_000).toISOString())
+      )
+      byStatusRows = [...byStatusRows, ...before, ...insideChunk, ...after]
+      const got = await checkRest(first)
+      for (const id of ['ins-before-a', 'ins-before-b', 'ins-before-c', 'ins-before-d']) {
+        expect(got).not.toContain(id)
+      }
+      expect(got).toEqual(
+        expect.arrayContaining(['ins-after-a', 'ins-after-b', 'ins-after-c', ...liveIds.slice(10)])
+      )
+      expect(got).toHaveLength(30 + 3)
+    })
+
+    it('a future row becoming live: after the anchor it is shown, before it it is not', async () => {
+      // Two -05:00 rows whose strings sort among the live posts: one after the
+      // anchor (live-09 is NOW-10h), one before it (NOW-2h30).
+      // Both are future at NOW (03:00Z) and live at 06:00Z.
+      const laterLive = post('turns-live-after', '2025-12-31T16:30:00-11:00') // 03:30Z, sorts at NOW-10h30
+      const earlierLive = post('turns-live-before', '2025-12-31T20:30:00-07:00') // 03:30Z, sorts inside the re-read chunk (between live-05 and live-06)
+      seed()
+      byStatusRows = [...byStatusRows, laterLive, earlierLive]
+      const first = await list()
+      expect(first.items.map((p) => p.postId)).toEqual(liveIds.slice(0, LIMIT))
+      expect(first.nextToken).toMatch(/^ampless-c2\./)
+      // Time passes: both rows are now live by instant (and still within the key bound).
+      nowMs = Date.parse('2026-01-01T06:00:00.000Z')
+      const got = await checkRest(first)
+      expect(got).toContain('turns-live-after')
+      expect(got).not.toContain('turns-live-before')
+    })
+
+    it('ties: posts sharing one publishedAt across the page boundary, one deleted meanwhile', async () => {
+      tieOrder = order
+      const tieAt = '2025-12-31T19:30:00.000Z' // between live-06 (20:00Z) and the older posts
+      const ties = ['tie-a', 'tie-b', 'tie-c', 'tie-d', 'tie-e', 'tie-f', 'tie-g'].map((id) =>
+        post(id, tieAt)
+      )
+      // 6 poison rows, 7 newer live posts, the 7 ties, then 10 older posts:
+      // a limit-10 page ends inside the tie group.
+      const newer = liveCanonical(7)
+      const older = Array.from({ length: 10 }, (_, i) =>
+        post(`old-${i}`, new Date(Date.parse(tieAt) - (i + 1) * 3_600_000).toISOString())
+      )
+      byStatusRows = [
+        ...FUTURE_MINUS5.map((r) => post(r.id, r.at)),
+        ...newer.map((r) => post(r.id, r.at)),
+        ...ties,
+        ...older,
+      ]
+      const first = await list()
+      expect(first.items).toHaveLength(LIMIT)
+      expect(first.nextToken).toMatch(/^ampless-c2\./)
+      const tiesOnFirst = first.items
+        .filter((p) => p.postId.startsWith('tie-'))
+        .map((p) => p.postId)
+      expect(tiesOnFirst).toHaveLength(3)
+      // Delete one tie member that was not yet returned.
+      const pending = ties.map((t) => String(t.postId)).filter((id) => !tiesOnFirst.includes(id))
+      remove([pending[0]!])
+      const got = await checkRest(first)
+      expect(got.filter((id) => id.startsWith('tie-')).sort()).toEqual(pending.slice(1).sort())
+      expect(got.filter((id) => id.startsWith('old-'))).toEqual(older.map((r) => String(r.postId)))
+      const all = [...first.items.map((p) => p.postId), ...got]
+      expect(new Set(all).size).toBe(all.length)
+    })
+  }
+)
+
+describe('tag listing cursor stability (PostTag SK = publishedAt#postId)', () => {
+  it('deleting the returned posts and the anchor does not skip later posts', async () => {
+    const live = liveCanonical(30)
+    const liveIds = live.map((r) => r.id)
+    postTagRows = [
+      ...FUTURE_MINUS5.map((r) => tagRow(r.id, r.at)),
+      ...live.map((r) => tagRow(r.id, r.at)),
+    ]
+    const list = (nextToken?: string) => api().listPostsByTag('news', { limit: 10, nextToken })
+    const first = await list()
+    expect(first.items.map((p) => p.postId)).toEqual(liveIds.slice(0, 10))
+    expect(first.nextToken).toMatch(/^ampless-c2\./)
+
+    postTagRows = postTagRows.filter((r) => !liveIds.slice(0, 10).includes(String(r.postId)))
+    postTagRows.push(tagRow('ins-after', new Date(Date.parse(live[20]!.at) - 60_000).toISOString()))
+
+    const got = await restPages(list, first.nextToken!, 10)
+    const want = expectedRest(
+      postTagRows,
+      'publishedAtPostId',
+      first.items,
+      (p) => `${p.publishedAt}#${p.postId}`
+    )
+    expect(got).toEqual(want)
+    expect(got).toContain('ins-after')
+    expect(got.filter((id) => id.startsWith('live-'))).toEqual(liveIds.slice(10))
   })
 })

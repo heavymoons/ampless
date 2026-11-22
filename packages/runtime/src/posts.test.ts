@@ -225,10 +225,11 @@ describe('createPostsApi — stateless apiKey reads', () => {
       const api = createPostsApi(FAKE_OUTPUTS)
       const first = await api.listPublishedPosts({ limit: 2 })
       expect(first.items.map((p) => p.postId)).toEqual(['a', 'b'])
-      expect(first.nextToken).toMatch(/^ampless-c1\./)
+      expect(first.nextToken).toMatch(/^ampless-c2\./)
 
       // The cursor re-reads the same chunk (start token t1, size 100) and
-      // skips the two posts already returned.
+      // skips the two posts already returned (all three share one sort key,
+      // so this goes through the tie id set).
       mockListPublishedPosts.mockResolvedValueOnce({
         data: { items: [row('a'), row('b'), row('c')], nextToken: null },
         errors: null,
@@ -243,42 +244,100 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(second).toEqual({ items: [expect.objectContaining({ postId: 'c' })], nextToken: null })
     })
 
-    it('treats a token without the runtime prefix (or a malformed one) as a raw AppSync token', async () => {
+    const cursor = (body: unknown, prefix = 'ampless-c2.') =>
+      prefix + Buffer.from(JSON.stringify(body), 'utf8').toString('base64url')
+
+    it.each([
+      ['no runtime prefix', 'plain-appsync-token'],
+      ['malformed body', 'ampless-c2.not-json'],
+      ['unreleased c1 cursor', cursor({ t: 'tok', s: 0, c: 100 }, 'ampless-c1.')],
+      ['oversized chunk', cursor({ t: 'tok', k: 'x', ids: [], c: 100000 })],
+      ['zero chunk', cursor({ t: 'tok', k: 'x', ids: [], c: 0 })],
+      ['non-string key', cursor({ t: 'tok', k: 5, ids: [], c: 100 })],
+      ['oversized key', cursor({ t: 'tok', k: 'x'.repeat(1025), ids: [], c: 100 })],
+      ['ids not an array', cursor({ t: 'tok', k: 'x', ids: 'a', c: 100 })],
+      ['non-string id', cursor({ t: 'tok', k: 'x', ids: [1], c: 100 })],
+      [
+        'too many tie ids',
+        cursor({ t: 'tok', k: 'x', ids: Array.from({ length: 201 }, (_, i) => `p${i}`), c: 100 }),
+      ],
+      ['ids without a key', cursor({ t: 'tok', k: null, ids: ['a'], c: 100 })],
+      ['non-string start token', cursor({ t: 7, k: 'x', ids: [], c: 100 })],
+    ])('treats a token with %s as a raw AppSync token', async (_name, token) => {
       mockListPublishedPosts.mockResolvedValue({
         data: { items: [row('a')], nextToken: null },
         errors: null,
       })
 
       const api = createPostsApi(FAKE_OUTPUTS)
-      await api.listPublishedPosts({ limit: 1, nextToken: 'ampless-c1.not-json' })
+      await api.listPublishedPosts({ limit: 1, nextToken: token })
 
+      // Passed through unchanged with the caller's limit — never decoded into
+      // a chunk read (so a forged cursor cannot ask for a huge chunk).
       expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
         from: undefined,
         to: undefined,
         limit: 1,
-        nextToken: 'ampless-c1.not-json',
+        nextToken: token,
       })
     })
 
-    it('does not honour a client-supplied cursor that asks for an oversized chunk', async () => {
-      mockListPublishedPosts.mockResolvedValue({
-        data: { items: [row('a')], nextToken: null },
-        errors: null,
-      })
-      const forged =
-        'ampless-c1.' +
-        Buffer.from(JSON.stringify({ t: 'tok', s: 0, c: 100000 }), 'utf8').toString('base64url')
+    it('orders anchor keys by UTF-8 bytes, as DynamoDB does (not by UTF-16 code units)', async () => {
+      // U+1F600 sorts BELOW U+FF61 in UTF-16 (surrogate D83D < FF61) but ABOVE
+      // it in UTF-8 (F0 > EF). Descending byte order is: x, emoji, ff61.
+      const keyed = (id: string, publishedAt: string) => ({ ...row(id), publishedAt })
+      const chunk = [keyed('x', '\u{1F601}'), keyed('emoji', '\u{1F600}'), keyed('ff61', '｡')]
+      mockListPublishedPosts
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({ data: { items: chunk, nextToken: null }, errors: null })
 
       const api = createPostsApi(FAKE_OUTPUTS)
-      await api.listPublishedPosts({ limit: 1, nextToken: forged })
+      const first = await api.listPublishedPosts({ limit: 2 })
+      expect(first.items.map((p) => p.postId)).toEqual(['x', 'emoji'])
 
-      // Treated as a raw (invalid-to-AppSync) token, not as a 100000-row read.
-      expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
-        from: undefined,
-        to: undefined,
-        limit: 1,
-        nextToken: forged,
+      mockListPublishedPosts.mockResolvedValueOnce({
+        data: { items: chunk, nextToken: null },
+        errors: null,
       })
+      const second = await api.listPublishedPosts({ limit: 2, nextToken: first.nextToken! })
+      // A UTF-16 comparison would treat ff61 as "before" the anchor and drop it.
+      expect(second.items.map((p) => p.postId)).toEqual(['ff61'])
+    })
+
+    it('anchors tag listings on publishedAt#postId', async () => {
+      const at = '2026-01-01T00:00:00.000Z'
+      const chunk = [row('c'), row('b'), row('a')].map((r) => ({ ...r, publishedAt: at }))
+      mockListPostsByTag
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({ data: { items: chunk, nextToken: null }, errors: null })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const first = await api.listPostsByTag('news', { limit: 1 })
+      expect(first.items.map((p) => p.postId)).toEqual(['c'])
+      const body = JSON.parse(
+        Buffer.from(first.nextToken!.slice('ampless-c2.'.length), 'base64url').toString('utf8')
+      )
+      expect(body).toEqual({ t: 't1', k: `${at}#c`, ids: ['c'], c: 100 })
+    })
+
+    it('returns the whole chunk with its end token when a post cannot be anchored (no publishedAt)', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const keyless = { ...row('b'), publishedAt: null }
+      mockListPublishedPosts
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValueOnce({
+          data: { items: [row('a'), keyless, row('c')], nextToken: 't2' },
+          errors: null,
+        })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 2 })
+
+      // Larger than the limit rather than a cursor that could skip or repeat.
+      expect(res.items.map((p) => p.postId)).toEqual(['a', 'b', 'c'])
+      expect(res.nextToken).toBe('t2')
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('cannot be anchored'))
+      error.mockRestore()
     })
 
     it('throws PostListScanLimitError after 20 calls instead of returning a short page', async () => {
@@ -298,7 +357,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(e.operation).toBe('listPublishedPosts')
       expect(e.calls).toBe(20)
       expect(e.items.map((p) => p.postId)).toEqual(['x'])
-      expect(e.nextToken).toMatch(/^ampless-c1\./)
+      expect(e.nextToken).toMatch(/^ampless-c2\./)
       expect(mockListPublishedPosts).toHaveBeenCalledTimes(20)
       expect(error).toHaveBeenCalledWith(
         expect.stringContaining('listPublishedPosts'),
