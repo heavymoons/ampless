@@ -23,7 +23,7 @@ If you use an AI coding agent (Claude Code, Cursor, Codex, etc.) on this project
 | `npm run dev` | Start Next.js only (skip sandbox provisioning — use after `sandbox` has already run once) |
 | `npm run build` | Production build of the Next.js app (also runs as part of Amplify Hosting deploy) |
 | `npm run start` | Serve the production build locally |
-| `npm run lint` | Lint with `next lint` |
+| `npm run lint` | Lint with the ESLint CLI (`eslint.config.mjs`, Next.js + TypeScript rules) |
 | `npm run update-ampless` | Pull the latest ampless template files into this project, preserving your config and themes (see "Updating ampless" below) |
 | `npm run copy-theme` | Add another official theme to this project after-the-fact |
 
@@ -229,8 +229,23 @@ This runs `npx create-ampless@beta upgrade`, which:
 - Bumps the `@ampless/*` and `ampless` dependencies in `package.json`
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.
 - Updates `update-ampless` and `copy-theme` script entries if their commands change
+- Never touches your ESLint setup: the `lint` script, `eslint.config.*` / `.eslintrc*` / `.eslintignore`, and ESLint dependencies are left as they are. If `lint` still calls `next lint`, the upgrade prints a warning — see "Migrating from `next lint`" below.
 
 You can review the diff before committing.
+
+### Migrating from `next lint`
+
+Next.js 16 removed `next lint`, so sites scaffolded before ampless switched to the ESLint CLI fail on `npm run lint`. New scaffolds already ship `eslint.config.mjs`, `"lint": "eslint ."` and the `eslint` / `eslint-config-next` devDependencies. Existing sites migrate by hand, because only you know which lint settings to keep:
+
+1. Run the official codemod, then review its diff:
+
+   ```bash
+   npx @next/codemod@latest next-lint-to-eslint-cli .
+   ```
+
+   The codemod pins `eslint-config-next` to the version of `next` in your `package.json`. Or do it manually: `npm install -D eslint@^9 eslint-config-next@^16`, add an `eslint.config.mjs` flat config (the one new scaffolds ship is a good starting point), and set `"lint": "eslint ."`. Always pick the `eslint-config-next` major that matches your site's Next.js major (`^16` for Next.js 16); an unversioned install pulls the latest major, which will not match once a newer Next.js major ships.
+2. Carry over existing settings. Flat config does not read `.eslintrc*` (in this project, its subdirectories or parent directories) or `.eslintignore`: move their rules and ignore patterns into `eslint.config.mjs`.
+3. Run `npm run lint` and confirm it checks the files you expect.
 
 ## Operations
 

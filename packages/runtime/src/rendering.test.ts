@@ -313,6 +313,72 @@ describe('tiptapToHtml: new node types', () => {
     expect(html).toContain('<tr><td><p>1</p></td><td><p>2</p></td></tr>')
   })
 
+  describe('table customClass', () => {
+    const table = (attrs?: Record<string, unknown>) => ({
+      type: 'doc',
+      content: [
+        {
+          type: 'table',
+          ...(attrs ? { attrs } : {}),
+          content: [
+            {
+              type: 'tableRow',
+              content: [
+                { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const both = (attrs?: Record<string, unknown>) => [
+      tiptapToHtml(table(attrs)),
+      renderToHtml(p('tiptap', table(attrs))),
+    ]
+
+    it('adds tiptap-table--<id> for a valid id in both walkers', () => {
+      for (const html of both({ customClass: 'compact' })) {
+        expect(html).toContain('<table class="tiptap-table tiptap-table--compact">')
+      }
+      for (const html of both({ customClass: 'rank-2col' })) {
+        expect(html).toContain('<table class="tiptap-table tiptap-table--rank-2col">')
+      }
+    })
+
+    it('keeps the markup unchanged without the attr, or with null / empty', () => {
+      for (const attrs of [undefined, {}, { customClass: null }, { customClass: '' }]) {
+        for (const html of both(attrs)) expect(html).toContain('<table class="tiptap-table">')
+      }
+    })
+
+    it('drops invalid ids (attribute breakout, spaces, case, non-strings, too long)', () => {
+      const bad = [
+        'x" onmouseover="alert(1)',
+        'compact other',
+        'Compact',
+        'compact_1',
+        '<b>',
+        42,
+        ['compact'],
+        { id: 'compact' },
+        'a'.repeat(65),
+      ]
+      for (const customClass of bad) {
+        for (const html of both({ customClass })) {
+          expect(html).toContain('<table class="tiptap-table">')
+          expect(html).not.toContain('onmouseover')
+          expect(html).not.toContain('tiptap-table--')
+        }
+      }
+    })
+
+    it('is not represented in markdown (GFM tables have no class)', () => {
+      const md = tiptapToMarkdown(table({ customClass: 'compact' }))
+      expect(md).not.toContain('compact')
+      expect(md).toContain('| x |')
+    })
+  })
+
   it('renders cell colspan/rowspan/colwidth attrs', () => {
     const doc = {
       type: 'doc',

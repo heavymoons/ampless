@@ -1,6 +1,6 @@
 {
   "name": "@ampless/runtime",
-  "version": "1.0.0-beta.77",
+  "version": "1.0.0-beta.79",
   "description": "Public-side runtime for ampless: post fetching, theme dispatch, middleware, public route handlers",
   "license": "MIT",
   "type": "module",
@@ -52,7 +52,7 @@
     "htmlparser2": "^10.1.0",
     "lucide-react": "^1.16.0",
     "marked": "^18.0.4",
-    "sanitize-html": "^2.18.0",
+    "sanitize-html": "^2.18.1",
     "tailwind-merge": "^3.6.0"
   },
   "peerDependencies": {

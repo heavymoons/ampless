@@ -1,6 +1,6 @@
 {
   "name": "@ampless/plugin-x-embed",
-  "version": "1.0.0-beta.22",
+  "version": "1.0.0-beta.23",
   "description": "x.com (Twitter) embed plugin for ampless — renders tweet URLs inline as blockquotes hydrated by widgets.js",
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,7 @@
     "react": "^18 || ^19"
   },
   "devDependencies": {
-    "@tiptap/core": "^3.23.6",
+    "@tiptap/core": "^3.30.5",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "react": "^19.2.6",

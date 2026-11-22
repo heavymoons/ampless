@@ -5,9 +5,15 @@ import { notFound } from 'next/navigation'
 import { getPostById, type Post } from 'ampless'
 import { PostForm } from './post-form.js'
 import { useT } from './i18n-provider.js'
+import { TableClassesProvider, type EditorTableClass } from '../editor/table-classes-context.js'
 
 interface EditPostPageProps {
   params: Promise<{ postId: string }>
+  /**
+   * Table custom classes declared by the active theme, resolved by
+   * `createEditPostPage`. Offered by the editor's table controls.
+   */
+  tableClasses?: ReadonlyArray<EditorTableClass>
   /**
    * Endpoint that `<PostForm>` / `<PostHistoryPanel>` POST the draft to
    * for preview HTML. Threaded down from `createEditPostPage`. Defaults
@@ -16,7 +22,7 @@ interface EditPostPageProps {
   previewEndpoint?: string
 }
 
-export function EditPostPage({ params, previewEndpoint }: EditPostPageProps) {
+export function EditPostPage({ params, previewEndpoint, tableClasses }: EditPostPageProps) {
   const t = useT()
   const { postId } = use(params)
   const [post, setPost] = useState<Post | null>(null)
@@ -49,7 +55,11 @@ export function EditPostPage({ params, previewEndpoint }: EditPostPageProps) {
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8">
       <h1 className="mb-6 text-2xl font-bold md:mb-8 md:text-3xl">{t('posts.form.editTitle')}</h1>
-      {post && <PostForm post={post} previewEndpoint={previewEndpoint} />}
+      {post && (
+        <TableClassesProvider classes={tableClasses}>
+          <PostForm post={post} previewEndpoint={previewEndpoint} />
+        </TableClassesProvider>
+      )}
     </div>
   )
 }

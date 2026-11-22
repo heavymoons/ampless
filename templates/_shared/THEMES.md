@@ -177,9 +177,9 @@ Caveats:
    npm run lint
    ```
 
-   If `npm run lint` is misaligned with the project's Next.js version,
-   say so — but type-check, build, and browser verification still all
-   have to pass.
+   `npm run lint` runs the ESLint CLI. If the project's `lint` script
+   still calls `next lint` (removed in Next.js 16), say so — but
+   type-check, build, and browser verification still all have to pass.
 
 ## Design before you implement
 

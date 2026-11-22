@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
-import { Table as TableIcon } from 'lucide-react'
+import { Table as TableIcon, Check } from 'lucide-react'
+import { isValidCustomClassId } from 'ampless'
 import { Button, cn } from '@ampless/runtime/ui'
 import { useT } from '../components/i18n-provider.js'
+import { useTableClasses } from './table-classes-context.js'
+
+/** Current table's `customClass` (null outside a table or when unset). */
+function currentTableClass(editor: Editor): string | null {
+  if (!editor.isActive('table')) return null
+  const v = editor.getAttributes('table').customClass
+  return isValidCustomClassId(v) ? v : null
+}
 
 interface TableControlsProps {
   editor: Editor
@@ -17,6 +26,20 @@ export function TableControls({ editor }: TableControlsProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const themeClasses = useTableClasses()
+  // Synced with the selection so the trigger shows the active table style.
+  const [activeClass, setActiveClass] = useState<string | null>(() => currentTableClass(editor))
+
+  useEffect(() => {
+    const sync = () => setActiveClass(currentTableClass(editor))
+    sync()
+    editor.on('selectionUpdate', sync)
+    editor.on('transaction', sync)
+    return () => {
+      editor.off('selectionUpdate', sync)
+      editor.off('transaction', sync)
+    }
+  }, [editor])
 
   useEffect(() => {
     if (!open) return
@@ -101,6 +124,18 @@ export function TableControls({ editor }: TableControlsProps) {
     },
   ]
 
+  // Style options: Default (no class), every class the active theme
+  // declares, and — if the table carries an id the theme does not declare
+  // (e.g. after a theme switch) — that id, flagged, so it is visible and
+  // can be replaced instead of being silently dropped.
+  const declared = themeClasses.find((c) => c.id === activeClass)
+  const unknownActive = activeClass !== null && !declared
+  const styleLabel = declared?.label ?? activeClass
+  const setStyle = (id: string | null) => {
+    editor.chain().focus().updateAttributes('table', { customClass: id }).run()
+    setOpen(false)
+  }
+
   return (
     <div ref={rootRef} className="relative">
       <Button
@@ -109,9 +144,10 @@ export function TableControls({ editor }: TableControlsProps) {
         size="icon"
         onClick={() => setOpen((v) => !v)}
         className={cn(inTable && 'bg-accent text-accent-foreground')}
-        title={t('editor.table.title')}
+        title={styleLabel ? t('editor.table.titleWithStyle', { style: styleLabel }) : t('editor.table.title')}
         aria-expanded={open}
         aria-haspopup="menu"
+        data-table-style={activeClass ?? undefined}
       >
         <TableIcon className="h-4 w-4" />
       </Button>
@@ -141,6 +177,42 @@ export function TableControls({ editor }: TableControlsProps) {
               {item.label}
             </button>
           ))}
+          {inTable && (
+            <div role="group" aria-label={t('editor.table.style')} className="mt-1 border-t pt-1">
+              <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                {t('editor.table.style')}
+              </div>
+              {[
+                { id: null as string | null, label: t('editor.table.styleDefault'), description: undefined as string | undefined, unknown: false },
+                ...themeClasses.map((c) => ({ id: c.id as string | null, label: c.label, description: c.description, unknown: false })),
+                ...(unknownActive
+                  ? [{ id: activeClass, label: t('editor.table.styleUnknown', { id: activeClass ?? '' }), description: t('editor.table.styleUnknownHint'), unknown: true }]
+                  : []),
+              ].map((opt) => {
+                const selected = opt.id === activeClass
+                return (
+                  <button
+                    key={opt.id ?? '__default'}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    title={opt.description}
+                    onClick={() => setStyle(opt.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                      opt.unknown && 'text-amber-700 dark:text-amber-400',
+                    )}
+                  >
+                    <Check className={cn('h-3.5 w-3.5 shrink-0', selected ? 'opacity-100' : 'opacity-0')} />
+                    <span>{opt.label}</span>
+                  </button>
+                )
+              })}
+              {themeClasses.length === 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground">{t('editor.table.styleNoneDeclared')}</div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

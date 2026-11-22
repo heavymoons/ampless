@@ -23,6 +23,7 @@
     "actions": "操作",
     "draft": "下書き",
     "published": "公開済",
+    "scheduled": "公開予約",
     "preview": "プレビュー",
     "active": "アクティブ",
     "siteId": "サイトID",
@@ -50,6 +51,7 @@
     "totalPosts": "記事",
     "totalLabel": "総数",
     "published": "公開済",
+    "scheduled": "公開予約",
     "drafts": "下書き"
   },
   "posts": {
@@ -66,6 +68,7 @@
       "searchPlaceholder": "タイトル、スラッグ、タグを検索",
       "filterAll": "すべてのステータス",
       "filterPublished": "公開済",
+      "filterScheduled": "公開予約",
       "filterDraft": "下書き",
       "filterAllTags": "すべてのタグ",
       "sortLabel": "並び替え",
@@ -90,6 +93,7 @@
       "body": "本文",
       "format": "フォーマット",
       "formatHint": "Tiptap はリッチエディタ。Markdown / HTML はプレーンテキストエリア。",
+      "formatLossTableClasses": "Markdown では表のスタイルを保持できません。変換するとこの記事から次の表スタイルが失われます: {classes}。元の形式に戻しても復元されません。Markdown に変換しますか？",
       "insertMedia": "メディアを挿入",
       "tabEdit": "編集",
       "tabPreview": "プレビュー",
@@ -114,8 +118,8 @@
         "previewHint": "Static バンドルは /<slug>/ から実 HTML として配信されます。保存後に公開 URL を開いて確認してください。"
       },
       "publishedAt": "公開日時",
-      "publishedAtHint": "記事が公開される日時。空欄の場合は公開時の現在日時が使われます。未来の日時を設定すると予約公開になります。",
-      "scheduledNotice": "予約公開 — {date} まで非表示です。",
+      "publishedAtHint": "記事が公開される日時。空欄の場合は公開時の現在日時が使われます。未来の日時を設定すると公開予約になります。",
+      "scheduledNotice": "公開予約 — {date} まで非表示です。",
       "saveChanges": "変更を保存",
       "createPost": "記事を作成",
       "delete": "削除",
@@ -277,7 +281,13 @@
       "deleteRow": "行を削除",
       "deleteColumn": "列を削除",
       "toggleHeaderRow": "ヘッダー行を切替",
-      "deleteTable": "テーブルを削除"
+      "deleteTable": "テーブルを削除",
+      "style": "表のスタイル",
+      "styleDefault": "標準",
+      "styleUnknown": "{id}（現在のテーマで未定義）",
+      "styleUnknownHint": "クラスとして保持・出力されます。別のスタイルか「標準」を選ぶと置き換わります。",
+      "styleNoneDeclared": "現在のテーマは表のスタイルを定義していません。",
+      "titleWithStyle": "テーブル（スタイル: {style}）"
     },
     "codeBlock": {
       "languageLabel": "言語",
