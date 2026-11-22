@@ -3,12 +3,7 @@ import type { SQSHandler } from 'aws-lambda'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb'
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb'
-import {
-  DynamoDBDocumentClient,
-  DeleteCommand,
-  PutCommand,
-  QueryCommand,
-} from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import {
   formatPublicAssetUrl,
   isValidPluginKey,
@@ -21,7 +16,7 @@ import {
   type Post,
   type PostIndexEventPayload,
 } from 'ampless'
-import { computePostTagDiff } from './posttag-sync.js'
+import { candidateKeys, reconcilePostTagsForPost } from './posttag-sync.js'
 
 export interface CreateProcessorTrustedHandlerOpts {
   /**
@@ -51,6 +46,9 @@ function requireEnv(name: string): string {
 }
 
 const POST_BY_STATUS_INDEX = 'byStatus'
+
+/** Largest AWSDateTime zone offset (±18:00; see `parseAwsDateTime`). */
+const MAX_PUBLISHED_AT_OFFSET_MS = 18 * 60 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // AES-256-GCM decryption (node:crypto)
@@ -196,24 +194,36 @@ export function createProcessorTrustedHandler(
   // after `now` (scheduled but not yet live) are excluded from
   // plugin-generated feeds and sitemaps.
   //
-  // The SK (publishedAt) is NOT used as a lexical `<= now` bound: direct
-  // API writes may store any AWSDateTime (`+09:00`, no seconds, ...), whose
-  // string order differs from its instant, so a lexical bound would expose
-  // negative-offset posts early and hide positive-offset posts late. This
-  // reads the whole partition anyway, so filter and order by the parsed
-  // instant instead (newest first; unparseable publishedAt fails closed).
+  // The SK (publishedAt) is compared as a string, and direct API writes may
+  // store any AWSDateTime (`+09:00`, no seconds, ...), whose string order
+  // differs from its instant. So:
+  //   - the key bound is `<= <UTC minute of (now + 18h)>Z`, not `<= now`. A
+  //     live post's stored wall-clock is at most now + 18h (AWSDateTime
+  //     offsets are capped at ±18:00; `parseAwsDateTime` rejects larger
+  //     ones), and `...HH:mmZ` sorts at or above every spelling within that
+  //     minute, so no live post is cut by the bound. Posts scheduled further
+  //     ahead are never read; compared with the previous `<= now` bound the
+  //     extra rows read are only those whose string falls in the next 18h
+  //     (plus one minute), e.g. posts scheduled for the coming hours.
+  //   - every row is re-checked by parsed instant (fail closed on
+  //     unparseable values), so a future negative-offset row that sorts
+  //     before now is not exposed, and the result is ordered newest-first
+  //     by instant.
+  // As before, every live post is read and held in memory (bodies
+  // included) for the plugin; that cost is unchanged by this bound.
   async function listPublished(): Promise<Post[]> {
     const rows: Array<{ post: Post; ms: number }> = []
     const nowMs = Date.now()
+    const upper = new Date(nowMs + MAX_PUBLISHED_AT_OFFSET_MS).toISOString().slice(0, 16) + 'Z'
     let exclusiveStartKey: Record<string, unknown> | undefined
     do {
       const res = await ddb.send(
         new QueryCommand({
           TableName: POST_TABLE,
           IndexName: POST_BY_STATUS_INDEX,
-          KeyConditionExpression: '#status = :status',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':status': 'published' },
+          KeyConditionExpression: '#status = :status AND #publishedAt <= :upper',
+          ExpressionAttributeNames: { '#status': 'status', '#publishedAt': 'publishedAt' },
+          ExpressionAttributeValues: { ':status': 'published', ':upper': upper },
           ScanIndexForward: false,
           ExclusiveStartKey: exclusiveStartKey as never,
         })
@@ -385,41 +395,41 @@ export function createProcessorTrustedHandler(
   // --- Built-in: PostTag denormalized index ---
   //
   // For each Post mutation the dispatcher emits a `post.index.refresh`
-  // event carrying both the previous and next projection. This handler
-  // delegates the diff math to `computePostTagDiff` (pure, unit-tested
-  // in `posttag-sync.test.ts`) and applies the result via direct
-  // DynamoDB — faster than going through AppSync and a narrower IAM
-  // grant than full GraphQL mutate access on the PostTag model.
+  // event carrying both the previous and next projection. The event is
+  // only a trigger ("this postId changed"): the trusted queue is SQS
+  // standard, so events can arrive out of order, and writing `next` as-is
+  // would let an older event recreate rows of a state the post has left
+  // (e.g. a draft's title / excerpt on the public tag API). The rebuild
+  // reads the Post with a strongly consistent GetItem and writes the rows
+  // of its current state; the payload's previous / next only supply the
+  // keys to clean up. Each row is put in a TransactWriteItems guarded by a
+  // ConditionCheck that the Post still holds the state the row came from
+  // (IAM: ConditionCheckItem on Post via grantReadData, PutItem / DeleteItem
+  // on PostTag via grantWriteData). Writes are sequential with no rate
+  // limiter, bounded by one post's tag count. See `reconcilePostTagsForPost`
+  // (posttag-sync.ts).
+  // Writes go via direct DynamoDB — faster than AppSync and a narrower
+  // IAM grant than full GraphQL mutate access on the PostTag model.
   //
   // Centralising the logic here means write paths (admin, MCP tools,
   // future REST clients) don't need to call a sync helper — any Post
   // write that hits DynamoDB is automatically followed by a PostTag
   // rebuild via the Stream pipeline.
   async function rebuildPostTagsForPost(payload: PostIndexEventPayload): Promise<void> {
-    const { deletes, puts } = computePostTagDiff(payload)
-    await Promise.all([
-      ...deletes.map((key) =>
-        ddb.send(
-          new DeleteCommand({
-            TableName: POSTTAG_TABLE,
-            Key: key,
-          })
-        )
-      ),
-      ...puts.map((item) =>
-        ddb.send(
-          new PutCommand({
-            TableName: POSTTAG_TABLE,
-            Item: item,
-          })
-        )
-      ),
-    ])
-    const postId = payload.next?.postId ?? payload.previous?.postId ?? '(unknown)'
-    console.log(
-      `[posttag-sync] postId=${postId} ` +
-        `removed=${deletes.length} upserted=${puts.length}`
-    )
+    const postId = payload.next?.postId ?? payload.previous?.postId
+    if (!postId) {
+      // The dispatcher only emits this event when one side projects, so
+      // this is a malformed message; retrying it cannot help.
+      console.error('[posttag-sync] post.index.refresh without a postId; skipped', payload)
+      return
+    }
+    await reconcilePostTagsForPost({
+      client: ddb,
+      postTable: POST_TABLE,
+      postTagTable: POSTTAG_TABLE,
+      postId,
+      candidates: candidateKeys(payload),
+    })
   }
 
   // --- Built-in: site settings cache ---

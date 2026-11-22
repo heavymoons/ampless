@@ -33,6 +33,16 @@ const ddbCommands = vi.hoisted(() => [] as Array<{ input: Record<string, unknown
 // values in attribute descriptors like `{ N: ... }`. Default (no entry
 // for a table) is `{ Items: [] }`, so existing tests are unaffected.
 const ddbQueryResponses = vi.hoisted(() => new Map<string, unknown[]>())
+/** Rows returned by bounded byStatus queries (see the DynamoDB mock). */
+const ddbRowsRead = vi.hoisted(() => ({ count: 0 }))
+/** Rows per page of the bounded byStatus mock (stands in for the 1 MB page). */
+const QUERY_PAGE_ROWS = 100
+
+// In-memory Post rows (GetCommand, keyed by postId) and PostTag rows
+// (guarded TransactWrite Put / DeleteCommand, keyed by
+// `tag|publishedAtPostId`) for the post.index.refresh tests.
+const postRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
+const postTagRows = vi.hoisted(() => new Map<string, Record<string, unknown>>())
 
 // Simulate PluginSecret table rows for ctx.secret tests.
 // Map key: `sk` → value string (single-id identifier — no `siteId`
@@ -131,7 +141,16 @@ vi.mock('@aws-sdk/util-dynamodb', () => {
   return { marshall, unmarshall }
 })
 
-vi.mock('@aws-sdk/lib-dynamodb', () => {
+vi.mock('@aws-sdk/lib-dynamodb', async () => {
+  const { evaluatePostStateCondition, guardCancelled } = await import(
+    '../__fixtures__/post-state-condition.js'
+  )
+  class TransactWriteCommand {
+    input: Record<string, unknown>
+    constructor(input: Record<string, unknown>) {
+      this.input = input
+    }
+  }
   class DeleteCommand {
     input: Record<string, unknown>
     constructor(input: Record<string, unknown>) {
@@ -150,19 +169,76 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
       this.input = input
     }
   }
+  class GetCommand {
+    input: Record<string, unknown>
+    constructor(input: Record<string, unknown>) {
+      this.input = input
+    }
+  }
   const DynamoDBDocumentClient = {
     from() {
       return {
         async send(command: { input: Record<string, unknown> }) {
           ddbCommands.push(command)
+          if (command instanceof GetCommand) {
+            const row = postRows.get((command.input.Key as { postId: string }).postId)
+            return row ? { Item: { ...row } } : {}
+          }
+          if (command instanceof PutCommand) {
+            const item = command.input.Item as { tag: string; publishedAtPostId: string }
+            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
+            return {}
+          }
+          if (command instanceof TransactWriteCommand) {
+            const [check, put] = command.input.TransactItems as Array<
+              Record<string, Record<string, unknown>>
+            >
+            const key = check!.ConditionCheck!.Key as { postId: string }
+            if (!evaluatePostStateCondition(postRows.get(key.postId) ?? null, check!.ConditionCheck!)) {
+              throw guardCancelled()
+            }
+            const item = put!.Put!.Item as { tag: string; publishedAtPostId: string }
+            postTagRows.set(`${item.tag}|${item.publishedAtPostId}`, { ...item })
+            return {}
+          }
+          if (command instanceof DeleteCommand) {
+            const key = command.input.Key as { tag: string; publishedAtPostId: string }
+            postTagRows.delete(`${key.tag}|${key.publishedAtPostId}`)
+            return {}
+          }
           const tableName = command.input.TableName as string | undefined
-          const items = (tableName && ddbQueryResponses.get(tableName)) || []
+          let items = (tableName && ddbQueryResponses.get(tableName)) || []
+          // byStatus `#publishedAt <= :upper`: apply the bound as DynamoDB
+          // does (string compare on the SK, descending), and page it so
+          // load tests can count the rows actually read.
+          const values = command.input.ExpressionAttributeValues as Record<string, unknown> | undefined
+          const upper = values?.[':upper']
+          if (typeof upper === 'string' && command.input.IndexName === 'byStatus') {
+            items = (items as Array<{ publishedAt?: string }>)
+              .filter((r) => typeof r.publishedAt === 'string' && r.publishedAt <= upper)
+              .sort((a, b) => (a.publishedAt! < b.publishedAt! ? 1 : -1))
+            const start = (command.input.ExclusiveStartKey as { i?: number } | undefined)?.i ?? 0
+            const page = items.slice(start, start + QUERY_PAGE_ROWS)
+            ddbRowsRead.count += page.length
+            const next = start + page.length
+            return {
+              Items: page,
+              ...(next < items.length && { LastEvaluatedKey: { i: next } }),
+            }
+          }
           return { Items: items }
         },
       }
     },
   }
-  return { DeleteCommand, DynamoDBDocumentClient, PutCommand, QueryCommand }
+  return {
+    DeleteCommand,
+    DynamoDBDocumentClient,
+    GetCommand,
+    PutCommand,
+    QueryCommand,
+    TransactWriteCommand,
+  }
 })
 
 const site: Config['site'] = { name: 'Test', url: 'https://example.com' }
@@ -844,8 +920,8 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 // ---------------------------------------------------------------------------
 //
 // The byStatus SK (publishedAt) may hold any AWSDateTime written through the
-// API (`+09:00`, `-05:00`, no seconds, ...), so listPublished must not rely
-// on a lexical `<= now` key bound. It reads the partition, keeps rows whose
+// API (`+09:00`, `-05:00`, no seconds, ...), so listPublished bounds the key
+// at now + 18h (the largest offset) instead of `<= now`, keeps rows whose
 // parsed instant is <= now, and orders newest-first by instant.
 
 describe('listPublished — scheduled-publish filtering by instant', () => {
@@ -899,7 +975,7 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
     }
   }
 
-  it('queries the published partition without a lexical publishedAt bound', async () => {
+  it('bounds the query at the UTC minute of now + 18h (max AWSDateTime offset)', async () => {
     await listPublishedViaHook()
     const queryCmd = ddbCommands.find(
       (cmd) =>
@@ -907,8 +983,45 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
         cmd.input.IndexName === 'byStatus'
     )
     expect(queryCmd).toBeDefined()
-    expect(queryCmd!.input.KeyConditionExpression).toBe('#status = :status')
-    expect(queryCmd!.input.ExpressionAttributeValues).toEqual({ ':status': 'published' })
+    expect(queryCmd!.input.KeyConditionExpression).toBe(
+      '#status = :status AND #publishedAt <= :upper'
+    )
+    expect(queryCmd!.input.ExpressionAttributeValues).toEqual({
+      ':status': 'published',
+      ':upper': '2026-01-01T21:00Z', // NOW 03:00Z + 18h
+    })
+  })
+
+  it('load: 10,000 far-future scheduled posts are never read; only the 18h window is', async () => {
+    const future = Array.from({ length: 10_000 }, (_, i) =>
+      row(`sched-${i}`, new Date(NOW + (19 + i) * 3_600_000).toISOString())
+    )
+    const soon = Array.from({ length: 30 }, (_, i) =>
+      row(`soon-${i}`, new Date(NOW + (i + 1) * 30 * 60_000).toISOString())
+    ) // within the next 15h: read, then dropped by instant
+    const live = Array.from({ length: 250 }, (_, i) =>
+      row(`live-${String(i).padStart(3, '0')}`, new Date(NOW - (i + 1) * 3_600_000).toISOString())
+    )
+    ddbQueryResponses.set('posts', [...future, ...soon, ...live])
+    ddbRowsRead.count = 0
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts.map((p) => p.postId)).toEqual(live.map((r) => r.postId))
+    // 250 live + 30 in-window scheduled rows; none of the 10,000 beyond it.
+    expect(ddbRowsRead.count).toBe(280)
+    const queries = ddbCommands.filter((cmd) => cmd.input.IndexName === 'byStatus')
+    expect(queries).toHaveLength(3) // 280 rows / 100-row pages
+  })
+
+  it('includes a live +18:00 post (string 18h ahead) and drops a future one in the window', async () => {
+    ddbQueryResponses.set('posts', [
+      row('plus18-live', '2026-01-01T20:59:00+18:00'), // = 2026-01-01T02:59Z
+      row('plus18-future', '2026-01-01T21:00:30+18:00'), // = 03:00:30Z, same bound minute
+      row('canonical-past', '2026-01-01T01:00:00.000Z'),
+    ])
+    const posts = await listPublishedViaHook()
+    expect(posts.map((p) => p.postId)).toEqual(['plus18-live', 'canonical-past'])
   })
 
   it('excludes future posts by instant, including negative offsets that sort as past', async () => {
@@ -920,7 +1033,10 @@ describe('listPublished — scheduled-publish filtering by instant', () => {
       row('past-plus9', '2026-01-01T11:00:00+09:00'), // = 02:00Z
       row('future-minus5', '2025-12-31T23:00:00-05:00'), // = 04:00Z
       row('past-canonical', '2025-12-31T00:00:00.000Z'),
-      row('bad', 'not-a-date'),
+      // Unparseable but inside the key window (sorts before the bound).
+      row('bad', '2025-12-30T00:00:00Zgarbage'),
+      // Outside the window: never read at all.
+      row('bad-outside', 'not-a-date'),
     ])
 
     const posts = await listPublishedViaHook()
@@ -1180,5 +1296,133 @@ describe('listPublished — post.body type preservation', () => {
     expect(posts).toHaveLength(1)
     expect(posts[0]!.body).toEqual({ type: 'doc', content: [] })
     expect(typeof posts[0]!.body).toBe('object')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// post.index.refresh — authoritative PostTag rebuild
+// ---------------------------------------------------------------------------
+//
+// The trusted queue is SQS standard, so refresh events can arrive out of
+// order. The handler must rebuild from a strongly consistent read of the
+// Post, never from the event's `next`.
+
+describe('post.index.refresh — PostTag rebuild from the current Post', () => {
+  beforeEach(() => {
+    setEnv()
+    s3Commands.length = 0
+    ddbCommands.length = 0
+    ddbQueryResponses.clear()
+    pluginSecretRows.clear()
+    postRows.clear()
+    postTagRows.clear()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const rawPublished = {
+    postId: 'p1',
+    slug: 'hello',
+    title: 'Draft-only title',
+    status: 'published' as const,
+    format: 'markdown' as const,
+    excerpt: 'Draft-only excerpt',
+    publishedAt: '2026-05-01T09:00:00+09:00',
+    tags: ['news'],
+  }
+  const canonicalPublished = { ...rawPublished, publishedAt: '2026-05-01T00:00:00.000Z' }
+  const draft = { ...canonicalPublished, status: 'draft' as const }
+
+  function refresh(
+    payload: unknown
+  ): Parameters<ReturnType<typeof createProcessorTrustedHandler>>[0] {
+    return {
+      Records: [{ body: JSON.stringify({ type: 'post.index.refresh', payload }) }],
+    } as Parameters<ReturnType<typeof createProcessorTrustedHandler>>[0]
+  }
+
+  it('B (unpublish) processed before A (migration rewrite) leaves no public row', async () => {
+    // Old row of the published state; the Post is now a draft.
+    postTagRows.set('news|2026-05-01T00:00:00.000Z#p1', {
+      ...canonicalPublished,
+      tag: 'news',
+      publishedAtPostId: '2026-05-01T00:00:00.000Z#p1',
+    })
+    postRows.set('p1', draft)
+    const handler = createProcessorTrustedHandler({ site })
+
+    await handler(
+      refresh({ previous: canonicalPublished, next: draft }),
+      {} as never,
+      vi.fn() as never
+    )
+    await handler(
+      refresh({ previous: rawPublished, next: canonicalPublished }),
+      {} as never,
+      vi.fn() as never
+    )
+
+    expect(postTagRows.size).toBe(0)
+    expect(JSON.stringify([...postTagRows.values()])).not.toContain('Draft-only')
+    // Every Post read is strongly consistent against the Post table.
+    const gets = ddbCommands.filter((c) => c.input.TableName === 'posts' && 'Key' in c.input)
+    expect(gets.length).toBeGreaterThan(0)
+    expect(gets.every((c) => c.input.ConsistentRead === true)).toBe(true)
+  })
+
+  it('writes the rows of the current state, not of the payload', async () => {
+    const current = { ...canonicalPublished, title: 'Current title', tags: ['life'] }
+    postRows.set('p1', current)
+    const handler = createProcessorTrustedHandler({ site })
+
+    await handler(
+      refresh({ previous: rawPublished, next: canonicalPublished }),
+      {} as never,
+      vi.fn() as never
+    )
+
+    expect([...postTagRows.keys()]).toEqual(['life|2026-05-01T00:00:00.000Z#p1'])
+    expect(postTagRows.get('life|2026-05-01T00:00:00.000Z#p1')).toMatchObject({
+      title: 'Current title',
+    })
+  })
+
+  it('puts every row through a transaction guarded on the Post state (no plain Put)', async () => {
+    postRows.set('p1', { ...canonicalPublished, updatedAt: '2026-05-02T00:00:00.000Z' })
+    const handler = createProcessorTrustedHandler({ site })
+
+    await handler(
+      refresh({ previous: rawPublished, next: canonicalPublished }),
+      {} as never,
+      vi.fn() as never
+    )
+
+    const transacts = ddbCommands.filter((c) => 'TransactItems' in c.input)
+    expect(transacts).toHaveLength(1)
+    const [check, put] = transacts[0]!.input.TransactItems as Array<
+      Record<string, Record<string, unknown>>
+    >
+    expect(check!.ConditionCheck).toMatchObject({
+      TableName: 'posts',
+      Key: { postId: 'p1' },
+      ExpressionAttributeValues: expect.objectContaining({
+        ':status': 'published',
+        ':updatedAt': '2026-05-02T00:00:00.000Z',
+      }),
+    })
+    expect(put!.Put).toMatchObject({ TableName: 'posttags' })
+    expect(ddbCommands.some((c) => 'Item' in c.input)).toBe(false)
+    expect([...postTagRows.keys()]).toEqual(['news|2026-05-01T00:00:00.000Z#p1'])
+  })
+
+  it('logs and skips a refresh without any postId', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const handler = createProcessorTrustedHandler({ site })
+    await handler(refresh({ previous: null, next: null }), {} as never, vi.fn() as never)
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('without a postId'), expect.anything())
+    expect(postTagRows.size).toBe(0)
   })
 })

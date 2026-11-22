@@ -15,6 +15,7 @@ For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), star
   - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
   - [Restore a data table from point-in-time recovery](#restore-a-data-table-from-point-in-time-recovery)
   - [DynamoDB TTL for KvStore / PostHistory (opt-in)](#dynamodb-ttl-for-kvstore--posthistory-opt-in)
+  - [Normalize stored post publish dates (one-time migration)](#normalize-stored-post-publish-dates-one-time-migration)
   - [Inspect failed plugin events](#inspect-failed-plugin-events)
 - [Custom domains](#custom-domains)
   - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
@@ -506,6 +507,140 @@ one-change-per-hour caveat below).
   stream but only reacts to `siteconfig` rows (a site-settings cache
   rebuild), which are written without `ttl`; it does not consume the
   PostHistory stream. Check any stream consumers you added yourself.
+
+### Normalize stored post publish dates (one-time migration)
+
+AppSync's `AWSDateTime` accepts many spellings of one instant
+(`2026-05-01T09:00:00+09:00`, `2026-05-01T00:00Z`, nanoseconds, ...).
+Since this release every `createPost` / `updatePost` — admin UI, MCP and
+direct GraphQL calls alike — stores `publishedAt` as canonical UTC
+(`YYYY-MM-DDTHH:mm:ss.sssZ`) and also writes a derived
+`publishedAtSortKey` (`<publishedAt>#<postId>`). A value that is not a
+valid date in years 0000–9999 UTC is rejected with `ValidationError`.
+
+Posts saved **before** the upgrade keep their old string until they are
+saved again. Such a row can be listed late or out of order, its tag-page
+rows keep their old key, and it has no `publishedAtSortKey` (a later
+release switches the post list to the index built on it). Rewrite them
+once per site with `ampless-migrate-published-at`, after the upgrade is
+deployed.
+
+**What the tool guarantees, and what it does not.**
+
+- Each write is one conditional `UpdateItem` that sets only
+  `publishedAt` / `publishedAtSortKey`, and only while **those two**
+  attributes still hold the values the (strongly consistent) scan read.
+  An edit that changed either of them meanwhile makes the write fail; it
+  is reported as a conflict and left alone. An edit to any other
+  attribute does **not** conflict — the migration write still succeeds
+  and does not overwrite that edit, because it sets nothing else.
+  `updatedAt` is never changed.
+- The writes go through the Post stream like any save. The dispatcher
+  sees that only the spelling of `publishedAt` (and
+  `publishedAtSortKey`) changed and emits **no** `content.updated` event
+  (webhooks and other plugins do not fire) and no PostHistory revision.
+  It still refreshes the post's tag-page (PostTag) rows. That refresh
+  rebuilds the rows from a strongly consistent read of the post's
+  current state, not from the event, and writes each row in a
+  transaction that only succeeds while the post still matches that
+  state. A draft or deleted post's row therefore cannot be (re)written,
+  even when events are processed out of order (the trusted queue is SQS
+  standard) or a worker crashes mid-rebuild.
+- A dry-run that reports nothing to change does **not** by itself prove
+  the migration is complete: a write can be in flight, and the PostTag
+  refreshes run asynchronously after the Post writes. Completion is only
+  established by the procedure below, with every writer stopped. Running
+  the tool while the site is being edited is safe for the data, but its
+  report then describes a moving target.
+
+**Procedure**
+
+1. **Deploy the upgrade** and wait for the deploy to finish. The first
+   deploy also builds the `byStatusSorted` index on the Post table,
+   which can take a while on a large table.
+2. **Find the table names** (`Post-<apiId>-NONE`, `PostTag-<apiId>-NONE`)
+   in the DynamoDB console, or:
+
+   ```bash
+   aws dynamodb list-tables --query "TableNames[?starts_with(@, 'Post')]"
+   ```
+
+   With several environments in one account, match `<apiId>` against
+   the AppSync API of the branch you are migrating.
+3. **Stop every writer** for the duration: no admin or editor sessions
+   saving posts, MCP tokens and scripts / API clients paused, no
+   deploys. Keep them stopped until step 8.
+4. **Dry-run** (the default; strongly consistent reads only):
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTable> --region <region>
+   ```
+
+   It checks that the table and `byStatusSorted` are `ACTIVE` (the index
+   no longer backfilling), then lists every post whose `publishedAt`
+   would be rewritten (raw value, canonical value, instant) or whose
+   `publishedAtSortKey` is missing or stale, and every value it cannot
+   parse. Unparseable values are never written: fix them by setting the
+   publish date in the admin editor (writers are stopped, so do this
+   before step 3 or treat it as a separate pass).
+5. **Apply**, after reviewing the dry-run. `--apply` refuses to run
+   unless the index is `ACTIVE`:
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTable> --region <region> --apply
+   ```
+
+   Writes are issued one at a time and rate-limited
+   (`--max-writes-per-second`, default 10). Re-run the dry-run until it reports nothing to change.
+6. **Wait for the event pipeline to drain.** These are signs, not proof
+   (step 7 is the check that counts). Look for all of them at the same
+   time:
+   - the event-dispatcher Lambda's `IteratorAge` metric for the Post
+     stream is back to 0 and stays there (CloudWatch → Lambda → the
+     dispatcher function). A missing data point is not 0: look at a
+     window that covers the whole apply run;
+   - the dispatcher's `Errors` metric is 0 over that window, and its log
+     group has no `[event-dispatcher]` errors. The Post stream has no
+     failure destination: a batch that still fails after its retries is
+     **dropped**, so its events never reach the queue — only its errors
+     show that it happened;
+   - the trusted events queue (`TrustedEventsQueue` in the
+     `amplessEvents` stack) shows 0 for `ApproximateNumberOfMessages`,
+     `ApproximateNumberOfMessagesNotVisible` and
+     `ApproximateNumberOfMessagesDelayed` (these are approximate; read
+     them more than once, a minute apart):
+
+     ```bash
+     aws sqs get-queue-attributes --queue-url <trusted-queue-url> \
+       --attribute-names ApproximateNumberOfMessages \
+       ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed
+     ```
+
+   - the dead-letter queue (`EventsDlq`) has no messages from this run.
+     If it does, inspect them ([Inspect failed plugin events](#inspect-failed-plugin-events))
+     before going on — a failed `post.index.refresh` means a post's tag
+     rows were not rebuilt.
+
+   Whatever these show, a lost event can only be caught by step 7.
+7. **Check the tag-page index** against the posts (strongly consistent
+   reads):
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTable> \
+     --post-tag-table <PostTagTable> --region <region> --check-post-tags
+   ```
+
+   It reports PostTag rows that should not exist (for example a draft or
+   deleted post, an old key, or an outdated title / excerpt) and rows
+   that are missing, and exits non-zero if it finds any. Add `--apply` to
+   repair them: each affected post is rebuilt from its current state,
+   the same way the event processor does (each row is written only while
+   the post still matches the state it was built from). Writes are
+   rate-limited one at a time (`--max-writes-per-second`). Repeat until it reports none.
+   This also clears stale rows that earlier releases could leave behind.
+8. **Resume the writers.** The migration is complete when, with writers
+   stopped, step 4 reports nothing to change, step 6 is drained and
+   step 7 reports no mismatch.
 
 ### Inspect failed plugin events
 
