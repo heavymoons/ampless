@@ -201,15 +201,24 @@ describe('template RUNBOOK TTL section', () => {
 
   const LANG: Record<
     string,
-    { iteratorAgeNotProof: string; noZeroHeading: string; neverExpire: string }
+    {
+      iteratorAgeNotProof: string
+      mappingNotProof: string
+      noZeroHeading: string
+      neverExpire: string
+    }
   > = {
     'RUNBOOK.md': {
       iteratorAgeNotProof: '**not proof on its own**',
+      mappingNotProof:
+        'Neither `State` nor\n     `LastProcessingResult` proves the stream is drained on its own',
       noZeroHeading: "Don't switch `retentionDays` to 0 for the window",
       neverExpire: 'those revisions never expire',
     },
     'RUNBOOK.ja.md': {
       iteratorAgeNotProof: '**それだけでは証明になりません**',
+      mappingNotProof:
+        '`State` も `LastProcessingResult` も、それだけではストリームを処理し終えた証明になりません',
       noZeroHeading: '作業中に `retentionDays` を 0 にしない',
       neverExpire: 'それらのリビジョンは期限切れになりません',
     },
@@ -277,6 +286,14 @@ describe('template RUNBOOK TTL section', () => {
 
     it(`${file} does not treat IteratorAge alone as proof the dispatcher is idle`, () => {
       expect(section(file)).toContain(LANG[file].iteratorAgeNotProof)
+    })
+
+    it(`${file} accepts the idle-stream LastProcessingResult and does not treat it as proof`, () => {
+      const s = section(file)
+      // An idle stream legitimately reports "No records processed"; a
+      // runbook that only accepts `OK` would block (or mislead) operators.
+      expect(s).toMatch(/`LastProcessingResult`[^\n]*\n?[^\n]*`OK`[^`]*`No records processed`/)
+      expect(s).toContain(LANG[file].mappingNotProof)
     })
 
     it(`${file} pauses writers instead of switching retentionDays to 0, and says why`, () => {

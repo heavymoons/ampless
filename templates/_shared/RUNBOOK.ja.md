@@ -179,7 +179,7 @@ ampless はどちらのテーブルでも DynamoDB の TTL を有効に**しま�
        --query 'EventSourceMappings[].[EventSourceArn,State,LastProcessingResult,DestinationConfig]'
      ```
 
-     2 つのマッピング（Post と KvStore のストリーム）がどちらも `Enabled` で、`LastProcessingResult` が `OK` であること。ampless は失敗時の送信先を設定していないため、再試行（3 回、バッチ分割あり）をすべて失敗したバッチはキューに残らず破棄されます。events DLQ に入るのは失敗したプラグイン processor のメッセージだけで、processor は PostHistory にも KvStore にも書き込まないため、ここでの書き込み元にはなりません。
+     2 つのマッピング（Post と KvStore のストリーム）がどちらも `Enabled` で、`LastProcessingResult` が `OK` か `No records processed`（ストリームに新しいレコードがないときの通常の値）であること。それ以外の値（たとえば `PROBLEM: ...`）なら、先に原因を調べます。`State` も `LastProcessingResult` も、それだけではストリームを処理し終えた証明になりません。どちらもマッピングと直近のポーリングの状態を表すだけで、待っているレコードや再試行中のレコードはわからないため、下のメトリクスとログの確認と合わせてだけ使ってください。ampless は失敗時の送信先を設定していないため、再試行（3 回、バッチ分割あり）をすべて失敗したバッチはキューに残らず破棄されます。events DLQ に入るのは失敗したプラグイン processor のメッセージだけで、processor は PostHistory にも KvStore にも書き込まないため、ここでの書き込み元にはなりません。
      dispatcher 関数の CloudWatch メトリクス `Invocations` と `Errors`（`AWS/Lambda`）が、最後に Post へ書き込んでから少なくとも 15 分間 0 であり、`ConcurrentExecutions` がないか 0 であること。停止してからのロググループに、エラーや再試行がないことも確認します。その間にエラーがあれば、バッチが再試行されたか破棄されています。先に進む前に、そのバッチに含まれていたレコードを調べてください。
    - `IteratorAge` が 0 付近に戻っていることは、ストリームを処理し終えた状態と矛盾しませんが、**それだけでは証明になりません**。関数が呼び出されたときにしか記録されないため、データポイントがないことと処理し終えたことの区別がつかず、いま再試行中のバッチについても何もわかりません。上の確認と合わせてだけ使ってください。
 

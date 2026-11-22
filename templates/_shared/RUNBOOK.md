@@ -287,8 +287,14 @@ until TTL is on and verified.
        --query 'EventSourceMappings[].[EventSourceArn,State,LastProcessingResult,DestinationConfig]'
      ```
 
-     Both mappings (Post and KvStore stream) should be `Enabled` with
-     `LastProcessingResult` `OK`, and ampless configures no on-failure
+     Both mappings (Post and KvStore stream) should be `Enabled`, with
+     `LastProcessingResult` `OK` or `No records processed` (the normal
+     value for an idle stream). Any other value (for example
+     `PROBLEM: ...`) needs investigating first. Neither `State` nor
+     `LastProcessingResult` proves the stream is drained on its own — they
+     describe the mapping and its most recent poll, not records still
+     waiting or being retried — so use them only alongside the metric and
+     log checks below. ampless configures no on-failure
      destination — a batch that fails every retry (3 retries, with batch
      bisection) is dropped, not parked in a queue. The events DLQ only
      holds failed plugin-processor messages; processors never write
