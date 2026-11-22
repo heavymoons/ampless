@@ -113,11 +113,13 @@ export function siteSettingsCacheS3Resources(bucketArn: string): string[] {
  *   3. Relaxes the Cognito password policy to length-only.
  *   4. Grants the post-confirmation Lambda permission to add
  *      newly-confirmed users to Cognito groups.
- *   5. Enables DynamoDB Streams on Post + KvStore, provisions
+ *   5. Enables DynamoDB point-in-time recovery on every model table
+ *      (ampless + project models).
+ *   6. Enables DynamoDB Streams on Post + KvStore, provisions
  *      Trusted/Untrusted SQS queues with a shared DLQ, wires the
  *      dispatcher Lambda to both streams and both queues, and
  *      grants the trusted processor scoped data / S3 access.
- *   6. Schedules the AppSync API key renewer to run monthly.
+ *   7. Schedules the AppSync API key renewer to run monthly.
  *
  * The user-side `amplify/backend.ts` becomes:
  *
@@ -310,6 +312,33 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   const cfnPostHistoryTable =
     backend.data.resources.cfnResources.amplifyDynamoDbTables['PostHistory']
   cfnPostHistoryTable.timeToLiveSpecification = { attributeName: 'ttl', enabled: true }
+
+  // --- Data: point-in-time recovery on every model table ---
+  //
+  // Amplify leaves PITR off by default, so an accidental bulk delete or
+  // bad migration would be unrecoverable. Turn it on for every entry in
+  // `amplifyDynamoDbTables` — the ampless models AND any project models
+  // from `resource.custom.ts` (they land in the same record).
+  //
+  // - Existing tables: the AmplifyDynamoDBTable custom resource applies
+  //   this via `UpdateContinuousBackups` in place. It only replaces a
+  //   table on a key-schema change, so this does not recreate or copy
+  //   any data.
+  // - Setting the value explicitly also matters for tables where PITR
+  //   was enabled by hand: when the spec is absent the Amplify handler
+  //   treats it as "disabled" and turns PITR OFF on the next table
+  //   update.
+  // - Opt out per table in `amplify/backend.custom.ts`
+  //   (`amplifyDynamoDbTables['<Model>'].pointInTimeRecoveryEnabled =
+  //   false`); `customizeBackend` runs after this and wins.
+  // - The Amplify handler does not apply `recoveryPeriodInDays`. Tables
+  //   it newly enables get DynamoDB's default 35-day window; tables that
+  //   already have PITR on are left untouched (no-op), so a recovery
+  //   period configured earlier (1–35 days) is kept.
+  const amplifyTables = backend.data.resources.cfnResources.amplifyDynamoDbTables
+  for (const model of Object.keys(amplifyTables)) {
+    amplifyTables[model].pointInTimeRecoveryEnabled = true
+  }
 
   const eventsStack = backend.createStack('amplessEvents')
 

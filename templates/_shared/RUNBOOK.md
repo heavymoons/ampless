@@ -13,7 +13,7 @@ For day-to-day usage (commands, admin UI tour, themes, plugins, deploying), star
 - [Common operations](#common-operations)
   - [Promote / demote a user](#promote--demote-a-user)
   - [Reset a user's password (admin override)](#reset-a-users-password-admin-override)
-  - [Restore from a Post-table backup](#restore-from-a-post-table-backup)
+  - [Restore a data table from point-in-time recovery](#restore-a-data-table-from-point-in-time-recovery)
   - [Inspect failed plugin events](#inspect-failed-plugin-events)
 - [Custom domains](#custom-domains)
   - [Adding a custom domain to Amplify Hosting](#adding-a-custom-domain-to-amplify-hosting)
@@ -99,13 +99,123 @@ aws cognito-idp admin-set-user-password \
 
 The `/login` page also has a self-service "Forgot password?" flow.
 
-### Restore from a Post-table backup
+### Restore a data table from point-in-time recovery
 
-DynamoDB Point-in-Time Recovery is **not** enabled by `defineData`;
-turn it on manually via AWS Console → DynamoDB → Tables →
-`<your post table>` → Backups → Edit PITR. Once enabled, restoration
-takes the form `aws dynamodb restore-table-to-point-in-time` to a new
-table; you'll need to migrate items back to the live table afterwards.
+**PITR is on by default.** `defineAmplessBackend` enables DynamoDB
+point-in-time recovery (PITR) on every data table — the ampless models
+(Post, Page, Media, Taxonomy, KvStore, PostHistory, …) and any models
+you add in `amplify/data/resource.custom.ts`. Existing sites get it on
+the first deploy after upgrading `@ampless/backend` to a release that
+includes this change (heavymoons/ampless#395). It is applied **in
+place**: no table is replaced and no data is copied.
+
+**Recovery window.** Tables that PITR is newly turned on for get
+DynamoDB's default 35-day recovery period. Tables that already had PITR
+on are left untouched, so a recovery period you configured earlier
+(1–35 days) is kept; ampless does not reset it. Either way you can never
+restore to a moment before PITR was turned on for that table. Check the
+actual restorable range of a table before you restore:
+
+```bash
+aws dynamodb describe-continuous-backups --region <region> --table-name <live table> \
+  --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription'
+```
+
+`EarliestRestorableDateTime` and `LatestRestorableDateTime` bound the
+`--restore-date-time` you can pass; the latest point typically lags the
+current time by about five minutes. `RecoveryPeriodInDays` shows the
+configured window. Media files live in S3 and are not covered by PITR.
+
+**Cost.** PITR is billed on table size (item data plus local secondary
+indexes): roughly $0.20 per GB-month in us-east-1. A restore is billed
+roughly $0.15 per GB of data restored (including GSIs). Prices vary by
+Region — see [Amazon DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/).
+A typical CMS table is megabytes, so this is usually cents per month.
+
+**Restoring.** A restore always creates a **new** table; it never
+rewinds the live one. Amplify manages the live table and its name stays
+the same, so the procedure is: restore to a side table, copy the items
+you need back into the live table, then delete the side table.
+
+This is a selective, item-level repair, **not** a point-in-time rollback
+of the site. Each table is restored separately, and copying items back
+only overwrites the keys you write: rows created after the restore point
+stay in the live table, and rows you don't copy keep their current
+values. Related tables (e.g. Post, PostTag, PostHistory, KvStore) are
+not rolled back together to a consistent moment.
+
+1. Find the live table name (Amplify names them
+   `<Model>-<apiId>-NONE`, e.g. `Post-abc123…-NONE`):
+
+   ```bash
+   aws dynamodb list-tables --region <region-from-amplify_outputs.json:data.aws_region>
+   ```
+
+2. Restore it to a new table at a moment inside the restorable range
+   shown by `describe-continuous-backups` (see above):
+
+   ```bash
+   aws dynamodb restore-table-to-point-in-time \
+     --region <region> \
+     --source-table-name Post-<apiId>-NONE \
+     --target-table-name Post-<apiId>-NONE-restore-20260101 \
+     --restore-date-time 2026-01-01T09:00:00Z
+   ```
+
+   Wait until `aws dynamodb describe-table --table-name <target>` reports
+   `TableStatus: ACTIVE` (minutes for small tables).
+
+3. Plan the scope first: decide exactly which keys you are repairing,
+   and compare them between the restored and live tables before writing
+   anything. Then, while you copy:
+
+   - **Isolate or quiesce writes.** Ask editors to stop editing (and
+     pause any MCP clients or automation that write) so live changes
+     don't race with the copy.
+   - **`put-item` / `batch-write-item` replace the whole item with the
+     same key.** Any newer change in the live row is lost. Items that
+     exist only in the live table are not removed — delete them
+     explicitly if they must go.
+   - **Use conditional writes where appropriate**, e.g.
+     `--condition-expression 'attribute_not_exists(postId)'` (use the
+     table's partition key — `postId` for Post, `pk` for KvStore, …) to
+     only re-create deleted rows without touching ones that still exist,
+     or a condition on `updatedAt` so you don't overwrite a newer edit.
+
+   Use `get-item` / `put-item` for a few rows, or a short `scan` +
+   `batch-write-item` script for many (`batch-write-item` does not
+   support conditions). Writes to Post / KvStore flow through their
+   streams, so the event system re-runs for the restored rows (PostTag
+   index, caches, history) as it does for any edit.
+
+   Afterwards, **verify the reconciliation**: re-read the repaired keys
+   from the live table, check the admin UI and public site, and check the
+   events DLQ for failed processing.
+
+   Do **not** point the app at the restored table, and do not delete the
+   live table — Amplify owns it and will not adopt the copy.
+
+4. Delete the restored table when you are done so you stop paying for
+   it:
+
+   ```bash
+   aws dynamodb delete-table --region <region> --table-name <target>
+   ```
+
+The restored table keeps the key schema, indexes, and billing mode, but
+does **not** carry over streams, TTL, PITR, tags, auto scaling, or IAM
+policies. That is fine for a temporary side table; just don't treat it
+as a drop-in replacement.
+
+**Opting out.** To turn PITR off for a table, override it in
+`amplify/backend.custom.ts` (it runs after ampless's wiring, so it
+wins):
+
+```ts
+export function customizeBackend(backend: AmplessBackend): void {
+  backend.data.resources.cfnResources.amplifyDynamoDbTables['KvStore'].pointInTimeRecoveryEnabled = false
+}
+```
 
 ### Inspect failed plugin events
 
