@@ -105,14 +105,26 @@ The `/login` page also has a self-service "Forgot password?" flow.
 point-in-time recovery (PITR) on every data table — the ampless models
 (Post, Page, Media, Taxonomy, KvStore, PostHistory, …) and any models
 you add in `amplify/data/resource.custom.ts`. Existing sites get it on
-the first deploy after upgrading `@ampless/backend` to the release that
-introduced it (see the package CHANGELOG). It is applied **in place**:
-no table is replaced and no data is copied.
+the first deploy after upgrading `@ampless/backend` to a release that
+includes this change (heavymoons/ampless#395). It is applied **in
+place**: no table is replaced and no data is copied.
 
-**Recovery window.** You can restore to any second in the last 35 days
-(DynamoDB's default; ampless does not change it), but never to a moment
-before PITR was turned on for that table. Media files live in S3 and are
-not covered by PITR.
+**Recovery window.** Tables that PITR is newly turned on for get
+DynamoDB's default 35-day recovery period. Tables that already had PITR
+on are left untouched, so a recovery period you configured earlier
+(1–35 days) is kept; ampless does not reset it. Either way you can never
+restore to a moment before PITR was turned on for that table. Check the
+actual restorable range of a table before you restore:
+
+```bash
+aws dynamodb describe-continuous-backups --region <region> --table-name <live table> \
+  --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription'
+```
+
+`EarliestRestorableDateTime` and `LatestRestorableDateTime` bound the
+`--restore-date-time` you can pass; the latest point typically lags the
+current time by about five minutes. `RecoveryPeriodInDays` shows the
+configured window. Media files live in S3 and are not covered by PITR.
 
 **Cost.** PITR is billed on table size (item data plus local secondary
 indexes): roughly $0.20 per GB-month in us-east-1. A restore is billed
@@ -125,6 +137,13 @@ rewinds the live one. Amplify manages the live table and its name stays
 the same, so the procedure is: restore to a side table, copy the items
 you need back into the live table, then delete the side table.
 
+This is a selective, item-level repair, **not** a point-in-time rollback
+of the site. Each table is restored separately, and copying items back
+only overwrites the keys you write: rows created after the restore point
+stay in the live table, and rows you don't copy keep their current
+values. Related tables (e.g. Post, PostTag, PostHistory, KvStore) are
+not rolled back together to a consistent moment.
+
 1. Find the live table name (Amplify names them
    `<Model>-<apiId>-NONE`, e.g. `Post-abc123…-NONE`):
 
@@ -132,7 +151,8 @@ you need back into the live table, then delete the side table.
    aws dynamodb list-tables --region <region-from-amplify_outputs.json:data.aws_region>
    ```
 
-2. Restore it to a new table at the moment you want:
+2. Restore it to a new table at a moment inside the restorable range
+   shown by `describe-continuous-backups` (see above):
 
    ```bash
    aws dynamodb restore-table-to-point-in-time \
@@ -145,12 +165,32 @@ you need back into the live table, then delete the side table.
    Wait until `aws dynamodb describe-table --table-name <target>` reports
    `TableStatus: ACTIVE` (minutes for small tables).
 
-3. Copy the items you need from the restored table back into the live
-   table (`get-item` / `put-item` for a few rows, or a short
-   `scan` + `batch-write-item` script for many). Writes to Post /
-   KvStore flow through their streams, so the event system re-runs for
-   the restored rows (PostTag index, caches, history) as it does for any
-   edit.
+3. Plan the scope first: decide exactly which keys you are repairing,
+   and compare them between the restored and live tables before writing
+   anything. Then, while you copy:
+
+   - **Isolate or quiesce writes.** Ask editors to stop editing (and
+     pause any MCP clients or automation that write) so live changes
+     don't race with the copy.
+   - **`put-item` / `batch-write-item` replace the whole item with the
+     same key.** Any newer change in the live row is lost. Items that
+     exist only in the live table are not removed — delete them
+     explicitly if they must go.
+   - **Use conditional writes where appropriate**, e.g.
+     `--condition-expression 'attribute_not_exists(postId)'` (use the
+     table's partition key — `postId` for Post, `pk` for KvStore, …) to
+     only re-create deleted rows without touching ones that still exist,
+     or a condition on `updatedAt` so you don't overwrite a newer edit.
+
+   Use `get-item` / `put-item` for a few rows, or a short `scan` +
+   `batch-write-item` script for many (`batch-write-item` does not
+   support conditions). Writes to Post / KvStore flow through their
+   streams, so the event system re-runs for the restored rows (PostTag
+   index, caches, history) as it does for any edit.
+
+   Afterwards, **verify the reconciliation**: re-read the repaired keys
+   from the live table, check the admin UI and public site, and check the
+   events DLQ for failed processing.
 
    Do **not** point the app at the restored table, and do not delete the
    live table — Amplify owns it and will not adopt the copy.

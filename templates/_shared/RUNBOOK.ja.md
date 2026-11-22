@@ -87,13 +87,22 @@ aws cognito-idp admin-set-user-password \
 
 ### ポイントインタイムリカバリによるデータテーブルの復元
 
-**PITR はデフォルトで有効です。** `defineAmplessBackend` は、すべてのデータテーブル — ampless のモデル（Post、Page、Media、Taxonomy、KvStore、PostHistory など）と `amplify/data/resource.custom.ts` で追加したモデル — で DynamoDB のポイントインタイムリカバリ（PITR）を有効にします。既存サイトでは、`@ampless/backend` をこの変更を含むリリース（パッケージの CHANGELOG を参照）に更新した後の最初のデプロイで有効になります。変更は**その場で（in place）**適用され、テーブルの置き換えやデータのコピーは発生しません。
+**PITR はデフォルトで有効です。** `defineAmplessBackend` は、すべてのデータテーブル — ampless のモデル（Post、Page、Media、Taxonomy、KvStore、PostHistory など）と `amplify/data/resource.custom.ts` で追加したモデル — で DynamoDB のポイントインタイムリカバリ（PITR）を有効にします。既存サイトでは、`@ampless/backend` をこの変更（heavymoons/ampless#395）を含むリリースに更新した後の最初のデプロイで有効になります。変更は**その場で（in place）**適用され、テーブルの置き換えやデータのコピーは発生しません。
 
-**復元できる期間。** 直近 35 日間（DynamoDB のデフォルト。ampless では変更していません）の任意の秒に復元できますが、そのテーブルで PITR を有効にした時点より前には戻せません。メディアファイルは S3 にあるため、PITR の対象外です。
+**復元できる期間。** 新たに PITR が有効になるテーブルには、DynamoDB のデフォルトである 35 日間の復旧期間が設定されます。すでに PITR が有効だったテーブルは変更されないため、以前に設定した復旧期間（1〜35 日）がそのまま残ります。ampless がリセットすることはありません。どちらの場合も、そのテーブルで PITR を有効にした時点より前には戻せません。復元する前に、テーブルの実際の復元可能範囲を確認してください：
+
+```bash
+aws dynamodb describe-continuous-backups --region <リージョン> --table-name <ライブテーブル> \
+  --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription'
+```
+
+`EarliestRestorableDateTime` と `LatestRestorableDateTime` が、`--restore-date-time` に指定できる範囲です。最新の時点は通常、現在時刻より 5 分ほど前になります。`RecoveryPeriodInDays` は設定されている期間です。メディアファイルは S3 にあるため、PITR の対象外です。
 
 **コスト。** PITR はテーブルサイズ（アイテムデータ + ローカルセカンダリインデックス）に対して課金され、us-east-1 でおおよそ 1 GB・月あたり $0.20 です。復元は、復元したデータ量（GSI を含む）に対しておおよそ 1 GB あたり $0.15 かかります。料金はリージョンによって異なります — [Amazon DynamoDB の料金](https://aws.amazon.com/dynamodb/pricing/) を参照してください。一般的な CMS のテーブルは MB 単位なので、通常は月に数セント程度です。
 
 **復元手順。** 復元は常に**新しい**テーブルを作成し、ライブテーブル自体を巻き戻すことはありません。ライブテーブルは Amplify が管理しており名前も変わらないため、手順は「別テーブルに復元 → 必要なアイテムをライブテーブルにコピー → 別テーブルを削除」となります。
+
+これはアイテム単位の選択的な修復であり、サイト全体をある時点に巻き戻す操作では**ありません**。テーブルはそれぞれ個別に復元され、アイテムを書き戻しても上書きされるのは書き込んだキーだけです。復元時点より後に作られた行はライブテーブルに残り、コピーしなかった行は現在の値のままです。関連するテーブル（Post、PostTag、PostHistory、KvStore など）が、整合した同じ時点にまとめて戻ることもありません。
 
 1. ライブテーブルの名前を確認します（Amplify は `<モデル名>-<apiId>-NONE` という名前を付けます。例: `Post-abc123…-NONE`）：
 
@@ -101,7 +110,7 @@ aws cognito-idp admin-set-user-password \
    aws dynamodb list-tables --region <amplify_outputs.json の data.aws_region>
    ```
 
-2. 戻したい時点を指定して、新しいテーブルに復元します：
+2. `describe-continuous-backups`（前述）で確認した復元可能範囲内の時点を指定して、新しいテーブルに復元します：
 
    ```bash
    aws dynamodb restore-table-to-point-in-time \
@@ -113,7 +122,15 @@ aws cognito-idp admin-set-user-password \
 
    `aws dynamodb describe-table --table-name <復元先>` が `TableStatus: ACTIVE` を返すまで待ちます（小さなテーブルなら数分です）。
 
-3. 必要なアイテムを、復元したテーブルからライブテーブルにコピーします（数件なら `get-item` / `put-item`、多い場合は `scan` + `batch-write-item` の短いスクリプト）。Post / KvStore への書き込みはストリームを経由するため、通常の編集と同じく、復元した行に対してもイベントシステム（PostTag インデックス、キャッシュ、履歴）が再実行されます。
+3. まず範囲を決めます。修復するキーを正確に決め、書き込む前に復元したテーブルとライブテーブルで内容を比較してください。コピー中は次の点に注意します：
+
+   - **書き込みを分離または停止する。** 編集者に編集を止めてもらい、書き込みを行う MCP クライアントや自動化も止めて、ライブの変更とコピーが競合しないようにします。
+   - **`put-item` / `batch-write-item` は同じキーのアイテム全体を置き換えます。** ライブの行にあったより新しい変更は失われます。ライブテーブルにしかないアイテムは削除されません。消す必要があるものは明示的に削除してください。
+   - **必要に応じて条件付き書き込みを使う。** 例えば `--condition-expression 'attribute_not_exists(postId)'`（テーブルのパーティションキーを使います。Post は `postId`、KvStore は `pk` など）で、まだ存在する行には触れずに削除された行だけを作り直せます。`updatedAt` の条件を付ければ、より新しい編集を上書きせずに済みます。
+
+   数件なら `get-item` / `put-item`、多い場合は `scan` + `batch-write-item` の短いスクリプトを使います（`batch-write-item` は条件を指定できません）。Post / KvStore への書き込みはストリームを経由するため、通常の編集と同じく、復元した行に対してもイベントシステム（PostTag インデックス、キャッシュ、履歴）が再実行されます。
+
+   終わったら**整合を確認します**。修復したキーをライブテーブルから読み直し、管理画面と公開サイトを確認し、イベントの DLQ に処理の失敗がないか確認してください。
 
    アプリの接続先を復元したテーブルに切り替えたり、ライブテーブルを削除したりは**しないでください** — ライブテーブルは Amplify の管理下にあり、コピーしたテーブルを引き継ぐことはありません。
 

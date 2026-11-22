@@ -331,8 +331,10 @@ export function defineAmplessBackend(opts: DefineAmplessBackendOpts): AmplessBac
   // - Opt out per table in `amplify/backend.custom.ts`
   //   (`amplifyDynamoDbTables['<Model>'].pointInTimeRecoveryEnabled =
   //   false`); `customizeBackend` runs after this and wins.
-  // - The recovery window stays at DynamoDB's default 35 days — the
-  //   Amplify handler does not apply `recoveryPeriodInDays`.
+  // - The Amplify handler does not apply `recoveryPeriodInDays`. Tables
+  //   it newly enables get DynamoDB's default 35-day window; tables that
+  //   already have PITR on are left untouched (no-op), so a recovery
+  //   period configured earlier (1–35 days) is kept.
   const amplifyTables = backend.data.resources.cfnResources.amplifyDynamoDbTables
   for (const model of Object.keys(amplifyTables)) {
     amplifyTables[model].pointInTimeRecoveryEnabled = true

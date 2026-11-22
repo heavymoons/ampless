@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -255,6 +255,29 @@ describe('defineAmplessBackend — DynamoDB point-in-time recovery', () => {
           )
         }
       })
+
+      it('keeps a recovery period configured earlier on an already-enabled table', () => {
+        // A table enabled by hand with a shorter window (1–35 days) gets
+        // no UpdateContinuousBackups call, so its RecoveryPeriodInDays is
+        // left as-is — RUNBOOK documents this instead of "always 35 days".
+        const existing = {
+          PointInTimeRecoveryDescription: {
+            PointInTimeRecoveryStatus: 'ENABLED',
+            RecoveryPeriodInDays: 7,
+          },
+        }
+        for (const [model, props] of Object.entries(current.tables)) {
+          expect(handler.getPointInTimeRecoveryUpdate(existing, props), model).toBe(undefined)
+        }
+      })
+
+      it('newly enables without a recovery period (DynamoDB default 35 days)', () => {
+        const update = handler.getPointInTimeRecoveryUpdate(
+          status('DISABLED'),
+          current.tables['Post']
+        )
+        expect(update.PointInTimeRecoverySpecification).not.toHaveProperty('RecoveryPeriodInDays')
+      })
     })
   })
 
@@ -302,4 +325,40 @@ describe('defineAmplessBackend — DynamoDB point-in-time recovery', () => {
       }
     })
   })
+})
+
+// The template RUNBOOKs describe the behaviour verified above to site
+// operators. Guard the points an earlier draft got wrong, in both
+// languages: the recovery window is not always 35 days (an existing
+// period is kept), the restorable range must be checked per table, and
+// copy-back is a selective item repair rather than a site-wide rollback.
+// `.changeset/config.json` sets `changelog: false`, so the RUNBOOKs must
+// not send readers to a package CHANGELOG.
+describe('template RUNBOOK PITR section', () => {
+  const sharedDir = join(here, '../../../templates/_shared')
+  const section = (file: string) => {
+    const text = readFileSync(join(sharedDir, file), 'utf8')
+    const start = text.search(/^### .*(point-in-time recovery|ポイントインタイムリカバリ)/m)
+    expect(start, `${file}: PITR section heading`).toBeGreaterThanOrEqual(0)
+    const end = text.indexOf('\n### ', start + 1)
+    return text.slice(start, end === -1 ? undefined : end)
+  }
+
+  for (const file of ['RUNBOOK.md', 'RUNBOOK.ja.md']) {
+    it(`${file} documents the restorable range, preserved periods and copy-back risks`, () => {
+      const s = section(file)
+      expect(s).not.toMatch(/CHANGELOG/)
+      for (const needle of [
+        'describe-continuous-backups',
+        'EarliestRestorableDateTime',
+        'LatestRestorableDateTime',
+        'RecoveryPeriodInDays',
+        'attribute_not_exists',
+        'restore-table-to-point-in-time',
+        'pointInTimeRecoveryEnabled = false',
+      ]) {
+        expect(s, needle).toContain(needle)
+      }
+    })
+  }
 })
