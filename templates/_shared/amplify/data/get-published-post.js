@@ -15,6 +15,13 @@ import { util } from '@aws-appsync/utils'
 // "not yet live" and is hidden from the public site. This check is
 // server-authoritative: the AppSync resolver enforces it on every read
 // without relying on any client-side filtering.
+//
+// The comparison is between instants (epoch ms), not strings: AWSDateTime
+// accepts offsets (`+09:00`), missing seconds, etc., and direct API writes
+// store those verbatim, so a lexical compare against the UTC now string
+// would publish such posts early or late. A publishedAt that does not
+// parse (parseISO8601ToEpochMilliSeconds returns undefined) fails closed:
+// the post stays hidden.
 export function request(ctx) {
   const slug = ctx.args.slug
   return {
@@ -32,11 +39,14 @@ export function request(ctx) {
 export function response(ctx) {
   if (ctx.error) util.error(ctx.error.message, ctx.error.type)
   const items = ctx.result.items ?? []
-  const now = util.time.nowISO8601()
-  // Hide a published post only when publishedAt exists AND is in the future
-  // (scheduled). Missing publishedAt = immediate publish.
-  const published = items.find(
-    (i) => i.status === 'published' && (!i.publishedAt || i.publishedAt <= now)
-  )
+  const nowMs = util.time.nowEpochMilliSeconds()
+  // Hide a published post only when publishedAt exists AND is not yet live
+  // (scheduled, or unparseable). Missing publishedAt = immediate publish.
+  const published = items.find((i) => {
+    if (i.status !== 'published') return false
+    if (!i.publishedAt) return true
+    const ms = util.time.parseISO8601ToEpochMilliSeconds(i.publishedAt)
+    return typeof ms === 'number' && ms <= nowMs
+  })
   return published ?? null
 }

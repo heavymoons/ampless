@@ -19,9 +19,21 @@ import { util } from '@aws-appsync/utils'
 // every postId suffix sharing the current-millisecond ISO prefix is
 // included, while any SK whose timestamp prefix is later is excluded.
 // (Written as an escape so this source file stays ASCII.)
+//
+// Timezone offsets: the trusted processor (posttag-sync) writes the SK and
+// `publishedAt` of new PostTag rows in canonical fixed-width UTC, so the
+// lexical bound above is exact for them. Rows written before that change
+// may still carry a post's verbatim AWSDateTime (`+09:00`, no seconds,
+// ...) until the post is next saved, so the response re-checks every row
+// by instant (epoch ms) and drops rows that are not yet live or whose
+// publishedAt does not parse. A legacy negative-offset row therefore never
+// goes public early; a legacy positive-offset row stays above the lexical
+// bound, appearing late, until the post's next save rewrites it.
 export function request(ctx) {
   const { tag, limit, nextToken } = ctx.args
-  const now = util.time.nowISO8601()
+  const nowMs = util.time.nowEpochMilliSeconds()
+  const now = util.time.epochMilliSecondsToFormatted(nowMs, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", 'UTC')
+  ctx.stash.nowMs = nowMs
   const upper = now + '#￿'
   return {
     operation: 'Query',
@@ -42,21 +54,29 @@ export function response(ctx) {
   // PostTag rows are summary records (no `body`). Map them to the same
   // PublicPost shape `listPublishedPosts` returns; the detail view should
   // call `getPublishedPost(slug)` for the full body.
-  const items = (ctx.result.items ?? []).map((row) => ({
-    postId: row.postId,
-    slug: row.slug,
-    title: row.title,
-    excerpt: row.excerpt ?? null,
-    // `format` is denormalized onto the PostTag row by the trusted processor
-    // (posttag-sync), so tag pages get the post's real format. `?? null`
-    // guards rows written before the field existed — the runtime then applies
-    // its documented `?? 'markdown'` fallback for those.
-    format: row.format ?? null,
-    body: null,
-    status: 'published',
-    publishedAt: row.publishedAt,
-    tags: row.tags ?? [],
-  }))
+  const nowMs = ctx.stash.nowMs
+  const items = (ctx.result.items ?? [])
+    .filter((row) => {
+      const ms = row.publishedAt
+        ? util.time.parseISO8601ToEpochMilliSeconds(row.publishedAt)
+        : undefined
+      return typeof ms === 'number' && ms <= nowMs
+    })
+    .map((row) => ({
+      postId: row.postId,
+      slug: row.slug,
+      title: row.title,
+      excerpt: row.excerpt ?? null,
+      // `format` is denormalized onto the PostTag row by the trusted processor
+      // (posttag-sync), so tag pages get the post's real format. `?? null`
+      // guards rows written before the field existed — the runtime then applies
+      // its documented `?? 'markdown'` fallback for those.
+      format: row.format ?? null,
+      body: null,
+      status: 'published',
+      publishedAt: row.publishedAt,
+      tags: row.tags ?? [],
+    }))
 
   return {
     items,

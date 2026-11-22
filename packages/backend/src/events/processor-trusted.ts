@@ -12,6 +12,7 @@ import {
 import {
   formatPublicAssetUrl,
   isValidPluginKey,
+  parseAwsDateTime,
   validatePublicAssetKey,
   type AmplessEvent,
   type AmplessPlugin,
@@ -190,50 +191,70 @@ export function createProcessorTrustedHandler(
     return ENCRYPTION_KEY
   }
 
-  // One Query (with auto-pagination) against the `byStatus` GSI:
-  // PK = 'published', SK (publishedAt) gives newest-first ordering with
-  // `ScanIndexForward: false`. Scheduled-publish: the SK upper bound is
-  // clamped to `now` so future-dated published posts (scheduled but not
-  // yet live) are excluded from plugin-generated feeds and sitemaps.
+  // One Query (with auto-pagination) against the `byStatus` GSI's
+  // `published` partition. Scheduled-publish: rows whose publishedAt is
+  // after `now` (scheduled but not yet live) are excluded from
+  // plugin-generated feeds and sitemaps.
+  //
+  // The SK (publishedAt) is NOT used as a lexical `<= now` bound: direct
+  // API writes may store any AWSDateTime (`+09:00`, no seconds, ...), whose
+  // string order differs from its instant, so a lexical bound would expose
+  // negative-offset posts early and hide positive-offset posts late. This
+  // reads the whole partition anyway, so filter and order by the parsed
+  // instant instead (newest first; unparseable publishedAt fails closed).
   async function listPublished(): Promise<Post[]> {
-    const items: Post[] = []
+    const rows: Array<{ post: Post; ms: number }> = []
+    const nowMs = Date.now()
     let exclusiveStartKey: Record<string, unknown> | undefined
     do {
       const res = await ddb.send(
         new QueryCommand({
           TableName: POST_TABLE,
           IndexName: POST_BY_STATUS_INDEX,
-          KeyConditionExpression: '#status = :status AND #publishedAt <= :now',
-          ExpressionAttributeNames: { '#status': 'status', '#publishedAt': 'publishedAt' },
-          ExpressionAttributeValues: { ':status': 'published', ':now': new Date().toISOString() },
+          KeyConditionExpression: '#status = :status',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':status': 'published' },
           ScanIndexForward: false,
           ExclusiveStartKey: exclusiveStartKey as never,
         })
       )
       for (const row of res.Items ?? []) {
-        items.push({
-          postId: row.postId,
-          slug: row.slug,
-          title: row.title,
-          excerpt: row.excerpt ?? undefined,
-          format: row.format ?? 'markdown',
-          // DynamoDBDocumentClient unmarshals AWSJSON-backed attributes
-          // into native JS types (S→string, N→number, BOOL→boolean,
-          // M→object), so `row.body` is already correctly typed here and
-          // must NOT be re-parsed. Re-running JSON.parse on a pure-numeric
-          // or JSON-looking string body (e.g. a markdown/html body of
-          // "1470" or "123") double-decodes it into a number and corrupts
-          // the post. Only the Amplify GraphQL-client read path returns an
-          // AWSJSON wire string and needs decodeAwsJson.
-          body: row.body,
-          status: row.status ?? 'published',
-          publishedAt: row.publishedAt ?? undefined,
-          tags: Array.isArray(row.tags) ? row.tags : [],
+        const ms = parseAwsDateTime(row.publishedAt)
+        if (ms === undefined) {
+          console.error(
+            `[trusted-processor] listPublishedPosts: skipping post ${row.postId} with unparseable publishedAt ${JSON.stringify(row.publishedAt)}`
+          )
+          continue
+        }
+        if (ms > nowMs) continue
+        rows.push({
+          ms,
+          post: {
+            postId: row.postId,
+            slug: row.slug,
+            title: row.title,
+            excerpt: row.excerpt ?? undefined,
+            format: row.format ?? 'markdown',
+            // DynamoDBDocumentClient unmarshals AWSJSON-backed attributes
+            // into native JS types (S→string, N→number, BOOL→boolean,
+            // M→object), so `row.body` is already correctly typed here and
+            // must NOT be re-parsed. Re-running JSON.parse on a pure-numeric
+            // or JSON-looking string body (e.g. a markdown/html body of
+            // "1470" or "123") double-decodes it into a number and corrupts
+            // the post. Only the Amplify GraphQL-client read path returns an
+            // AWSJSON wire string and needs decodeAwsJson.
+            body: row.body,
+            status: row.status ?? 'published',
+            publishedAt: row.publishedAt ?? undefined,
+            tags: Array.isArray(row.tags) ? row.tags : [],
+          },
         })
       }
       exclusiveStartKey = res.LastEvaluatedKey
     } while (exclusiveStartKey)
-    return items
+    // Array.prototype.sort is stable, so equal instants keep query order.
+    rows.sort((a, b) => b.ms - a.ms)
+    return rows.map((r) => r.post)
   }
 
   function makeContext(plugin: AmplessPlugin): TrustedPluginRuntimeContext {

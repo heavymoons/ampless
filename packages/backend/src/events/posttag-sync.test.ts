@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ContentEventPayload } from 'ampless'
 import { computePostTagDiff } from './posttag-sync.js'
 
@@ -172,5 +172,72 @@ describe('computePostTagDiff', () => {
       next: published({ tags: ['news', '', 'tech'] }),
     })
     expect(puts.map((p) => p.tag).sort()).toEqual(['news', 'tech'])
+  })
+
+  describe('timezone offsets (AWSDateTime written verbatim through the API)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('writes the SK and publishedAt in canonical UTC for an offset value', () => {
+      const { deletes, puts } = computePostTagDiff({
+        previous: null,
+        next: published({ publishedAt: '2026-05-01T09:00:00+09:00', tags: ['news'] }),
+      })
+      expect(deletes).toEqual([])
+      expect(puts).toHaveLength(1)
+      expect(puts[0]!.publishedAtPostId).toBe('2026-05-01T00:00:00.000Z#p1')
+      expect(puts[0]!.publishedAt).toBe('2026-05-01T00:00:00.000Z')
+    })
+
+    it('re-saving a legacy offset post deletes its verbatim-keyed row and keeps the canonical one', () => {
+      const legacy = published({ publishedAt: '2026-05-01T09:00:00+09:00', tags: ['news'] })
+      const { deletes, puts } = computePostTagDiff({
+        previous: legacy,
+        next: { ...legacy, title: 'Edited' },
+      })
+      expect(deletes).toEqual([{ tag: 'news', publishedAtPostId: '2026-05-01T09:00:00+09:00#p1' }])
+      expect(puts.map((p) => p.publishedAtPostId)).toEqual(['2026-05-01T00:00:00.000Z#p1'])
+    })
+
+    it('offset previous → canonical next with the same instant: legacy row deleted, canonical row put', () => {
+      const { deletes, puts } = computePostTagDiff({
+        previous: published({ publishedAt: '2026-04-30T19:00:00-05:00', tags: ['news'] }),
+        next: published({ publishedAt: '2026-05-01T00:00:00.000Z', tags: ['news'] }),
+      })
+      expect(deletes).toEqual([{ tag: 'news', publishedAtPostId: '2026-04-30T19:00:00-05:00#p1' }])
+      expect(puts.map((p) => p.publishedAtPostId)).toEqual(['2026-05-01T00:00:00.000Z#p1'])
+    })
+
+    it('unpublishing a legacy offset post deletes both possible keys per tag', () => {
+      const { deletes, puts } = computePostTagDiff({
+        previous: published({ publishedAt: '2026-05-01T09:00:00+09:00', tags: ['news'] }),
+        next: published({ publishedAt: '2026-05-01T09:00:00+09:00', status: 'draft' }),
+      })
+      expect(puts).toEqual([])
+      expect(deletes).toEqual([
+        { tag: 'news', publishedAtPostId: '2026-05-01T00:00:00.000Z#p1' },
+        { tag: 'news', publishedAtPostId: '2026-05-01T09:00:00+09:00#p1' },
+      ])
+    })
+
+    it('canonical previous yields one delete key per tag (no duplicates)', () => {
+      const { deletes } = computePostTagDiff({
+        previous: published({ tags: ['news'] }),
+        next: null,
+      })
+      expect(deletes).toEqual([{ tag: 'news', publishedAtPostId: '2026-05-01T00:00:00.000Z#p1' }])
+    })
+
+    it('unparseable publishedAt → no puts (logged), previous verbatim rows still deleted', () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { deletes, puts } = computePostTagDiff({
+        previous: published({ publishedAt: 'not-a-date', tags: ['news'] }),
+        next: published({ publishedAt: 'not-a-date', tags: ['news'] }),
+      })
+      expect(puts).toEqual([])
+      expect(deletes).toEqual([{ tag: 'news', publishedAtPostId: 'not-a-date#p1' }])
+      expect(err).toHaveBeenCalledWith(expect.stringContaining('unparseable publishedAt'))
+    })
   })
 })

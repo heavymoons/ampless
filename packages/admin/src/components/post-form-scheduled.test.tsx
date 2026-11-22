@@ -96,14 +96,14 @@ describe('PostForm scheduled status label', () => {
     expect(notice()).toBeNull()
   })
 
-  it('a stored +09:00 value stays Scheduled until the public string comparison passes it', async () => {
-    // Instant is 2026-06-01T11:00Z (already past), but the resolvers compare
-    // strings, so it is hidden until nowISO reaches 2026-06-01T20:00:00.000Z.
-    await mount(post('published', '2026-06-01T20:00:00+09:00'))
+  it('a stored -05:00 value is Scheduled until its instant, even though its string sorts as past', async () => {
+    // 08:00-05:00 is 13:00Z (1h after NOW); "08:00" < "12:00" as a string,
+    // but the public resolvers compare instants, so it is still hidden.
+    await mount(post('published', '2026-06-01T08:00:00-05:00'))
     expect(publishedOption()).toBe('Scheduled')
-    expect(notice()).toContain(isoToLocalInput('2026-06-01T20:00:00.000Z'))
+    expect(notice()).toContain(isoToLocalInput('2026-06-01T13:00:00.000Z'))
 
-    const untilVisible = Date.parse('2026-06-01T20:00:00.000Z') - NOW
+    const untilVisible = Date.parse('2026-06-01T13:00:00.000Z') - NOW
     await act(async () => {
       vi.advanceTimersByTime(untilVisible - 1)
     })
@@ -111,6 +111,13 @@ describe('PostForm scheduled status label', () => {
     await act(async () => {
       vi.advanceTimersByTime(2)
     })
+    expect(publishedOption()).toBe('Published')
+    expect(notice()).toBeNull()
+  })
+
+  it('a stored +09:00 value whose instant has passed is Published', async () => {
+    // 20:00+09:00 is 11:00Z, before NOW, though "20:00" > "12:00" as a string.
+    await mount(post('published', '2026-06-01T20:00:00+09:00'))
     expect(publishedOption()).toBe('Published')
     expect(notice()).toBeNull()
   })

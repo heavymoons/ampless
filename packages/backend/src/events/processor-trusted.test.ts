@@ -840,24 +840,32 @@ describe('createProcessorTrustedHandler ctx.secret — AES-256-GCM decrypt', () 
 })
 
 // ---------------------------------------------------------------------------
-// listPublished — scheduled-publish upper-bound guard
+// listPublished — scheduled-publish filtering by instant
 // ---------------------------------------------------------------------------
+//
+// The byStatus SK (publishedAt) may hold any AWSDateTime written through the
+// API (`+09:00`, `-05:00`, no seconds, ...), so listPublished must not rely
+// on a lexical `<= now` key bound. It reads the partition, keeps rows whose
+// parsed instant is <= now, and orders newest-first by instant.
 
-describe('listPublished — scheduled-publish now-clamp', () => {
+describe('listPublished — scheduled-publish filtering by instant', () => {
+  const NOW = Date.parse('2026-01-01T03:00:00.000Z')
+
   beforeEach(() => {
     setEnv()
     s3Commands.length = 0
     ddbCommands.length = 0
     ddbQueryResponses.clear()
     pluginSecretRows.clear()
+    vi.spyOn(Date, 'now').mockReturnValue(NOW)
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('QueryCommand includes #publishedAt <= :now in KeyConditionExpression', async () => {
-    // A plugin that calls ctx.listPublishedPosts() forces listPublished() to run.
+  async function listPublishedViaHook() {
+    let captured: Awaited<ReturnType<TrustedPluginRuntimeContext['listPublishedPosts']>> = []
     const handler = createProcessorTrustedHandler({
       site,
       plugins: [
@@ -868,33 +876,71 @@ describe('listPublished — scheduled-publish now-clamp', () => {
           capabilities: ['eventHooks'],
           hooks: {
             'content.published': async (_evt, ctx) => {
-              await ctx.listPublishedPosts()
+              captured = await ctx.listPublishedPosts()
             },
           },
         },
       ],
     })
+    await handler(event('content.published'), {} as never, vi.fn() as never)
+    return captured
+  }
 
-    await handler(event(), {} as never, vi.fn() as never)
+  function row(postId: string, publishedAt: string) {
+    return {
+      postId,
+      slug: postId,
+      title: postId,
+      format: 'markdown',
+      body: 'b',
+      status: 'published',
+      publishedAt,
+      tags: [],
+    }
+  }
 
-    // Find the QueryCommand that targets the posts table + byStatus index.
+  it('queries the published partition without a lexical publishedAt bound', async () => {
+    await listPublishedViaHook()
     const queryCmd = ddbCommands.find(
       (cmd) =>
         cmd.input.TableName === process.env.AMPLESS_POST_TABLE &&
         cmd.input.IndexName === 'byStatus'
     )
     expect(queryCmd).toBeDefined()
-    expect(queryCmd!.input.KeyConditionExpression).toContain('#publishedAt <= :now')
-    expect(
-      (queryCmd!.input.ExpressionAttributeNames as Record<string, string>)?.['#publishedAt']
-    ).toBe('publishedAt')
-    expect(
-      (queryCmd!.input.ExpressionAttributeValues as Record<string, unknown>)?.[':now']
-    ).toBeDefined()
-    // :now must be a non-empty ISO 8601 string (YYYY-MM-DDT...)
-    const nowValue = (queryCmd!.input.ExpressionAttributeValues as Record<string, string>)[':now']
-    expect(typeof nowValue).toBe('string')
-    expect(nowValue).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(queryCmd!.input.KeyConditionExpression).toBe('#status = :status')
+    expect(queryCmd!.input.ExpressionAttributeValues).toEqual({ ':status': 'published' })
+  })
+
+  it('excludes future posts by instant, including negative offsets that sort as past', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Rows arrive in SK (string) descending order, as DynamoDB returns them.
+    ddbQueryResponses.set('posts', [
+      row('future-canonical', '2026-01-01T03:00:00.001Z'),
+      row('now-canonical', '2026-01-01T03:00:00.000Z'),
+      row('past-plus9', '2026-01-01T11:00:00+09:00'), // = 02:00Z
+      row('future-minus5', '2025-12-31T23:00:00-05:00'), // = 04:00Z
+      row('past-canonical', '2025-12-31T00:00:00.000Z'),
+      row('bad', 'not-a-date'),
+    ])
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts.map((p) => p.postId)).toEqual(['now-canonical', 'past-plus9', 'past-canonical'])
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('unparseable publishedAt'))
+  })
+
+  it('orders newest-first by instant, not by string', async () => {
+    ddbQueryResponses.set('posts', [
+      row('plus9-0000Z', '2026-01-01T09:00:00+09:00'), // = 00:00Z, sorts first as a string
+      row('canonical-0200Z', '2026-01-01T02:00:00.000Z'),
+      row('canonical-0100Z', '2026-01-01T01:00:00.000Z'),
+    ])
+
+    const posts = await listPublishedViaHook()
+
+    expect(posts.map((p) => p.postId)).toEqual(['canonical-0200Z', 'canonical-0100Z', 'plus9-0000Z'])
+    // The stored string is returned unchanged.
+    expect(posts[2]!.publishedAt).toBe('2026-01-01T09:00:00+09:00')
   })
 })
 

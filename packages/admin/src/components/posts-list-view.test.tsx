@@ -45,9 +45,10 @@ const summary = (
 const POSTS: PostSummary[] = [
   // Canonical value, 30s from NOW.
   summary('soon', 'published', '2026-06-01T12:00:30.000Z'),
-  // Stored with a +09:00 offset: 11:00Z as an instant (past), but the public
-  // resolvers compare strings, so it stays hidden until 21:00:00.000Z.
-  summary('offset', 'published', '2026-06-01T20:00:00+09:00'),
+  // Stored with a -05:00 offset: 13:00Z as an instant (1h after NOW), though
+  // its string sorts before NOW's. The public resolvers compare instants, so
+  // it stays hidden until 13:00:00.000Z.
+  summary('offset', 'published', '2026-06-01T08:00:00-05:00'),
   summary('later', 'published', '2026-07-01T00:00:00.000Z'),
   summary('live', 'published', '2026-05-01T00:00:00.000Z'),
   summary('wip', 'draft', '2099-01-01T00:00:00.000Z'),
@@ -164,14 +165,14 @@ describe('PostsList scheduled status', () => {
     expect(badges().later).toBe('Scheduled')
   })
 
-  it('an offset-stored post flips at the lexical boundary, not the nominal instant', async () => {
+  it('an offset-stored post flips at its instant, not at its string', async () => {
     await mount('en')
     await chooseStatus('scheduled')
     expect(Object.keys(badges()).sort()).toEqual(['later', 'offset', 'soon'])
 
-    // 1ms before 21:00:00.000Z (9h after NOW) it is still Scheduled.
+    // 1ms before 13:00:00.000Z (1h after NOW) it is still Scheduled.
     await act(async () => {
-      vi.advanceTimersByTime(9 * 3_600_000 - 1)
+      vi.advanceTimersByTime(3_600_000 - 1)
     })
     await chooseStatus('all')
     expect(badges().offset).toBe('Scheduled')
