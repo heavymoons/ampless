@@ -224,9 +224,14 @@ export function customizeBackend(backend: AmplessBackend): void {
 seconds):
 
 - **PostHistory** — each revision snapshot, when `cms.config.ts` sets
-  `history.retentionDays` > 0 (`0` / unset writes no `ttl`).
+  `history.retentionDays` > 0 (`0` / unset writes no `ttl`). The only
+  writer ampless ships is the event-dispatcher Lambda, which `PutItem`s a
+  revision for every Post save it reads from the Post stream (retried up
+  to 3 times, so a record can be written again well after the save).
 - **KvStore** — rows written with `KvStore.put(pk, sk, value, { ttlSeconds })`
-  (plugin caches / state).
+  (plugin caches / state). ampless writes KvStore only from admin / editor
+  sessions through AppSync (the admin UI); any custom code, script or
+  integration you added is a writer too.
 
 ampless does **not** turn DynamoDB TTL on for either table, so nothing is
 deleted automatically and rows past their `ttl` stay in the table — and
@@ -239,50 +244,96 @@ including a TTL you enabled by hand.
 It stays opt-in because **enabling TTL makes DynamoDB delete every row
 whose `ttl` has already passed** — on a long-running site that can be
 months or years of revisions or cache rows at once — and those deletes
-cannot be undone except from a backup such as PITR. Turn it on per table, after the
-checks below.
+cannot be undone except from a backup such as PITR. Turn it on per table,
+in a maintenance window, with the procedure below.
 
-1. **Audit (read-only).** Find the live table name (`<Model>-<apiId>-NONE`,
-   see `aws dynamodb list-tables`), check the current TTL state, and count
-   the rows that would be deleted right away:
+**Why the writers must be stopped first.** A scan is not a snapshot: it
+reads the table page by page over time, and a row written, rewritten or
+re-delivered during or after the scan may not be in its result. Any such
+row whose `ttl` is already past (or passes before you finish) is deleted
+by TTL without ever having been reviewed. The audit is only meaningful
+while nothing can write a `ttl` to the table — from the first audit
+until TTL is on and verified.
+
+1. **Stop or isolate every writer** of the table, and keep it stopped
+   until step 8:
+   - **PostHistory**: set `history: { retentionDays: 0 }` in
+     `cms.config.ts` and deploy, so revisions written from now on carry no
+     `ttl`. Then wait until the dispatcher has drained the Post stream:
+     its `IteratorAge` metric (`AWS/Lambda`, the event-dispatcher function)
+     is back near 0, so no record saved under the old setting is still
+     being retried. Pausing post edits as well keeps the history quiet
+     while you review it.
+   - **KvStore**: pause admin / editor edits (site settings, theme,
+     plugin settings), and stop or disable any plugin, script or
+     integration that writes KvStore — at least every caller that passes
+     `ttlSeconds`.
+   - Custom writers (your own Lambdas, scripts, other apps on the same
+     tables) count too. If you cannot stop one, see **Limits** below
+     before going on.
+
+2. **Audit (read-only).** Find the live table name (`<Model>-<apiId>-NONE`,
+   see `aws dynamodb list-tables`), check the current TTL state, and list
+   the rows that would be deleted right away — key plus `ttl`, saved to a
+   file you keep:
 
    ```bash
    aws dynamodb describe-time-to-live --region <region> --table-name <live table>
 
+   NOW=$(date +%s)
    aws dynamodb scan --region <region> --table-name <live table> \
-     --select COUNT \
+     --consistent-read \
      --filter-expression 'attribute_exists(#t) AND #t < :now' \
+     --projection-expression 'postHistoryId, #t' \
      --expression-attribute-names '{"#t":"ttl"}' \
-     --expression-attribute-values "{\":now\":{\"N\":\"$(date +%s)\"}}"
+     --expression-attribute-values "{\":now\":{\"N\":\"$NOW\"}}" \
+     --output json > ttl-audit-1.json
    ```
 
-   The CLI follows `LastEvaluatedKey` for you and reports the total
-   `Count` (rows already expired) and `ScannedCount` (rows read). A scan
-   reads the whole table and consumes read capacity, so run it at a quiet
-   time on large tables. Drop `AND #t < :now` to count every row that
-   carries a `ttl`, and swap `--select COUNT` for
-   `--projection-expression` with the key attributes (`postHistoryId` for
-   PostHistory, `pk, sk` for KvStore) to list them.
+   For KvStore project `pk, sk, #t` instead of `postHistoryId, #t`. The CLI
+   follows `LastEvaluatedKey` for you; `Count` is the number of rows
+   already expired and `ScannedCount` the rows read. Use `--select COUNT`
+   (instead of the projection) for a quick count. Drop `AND #t < :now` to
+   see every row that carries a `ttl`, including ones that will expire
+   soon after you enable TTL. A scan reads the whole table and consumes
+   read capacity; on large tables run it at a quiet time.
 
-2. **Decide what to keep.** Rows you want to keep must stop being
-   expired **before** you enable TTL: remove the attribute, or raise it.
+3. **Decide what to keep, and change those rows conditionally.** Every row
+   in the audit is deleted once TTL is on unless you remove its `ttl` or
+   raise it **before** enabling. Make each change conditional on the row
+   still existing and still carrying the `ttl` you saw in the audit:
 
    ```bash
    aws dynamodb update-item --region <region> --table-name <live table> \
      --key '{"postHistoryId":{"S":"<id>"}}' \
      --update-expression 'REMOVE #t' \
-     --expression-attribute-names '{"#t":"ttl"}'
+     --condition-expression 'attribute_exists(postHistoryId) AND #t = :seen' \
+     --expression-attribute-names '{"#t":"ttl"}' \
+     --expression-attribute-values '{":seen":{"N":"<ttl from the audit>"}}'
    ```
 
-   (KvStore's key is `{"pk":…,"sk":…}`; or use
-   `--update-expression 'SET #t = :later'` with a future epoch). Changing
-   `history.retentionDays` does not help here: it only affects revisions
-   written after the change; existing rows keep the `ttl` they were
-   written with. Writes to KvStore go through its stream like any edit
-   (the dispatcher only acts on `siteconfig` rows).
+   For KvStore use `--key '{"pk":{"S":"<pk>"},"sk":{"S":"<sk>"}}'` and
+   `attribute_exists(pk)`. To push the expiry out instead, use
+   `--update-expression 'SET #t = :later'` with the same condition and
+   `":later":{"N":"<future epoch>"}` added to the values.
 
-3. **Confirm PITR is on** for the table — without it (or an on-demand
-   backup) a TTL deletion cannot be undone — and note the start of the restorable range:
+   The condition matters: `update-item` without it **creates** a row
+   holding only the key if the original was deleted in the meantime, and
+   silently overwrites a `ttl` another writer changed after your audit.
+   If the call fails with `ConditionalCheckFailedException`, nothing was
+   written — re-read the row (`aws dynamodb get-item --consistent-read
+   --key ...`) and decide again from what is there now: if it is gone, do
+   not recreate it (restore it from PITR if it was needed); if its `ttl`
+   changed, a writer is still active — go back to step 1.
+
+   Changing `history.retentionDays` does not fix existing rows: it only
+   affects revisions written after the change; existing rows keep the
+   `ttl` they were written with. KvStore changes also go through its
+   stream like any edit (the dispatcher only acts on `siteconfig` rows).
+
+4. **Confirm PITR is on** for the table — without it (or an on-demand
+   backup) a TTL deletion cannot be undone — and note the start of the
+   restorable range:
 
    ```bash
    aws dynamodb describe-continuous-backups --region <region> --table-name <live table> \
@@ -296,7 +347,17 @@ checks below.
    carry their past `ttl`, so remove or raise it as you copy, or TTL will
    delete them again.
 
-4. **Opt in** in `amplify/backend.custom.ts` and deploy:
+5. **Re-audit immediately before deploying.** With the writers still
+   stopped, run the step 2 scan again (`ttl-audit-2.json`) with a fresh
+   `NOW`. Every row it returns must be one you decided to let go. If a row
+   you did not review appears, or a row you fixed is back, a writer is
+   still active: stop it and return to step 2. Also add a margin for the
+   time until TTL is on — rows that expire between this scan and the end
+   of step 7 are deleted too; drop `AND #t < :now` or use
+   `NOW=$(( $(date +%s) + 86400 ))` to see what expires in the next day.
+
+6. **Opt in** in `amplify/backend.custom.ts` and deploy, writers still
+   stopped:
 
    ```ts
    export function customizeBackend(backend: AmplessBackend): void {
@@ -309,13 +370,27 @@ checks below.
    matters: it is `timeToLiveAttribute` (a setter on Amplify's table
    wrapper). `timeToLiveSpecification` is not a setter there; assigning it
    does nothing. Amplify's table manager applies the change in place with
-   `UpdateTimeToLive`; no table is replaced. To turn TTL off again, remove
-   the line and deploy.
+   `UpdateTimeToLive`; no table is replaced.
 
-5. **Monitor.** The CloudWatch metric `TimeToLiveDeletedItemCount`
+7. **Verify right after the deploy.** `describe-time-to-live` should show
+   `ENABLING` or `ENABLED` with `AttributeName` `ttl`. Run the step 2 scan
+   once more (`ttl-audit-3.json`): it must return only rows from your
+   accepted list (some may already be gone — TTL deletes in the
+   background). A row that is not on the list is at risk right now: fix
+   it with the conditional update in step 3 at once, and if it was already
+   deleted, restore it from PITR (step 4).
+
+8. **Resume the writers.** Restore `history.retentionDays` to the value
+   you want and deploy, re-enable integrations, and let editors back in.
+   From now on, rows are deleted when their `ttl` passes — that is the
+   point of turning TTL on. A revision's `ttl` is computed from its save
+   time, so with a short `retentionDays` a revision written late (a
+   retried stream record) can already be past its `ttl` when written.
+
+9. **Monitor.** The CloudWatch metric `TimeToLiveDeletedItemCount`
    (namespace `AWS/DynamoDB`, dimension `TableName`) shows how many rows
    TTL deleted. Expect a burst over the first few days that roughly
-   matches your audit count, then a steady trickle:
+   matches your accepted list, then a steady trickle:
 
    ```bash
    aws cloudwatch get-metric-statistics --region <region> \
@@ -324,6 +399,31 @@ checks below.
      --start-time <ISO time you enabled TTL> --end-time <now, ISO> \
      --period 3600 --statistics Sum
    ```
+
+   A sum clearly larger than your accepted list means rows you did not
+   review were deleted — compare against a PITR restore to a new table.
+
+To turn TTL off again, remove the opt-in line and deploy (see the
+one-change-per-hour caveat below).
+
+**Limits.**
+
+- This procedure narrows the race; it cannot remove it. DynamoDB has no
+  atomic "audit, then enable" operation: TTL is enabled by a deploy, takes
+  effect asynchronously, and from then on deletes any row whose `ttl` is
+  past — reviewed or not. The guarantee is only as good as the writer
+  freeze from step 1 to step 7.
+- A strongly consistent scan is consistent per page, not across the whole
+  table; two scans show the table at different moments. Only stopped
+  writers make them comparable.
+- If a writer cannot be stopped (an external integration, a busy site
+  where editing cannot pause), rows it writes with a past or near-past
+  `ttl` between the audit and step 7 can be deleted unreviewed. Either
+  accept that for that table, change the writer so it stops sending
+  `ttl` first, or leave TTL off.
+- The only way back from an unwanted TTL deletion is a restore (PITR or
+  an on-demand backup) followed by a selective copy-back, with the limits
+  described in the PITR section.
 
 **Caveats.**
 

@@ -184,7 +184,11 @@ describe('defineAmplessBackend — DynamoDB TTL (opt-in)', () => {
 // The template RUNBOOKs carry the controlled migration for turning TTL
 // on. Guard its load-bearing steps in both languages: the read-only audit,
 // keeping rows by removing/raising `ttl` first, the PITR safety net, the
-// correct setter name, and monitoring.
+// correct setter name, and monitoring. A scan is not a snapshot, so the
+// writer freeze must come before the first audit, and the re-audit before
+// the opt-in deploy and the verification after it; every `update-item`
+// must be conditional so it cannot recreate a deleted row or clobber a
+// newer `ttl`.
 describe('template RUNBOOK TTL section', () => {
   const sharedDir = join(here, '../../../templates/_shared')
   const section = (file: string) => {
@@ -210,11 +214,54 @@ describe('template RUNBOOK TTL section', () => {
         'TimeToLiveDeletedItemCount',
         'retentionDays',
         'ttlSeconds',
+        // Writer freeze.
+        'retentionDays: 0',
+        'IteratorAge',
+        // Conditional fixes and their failure handling.
+        "--condition-expression 'attribute_exists(postHistoryId) AND #t = :seen'",
+        'attribute_exists(pk)',
+        'ConditionalCheckFailedException',
+        'get-item --consistent-read',
+        // Consistent audits: before, immediately before deploy, after deploy.
+        '--consistent-read',
+        'ttl-audit-1.json',
+        'ttl-audit-2.json',
+        'ttl-audit-3.json',
+        'ENABLING',
       ]) {
         expect(s, needle).toContain(needle)
       }
       // Links to the PITR restore section rather than repeating it.
       expect(s).toMatch(/\]\(#[^)]*(point-in-time-recovery|ポイントインタイムリカバリ)[^)]*\)/)
+    })
+
+    it(`${file} orders freeze → audit → re-audit → opt-in → verify → resume`, () => {
+      const s = section(file)
+      const at = (needle: string) => {
+        const i = s.indexOf(needle)
+        expect(i, needle).toBeGreaterThanOrEqual(0)
+        return i
+      }
+      const order = [
+        at('retentionDays: 0'),
+        at('ttl-audit-1.json'),
+        at('ttl-audit-2.json'),
+        at("{ attributeName: 'ttl', enabled: true }"),
+        at('ttl-audit-3.json'),
+        // Writers resume only after the post-deploy verification.
+        s.search(/\*\*(Resume the writers|書き込み元を再開します)/),
+      ]
+      expect(order.at(-1)).toBeGreaterThanOrEqual(0)
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+    })
+
+    it(`${file} makes every update-item conditional on the row and the observed ttl`, () => {
+      const blocks = [...section(file).matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+      const updates = blocks.filter((b) => b.includes('update-item'))
+      expect(updates.length).toBeGreaterThan(0)
+      for (const b of updates) {
+        expect(b).toMatch(/--condition-expression '[^']*attribute_exists\([^)]+\) AND #t = :seen'/)
+      }
     })
   }
 })
