@@ -1,6 +1,6 @@
 {
   "name": "@ampless/admin",
-  "version": "1.0.0-beta.115",
+  "version": "1.0.0-beta.116",
   "description": "Admin UI for ampless: post editor, media manager, site/theme settings",
   "license": "MIT",
   "type": "module",
@@ -81,7 +81,7 @@
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "aws-amplify": "^6.17.0",
-    "next": "^16.2.6",
+    "next": "^16.4.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
