@@ -108,7 +108,10 @@ interface CollectResult {
  */
 async function collectPosts(ampless: Ampless, limit: number): Promise<CollectResult> {
   return collectBounded<Post>(
-    (args) => ampless.listPublishedPosts({ limit: args.limit, nextToken: args.nextToken }),
+    // `fill: false`: MAX_PAGES bounds resolver round trips only if each
+    // page is one resolver call; collectBounded already handles short pages.
+    (args) =>
+      ampless.listPublishedPosts({ limit: args.limit, nextToken: args.nextToken, fill: false }),
     { limit, pageSizeCap: PAGE_SIZE_CAP, maxPages: MAX_PAGES },
   )
 }

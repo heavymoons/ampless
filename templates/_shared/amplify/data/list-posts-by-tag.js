@@ -30,12 +30,14 @@ import { util } from '@aws-appsync/utils'
 // goes public early; a legacy positive-offset row stays above the lexical
 // bound, appearing late, until the post's next save rewrites it.
 //
-// Short pages: DynamoDB applies `limit` BEFORE this response handler, so
-// when legacy rows are dropped a page can hold fewer than `limit` items
-// (even none) while `nextToken` is still set. Callers must keep following
-// `nextToken`; the official runtime (`@ampless/runtime` createPostsApi)
-// fills each page that way (100-row chunks after a short page;
-// PostListScanLimitError instead of a short page past its call budget).
+// Short pages: a page can hold fewer than `limit` items while `nextToken`
+// is still set, because DynamoDB stops a Query at 1 MB of data and applies
+// `limit` BEFORE this response handler, so dropped legacy rows can leave a
+// page short or even empty. Callers must keep following `nextToken`; the
+// official runtime (`@ampless/runtime` createPostsApi) fills each page
+// (100-row chunks after a short page; only calls returning no visible post
+// count against its budget, and PostListScanLimitError is thrown instead of
+// a short page when that budget runs out).
 // Canonical rows are never dropped here.
 export function request(ctx) {
   const { tag, limit, nextToken } = ctx.args

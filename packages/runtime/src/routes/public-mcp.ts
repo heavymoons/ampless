@@ -192,7 +192,11 @@ export function createPublicMcpRouteHandler(ampless: Ampless): PublicMcpRouteHan
   // Explicit pick of the three methods the public tools need — the
   // `Ampless` signatures already match `PublicToolContext` exactly.
   const publicCtx: PublicToolContext = {
-    listPublishedPosts: (opts) => ampless.listPublishedPosts(opts),
+    // `fill: false`: the public tools page themselves (`nextCursor`,
+    // `collectBounded` with PUBLIC_SCAN_MAX_PAGES), so each of their page
+    // requests stays one resolver call. Filling here would let one
+    // anonymous request fan out to `limit + 20` resolver calls.
+    listPublishedPosts: (opts) => ampless.listPublishedPosts({ ...opts, fill: false }),
     getPublishedPost: (slug) => ampless.getPublishedPost(slug),
     postToMarkdown: (post, opts) => ampless.postToMarkdown(post, opts),
   }

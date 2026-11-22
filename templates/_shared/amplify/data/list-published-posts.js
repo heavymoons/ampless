@@ -51,16 +51,20 @@ import { util, runtime } from '@aws-appsync/utils'
 //     API writes too until write-time normalization lands. Re-saving the post's
 //     publishedAt in the admin UI rewrites it in canonical UTC.
 //
-// Short pages: DynamoDB applies `limit` BEFORE this response handler, so
-// when rows are dropped a page can hold fewer than `limit` items (even none)
-// while `nextToken` is still set — the same contract as any filtered
-// AppSync connection. Callers must keep following `nextToken`; the official
-// runtime (`@ampless/runtime` createPostsApi) fills each page that way,
-// reading 100-row chunks after a short page, and throws
-// PostListScanLimitError rather than return a short page if it cannot
-// fill one within its call budget.
-// Canonical data is unaffected: only non-canonical rows and rows within a
-// minute outside [from, to] are ever dropped.
+// Short pages: a page can hold fewer than `limit` items while `nextToken`
+// is still set, for two reasons. DynamoDB stops a Query at 1 MB of data
+// (posts may be up to 400 KB, so that can be a couple of rows), and it
+// applies `limit` BEFORE this response handler, so rows dropped below can
+// leave a page short or even empty — the same contract as any filtered
+// AppSync connection. Callers must keep following `nextToken`. The official
+// runtime (`@ampless/runtime` createPostsApi) fills each page for the
+// first-page-only views (100-row chunks after a short page). Only calls
+// that return no visible post count against its budget, and it throws
+// PostListScanLimitError rather than return a short page when that budget
+// runs out. llms.txt and the public MCP tools page themselves with one
+// resolver call per page (`fill: false`).
+// Only non-canonical rows and rows within a minute outside [from, to] are
+// ever dropped; canonical data is otherwise returned in full.
 
 const CANONICAL_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
 const MINUTE_FORMAT = "yyyy-MM-dd'T'HH:mm"

@@ -81,11 +81,31 @@ export interface ListPostsOptions {
   limit?: number
   /** Opaque cursor returned by a previous call. */
   nextToken?: string
+  /**
+   * Fill short pages (default `true`). The resolver can return fewer than
+   * `limit` posts while `nextToken` is set (DynamoDB's 1 MB page cap, or
+   * rows the resolver drops), so by default the runtime keeps reading until
+   * the page is full — what first-page-only views need. Pass `false` from a
+   * consumer that already follows `nextToken` with its own round-trip
+   * bound (llms.txt, the public MCP tools via `collectBounded`): then this
+   * is exactly one resolver call and the raw AppSync token is returned.
+   */
+  fill?: boolean
 }
 
 export interface ListPostsByTagOptions {
   limit?: number
   nextToken?: string
+  /**
+   * Fill short pages (default `true`). The resolver can return fewer than
+   * `limit` posts while `nextToken` is set (DynamoDB's 1 MB page cap, or
+   * rows the resolver drops), so by default the runtime keeps reading until
+   * the page is full — what first-page-only views need. Pass `false` from a
+   * consumer that already follows `nextToken` with its own round-trip
+   * bound (llms.txt, the public MCP tools via `collectBounded`): then this
+   * is exactly one resolver call and the raw AppSync token is returned.
+   */
+  fill?: boolean
 }
 
 export interface ListPostsResult {
@@ -131,11 +151,14 @@ function toCorePost(p: PublicPostShape): Post {
 const FILL_CHUNK = 100
 
 /**
- * Most resolver calls made to fill one page (see `fillPage`). With the
- * first call plus 19 chunks of FILL_CHUNK this tolerates ~1,900 dropped
- * index rows ahead of the page before failing explicitly.
+ * Most EMPTY resolver calls tolerated while filling one page (see
+ * `fillPage`): calls that yield no new visible post. Productive calls are
+ * not budgeted — each adds at least one post, so there are at most `limit`
+ * of them. With FILL_CHUNK rows per call this tolerates ~2,000 dropped
+ * index rows (fewer when DynamoDB's 1 MB page cap stops a call earlier)
+ * before failing explicitly.
  */
-const MAX_FILL_CALLS = 20
+const MAX_EMPTY_FILL_CALLS = 20
 
 const CURSOR_PREFIX = 'ampless-c2.'
 
@@ -225,45 +248,59 @@ function decodeCursor(token: string): ChunkCursor | undefined {
 }
 
 /**
- * Thrown when a list page could not be filled within MAX_FILL_CALLS
- * resolver calls while the listing still continues. Rather than return a
- * short (possibly empty) page that first-page-only views (home, tag pages)
- * would render as "no posts", the failure is explicit. `items` holds what
- * was collected and `nextToken` resumes the scan right after it.
+ * Thrown when MAX_EMPTY_FILL_CALLS resolver calls returned no visible post
+ * while the page was still short and the listing continued. An empty call
+ * means the resolver dropped every row that call read (see `fillPage`), so
+ * this is reached only when that many reads in a row-budget sense were
+ * spent on dropped rows — never by valid data that is merely large (1 MB
+ * pages always hold at least one row). Rather than return a short (possibly
+ * empty) page that first-page-only views (home, tag pages) would render as
+ * "no posts", the failure is explicit. `items` holds what was collected and
+ * `nextToken` resumes the scan right after it.
  */
 export class PostListScanLimitError extends Error {
   readonly operation: ListOperation
   readonly items: Post[]
   readonly nextToken: string
+  /** All resolver calls made for this page. */
   readonly calls: number
+  /** Calls that yielded no new visible post (reached MAX_EMPTY_FILL_CALLS). */
+  readonly emptyCalls: number
 
   constructor(
     operation: ListOperation,
     items: Post[],
     nextToken: string,
     calls: number,
+    emptyCalls: number,
     limit: number
   ) {
     super(
-      `${operation}: page has ${items.length}/${limit} posts after ${calls} resolver calls and the listing continues; too many index rows were dropped (non-canonical publishedAt, see #406)`
+      `${operation}: page has ${items.length}/${limit} posts after ${calls} resolver calls, ${emptyCalls} of which returned no visible post, and the listing continues. ` +
+        'The resolver dropped every row those calls read — e.g. a publishedAt after now that sorts before it as a string (a non-canonical offset value, see #406), an unparseable publishedAt, or rows just outside from/to. ' +
+        'Resume with this error\'s nextToken.'
     )
     this.name = 'PostListScanLimitError'
     this.operation = operation
     this.items = items
     this.nextToken = nextToken
     this.calls = calls
+    this.emptyCalls = emptyCalls
   }
 }
 
 /**
  * Collect up to `limit` posts from a list resolver, following `nextToken`.
  *
- * Why: the public list resolvers re-check each row's publishedAt by instant
- * AFTER DynamoDB has applied `limit` — DynamoDB compares the sort key as a
- * string, and non-canonical values (e.g. a future `-05:00` publishedAt,
- * which sorts before now) are dropped by the re-check (#406). One response
- * can therefore be short, even empty, while `nextToken` is still set, and
- * the home / tag views only read the first page.
+ * Why: one resolver response can be short while `nextToken` is still set,
+ * and the home / tag views only read the first page. Two causes:
+ * - DynamoDB stops a Query at 1 MB of data, so with large posts (items may
+ *   be up to 400 KB) a call returns only a few rows, valid or not.
+ * - The public list resolvers re-check each row's publishedAt by instant
+ *   AFTER DynamoDB has applied `limit` — DynamoDB compares the sort key as a
+ *   string, and non-canonical values (e.g. a future `-05:00` publishedAt,
+ *   which sorts before now) are dropped by the re-check (#406). Such a
+ *   response can be empty.
  *
  * Cost: the first call asks for exactly `limit` with the caller's token.
  * For canonical data it fills the page (or ends the listing), so this is one
@@ -293,24 +330,53 @@ export class PostListScanLimitError extends Error {
  * is returned with the chunk's raw end token (a page larger than `limit`,
  * never a skipped post) and the oddity is logged.
  *
- * Bound: at most MAX_FILL_CALLS resolver calls per page. If the page is
- * still short and the listing continues, this throws PostListScanLimitError
- * (after logging) instead of returning an incomplete page: a misleading
- * empty / short listing would hide published posts, whereas the error is
- * visible (on force-dynamic pages it surfaces as an error response) and
- * logged. A short page is only ever returned with `nextToken: null`.
+ * Bound: only EMPTY calls (no new visible post) are budgeted, at
+ * MAX_EMPTY_FILL_CALLS per page. Every other call adds at least one post, so
+ * a page makes at most `limit + MAX_EMPTY_FILL_CALLS` resolver calls, each
+ * reading at most FILL_CHUNK rows and at most 1 MB. Callers cap `limit`
+ * (templates use ≤ 50, the public MCP tool clamps to 50, llms.txt pages
+ * with its own `pageSizeCap`), which keeps one page's work bounded.
+ *
+ * Valid data never exhausts the budget: a 1 MB-truncated response still
+ * holds at least one row, and for canonical publishedAt values every row
+ * the key condition returns is live by instant (lexical order equals
+ * chronological order), except rows within the minute of key-bound
+ * widening just outside `from` / `to` (list-published-posts.js), of which
+ * there are at most a minute's worth. So an empty call means the resolver
+ * dropped every row it read — non-canonical future values, unparseable
+ * values, or such boundary rows.
+ *
+ * When the budget runs out while the page is still short and the listing
+ * continues, this throws PostListScanLimitError (after logging) instead of
+ * returning an incomplete page: a misleading empty / short listing would
+ * hide published posts, whereas the error is visible (on force-dynamic
+ * pages it surfaces as an error response) and logged. A short page is only
+ * ever returned with `nextToken: null`. Paging consumers (llms.txt and the
+ * MCP tools via `collectBounded`) just receive fuller pages and keep
+ * following `nextToken` as before.
  */
 async function fillPage(
   operation: ListOperation,
   limit: number,
   nextToken: string | undefined,
+  fill: boolean,
   fetchPage: (args: {
     limit: number
     nextToken: string | undefined
   }) => Promise<PublicPostConnectionShape | null>
 ): Promise<ListPostsResult> {
+  if (!fill) {
+    // One resolver call, raw token: the caller pages and bounds itself.
+    // Runtime cursors are never produced here, so none is decoded either.
+    const data = await fetchPage({ limit, nextToken })
+    return {
+      items: (data?.items ?? []).filter((p): p is PublicPostShape => p !== null).map(toCorePost),
+      nextToken: data?.nextToken ?? null,
+    }
+  }
   const items: Post[] = []
   let calls = 0
+  let emptyCalls = 0
   const visible = (data: PublicPostConnectionShape | null) =>
     (data?.items ?? []).filter((p): p is PublicPostShape => p !== null).map(toCorePost)
 
@@ -327,6 +393,7 @@ async function fillPage(
     const data = await fetchPage({ limit, nextToken })
     calls++
     items.push(...visible(data))
+    if (items.length === 0) emptyCalls++
     const token = data?.nextToken ?? null
     if (items.length >= limit || !token) return { items, nextToken: token }
     chunkStart = token
@@ -362,15 +429,22 @@ async function fillPage(
 
   // Chunk mode.
   for (;;) {
-    if (calls >= MAX_FILL_CALLS) {
+    if (emptyCalls >= MAX_EMPTY_FILL_CALLS) {
       const cursor = encodeCursor(chunkStart, anchor, chunkSize)
-      const err = new PostListScanLimitError(operation, items, cursor, calls, limit)
-      console.error(`[ampless] ${err.message}`, { operation, limit, calls, collected: items.length })
+      const err = new PostListScanLimitError(operation, items, cursor, calls, emptyCalls, limit)
+      console.error(`[ampless] ${err.message}`, {
+        operation,
+        limit,
+        calls,
+        emptyCalls,
+        collected: items.length,
+      })
       throw err
     }
     const data = await fetchPage({ limit: chunkSize, nextToken: chunkStart ?? undefined })
     calls++
     const chunk = visible(data).filter(afterAnchor)
+    if (chunk.length === 0) emptyCalls++
     const token = data?.nextToken ?? null
     const needed = limit - items.length
     if (chunk.length > needed) {
@@ -429,7 +503,8 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
 
   return {
     async listPublishedPosts(opts: ListPostsOptions = {}): Promise<ListPostsResult> {
-      return fillPage('listPublishedPosts', opts.limit ?? 20, opts.nextToken, async (args) => {
+      const fill = opts.fill ?? true
+      return fillPage('listPublishedPosts', opts.limit ?? 20, opts.nextToken, fill, async (args) => {
         const { data, errors } = await runWithAmplifyServerContext({
           nextServerContext: null,
           operation: (contextSpec) =>
@@ -458,7 +533,8 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
       tag: string,
       opts: ListPostsByTagOptions = {}
     ): Promise<ListPostsResult> {
-      return fillPage('listPostsByTag', opts.limit ?? 20, opts.nextToken, async (args) => {
+      const fill = opts.fill ?? true
+      return fillPage('listPostsByTag', opts.limit ?? 20, opts.nextToken, fill, async (args) => {
         const { data, errors } = await runWithAmplifyServerContext({
           nextServerContext: null,
           operation: (contextSpec) =>

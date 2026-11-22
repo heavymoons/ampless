@@ -340,7 +340,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       error.mockRestore()
     })
 
-    it('throws PostListScanLimitError after 20 calls instead of returning a short page', async () => {
+    it('throws PostListScanLimitError after 20 EMPTY calls instead of returning a short page', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {})
       let n = 0
       mockListPublishedPosts.mockImplementation(async () => ({
@@ -355,16 +355,18 @@ describe('createPostsApi — stateless apiKey reads', () => {
       const e = err as PostListScanLimitError
       expect(e.name).toBe('PostListScanLimitError')
       expect(e.operation).toBe('listPublishedPosts')
-      expect(e.calls).toBe(20)
+      // The one productive call (4th) is not counted against the budget.
+      expect(e.calls).toBe(21)
+      expect(e.emptyCalls).toBe(20)
       expect(e.items.map((p) => p.postId)).toEqual(['x'])
       expect(e.nextToken).toMatch(/^ampless-c2\./)
-      expect(mockListPublishedPosts).toHaveBeenCalledTimes(20)
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(21)
       expect(error).toHaveBeenCalledWith(
         expect.stringContaining('listPublishedPosts'),
-        expect.objectContaining({ calls: 20 })
+        expect.objectContaining({ calls: 21, emptyCalls: 20 })
       )
 
-      // Resuming from the error continues right after the 20th call.
+      // Resuming from the error continues right after the 21st call.
       mockListPublishedPosts.mockReset()
       mockListPublishedPosts.mockResolvedValueOnce({
         data: { items: [row('y')], nextToken: null },
@@ -375,10 +377,71 @@ describe('createPostsApi — stateless apiKey reads', () => {
         from: undefined,
         to: undefined,
         limit: 100,
-        nextToken: 't20',
+        nextToken: 't21',
       })
       expect(resumed).toEqual({ items: [expect.objectContaining({ postId: 'y' })], nextToken: null })
       error.mockRestore()
+    })
+
+    it('30 productive calls of one post each fill a page of 30 without error (1 MB pages)', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let n = 0
+      mockListPublishedPosts.mockImplementation(async () => {
+        n++
+        return { data: { items: [row(`p${n}`)], nextToken: `t${n}` }, errors: null }
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 30 })
+
+      expect(res.items).toHaveLength(30)
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(30)
+      expect(res.nextToken).toBe('t30')
+      expect(error).not.toHaveBeenCalled()
+      error.mockRestore()
+    })
+
+    it('fewer than 20 empty calls interleaved with productive ones still fill the page', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let n = 0
+      // Calls alternate empty / one post: 19 empty calls in total for 20 posts.
+      mockListPublishedPosts.mockImplementation(async () => {
+        n++
+        const productive = n % 2 === 0 || n > 38
+        return {
+          data: { items: productive ? [row(`p${n}`)] : [], nextToken: `t${n}` },
+          errors: null,
+        }
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const res = await api.listPublishedPosts({ limit: 20 })
+
+      expect(res.items).toHaveLength(20)
+      expect(error).not.toHaveBeenCalled()
+      error.mockRestore()
+    })
+
+    it('fill: false makes exactly one resolver call and returns its raw token', async () => {
+      mockListPublishedPosts.mockResolvedValue({
+        data: { items: [], nextToken: 't1' },
+        errors: null,
+      })
+      mockListPostsByTag.mockResolvedValue({
+        data: { items: [row('a')], nextToken: 't2' },
+        errors: null,
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      expect(await api.listPublishedPosts({ limit: 5, fill: false })).toEqual({
+        items: [],
+        nextToken: 't1',
+      })
+      const tag = await api.listPostsByTag('news', { limit: 5, fill: false })
+      expect(tag.items.map((p) => p.postId)).toEqual(['a'])
+      expect(tag.nextToken).toBe('t2')
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(1)
+      expect(mockListPostsByTag).toHaveBeenCalledTimes(1)
     })
 
     it('throws when a follow-up page returns errors', async () => {

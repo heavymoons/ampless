@@ -328,6 +328,8 @@ describe('createLlmsTxtRouteHandler', () => {
     const calls = (ampless.listPublishedPosts as ReturnType<typeof vi.fn>).mock.calls
     expect(calls[0]?.[0]?.limit).toBe(4) // min(50, 3+1-0)
     expect(calls[1]?.[0]?.limit).toBe(2) // min(50, 3+1-2)
+    // One resolver call per page, so MAX_PAGES bounds round trips.
+    expect(calls.every((c) => c[0]?.fill === false)).toBe(true)
     // Exactly `limit` items, token exhausted — no truncation note.
     expect(text).not.toContain('Note:')
   })

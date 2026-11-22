@@ -93,7 +93,17 @@ function positionOrder(skA: string, idA: string, skB: string, idB: string): numb
   return tieOrder === 'asc' ? byId : -byId
 }
 
-/** A DynamoDB-like Query: byte-wise key condition, SK desc, limit, key cursor. */
+/** DynamoDB stops one Query once it has read 1 MB of data. */
+const QUERY_PAGE_BYTES = 1024 * 1024
+/** Stored item size in bytes: an explicit `__size`, else a small row. */
+const rowBytes = (r: Row) => (typeof r.__size === 'number' ? r.__size : 1024)
+
+/**
+ * A DynamoDB-like Query: byte-wise key condition, SK desc, then BOTH page
+ * caps DynamoDB applies before the resolver response sees anything — `limit`
+ * rows and 1 MB of data (a page always holds at least one row; the row that
+ * would push it past 1 MB starts the next page) — and a key cursor.
+ */
 function fakeQuery(
   req: Row,
   rows: Row[],
@@ -120,7 +130,14 @@ function fakeQuery(
       ? matching
       : matching.filter((r) => positionOrder(sk(r), id(r), start.sk, start.id) > 0)
   const limit = req.limit as number
-  const page = remaining.slice(0, limit)
+  const page: Row[] = []
+  let bytes = 0
+  for (const r of remaining) {
+    if (page.length >= limit) break
+    if (page.length > 0 && bytes + rowBytes(r) > QUERY_PAGE_BYTES) break
+    page.push(r)
+    bytes += rowBytes(r)
+  }
   const more = remaining.length > page.length
   const last = page[page.length - 1]
   return {
@@ -446,6 +463,8 @@ describe('scan limit: more dropped rows than one page may read', () => {
     expect(err).toBeInstanceOf(PostListScanLimitError)
     const e = err as PostListScanLimitError
     expect(e.calls).toBe(20)
+    expect(e.emptyCalls).toBe(20)
+    expect(e.message).toContain('returned no visible post')
     expect(e.items).toEqual([])
     expect(e.nextToken).toMatch(/^ampless-c2\./)
     expect(calls).toHaveLength(20)
@@ -470,8 +489,119 @@ describe('scan limit: more dropped rows than one page may read', () => {
       name: 'PostListScanLimitError',
       operation: 'listPostsByTag',
       calls: 20,
+      emptyCalls: 20,
     })
     error.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DynamoDB's 1 MB page cap with large, valid (canonical UTC) posts
+// ---------------------------------------------------------------------------
+//
+// Items may be up to 400 KB, so one Query returns only two such rows no
+// matter what `limit` asks for. That makes ordinary data produce short
+// pages with a nextToken; the runtime must fill them and must not mistake
+// them for dropped rows.
+
+const KB = 1024
+
+/** Canonical live rows, newest first, one hour apart, with the given sizes. */
+function sized(count: number, size: (i: number) => number, prefix = 'big') {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${prefix}-${String(i).padStart(2, '0')}`,
+    at: new Date(Date.parse(NOW) - (i + 1) * 3_600_000).toISOString(),
+    size: size(i),
+  }))
+}
+
+describe('1 MB Query pages with large valid posts', () => {
+  it('the fake applies the 1 MB cap: one call returns two 400 KB rows', () => {
+    postTagRows = sized(5, () => 400 * KB).map((r) => ({ ...tagRow(r.id, r.at), __size: r.size }))
+    const res = invoke('listPostsByTag', listPostsByTag, { tag: 'news', limit: 50 })
+    expect(res.items).toHaveLength(2)
+    expect(res.nextToken).not.toBeNull()
+  })
+
+  it('tag page / sidebar (limit 50) over 60 posts of ~400 KB: 50 posts, no error, continues', async () => {
+    const live = sized(60, () => 400 * KB)
+    postTagRows = live.map((r) => ({ ...tagRow(r.id, r.at), __size: r.size }))
+    const error = vi.spyOn(console, 'error')
+    const page = await api().listPostsByTag('news', { limit: 50 })
+    expect(page.items.map((p) => p.postId)).toEqual(live.slice(0, 50).map((r) => r.id))
+    expect(page.nextToken).not.toBeNull()
+    // Two rows per call: 25 calls, well past the old 20-call total cap,
+    // and inside the documented bound of limit + 21.
+    expect(calls).toHaveLength(25)
+    expect(calls.length).toBeLessThanOrEqual(50 + 21)
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+
+    const rest = await api().listPostsByTag('news', { limit: 50, nextToken: page.nextToken! })
+    expect(rest.items.map((p) => p.postId)).toEqual(live.slice(50).map((r) => r.id))
+    expect(rest.nextToken).toBeNull()
+  })
+
+  it.each([6, 8, 10, 12, 20])('home limit %i over ~400 KB posts: full page', async (limit) => {
+    const live = sized(30, () => 400 * KB)
+    byStatusRows = live.map((r) => ({ ...post(r.id, r.at), __size: r.size }))
+    const page = await api().listPublishedPosts({ limit })
+    expect(page.items.map((p) => p.postId)).toEqual(live.slice(0, limit).map((r) => r.id))
+    expect(calls.length).toBe(Math.ceil(limit / 2))
+  })
+
+  it('mixed sizes: every page full, every post exactly once, in order', async () => {
+    const sizes = [400, 10, 300, 350, 1, 200, 400, 400, 50, 399]
+    const live = sized(45, (i) => sizes[i % sizes.length]! * KB, 'mix')
+    byStatusRows = live.map((r) => ({ ...post(r.id, r.at), __size: r.size }))
+    const pages = await allPages((nextToken) => api().listPublishedPosts({ limit: 7, nextToken }))
+    expect(pages.flat()).toEqual(live.map((r) => r.id))
+    expect(pages.slice(0, -1).every((p) => p.length === 7)).toBe(true)
+  })
+
+  it('large valid posts mixed with dropped future rows still fill without error', async () => {
+    const live = sized(20, () => 400 * KB)
+    byStatusRows = [
+      // 30 dropped 400 KB rows read two per call: 15 empty calls, under budget.
+      ...futureMinus5(30).map((r) => ({ ...r, __size: 400 * KB })),
+      ...live.map((r) => ({ ...post(r.id, r.at), __size: r.size })),
+    ]
+    const page = await api().listPublishedPosts({ limit: 10 })
+    expect(page.items.map((p) => p.postId)).toEqual(live.slice(0, 10).map((r) => r.id))
+    expect(calls.length).toBeLessThanOrEqual(10 + 21)
+  })
+
+  it('a budget of empty calls, not of calls: 400 KB dropped rows exhaust it with a truthful error', async () => {
+    // Live posts older than every future row, so the future rows come first.
+    const live = Array.from({ length: 5 }, (_, i) => ({
+      id: `old-${i}`,
+      at: new Date(Date.parse('2025-12-31T10:00:00.000Z') - i * 3_600_000).toISOString(),
+    }))
+    // Each call reads two 400 KB future rows, all dropped → empty calls.
+    byStatusRows = [
+      ...futureMinus5(60).map((r) => ({ ...r, __size: 400 * KB })),
+      ...live.map((r) => post(r.id, r.at)),
+    ]
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const err = (await api()
+      .listPublishedPosts({ limit: 6 })
+      .catch((e: unknown) => e)) as PostListScanLimitError
+    expect(err).toBeInstanceOf(PostListScanLimitError)
+    expect(err.emptyCalls).toBe(20)
+    expect(err.message).toContain('dropped every row')
+    error.mockRestore()
+    // 40 rows read, 20 left ahead of the live posts; resuming gets there.
+    const resumed = await api().listPublishedPosts({ limit: 6, nextToken: err.nextToken })
+    expect(resumed.items.map((p) => p.postId)).toEqual(live.map((r) => r.id))
+    expect(resumed.nextToken).toBeNull()
+  })
+
+  it('small canonical rows: still exactly one call per page', async () => {
+    const live = liveCanonical(12)
+    byStatusRows = live.map((r) => post(r.id, r.at))
+    const page = await api().listPublishedPosts({ limit: 6 })
+    expect(page.items.map((p) => p.postId)).toEqual(live.slice(0, 6).map((r) => r.id))
+    expect(calls).toHaveLength(1)
   })
 })
 
