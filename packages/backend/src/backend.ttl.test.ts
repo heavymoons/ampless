@@ -199,6 +199,22 @@ describe('template RUNBOOK TTL section', () => {
     return text.slice(start, end === -1 ? undefined : end)
   }
 
+  const LANG: Record<
+    string,
+    { iteratorAgeNotProof: string; noZeroHeading: string; neverExpire: string }
+  > = {
+    'RUNBOOK.md': {
+      iteratorAgeNotProof: '**not proof on its own**',
+      noZeroHeading: "Don't switch `retentionDays` to 0 for the window",
+      neverExpire: 'those revisions never expire',
+    },
+    'RUNBOOK.ja.md': {
+      iteratorAgeNotProof: '**それだけでは証明になりません**',
+      noZeroHeading: '作業中に `retentionDays` を 0 にしない',
+      neverExpire: 'それらのリビジョンは期限切れになりません',
+    },
+  }
+
   for (const file of ['RUNBOOK.md', 'RUNBOOK.ja.md']) {
     it(`${file} documents the audit, PITR safety net, opt-in and monitoring`, () => {
       const s = section(file)
@@ -214,8 +230,12 @@ describe('template RUNBOOK TTL section', () => {
         'TimeToLiveDeletedItemCount',
         'retentionDays',
         'ttlSeconds',
-        // Writer freeze.
-        'retentionDays: 0',
+        // Writer pause, verified by more than one signal.
+        'ConsumedWriteCapacityUnits',
+        'list-event-source-mappings',
+        'LastProcessingResult',
+        'Invocations',
+        'ConcurrentExecutions',
         'IteratorAge',
         // Conditional fixes and their failure handling.
         "--condition-expression 'attribute_exists(postHistoryId) AND #t = :seen'",
@@ -243,7 +263,7 @@ describe('template RUNBOOK TTL section', () => {
         return i
       }
       const order = [
-        at('retentionDays: 0'),
+        at('list-event-source-mappings'),
         at('ttl-audit-1.json'),
         at('ttl-audit-2.json'),
         at("{ attributeName: 'ttl', enabled: true }"),
@@ -253,6 +273,25 @@ describe('template RUNBOOK TTL section', () => {
       ]
       expect(order.at(-1)).toBeGreaterThanOrEqual(0)
       expect(order).toEqual([...order].sort((a, b) => a - b))
+    })
+
+    it(`${file} does not treat IteratorAge alone as proof the dispatcher is idle`, () => {
+      expect(section(file)).toContain(LANG[file].iteratorAgeNotProof)
+    })
+
+    it(`${file} pauses writers instead of switching retentionDays to 0, and says why`, () => {
+      const s = section(file)
+      const step1 = s.slice(s.indexOf('\n1. **'), s.indexOf('\n2. **'))
+      expect(step1.length).toBeGreaterThan(0)
+      // Step 1 must not tell the operator to deploy retentionDays: 0.
+      expect(step1).not.toContain('retentionDays: 0')
+      expect(step1).toContain(LANG[file].noZeroHeading)
+      // The note spells out the permanent consequence and the deliberate fix.
+      const note = s.slice(s.indexOf(`**${LANG[file].noZeroHeading}`))
+      expect(note).toContain(LANG[file].neverExpire)
+      expect(note).toContain(
+        "--condition-expression 'attribute_exists(postHistoryId) AND attribute_not_exists(#t)'"
+      )
     })
 
     it(`${file} makes every update-item conditional on the row and the observed ttl`, () => {

@@ -255,22 +255,55 @@ by TTL without ever having been reviewed. The audit is only meaningful
 while nothing can write a `ttl` to the table — from the first audit
 until TTL is on and verified.
 
-1. **Stop or isolate every writer** of the table, and keep it stopped
-   until step 8:
-   - **PostHistory**: set `history: { retentionDays: 0 }` in
-     `cms.config.ts` and deploy, so revisions written from now on carry no
-     `ttl`. Then wait until the dispatcher has drained the Post stream:
-     its `IteratorAge` metric (`AWS/Lambda`, the event-dispatcher function)
-     is back near 0, so no record saved under the old setting is still
-     being retried. Pausing post edits as well keeps the history quiet
-     while you review it.
-   - **KvStore**: pause admin / editor edits (site settings, theme,
-     plugin settings), and stop or disable any plugin, script or
-     integration that writes KvStore — at least every caller that passes
-     `ttlSeconds`.
+1. **Pause every writer, then prove the table is quiet.** Keep everything
+   paused until step 8.
+   - **PostHistory**: pause every writer of the **Post** table — admin /
+     editor edits, MCP clients (`create_post` / `update_post` /
+     `commit_static_post` via any issued MCP token or local MCP server),
+     scripts, imports and integrations — because each Post save makes the
+     event-dispatcher Lambda write a revision. Leave `history.retentionDays`
+     as it is (see **Don't switch `retentionDays` to 0 for the window**
+     below).
+   - **KvStore**: pause admin / editor edits (site settings, theme, plugin
+     settings) and stop every plugin, script or integration that writes
+     KvStore.
    - Custom writers (your own Lambdas, scripts, other apps on the same
-     tables) count too. If you cannot stop one, see **Limits** below
-     before going on.
+     tables) count too. If you cannot pause one, read **Limits** before
+     going on.
+
+   Then verify, with all of these — not one alone:
+   - **No writes reach the table.** `ConsumedWriteCapacityUnits`
+     (`AWS/DynamoDB`, dimension `TableName`) has a `Sum` of 0 for every
+     minute since the pause, for the PostHistory or KvStore table (and for
+     Post, when preparing PostHistory). This catches writers you did not
+     know about. Your own conditional updates in step 3 will show up here
+     later — that is expected.
+   - **The dispatcher has nothing in flight or pending** (PostHistory).
+     Find the event-dispatcher function and its stream mappings:
+
+     ```bash
+     aws lambda list-event-source-mappings --region <region> \
+       --function-name <event-dispatcher function> \
+       --query 'EventSourceMappings[].[EventSourceArn,State,LastProcessingResult,DestinationConfig]'
+     ```
+
+     Both mappings (Post and KvStore stream) should be `Enabled` with
+     `LastProcessingResult` `OK`, and ampless configures no on-failure
+     destination — a batch that fails every retry (3 retries, with batch
+     bisection) is dropped, not parked in a queue. The events DLQ only
+     holds failed plugin-processor messages; processors never write
+     PostHistory or KvStore, so it is not a source here.
+     For the dispatcher function, CloudWatch `Invocations` and `Errors`
+     (`AWS/Lambda`) must be 0, and `ConcurrentExecutions` absent or 0, for
+     at least 15 minutes after the last Post write; check its log group for
+     errors or retries since the pause. An error in that window means a
+     batch was retried or dropped — find out which records it held before
+     going on.
+   - `IteratorAge` back near 0 is consistent with a drained stream, but it
+     is **not proof on its own**: it is only reported when the function is
+     invoked, so a missing datapoint looks the same as a drained stream,
+     and it says nothing about a batch being retried right now. Use it only
+     alongside the checks above.
 
 2. **Audit (read-only).** Find the live table name (`<Model>-<apiId>-NONE`,
    see `aws dynamodb list-tables`), check the current TTL state, and list
@@ -347,8 +380,9 @@ until TTL is on and verified.
    carry their past `ttl`, so remove or raise it as you copy, or TTL will
    delete them again.
 
-5. **Re-audit immediately before deploying.** With the writers still
-   stopped, run the step 2 scan again (`ttl-audit-2.json`) with a fresh
+5. **Re-audit immediately before deploying.** Repeat the step 1 checks
+   (no unexplained writes since the pause apart from your own step 3
+   updates, dispatcher idle), then run the step 2 scan again (`ttl-audit-2.json`) with a fresh
    `NOW`. Every row it returns must be one you decided to let go. If a row
    you did not review appears, or a row you fixed is back, a writer is
    still active: stop it and return to step 2. Also add a margin for the
@@ -357,7 +391,7 @@ until TTL is on and verified.
    `NOW=$(( $(date +%s) + 86400 ))` to see what expires in the next day.
 
 6. **Opt in** in `amplify/backend.custom.ts` and deploy, writers still
-   stopped:
+   paused:
 
    ```ts
    export function customizeBackend(backend: AmplessBackend): void {
@@ -380,12 +414,13 @@ until TTL is on and verified.
    it with the conditional update in step 3 at once, and if it was already
    deleted, restore it from PITR (step 4).
 
-8. **Resume the writers.** Restore `history.retentionDays` to the value
-   you want and deploy, re-enable integrations, and let editors back in.
-   From now on, rows are deleted when their `ttl` passes — that is the
-   point of turning TTL on. A revision's `ttl` is computed from its save
-   time, so with a short `retentionDays` a revision written late (a
-   retried stream record) can already be past its `ttl` when written.
+8. **Resume the writers.** Re-enable integrations and MCP clients and
+   let editors back in. `history.retentionDays` was never changed, so new
+   revisions carry their `ttl` as before. From now on, rows are deleted
+   when their `ttl` passes — that is the point of turning TTL on. A
+   revision's `ttl` is computed from its save time, so with a short
+   `retentionDays` a revision written late (a retried stream record) can
+   already be past its `ttl` when written.
 
 9. **Monitor.** The CloudWatch metric `TimeToLiveDeletedItemCount`
    (namespace `AWS/DynamoDB`, dimension `TableName`) shows how many rows
@@ -403,6 +438,21 @@ until TTL is on and verified.
    A sum clearly larger than your accepted list means rows you did not
    review were deleted — compare against a PITR restore to a new table.
 
+**Don't switch `retentionDays` to 0 for the window.** It looks like a way
+to stop new `ttl`s without pausing edits, but every revision written while
+it is 0 is stored **without** a `ttl`, and restoring the setting later does
+not add one: those revisions never expire. If you do it anyway (for
+example because edits really cannot pause — see **Limits**), handle those
+rows deliberately afterwards: list them with
+`attribute_not_exists(#t)` and a `revisedAt` inside the window, and either
+accept that they are kept forever or give each one the `ttl` it would have
+had (`epoch(revisedAt) + retentionDays * 86400`) with
+`--update-expression 'SET #t = :ttl'` and
+`--condition-expression 'attribute_exists(postHistoryId) AND attribute_not_exists(#t)'`.
+A value already in the past is deleted by TTL straight away. A Post stream
+record still being retried when the setting changes is written under
+whichever setting the dispatcher has when it runs.
+
 To turn TTL off again, remove the opt-in line and deploy (see the
 one-change-per-hour caveat below).
 
@@ -416,11 +466,17 @@ one-change-per-hour caveat below).
 - A strongly consistent scan is consistent per page, not across the whole
   table; two scans show the table at different moments. Only stopped
   writers make them comparable.
-- If a writer cannot be stopped (an external integration, a busy site
-  where editing cannot pause), rows it writes with a past or near-past
+- The step 1 checks are evidence, not proof. CloudWatch metrics are
+  aggregated per minute and arrive with a delay; a write in the last
+  minute, or a writer that ignores the pause, can slip past them.
+  `IteratorAge` in particular is not evidence of an idle dispatcher by
+  itself.
+- If a writer cannot be paused (an external integration, a busy site
+  where editing cannot stop), rows it writes with a past or near-past
   `ttl` between the audit and step 7 can be deleted unreviewed. Either
   accept that for that table, change the writer so it stops sending
-  `ttl` first, or leave TTL off.
+  `ttl` first (for PostHistory, `retentionDays: 0` — with the permanent
+  no-expiry consequence above), or leave TTL off.
 - The only way back from an unwanted TTL deletion is a restore (PITR or
   an on-demand backup) followed by a selective copy-back, with the limits
   described in the PITR section.
