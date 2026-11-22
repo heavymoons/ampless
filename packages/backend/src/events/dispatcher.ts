@@ -8,7 +8,6 @@ import {
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs'
 import {
-  canonicalizeAwsDateTime,
   detectContentEvents,
   type ContentEventPayload,
   type ContentEventType,
@@ -107,73 +106,7 @@ function projectPost(raw: RawPost): ContentEventPayload | null {
   }
 }
 
-type AttributeImage = Record<string, unknown>
-
-/** Key-order-independent structural equality over raw AttributeValue images. */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
-  if (Array.isArray(a) !== Array.isArray(b)) return false
-  const aKeys = Object.keys(a)
-  const bKeys = Object.keys(b)
-  if (aKeys.length !== bKeys.length) return false
-  for (const key of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(b, key)) return false
-    if (!deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) {
-      return false
-    }
-  }
-  return true
-}
-
-/**
- * Copy of a raw Post image with the representation-only parts neutralised:
- * `publishedAtSortKey` is dropped (it is derived from publishedAt + postId),
- * and a parseable `publishedAt` string is replaced by its canonical UTC form.
- * An unparseable `publishedAt` is kept verbatim, so it only compares equal
- * to the identical string.
- */
-function normalizePublishedAtRepresentation(image: AttributeImage): AttributeImage {
-  const { publishedAtSortKey: _sortKey, ...rest } = image
-  const publishedAt = rest.publishedAt as { S?: unknown } | undefined
-  if (publishedAt && typeof publishedAt.S === 'string') {
-    const canonical = canonicalizeAwsDateTime(publishedAt.S)
-    if (canonical !== undefined) rest.publishedAt = { ...publishedAt, S: canonical }
-  }
-  return rest
-}
-
-/**
- * True for a Post MODIFY whose only differences are the representation of
- * `publishedAt` (same instant, e.g. `+09:00` → canonical `Z`) and/or the
- * derived `publishedAtSortKey` being added, changed or removed — i.e. the
- * write the publishedAt migration (#406) makes. Every other attribute,
- * including `updatedAt` (bumped on every AppSync write), must be identical,
- * so a genuine edit is never classified as representation-only.
- *
- * Such records still refresh the PostTag index (its keys derive from
- * publishedAt) but emit no content.* events and no PostHistory snapshot:
- * nothing an editor or plugin would recognise as an edit happened.
- */
-export function isPublishedAtRepresentationOnlyChange(record: DynamoDBRecord): boolean {
-  if (record.eventName !== 'MODIFY') return false
-  const oldImage = record.dynamodb?.OldImage as AttributeImage | undefined
-  const newImage = record.dynamodb?.NewImage as AttributeImage | undefined
-  if (!oldImage || !newImage) return false
-  // Nothing changed at all is not a migration write; leave it to the
-  // normal path rather than guess.
-  if (deepEqual(oldImage, newImage)) return false
-  return deepEqual(
-    normalizePublishedAtRepresentation(oldImage),
-    normalizePublishedAtRepresentation(newImage)
-  )
-}
-
-function emitContentEvents(
-  record: DynamoDBRecord,
-  timestamp: string,
-  representationOnly: boolean
-): AmplessEvent[] {
+function emitContentEvents(record: DynamoDBRecord, timestamp: string): AmplessEvent[] {
   const oldItem = record.dynamodb?.OldImage
     ? (unmarshall(record.dynamodb.OldImage as never) as RawPost)
     : null
@@ -199,9 +132,6 @@ function emitContentEvents(
       timestamp,
     })
   }
-
-  // A representation-only publishedAt rewrite is not a content change.
-  if (representationOnly) return events
 
   const types = detectContentEvents({
     eventName: record.eventName,
@@ -417,18 +347,10 @@ export function createDispatcherHandler(
       // The table name carries an Amplify suffix (e.g. `Post-<api-id>-NONE`)
       // but always starts with the schema model name.
       if (tableName && tableName.startsWith('Post-')) {
-        const representationOnly = isPublishedAtRepresentationOnlyChange(record)
-        if (representationOnly) {
-          const postId = (record.dynamodb?.NewImage?.postId as { S?: string } | undefined)?.S
-          console.info(
-            `[event-dispatcher] postId=${postId ?? '(unknown)'}: publishedAt representation-only change; refreshing index only (no content events, no PostHistory)`
-          )
-        }
-        messages.push(...emitContentEvents(record, timestamp, representationOnly))
-        // A representation-only rewrite is not a revision — no snapshot.
-        if (!representationOnly && historyTable) {
+        messages.push(...emitContentEvents(record, timestamp))
+        if (historyTable) {
           await writePostHistory(record, historyTable, historyRetentionDays)
-        } else if (!representationOnly && !warnedNoHistoryTable) {
+        } else if (!warnedNoHistoryTable) {
           console.log(
             '[event-dispatcher] AMPLESS_POST_HISTORY_TABLE not set; skipping PostHistory snapshots'
           )

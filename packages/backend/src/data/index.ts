@@ -108,12 +108,6 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         body: a.json(),
         status: a.enum(['draft', 'published']),
         publishedAt: a.datetime(),
-        // Derived, server-written: `<canonical publishedAt>#<postId>`, the
-        // unique sort key of `byStatusSorted`. Set by the publishedAt
-        // normalizer that `defineAmplessBackend` inserts into the
-        // createPost / updatePost pipelines (data/post-published-at-
-        // normalizer.ts); a client-supplied value is always dropped.
-        publishedAtSortKey: a.string(),
         tags: a.string().array(),
         // Free-form per-post metadata (JSON). Reserved well-known keys
         // are documented on `PostMetadata` in `ampless/src/types.ts`.
@@ -130,18 +124,11 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
       // Secondary indexes for the public-read resolvers.
       //   byStatus — PK = status, SK = publishedAt → newest-first listing
       //     of published posts (drafts live in their own partition).
-      //   byStatusSorted — PK = status, SK = publishedAtSortKey. Same
-      //     ordering as byStatus but with a unique, canonical sort key, so
-      //     posts sharing a publishedAt have a stable order across pages
-      //     (#406). Sparse (rows without publishedAt have no key) and not
-      //     read yet: the list resolvers switch to it only after existing
-      //     rows are backfilled.
       //   bySlug — PK = slug → O(1) lookup by slug. Slugs are unique
       //     across the site, enforced at the admin form level.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .secondaryIndexes((index: any) => [
         index('status').sortKeys(['publishedAt']).name('byStatus'),
-        index('status').sortKeys(['publishedAtSortKey']).name('byStatusSorted'),
         index('slug').name('bySlug'),
       ])
       // Direct table access is admin/editor only — guests must go through
