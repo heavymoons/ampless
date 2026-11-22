@@ -6,21 +6,40 @@
  *
  * Safety properties:
  *   - Dry-run by default; nothing is written unless `apply` is true.
- *   - Each write is a conditional UpdateItem guarded on the values the scan
- *     saw (`publishedAt = :raw` and the sortKey unchanged), so a concurrent
- *     editor's save is never overwritten — the row is reported as a conflict
- *     and picked up by a re-run.
- *   - Only `publishedAt` / `publishedAtSortKey` are touched. `updatedAt` is
- *     left alone on purpose: together with the dispatcher's representation-
- *     only check this keeps the rewrite from emitting content.* events or a
- *     PostHistory revision.
+ *   - The Scan is strongly consistent (`ConsistentRead: true`), so it sees
+ *     every write acknowledged before the page was read.
+ *   - Each write is a conditional UpdateItem guarded ONLY on the two
+ *     attributes it sets: `publishedAt = :raw` and the sortKey unchanged (or
+ *     absent). An edit that changed either of those since the scan makes
+ *     the write fail; it is reported as a conflict and picked up by a
+ *     re-run. An edit to any other attribute (title, body, status, tags,
+ *     ...) does NOT conflict and is not overwritten either, because the
+ *     update SETs only `publishedAt` / `publishedAtSortKey`.
+ *   - `updatedAt` is left alone on purpose: together with the dispatcher's
+ *     representation-only check this keeps the rewrite from emitting
+ *     content.* events or a PostHistory revision. It still emits
+ *     `post.index.refresh`, whose PostTag rebuild reads the current Post
+ *     (see events/posttag-sync.ts), so the order in which those events are
+ *     processed does not matter.
  *   - Idempotent: a second run classifies every migrated row as `ok`.
+ *
+ * A dry-run that reports nothing to change does not by itself prove the
+ * migration is complete: writers may still be saving posts, and the
+ * PostTag rebuilds its writes trigger run asynchronously. Completion is
+ * confirmed under the RUNBOOK procedure — writers stopped, apply, a zero
+ * dry-run, the stream / trusted queue / DLQ drained, then
+ * `--check-post-tags` reporting zero mismatches (./post-tags-check.ts).
+ *
+ * Before `apply`, `checkPublishedAtPreflight` verifies with DescribeTable
+ * that the table and its `byStatusSorted` GSI are ACTIVE and the GSI is no
+ * longer backfilling.
  *
  * Values `parseAwsDateTime` rejects (including a lowercase `z` zone, or an
  * instant outside UTC years 0000-9999, which the AppSync write path also
  * rejects) are reported as `unparseable` and never written; fix them by
  * re-saving the post with a valid date, then re-run.
  */
+import { DescribeTableCommand, type DescribeTableCommandOutput } from '@aws-sdk/client-dynamodb'
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { canonicalizeAwsDateTime, parseAwsDateTime } from 'ampless'
 
@@ -151,7 +170,10 @@ export interface PublishedAtMigrationSummary {
   rewritten: number
   sortKeyRemoved: number
   unparseable: Array<{ postId: string; status: unknown; raw: unknown }>
-  /** Condition failed: the row changed after the scan (re-run picks it up). */
+  /**
+   * Condition failed: publishedAt / publishedAtSortKey changed after the scan
+   * (re-run picks it up). Edits to other attributes never land here.
+   */
   conflicts: Array<{ postId: string; action: 'rewrite' | 'removeSortKey' }>
   failed: Array<{ postId: string | null; action: string; error: string }>
 }
@@ -198,6 +220,9 @@ export async function runPublishedAtMigration(
     const page = (await opts.client.send(
       new ScanCommand({
         TableName: opts.tableName,
+        // Strong reads: an eventually consistent page could miss a write
+        // acknowledged just before it, so a zero dry-run would mean less.
+        ConsistentRead: true,
         // `status` is a DynamoDB reserved word, so every name goes through
         // ExpressionAttributeNames.
         ProjectionExpression: '#id, #pa, #sk, #st',
@@ -257,9 +282,9 @@ export async function runPublishedAtMigration(
         else summary.sortKeyRemoved++
       } catch (err) {
         if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
-          // The row changed after the scan (an editor saved it). Their write
-          // went through the AppSync pipeline and is canonical already, or a
-          // re-run will pick it up.
+          // publishedAt or publishedAtSortKey changed after the scan (an
+          // editor saved a new date). Their write went through the AppSync
+          // pipeline and is canonical already, or a re-run will pick it up.
           summary.conflicts.push({ postId, action: plan.kind })
           log(`CONFLICT postId=${postId}: row changed since the scan; skipped (re-run to recheck)`)
         } else {
@@ -274,4 +299,60 @@ export async function runPublishedAtMigration(
   } while (exclusiveStartKey)
 
   return summary
+}
+
+// ---------------------------------------------------------------------------
+// Preflight: table + byStatusSorted GSI readiness (DescribeTable)
+// ---------------------------------------------------------------------------
+
+export const SORTED_INDEX_NAME = 'byStatusSorted'
+
+/** Minimal DynamoDBClient surface the preflight needs (mockable). */
+export interface PreflightClient {
+  send(command: DescribeTableCommand): Promise<DescribeTableCommandOutput>
+}
+
+export interface PublishedAtPreflight {
+  ok: boolean
+  tableStatus: string | null
+  index: { name: string; status: string | null; backfilling: boolean } | null
+  /** Human-readable reasons `ok` is false (empty when ok). */
+  problems: string[]
+}
+
+/**
+ * Check, via DescribeTable, that the Post table is ACTIVE and its
+ * `byStatusSorted` GSI exists, is ACTIVE and is not backfilling. The
+ * migration's writes populate that index, so applying while it is still
+ * being created or backfilled is refused. A DescribeTable failure is thrown.
+ */
+export async function checkPublishedAtPreflight(
+  client: PreflightClient,
+  tableName: string
+): Promise<PublishedAtPreflight> {
+  const res = await client.send(new DescribeTableCommand({ TableName: tableName }))
+  const table = res.Table
+  const problems: string[] = []
+  const tableStatus = table?.TableStatus ?? null
+  if (tableStatus !== 'ACTIVE') {
+    problems.push(`table ${tableName} status is ${tableStatus ?? 'unknown'} (need ACTIVE)`)
+  }
+  const gsi = (table?.GlobalSecondaryIndexes ?? []).find((g) => g.IndexName === SORTED_INDEX_NAME)
+  let index: PublishedAtPreflight['index'] = null
+  if (!gsi) {
+    problems.push(
+      `GSI ${SORTED_INDEX_NAME} not found on ${tableName} (deploy this release before migrating)`
+    )
+  } else {
+    index = {
+      name: SORTED_INDEX_NAME,
+      status: gsi.IndexStatus ?? null,
+      backfilling: gsi.Backfilling === true,
+    }
+    if (index.status !== 'ACTIVE') {
+      problems.push(`GSI ${SORTED_INDEX_NAME} status is ${index.status ?? 'unknown'} (need ACTIVE)`)
+    }
+    if (index.backfilling) problems.push(`GSI ${SORTED_INDEX_NAME} is still backfilling`)
+  }
+  return { ok: problems.length === 0, tableStatus, index, problems }
 }

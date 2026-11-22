@@ -279,33 +279,59 @@ TTL を再び無効にするには、オプトインの行を削除してデプ�
 
 AppSync の `AWSDateTime` は、同じ時刻をいろいろな書き方で受け付けます（`2026-05-01T09:00:00+09:00`、`2026-05-01T00:00Z`、ナノ秒など）。このリリースから、`createPost` / `updatePost` はすべて（管理画面、MCP、GraphQL の直接呼び出しのいずれでも）`publishedAt` を UTC の正規形（`YYYY-MM-DDTHH:mm:ss.sssZ`）で保存し、あわせて `publishedAtSortKey`（`<publishedAt>#<postId>`）を書きます。UTC で 0000〜9999 年の正しい日時でない値は `ValidationError` で拒否されます。
 
-アップグレード**前**に保存された投稿は、次に保存されるまで元の文字列のままです。そうした行は一覧に遅れて出たり順序がずれたりすることがあり、タグページ用の行も古いキーのまま残ります。また `publishedAtSortKey` を持ちません（今後のリリースで、投稿一覧をこのキーのインデックスに切り替えます）。アップグレードをデプロイした後、サイトごとに 1 回書き換えます。
+アップグレード**前**に保存された投稿は、次に保存されるまで元の文字列のままです。そうした行は一覧に遅れて出たり順序がずれたりすることがあり、タグページ用の行も古いキーのまま残ります。また `publishedAtSortKey` を持ちません（今後のリリースで、投稿一覧をこのキーのインデックスに切り替えます）。アップグレードをデプロイした後、サイトごとに `ampless-migrate-published-at` で 1 回書き換えます。
 
-1. **先にアップグレードをデプロイします。** 移行は、新しい書き込みがすでに正規化されていること（対象が増え続けないこと）と、このリリースの event dispatcher が移行の書き込みを見分けること（下記）を前提にしています。
-2. **Post テーブル名**（`Post-<apiId>-NONE`）を DynamoDB コンソールで調べるか、次を実行します。
+**ツールが保証すること・しないこと。**
+
+- 書き込みは投稿ごとに 1 回の条件付き `UpdateItem` で、`publishedAt` / `publishedAtSortKey` だけを書きます。条件は、**この 2 つ**の属性が（強い整合性の）スキャンで読んだ値のままであることです。その間にどちらかを変えた編集があれば書き込みは失敗し、conflict として報告して何もしません。ほかの属性への編集は conflict に**なりません**。移行の書き込みはそのまま成功しますが、ほかの属性は書かないので、その編集を上書きしません。`updatedAt` は変えません。
+- 書き込みは通常の保存と同じく Post のストリームを通ります。dispatcher は `publishedAt` の書き方（と `publishedAtSortKey`）だけが変わったことを見分け、`content.updated` イベントを**出しません**（webhook などのプラグインは動きません）。PostHistory の版も書きません。タグページ用（PostTag）の行は更新します。この更新は、イベントの中身ではなく、投稿の現在の状態を強い整合性で読んで作り直すので、イベントが順不同で処理されても正しく保たれます（trusted キューは SQS 標準キューです）。
+- dry-run で変更対象が 0 件でも、それだけでは移行の完了を**証明しません**。書き込みが処理中のことがあり、PostTag の更新は Post の書き込みの後に非同期で行われるからです。完了は、書き込みをすべて止めた状態で、次の手順を通して確かめます。編集中のサイトでツールを動かしてもデータは安全ですが、その報告は変わり続ける対象についてのものになります。
+
+**手順**
+
+1. **アップグレードをデプロイ**し、完了を待ちます。最初のデプロイでは Post テーブルに `byStatusSorted` インデックスも作るので、大きなテーブルでは時間がかかることがあります。
+2. **テーブル名**（`Post-<apiId>-NONE`、`PostTag-<apiId>-NONE`）を DynamoDB コンソールで調べるか、次を実行します。
 
    ```bash
-   aws dynamodb list-tables --query "TableNames[?starts_with(@, 'Post-')]"
+   aws dynamodb list-tables --query "TableNames[?starts_with(@, 'Post')]"
    ```
 
    1 つのアカウントに複数の環境がある場合は、`<apiId>` を移行するブランチの AppSync API と照合してください。
-3. **dry-run**（既定。読み取りのみ）:
+3. **書き込みをすべて止めます**: 管理画面・編集者による投稿の保存、MCP トークン、スクリプトや API クライアントを止め、デプロイもしません。手順 8 まで止めたままにします。
+4. **dry-run**（既定。強い整合性の読み取りのみ）:
 
    ```bash
-   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region>
+   pnpm exec ampless-migrate-published-at --table <PostTable> --region <region>
    ```
 
-   `publishedAt` を書き換える投稿（元の値、正規値、時刻）、`publishedAtSortKey` が無いかずれている投稿、読めない値の投稿を一覧にします。読めない値は書き換えません。管理画面で公開日時を設定し直して直してください。
-4. dry-run を確認してから **apply** します。
+   テーブルと `byStatusSorted` が `ACTIVE`（インデックスの構築が終わっている）ことを確かめ、`publishedAt` を書き換える投稿（元の値、正規値、時刻）、`publishedAtSortKey` が無いかずれている投稿、読めない値の投稿を一覧にします。読めない値は書き換えません。管理画面で公開日時を設定し直して直してください（書き込みを止めているので、手順 3 の前に行うか、別の回として扱います）。
+5. dry-run を確認してから **apply** します。インデックスが `ACTIVE` でなければ `--apply` は実行を拒否します。
 
    ```bash
-   pnpm exec ampless-migrate-published-at --table <PostTableName> --region <region> --apply
+   pnpm exec ampless-migrate-published-at --table <PostTable> --region <region> --apply
    ```
 
-   投稿ごとに 1 回の条件付き `UpdateItem` を行い、`publishedAt` / `publishedAtSortKey` だけを書きます。条件は、両方の値がスキャン時に読んだ値のままであることです。その間に編集された投稿は書き換えず、conflict として報告します。`updatedAt` などほかの属性は変えません。書き込み速度は `--max-writes-per-second`（既定 10）で制限します。サイトは止めなくて構いません。
-5. **dry-run で変更対象が 0 件になるまで再実行します。** 冪等なので、手順 4 の conflict は次の実行で処理されます。
+   書き込み速度は `--max-writes-per-second`（既定 10）で制限します。dry-run で変更対象が 0 件になるまで再実行します。
+6. **イベントの処理が終わるのを待ちます。** 次がすべて同時に成り立つ必要があります。
+   - event-dispatcher Lambda の Post ストリームの `IteratorAge` メトリクスが 0 に戻っている（CloudWatch → Lambda → dispatcher 関数）。
+   - trusted イベントキュー（`amplessEvents` スタックの `TrustedEventsQueue`）の `ApproximateNumberOfMessages`、`ApproximateNumberOfMessagesNotVisible`、`ApproximateNumberOfMessagesDelayed` がすべて 0。
 
-**書き込みで起きること。** 通常の保存と同じく Post のストリームを通ります。dispatcher は `publishedAt` の書き方（と `publishedAtSortKey`）だけが変わったことを見分け、`content.updated` イベントを**出しません**（webhook などのプラグインは動きません）。PostHistory の版も書きません。投稿のタグページ用の行は更新するので、古い文字列のキーの行は置き換わります。
+     ```bash
+     aws sqs get-queue-attributes --queue-url <trusted-queue-url> \
+       --attribute-names ApproximateNumberOfMessages \
+       ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed
+     ```
+
+   - デッドレターキュー（`EventsDlq`）に今回のメッセージが無い。あれば先に進む前に確認してください（[失敗したプラグインイベントの確認](#失敗したプラグインイベントの確認)）。`post.index.refresh` が失敗していれば、その投稿のタグ行は作り直されていません。
+7. **タグページ用のインデックスを投稿と照合します**（強い整合性の読み取り）:
+
+   ```bash
+   pnpm exec ampless-migrate-published-at --table <PostTable> \
+     --post-tag-table <PostTagTable> --region <region> --check-post-tags
+   ```
+
+   あってはならない PostTag の行（下書きや削除済みの投稿、古いキー、古いタイトル・抜粋など）と、足りない行を報告し、見つかれば 0 以外の終了コードで終わります。`--apply` を付けると修復します。対象の投稿ごとに、イベント処理と同じ方法で現在の状態から作り直します。報告が 0 件になるまで繰り返します。以前のリリースが残した古い行もこれで消えます。
+8. **書き込みを再開します。** 書き込みを止めた状態で、手順 4 の変更対象が 0 件、手順 6 の処理が終わっていて、手順 7 の不一致が 0 件であれば、移行は完了です。
 
 ### 失敗したプラグインイベントの確認
 

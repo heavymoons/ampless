@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { DescribeTableCommand, type DescribeTableCommandOutput } from '@aws-sdk/client-dynamodb'
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import {
+  checkPublishedAtPreflight,
   planPublishedAtMigration,
   runPublishedAtMigration,
   type MigrationClient,
+  type PreflightClient,
 } from './published-at.js'
 
 // --- Fake DocumentClient ----------------------------------------------------
@@ -267,6 +270,19 @@ describe('runPublishedAtMigration', () => {
     expect(p1).toContain('raw=2026-05-01T09:00:00+09:00')
     expect(p1).toContain('canonical=2026-05-01T00:00:00.000Z')
     expect(p1).toContain('rawInstant=2026-05-01T00:00:00.000Z')
+  })
+
+  it('scans with strongly consistent reads on every page', async () => {
+    const t = fakeTable(sampleRows())
+    await runPublishedAtMigration({
+      client: t.client,
+      tableName: TABLE,
+      pageSize: 2,
+      log: silent,
+      sleep: noSleep,
+    })
+    expect(t.scans).toHaveLength(3)
+    for (const scan of t.scans) expect(scan.ConsistentRead).toBe(true)
   })
 
   it('scans with the narrow projection (status via an attribute name)', async () => {
@@ -536,5 +552,77 @@ describe('runPublishedAtMigration', () => {
         log: silent,
       })
     ).rejects.toThrow(/maxWritesPerSecond/)
+  })
+})
+
+describe('checkPublishedAtPreflight', () => {
+  function describeClient(table: DescribeTableCommandOutput['Table']) {
+    const sent: DescribeTableCommand[] = []
+    const client: PreflightClient = {
+      async send(command) {
+        sent.push(command)
+        return { Table: table, $metadata: {} }
+      },
+    }
+    return { client, sent }
+  }
+  const activeIndex = { IndexName: 'byStatusSorted', IndexStatus: 'ACTIVE' as const }
+
+  it('ok when the table and byStatusSorted are ACTIVE and not backfilling', async () => {
+    const d = describeClient({
+      TableStatus: 'ACTIVE',
+      GlobalSecondaryIndexes: [{ IndexName: 'byStatus', IndexStatus: 'ACTIVE' }, activeIndex],
+    })
+    const res = await checkPublishedAtPreflight(d.client, TABLE)
+    expect(res).toEqual({
+      ok: true,
+      tableStatus: 'ACTIVE',
+      index: { name: 'byStatusSorted', status: 'ACTIVE', backfilling: false },
+      problems: [],
+    })
+    expect(d.sent[0]).toBeInstanceOf(DescribeTableCommand)
+    expect(d.sent[0]!.input).toEqual({ TableName: TABLE })
+  })
+
+  it.each([
+    [
+      'table UPDATING',
+      { TableStatus: 'UPDATING' as const, GlobalSecondaryIndexes: [activeIndex] },
+      /table .* status is UPDATING/,
+    ],
+    [
+      'index missing',
+      { TableStatus: 'ACTIVE' as const, GlobalSecondaryIndexes: [] },
+      /byStatusSorted not found/,
+    ],
+    [
+      'index CREATING',
+      {
+        TableStatus: 'ACTIVE' as const,
+        GlobalSecondaryIndexes: [{ IndexName: 'byStatusSorted', IndexStatus: 'CREATING' as const }],
+      },
+      /status is CREATING/,
+    ],
+    [
+      'index backfilling',
+      {
+        TableStatus: 'ACTIVE' as const,
+        GlobalSecondaryIndexes: [{ ...activeIndex, Backfilling: true }],
+      },
+      /still backfilling/,
+    ],
+  ])('not ok: %s', async (_label, table, problem) => {
+    const res = await checkPublishedAtPreflight(describeClient(table).client, TABLE)
+    expect(res.ok).toBe(false)
+    expect(res.problems.some((p) => problem.test(p))).toBe(true)
+  })
+
+  it('propagates a DescribeTable failure', async () => {
+    const client: PreflightClient = {
+      async send() {
+        throw new Error('AccessDenied')
+      },
+    }
+    await expect(checkPublishedAtPreflight(client, TABLE)).rejects.toThrow('AccessDenied')
   })
 })
