@@ -9,7 +9,10 @@
 //     deleted meanwhile (DynamoDB ExclusiveStartKey semantics),
 //   - sort keys compare by UTF-8 bytes; equal keys are ordered by a
 //     configurable postId tiebreak (the GSI's tie order is undocumented, so
-//     tests run under both orders).
+//     tests run under both orders), or by a per-Query tie shuffle
+//     (`tieShuffle`): the order among equal keys can differ between two
+//     Query calls, and a token resumes strictly after its position IN THE
+//     CURRENT order — tied rows that moved before it are excluded.
 // createPostsApi is wired to those resolvers through the mocked Amplify
 // client, so these tests show what the official runtime (home / tag pages)
 // actually returns.
@@ -80,15 +83,39 @@ const calls: Array<{ resolver: string; args: Record<string, unknown> }> = []
 
 /** Tie order among rows with equal sort keys; the real GSI documents none. */
 let tieOrder: 'asc' | 'desc' = 'asc'
+/**
+ * When set, ranks tied rows per Query call (lower rank first): the order
+ * among equal sort keys may change between calls. `query` counts Query
+ * calls (1-based); `id` may belong to a deleted row (a token position).
+ */
+let tieShuffle: ((id: string, query: number) => number) | null = null
+let queryNo = 0
+
+/** Deterministic pseudo-random rank for (seed, id, query). */
+function hashRank(seed: number, id: string, query: number): number {
+  let h = 2166136261 ^ seed
+  for (const ch of `${id}|${query}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+  return (h >>> 0) / 2 ** 32
+}
 
 function byteCompare(a: string, b: string): number {
   return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
 }
 
-/** Index position order: sort key descending, then the postId tiebreak. */
-function positionOrder(skA: string, idA: string, skB: string, idB: string): number {
+/** Index position order: sort key descending, then the tie order. */
+function positionOrder(
+  skA: string,
+  idA: string,
+  skB: string,
+  idB: string,
+  query: number = queryNo
+): number {
   const bySk = byteCompare(skB, skA)
   if (bySk !== 0) return bySk
+  if (tieShuffle) {
+    const d = tieShuffle(idA, query) - tieShuffle(idB, query)
+    if (d !== 0) return d
+  }
   const byId = idA < idB ? -1 : idA > idB ? 1 : 0
   return tieOrder === 'asc' ? byId : -byId
 }
@@ -109,6 +136,7 @@ function fakeQuery(
   rows: Row[],
   skAttr: string
 ): { items: Row[]; nextToken: string | null } {
+  queryNo++
   const query = req.query as { expressionValues: Record<string, string> }
   const upper = query.expressionValues[':upper']!
   const from = query.expressionValues[':from']
@@ -238,6 +266,8 @@ beforeEach(() => {
   byStatusRows = []
   postTagRows = []
   tieOrder = 'asc'
+  tieShuffle = null
+  queryNo = 0
 })
 
 describe('listPublishedPosts pagination (resolver + DynamoDB limit semantics)', () => {
@@ -284,7 +314,12 @@ describe('listPublishedPosts pagination (resolver + DynamoDB limit semantics)', 
       live.slice(5, 10).map((r) => r.id),
       live.slice(10).map((r) => r.id),
     ])
-    expect(calls).toHaveLength(3)
+    // Page 1: one call. Each resumed page: one small same-key group read
+    // (tie safety, from = to = the anchor's publishedAt) + one main read.
+    expect(calls).toHaveLength(5)
+    expect(
+      calls.filter((c) => c.args.from !== undefined && c.args.from === c.args.to)
+    ).toHaveLength(2)
   })
 
   it('a `to` bound keeps an equal instant spelled without milliseconds', async () => {
@@ -431,9 +466,15 @@ describe('first page past many future negative-offset rows (reviewer reproductio
       return res
     })
     expect(pages.flat()).toEqual(liveIds)
-    expect(calls.every((c) => c.args.limit === 7)).toBe(true)
-    expect(calls).toHaveLength(5)
-    expect(tokens.some((t) => t.startsWith('ampless-c2.'))).toBe(false)
+    // Main reads still ask for exactly 7 rows; each resumed page adds one
+    // same-key group read for the previous page's last publishedAt.
+    const groupReads = calls.filter((c) => c.args.from !== undefined && c.args.from === c.args.to)
+    const mainReads = calls.filter((c) => !groupReads.includes(c))
+    expect(mainReads.every((c) => c.args.limit === 7)).toBe(true)
+    expect(mainReads).toHaveLength(5)
+    expect(groupReads).toHaveLength(4)
+    // listPublishedPosts cursors carry the anchor (tie safety).
+    expect(tokens.every((t) => t.startsWith('ampless-c2.'))).toBe(true)
   })
 })
 
@@ -588,7 +629,7 @@ describe('1 MB Query pages with large valid posts', () => {
       .catch((e: unknown) => e)) as PostListScanLimitError
     expect(err).toBeInstanceOf(PostListScanLimitError)
     expect(err.emptyCalls).toBe(20)
-    expect(err.message).toContain('dropped every row')
+    expect(err.message).toContain('rows the resolver dropped')
     error.mockRestore()
     // 40 rows read, 20 left ahead of the live posts; resuming gets there.
     const resumed = await api().listPublishedPosts({ limit: 6, nextToken: err.nextToken })
@@ -847,5 +888,274 @@ describe('tag listing cursor stability (PostTag SK = publishedAt#postId)', () =>
     expect(got).toEqual(want)
     expect(got).toContain('ins-after')
     expect(got.filter((id) => id.startsWith('live-'))).toEqual(liveIds.slice(10))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// byStatus ties: the order among equal publishedAt values may change between
+// Query calls
+// ---------------------------------------------------------------------------
+//
+// The byStatus GSI sorts by publishedAt only and DynamoDB documents no order
+// among equal GSI sort keys. With `tieShuffle` the fake reorders tied rows
+// per Query, and a token resumes strictly after its position in the CURRENT
+// order, so tied rows that moved before it are excluded — the hazard. The
+// runtime reads a whole tie group in one same-key Query whenever the group
+// may straddle a position (every resumed cursor; observed straddles inside
+// a fill), and fails with PostListTieError when the group does not fit in
+// one Query. What it cannot see is pinned as KNOWN GAP (#406).
+
+import { PostListTieError } from './posts.js'
+
+describe('byStatus ties under a per-Query tie-order shuffle', () => {
+  const T = '2026-01-01T02:00:00.000Z'
+  const tied = (n: number, size?: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      ...post(`t${i}`, T),
+      ...(size === undefined ? {} : { __size: size }),
+    }))
+  const older = (n: number, size?: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      ...post(`o${i}`, new Date(Date.parse(T) - (i + 1) * 3_600_000).toISOString()),
+      ...(size === undefined ? {} : { __size: size }),
+    }))
+  /** Local start for dropped future -05:00 rows that sort between NOW and T. */
+  const AHEAD = '2026-01-01T02:30:00'
+  const ids = (rows: Row[]) => rows.map((r) => String(r.postId))
+  const idx = (id: string) => Number(id.slice(1))
+
+  /** Pages through the runtime, asserting no short page with a token. */
+  async function collect(limit: number, first?: string): Promise<string[]> {
+    const out: string[] = []
+    let token = first
+    do {
+      const res = await api().listPublishedPosts({ limit, nextToken: token })
+      if (res.nextToken) expect(res.items).toHaveLength(limit)
+      out.push(...res.items.map((p) => p.postId))
+      token = res.nextToken ?? undefined
+    } while (token)
+    return out
+  }
+
+  /** Every expected id exactly once; tied ids first (any order), then the rest in order. */
+  function expectComplete(got: string[], tiedIds: string[], rest: string[]) {
+    expect(new Set(got).size).toBe(got.length)
+    expect(got.slice(0, tiedIds.length).sort()).toEqual([...tiedIds].sort())
+    expect(got.slice(tiedIds.length)).toEqual(rest)
+  }
+
+  it('a dense minute (150 distinct-second posts) pages through without a group-too-large error', async () => {
+    // Bulk import: 150 posts in one minute, each with its own second/ms, so
+    // no ties at all. Every resumed page reads the anchor key's group over
+    // the whole minute (>100 rows); that read must follow its own pages
+    // instead of failing.
+    const base = Date.parse('2026-01-01T02:00:00.000Z')
+    const dense = Array.from({ length: 150 }, (_, i) =>
+      post(`d${String(i).padStart(3, '0')}`, new Date(base + 59_000 - i * 300).toISOString())
+    )
+    byStatusRows = [...dense, ...older(3)]
+    tieShuffle = (id, q) => hashRank(11, id, q)
+    const got = await collect(10)
+    expect(got).toEqual([...ids(dense), ...ids(older(3))])
+  })
+
+  it("reviewer's case: a,b,c,d returned, then the tie reorders before resume — the cursor still yields the other six", async () => {
+    byStatusRows = [...tied(10), ...older(5)]
+    // Query 1 orders t0..t9; afterwards the four returned members sort LAST
+    // among the tie, so every unseen member moved before the old position.
+    tieShuffle = (id, q) => {
+      if (!id.startsWith('t')) return 0
+      if (q === 1) return idx(id)
+      return idx(id) < 4 ? 100 + idx(id) : idx(id)
+    }
+    const first = await api().listPublishedPosts({ limit: 4 })
+    expect(first.items.map((p) => p.postId)).toEqual(['t0', 't1', 't2', 't3'])
+    expect(first.nextToken).toMatch(/^ampless-c2\./)
+
+    const rest = await collect(4, first.nextToken!)
+    expectComplete(['t0', 't1', 't2', 't3', ...rest], ids(tied(10)), ids(older(5)))
+  })
+
+  it.each(Array.from({ length: 40 }, (_, i) => i + 1))(
+    'random tie reorders between every Query (seed %i): every post exactly once, pages full',
+    async (seed) => {
+      byStatusRows = [post('n0', '2026-01-01T02:30:00.000Z'), ...tied(10), ...older(5)]
+      tieShuffle = (id, q) => hashRank(seed, id, q)
+      for (const limit of [3, 4]) {
+        calls.length = 0
+        const got = await collect(limit)
+        expect(got[0]).toBe('n0')
+        expectComplete(got.slice(1), ids(tied(10)), ids(older(5)))
+      }
+    }
+  )
+
+  it('KNOWN GAP (#406): raw-token paging (fill: false) loses tied posts when the order changes', async () => {
+    byStatusRows = [...tied(10), ...older(5)]
+    tieShuffle = (id, q) => {
+      if (!id.startsWith('t')) return 0
+      if (q === 1) return idx(id)
+      return idx(id) < 4 ? 100 + idx(id) : idx(id)
+    }
+    const first = await api().listPublishedPosts({ limit: 4, fill: false })
+    const second = await api().listPublishedPosts({
+      limit: 20,
+      fill: false,
+      nextToken: first.nextToken!,
+    })
+    const seen = [...first.items, ...second.items].map((p) => p.postId)
+    // t4..t9 moved before the raw position: AppSync/DynamoDB never return them.
+    expect(seen).toEqual(['t0', 't1', 't2', 't3', ...ids(older(5))])
+  })
+
+  it('a straddle observed inside one fill is recovered with a same-key read', async () => {
+    // Fast path (limit 6) reads 5 dropped future rows + t0, so it is short
+    // and ends on the first member seen. Query 2 moves t1 and t3 before t0's
+    // position, but t2,t4..t6 remain after it: the next read shows the tie
+    // continues, and the group read (query 3) returns every member.
+    byStatusRows = [...futureMinus5(5, 120, AHEAD), ...tied(7), ...older(5)]
+    const q2 = ['t3', 't1', 't0', 't2', 't4', 't5', 't6']
+    tieShuffle = (id, q) => (!id.startsWith('t') ? 0 : q === 2 ? q2.indexOf(id) : idx(id))
+    const got = await collect(6)
+    expectComplete(got, ids(tied(7)), ids(older(5)))
+    expect(calls.some((c) => c.args.from === T && c.args.to === T)).toBe(true)
+  })
+
+  it('KNOWN GAP (#406): inside one fill, every unseen member moving before the first-seen one is not detected', async () => {
+    byStatusRows = [...futureMinus5(5, 120, AHEAD), ...tied(7), ...older(5)]
+    // After query 1 (which ends on t0), all unseen members sort before t0.
+    tieShuffle = (id, q) =>
+      !id.startsWith('t') ? 0 : q === 1 ? idx(id) : id === 't0' ? 99 : idx(id)
+    const first = await api().listPublishedPosts({ limit: 6 })
+    // The next read starts after t0 and shows no tied row, so nothing says
+    // the group continued: t1..t6 are skipped on this page and on every
+    // later page (their key sorts above the anchor's next position).
+    expect(first.items.map((p) => p.postId)).toEqual(['t0', 'o0', 'o1', 'o2', 'o3', 'o4'])
+  })
+
+  it('two or more members seen before an internal boundary: the group is read whole, even if all unseen moved before it', async () => {
+    // Fast path reads 4 dropped rows + t0, t1 (limit 6): ends in a known tie.
+    byStatusRows = [...futureMinus5(4, 120, AHEAD), ...tied(7), ...older(5)]
+    tieShuffle = (id, q) =>
+      !id.startsWith('t')
+        ? 0
+        : q === 1
+          ? idx(id)
+          : id === 't0' || id === 't1'
+            ? 99 + idx(id)
+            : idx(id)
+    const first = await api().listPublishedPosts({ limit: 6 })
+    // Read whole right at the boundary after t0, t1 (query 2).
+    expect(calls[1]!.args).toMatchObject({ from: T, to: T })
+    const got = [...first.items.map((p) => p.postId), ...(await collect(6, first.nextToken!))]
+    expectComplete(got, ids(tied(7)), ids(older(5)))
+  })
+
+  it('large posts: a tie that fits in one Query is recovered across a 1 MB boundary', async () => {
+    // u0 (600 KB) + t0 (300 KB) fill the first 1 MB page; t1, t2 follow.
+    // The three tied 300 KB posts fit in one same-key Query.
+    byStatusRows = [
+      { ...post('u0', '2026-01-01T02:30:00.000Z'), __size: 600 * KB },
+      ...tied(3, 300 * KB),
+      ...older(3),
+    ]
+    tieShuffle = (id, q) => hashRank(7, id, q)
+    const got = await collect(5)
+    expect(got[0]).toBe('u0')
+    expectComplete(got.slice(1), ids(tied(3)), ids(older(3)))
+  })
+
+  it('large posts: a tie group bigger than one Query fails explicitly (group-too-large), also in a stable order', async () => {
+    for (const shuffle of [null, (id: string, q: number) => hashRank(3, id, q)]) {
+      calls.length = 0
+      tieShuffle = shuffle
+      // Seven tied 400 KB posts: 2.8 MB, more than one Query can return.
+      byStatusRows = [...tied(7, 400 * KB), ...older(3)]
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const err = (await api()
+        .listPublishedPosts({ limit: 6 })
+        .catch((e: unknown) => e)) as PostListTieError
+      error.mockRestore()
+      expect(err).toBeInstanceOf(PostListTieError)
+      expect(err.reason).toBe('group-too-large')
+      expect(err.sortKey).toBe(T)
+      expect(err.nextToken).toBeNull()
+      expect(err.message).toContain('#406')
+    }
+  })
+
+  it('more than 100 posts sharing one publishedAt fail explicitly on the page that resumes inside them', async () => {
+    byStatusRows = [...tied(150), ...older(2)]
+    const first = await api().listPublishedPosts({ limit: 50 })
+    expect(first.items).toHaveLength(50)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const err = await api()
+      .listPublishedPosts({ limit: 50, nextToken: first.nextToken! })
+      .catch((e: unknown) => e)
+    error.mockRestore()
+    expect(err).toBeInstanceOf(PostListTieError)
+    expect((err as PostListTieError).reason).toBe('group-too-large')
+  })
+
+  it('a page needing more than 5 group reads fails explicitly (group-read-budget) and is resumable', async () => {
+    // 450 KB rows: two per 1 MB Query, laid out so every tied pair straddles
+    // a Query boundary: [u0 a0] [a1 b0] [b1 c0] ...
+    const pair = (g: string, at: string) => [
+      { ...post(`${g}0`, at), __size: 450 * KB },
+      { ...post(`${g}1`, at), __size: 450 * KB },
+    ]
+    const groups = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+    byStatusRows = [
+      { ...post('u0', '2026-01-01T02:50:00.000Z'), __size: 450 * KB },
+      ...groups.flatMap((g, i) =>
+        pair(g, `2026-01-01T02:${String(40 - i).padStart(2, '0')}:00.000Z`)
+      ),
+      ...older(2),
+    ]
+    const expected = ['u0', ...groups.flatMap((g) => [`${g}0`, `${g}1`]), ...ids(older(2))]
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const got: string[] = []
+    let token: string | undefined
+    let budgetErrors = 0
+    for (let guard = 0; guard < 20; guard++) {
+      try {
+        const res = await api().listPublishedPosts({ limit: 20, nextToken: token })
+        got.push(...res.items.map((p) => p.postId))
+        token = res.nextToken ?? undefined
+        if (!token) break
+      } catch (e) {
+        expect(e).toBeInstanceOf(PostListTieError)
+        expect((e as PostListTieError).reason).toBe('group-read-budget')
+        budgetErrors++
+        got.push(...(e as PostListTieError).items.map((p) => p.postId))
+        token = (e as PostListTieError).nextToken!
+      }
+    }
+    error.mockRestore()
+    expect(budgetErrors).toBeGreaterThan(0)
+    // Resuming from the error loses and repeats nothing (within each tied
+    // pair the order may differ, so compare per group).
+    expect(got).toHaveLength(expected.length)
+    expect(new Set(got)).toEqual(new Set(expected))
+  })
+
+  it('tag listing is unaffected: PostTag sort keys are unique (publishedAt#postId)', async () => {
+    postTagRows = Array.from({ length: 12 }, (_, i) => tagRow(`t${i}`, T))
+    tieShuffle = (id, q) => hashRank(11, id, q)
+    const got: string[] = []
+    let token: string | undefined
+    do {
+      const res = await api().listPostsByTag('news', { limit: 5, nextToken: token })
+      got.push(...res.items.map((p) => p.postId))
+      token = res.nextToken ?? undefined
+    } while (token)
+    // Unique keys: the shuffle never applies; order is the key order.
+    expect(got).toEqual(
+      [...Array(12).keys()]
+        .map((i) => `t${i}`)
+        .sort()
+        .reverse()
+    )
+    expect(calls.every((c) => c.args.from === undefined)).toBe(true)
   })
 })

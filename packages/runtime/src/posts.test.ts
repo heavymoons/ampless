@@ -34,7 +34,7 @@ vi.mock('@aws-amplify/adapter-nextjs/api', () => ({
   }),
 }))
 
-import { createPostsApi, PostListScanLimitError } from './posts.js'
+import { createPostsApi, PostListScanLimitError, PostListTieError } from './posts.js'
 import type { AmplessOutputs } from './outputs.js'
 
 const FAKE_OUTPUTS = {} as unknown as AmplessOutputs
@@ -143,6 +143,16 @@ describe('createPostsApi — stateless apiKey reads', () => {
   })
 
   describe('page filling (resolvers may return short pages with a nextToken)', () => {
+    // Distinct publishedAt per id, descending in listing order (a > b > c,
+    // p1 > p2 > …), so these tests exercise untied keys; tie behaviour of
+    // listPublishedPosts is covered in posts.pagination.test.ts.
+    function atFor(id: string): string {
+      const m = /^p(\d+)$/.exec(id)
+      const rank = m ? Number(m[1]) : id.charCodeAt(0)
+      return new Date(Date.UTC(2026, 0, 1) - rank * 60_000).toISOString()
+    }
+    const decode = (token: string) =>
+      JSON.parse(Buffer.from(token.slice('ampless-c2.'.length), 'base64url').toString('utf8'))
     function row(id: string) {
       return {
         postId: id,
@@ -150,7 +160,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
         title: id,
         format: 'markdown',
         status: 'published',
-        publishedAt: '2026-01-01T00:00:00.000Z',
+        publishedAt: atFor(id),
         tags: [],
       }
     }
@@ -167,7 +177,9 @@ describe('createPostsApi — stateless apiKey reads', () => {
       const res = await api.listPublishedPosts({ limit: 3, from: 'F', to: 'T' })
 
       expect(res.items.map((p) => p.postId)).toEqual(['a', 'b', 'c'])
-      expect(res.nextToken).toBe('t2')
+      // listPublishedPosts cursors always carry the anchor (tie safety):
+      // resume right after t2, re-checking c's publishedAt group first.
+      expect(decode(res.nextToken!)).toEqual({ t: 't2', k: atFor('c'), ids: ['c'], c: 3 })
       expect(mockListPublishedPosts).toHaveBeenCalledTimes(2)
       expect(mockListPublishedPosts).toHaveBeenNthCalledWith(1, FAKE_CTX, {
         from: 'F',
@@ -210,7 +222,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       const res = await api.listPublishedPosts({ limit: 2 })
 
       expect(res.items).toHaveLength(2)
-      expect(res.nextToken).toBe('t1')
+      expect(decode(res.nextToken!)).toEqual({ t: 't1', k: atFor('b'), ids: ['b'], c: 2 })
       expect(mockListPublishedPosts).toHaveBeenCalledTimes(1)
     })
 
@@ -227,14 +239,24 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(first.items.map((p) => p.postId)).toEqual(['a', 'b'])
       expect(first.nextToken).toMatch(/^ampless-c2\./)
 
-      // The cursor re-reads the same chunk (start token t1, size 100) and
-      // skips the two posts already returned (all three share one sort key,
-      // so this goes through the tie id set).
-      mockListPublishedPosts.mockResolvedValueOnce({
-        data: { items: [row('a'), row('b'), row('c')], nextToken: null },
-        errors: null,
-      })
+      expect(decode(first.nextToken!)).toEqual({ t: 't1', k: atFor('b'), ids: ['b'], c: 100 })
+
+      // Resume: first a same-key read of b's publishedAt group (from = to =
+      // that value), then the chunk is re-read from t1 and everything at or
+      // before the anchor is skipped.
+      mockListPublishedPosts
+        .mockResolvedValueOnce({ data: { items: [row('b')], nextToken: null }, errors: null })
+        .mockResolvedValueOnce({
+          data: { items: [row('a'), row('b'), row('c')], nextToken: null },
+          errors: null,
+        })
       const second = await api.listPublishedPosts({ limit: 2, nextToken: first.nextToken! })
+      expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
+        from: atFor('b'),
+        to: atFor('b'),
+        limit: 100,
+        nextToken: undefined,
+      })
       expect(mockListPublishedPosts).toHaveBeenLastCalledWith(FAKE_CTX, {
         from: undefined,
         to: undefined,
@@ -295,10 +317,10 @@ describe('createPostsApi — stateless apiKey reads', () => {
       const first = await api.listPublishedPosts({ limit: 2 })
       expect(first.items.map((p) => p.postId)).toEqual(['x', 'emoji'])
 
-      mockListPublishedPosts.mockResolvedValueOnce({
-        data: { items: chunk, nextToken: null },
-        errors: null,
-      })
+      mockListPublishedPosts
+        // the same-key group read for the anchor (emoji)
+        .mockResolvedValueOnce({ data: { items: [chunk[1]], nextToken: null }, errors: null })
+        .mockResolvedValueOnce({ data: { items: chunk, nextToken: null }, errors: null })
       const second = await api.listPublishedPosts({ limit: 2, nextToken: first.nextToken! })
       // A UTF-16 comparison would treat ff61 as "before" the anchor and drop it.
       expect(second.items.map((p) => p.postId)).toEqual(['ff61'])
@@ -368,10 +390,10 @@ describe('createPostsApi — stateless apiKey reads', () => {
 
       // Resuming from the error continues right after the 21st call.
       mockListPublishedPosts.mockReset()
-      mockListPublishedPosts.mockResolvedValueOnce({
-        data: { items: [row('y')], nextToken: null },
-        errors: null,
-      })
+      mockListPublishedPosts
+        // the same-key group read for the anchor (x)
+        .mockResolvedValueOnce({ data: { items: [row('x')], nextToken: null }, errors: null })
+        .mockResolvedValueOnce({ data: { items: [row('y')], nextToken: null }, errors: null })
       const resumed = await api.listPublishedPosts({ limit: 5, nextToken: e.nextToken })
       expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
         from: undefined,
@@ -396,7 +418,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
 
       expect(res.items).toHaveLength(30)
       expect(mockListPublishedPosts).toHaveBeenCalledTimes(30)
-      expect(res.nextToken).toBe('t30')
+      expect(decode(res.nextToken!)).toMatchObject({ t: 't30', k: atFor('p30'), ids: ['p30'] })
       expect(error).not.toHaveBeenCalled()
       error.mockRestore()
     })
@@ -420,6 +442,24 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(res.items).toHaveLength(20)
       expect(error).not.toHaveBeenCalled()
       error.mockRestore()
+    })
+
+    it('fails with PostListTieError instead of emitting a cursor with more than 200 tied ids', async () => {
+      const at = '2026-01-01T00:00:00.000Z'
+      mockListPublishedPosts.mockResolvedValueOnce({
+        data: {
+          items: Array.from({ length: 201 }, (_, i) => ({ ...row(`q${i}`), publishedAt: at })),
+          nextToken: 't1',
+        },
+        errors: null,
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const err = await api.listPublishedPosts({ limit: 201 }).catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(PostListTieError)
+      expect((err as PostListTieError).reason).toBe('too-many-tied-posts')
+      expect((err as PostListTieError).nextToken).toBeNull()
     })
 
     it('fill: false makes exactly one resolver call and returns its raw token', async () => {

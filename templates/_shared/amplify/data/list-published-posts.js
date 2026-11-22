@@ -65,6 +65,14 @@ import { util, runtime } from '@aws-appsync/utils'
 // resolver call per page (`fill: false`).
 // Only non-canonical rows and rows within a minute outside [from, to] are
 // ever dropped; canonical data is otherwise returned in full.
+//
+// Ties: the byStatus SK is `publishedAt` alone, and DynamoDB documents no
+// order among equal GSI sort keys, so a `nextToken` inside a group of posts
+// sharing one publishedAt string can skip members if that order changes
+// between calls (raw-token paging inherits this). The runtime reads such a
+// group whole with `from = to = <that publishedAt>` — the lossless bounds
+// above keep every row of that instant — and fails explicitly when it does
+// not fit in one Query. A unique composite sort key is tracked in #406.
 
 const CANONICAL_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
 const MINUTE_FORMAT = "yyyy-MM-dd'T'HH:mm"

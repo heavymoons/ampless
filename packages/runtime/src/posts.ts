@@ -160,6 +160,17 @@ const FILL_CHUNK = 100
  */
 const MAX_EMPTY_FILL_CALLS = 20
 
+/**
+ * Most same-key group reads per page for listPublishedPosts (see
+ * `fillPublishedPage`): one when resuming an anchored cursor, plus one per
+ * tie group observed across an internal read boundary. Exceeding it fails
+ * explicitly with PostListTieError rather than reading on.
+ */
+const MAX_GROUP_READS = 5
+
+/** Query pages one same-key group read may follow (see `readGroup`). */
+const MAX_GROUP_READ_PAGES = 5
+
 const CURSOR_PREFIX = 'ampless-c2.'
 
 /** Decode-side caps: cursors come back from public callers. */
@@ -277,7 +288,7 @@ export class PostListScanLimitError extends Error {
   ) {
     super(
       `${operation}: page has ${items.length}/${limit} posts after ${calls} resolver calls, ${emptyCalls} of which returned no visible post, and the listing continues. ` +
-        'The resolver dropped every row those calls read — e.g. a publishedAt after now that sorts before it as a string (a non-canonical offset value, see #406), an unparseable publishedAt, or rows just outside from/to. ' +
+        'Those calls returned only rows the resolver dropped — e.g. a publishedAt after now that sorts before it as a string (a non-canonical offset value, see #406), an unparseable publishedAt, or rows just outside from/to — or rows already returned on an earlier page. ' +
         'Resume with this error\'s nextToken.'
     )
     this.name = 'PostListScanLimitError'
@@ -286,6 +297,66 @@ export class PostListScanLimitError extends Error {
     this.nextToken = nextToken
     this.calls = calls
     this.emptyCalls = emptyCalls
+  }
+}
+
+/**
+ * Thrown by listPublishedPosts (fill mode) when posts sharing one exact
+ * `publishedAt` string cannot be paged without risking a silent skip.
+ *
+ * The `byStatus` GSI sorts by `publishedAt` only, and DynamoDB documents no
+ * order among items with equal GSI sort keys — that order may differ between
+ * two Query calls. A position (AppSync token) inside such a tie group can
+ * therefore exclude members that moved before it. The runtime protects
+ * against that by reading the whole group in ONE Query (a same-key range
+ * read, following that read's own pages, up to MAX_GROUP_READ_PAGES); when
+ * the tie group itself straddles one of those pages, there is no safe way to
+ * page it with this index, and the page fails instead of being returned
+ * incomplete. The real fix is a unique composite sort key (#406).
+ *
+ * - `group-too-large`: the tie group itself straddles a page of the same-key
+ *   read (more than 100 tied posts, or tied posts totalling > 1 MB — e.g.
+ *   three of ~400 KB), or that read needed more than MAX_GROUP_READ_PAGES
+ *   pages (a very dense minute). Other posts of the same minute alone do not
+ *   trigger it. Resuming hits the same group, so `nextToken` is null.
+ * - `group-read-budget`: more than MAX_GROUP_READS same-key reads were
+ *   needed for one page. `nextToken` resumes (with a fresh budget).
+ * - `too-many-tied-posts`: more tied ids were returned than a cursor can
+ *   carry (200). `nextToken` is null.
+ */
+export class PostListTieError extends Error {
+  readonly operation = 'listPublishedPosts' as const
+  readonly reason: 'group-too-large' | 'group-read-budget' | 'too-many-tied-posts'
+  /** The tied `publishedAt` string. */
+  readonly sortKey: string
+  readonly items: Post[]
+  readonly nextToken: string | null
+  readonly calls: number
+
+  constructor(
+    reason: PostListTieError['reason'],
+    sortKey: string,
+    items: Post[],
+    nextToken: string | null,
+    calls: number
+  ) {
+    const why =
+      reason === 'group-too-large'
+        ? 'reading every post with that publishedAt did not fit in one DynamoDB Query'
+        : reason === 'group-read-budget'
+          ? `more than ${MAX_GROUP_READS} same-publishedAt group reads were needed for one page`
+          : `more than ${MAX_CURSOR_TIE_IDS} posts with that publishedAt were returned`
+    super(
+      `listPublishedPosts: posts share the publishedAt ${JSON.stringify(sortKey)} and ${why}. ` +
+        'The byStatus index orders equal publishedAt values in no documented way, so paging through them could silently skip posts; failing instead. ' +
+        'A unique composite sort key is tracked in #406.'
+    )
+    this.name = 'PostListTieError'
+    this.reason = reason
+    this.sortKey = sortKey
+    this.items = items
+    this.nextToken = nextToken
+    this.calls = calls
   }
 }
 
@@ -304,7 +375,9 @@ export class PostListScanLimitError extends Error {
  *
  * Cost: the first call asks for exactly `limit` with the caller's token.
  * For canonical data it fills the page (or ends the listing), so this is one
- * call and the returned `nextToken` is the raw AppSync token, as before.
+ * call; for listPostsByTag the returned `nextToken` is then the raw AppSync
+ * token, as before (listPublishedPosts always returns an anchored cursor and
+ * adds one small group read per resumed page, see `fillPublishedPage`).
  *
  * Chunk mode: once a response is short while the listing continues, later
  * calls read FILL_CHUNK rows at a time. When a chunk holds more visible
@@ -316,13 +389,19 @@ export class PostListScanLimitError extends Error {
  * halves are positions, not counts: an AppSync token wraps a DynamoDB
  * ExclusiveStartKey, which stays valid when that row is deleted, and the
  * anchor is a sort-key value. So posts deleted, unpublished, inserted or
- * becoming live between two page requests never shift the position — no
- * post after the cursor is skipped or repeated. As with any keyset cursor,
- * a post inserted (or becoming live) at a position BEFORE the cursor is
- * not shown on later pages. Equal sort keys (the GSI orders ties in no
- * documented way) are handled by the tie id set, not by their order. Any
- * token without the prefix is treated as a raw AppSync token, so tokens
- * from older runtimes keep working.
+ * becoming live between two page requests do not shift the position. As
+ * with any keyset cursor, a post inserted (or becoming live) at a position
+ * BEFORE the cursor is not shown on later pages. Any token without the
+ * prefix is treated as a raw AppSync token, so tokens from older runtimes
+ * keep working.
+ *
+ * That keyset argument needs a total order. listPostsByTag has one: the
+ * PostTag sort key (`publishedAt#postId`) is the table's unique primary
+ * key, so its order is DynamoDB primary-key order and this function is used
+ * as is. listPublishedPosts does not — the `byStatus` GSI sorts by
+ * `publishedAt` alone and DynamoDB documents no order among equal GSI sort
+ * keys — so it goes through `fillPublishedPage`, which handles tie groups
+ * separately.
  *
  * The sort key is rebuilt from the returned item (`publishedAt`, plus
  * `#postId` for PostTag), which the resolvers return exactly as stored. An
@@ -332,7 +411,8 @@ export class PostListScanLimitError extends Error {
  *
  * Bound: only EMPTY calls (no new visible post) are budgeted, at
  * MAX_EMPTY_FILL_CALLS per page. Every other call adds at least one post, so
- * a page makes at most `limit + MAX_EMPTY_FILL_CALLS` resolver calls, each
+ * a page makes at most `limit + MAX_EMPTY_FILL_CALLS` resolver calls (plus
+ * up to MAX_GROUP_READS same-key reads for listPublishedPosts), each
  * reading at most FILL_CHUNK rows and at most 1 MB. Callers cap `limit`
  * (templates use ≤ 50, the public MCP tool clamps to 50, llms.txt pages
  * with its own `pageSizeCap`), which keeps one page's work bounded.
@@ -355,15 +435,28 @@ export class PostListScanLimitError extends Error {
  * MCP tools via `collectBounded`) just receive fuller pages and keep
  * following `nextToken` as before.
  */
+interface FetchArgs {
+  limit: number
+  nextToken: string | undefined
+  /**
+   * listPublishedPosts only: read just the posts whose `publishedAt` equals
+   * this stored string (passed as both `from` and `to`). The resolver's
+   * bounds include every spelling of that instant (#404), and its response
+   * keeps only rows at exactly that instant.
+   */
+  sameKey?: string
+}
+
+function visiblePosts(data: PublicPostConnectionShape | null): Post[] {
+  return (data?.items ?? []).filter((p): p is PublicPostShape => p !== null).map(toCorePost)
+}
+
 async function fillPage(
   operation: ListOperation,
   limit: number,
   nextToken: string | undefined,
   fill: boolean,
-  fetchPage: (args: {
-    limit: number
-    nextToken: string | undefined
-  }) => Promise<PublicPostConnectionShape | null>
+  fetchPage: (args: FetchArgs) => Promise<PublicPostConnectionShape | null>
 ): Promise<ListPostsResult> {
   if (!fill) {
     // One resolver call, raw token: the caller pages and bounds itself.
@@ -374,6 +467,7 @@ async function fillPage(
       nextToken: data?.nextToken ?? null,
     }
   }
+  if (operation === 'listPublishedPosts') return fillPublishedPage(limit, nextToken, fetchPage)
   const items: Post[] = []
   let calls = 0
   let emptyCalls = 0
@@ -469,6 +563,231 @@ async function fillPage(
 }
 
 /**
+ * `fillPage` for listPublishedPosts, where equal sort keys (posts sharing one
+ * exact `publishedAt` string) have no documented order in the `byStatus` GSI
+ * and that order may differ between two Query calls.
+ *
+ * Hazard: a position inside a tie group — an AppSync token whose row is a
+ * tie member, or a cursor anchored on one — resumes "strictly after that row
+ * in the CURRENT order". If the order changed, unseen members that moved
+ * before the position are excluded by DynamoDB before any de-duplication
+ * could see them.
+ *
+ * Strategy: when a tie group may straddle a position, read the WHOLE group in
+ * one Query — a same-key range read (`from = to = publishedAt`, see
+ * FetchArgs.sameKey) — and take its unreturned members; position-based reads
+ * then skip that key entirely. Within one Query the order is consistent, so
+ * that read cannot miss a member. A same-key read happens:
+ * - when resuming any cursor this function emitted (its anchor group may
+ *   continue past it). Cursors always carry the anchor, so every boundary
+ *   between two pages is protected whatever the tie order does. Cost: one
+ *   extra, small resolver call per resumed page.
+ * - inside one fill, at an internal read boundary that ends on a member of
+ *   the anchor group, when either two or more members were already seen (a
+ *   known tie) or the next read contains another member (observed straddle).
+ *
+ * If the group itself straddles a page of that read (or the read needs more
+ * than MAX_GROUP_READ_PAGES pages), or a page would need more than
+ * MAX_GROUP_READS such reads, this throws PostListTieError instead of
+ * returning a page that might be incomplete.
+ *
+ * Remaining gaps, not detected (pinned as KNOWN GAP (#406) tests):
+ * - inside one fill, a read ending on the FIRST member seen of a group, where
+ *   every unseen member moved before that boundary by the next call: the
+ *   next read shows no member, so nothing indicates the group continued.
+ * - raw-token paging (`fill: false`, direct AppSync callers) has no anchor at
+ *   all; it behaves as on main.
+ * - a raw incoming token positioned inside a tie inherits that raw behaviour
+ *   for the first read.
+ * A unique composite sort key for this index (#406) removes all of these.
+ */
+async function fillPublishedPage(
+  limit: number,
+  nextToken: string | undefined,
+  fetchPage: (args: FetchArgs) => Promise<PublicPostConnectionShape | null>
+): Promise<ListPostsResult> {
+  const operation = 'listPublishedPosts'
+  const items: Post[] = []
+  let calls = 0
+  let emptyCalls = 0
+  let groupReads = 0
+  let anchor: Anchor | undefined
+  /** Anchor key whose whole group was read (and fully taken) in this fill. */
+  let collected: string | undefined
+  const chunkSize = FILL_CHUNK
+  const keyOf = (p: Post) => sortKeyOf(operation, p)
+
+  /**
+   * `c` = rows for the first resumed read: a chunk when re-reading from a
+   * read's start, just the page size when resuming right after a read.
+   */
+  const cursorAt = (t: string | null, c: number = chunkSize): string => {
+    try {
+      return encodeCursor(t, anchor, c)
+    } catch {
+      throw new PostListTieError('too-many-tied-posts', anchor!.k, items, null, calls)
+    }
+  }
+
+  /** Not returned yet: after the anchor, or an untaken member of its group. */
+  const isNew = (post: Post): boolean => {
+    if (!anchor) return true
+    const key = keyOf(post)
+    if (key === undefined) return true
+    const cmp = compareKeys(key, anchor.k)
+    if (cmp > 0) return false
+    if (cmp === 0) return collected !== anchor.k && !anchor.ids.includes(post.postId)
+    return true
+  }
+
+  const take = (post: Post): void => {
+    const key = keyOf(post)
+    if (key !== undefined) {
+      anchor =
+        anchor && anchor.k === key
+          ? {
+              k: key,
+              ids: anchor.ids.includes(post.postId) ? anchor.ids : [...anchor.ids, post.postId],
+            }
+          : { k: key, ids: [post.postId] }
+    }
+    items.push(post)
+  }
+
+  /**
+   * Read every post sharing the anchor key in one Query and take the
+   * unreturned ones (up to the page). Returns true when the page is full.
+   */
+  const readGroup = async (position: string | null): Promise<boolean> => {
+    const k = anchor!.k
+    if (groupReads >= MAX_GROUP_READS) {
+      const err = new PostListTieError('group-read-budget', k, items, cursorAt(position), calls)
+      console.error(`[ampless] ${err.message}`, { calls, groupReads })
+      throw err
+    }
+    groupReads++
+    // The same-key read covers the key's whole minute (the resolver widens
+    // `from`/`to` to the minute), so other posts of that minute may push it
+    // past one Query. Follow its own nextToken; this is only unsafe when the
+    // tie group itself straddles one of these boundaries (same hazard as
+    // above, and nothing left to fall back on) — then fail explicitly.
+    const groupRows: Post[] = []
+    let groupToken: string | undefined
+    let groupEndedInKey = false
+    for (let page = 0; ; page++) {
+      const tooLarge = () => {
+        const err = new PostListTieError('group-too-large', k, items, null, calls)
+        console.error(`[ampless] ${err.message}`, { calls, groupReads, page })
+        return err
+      }
+      if (page >= MAX_GROUP_READ_PAGES) throw tooLarge()
+      const data = await fetchPage({ limit: FILL_CHUNK, nextToken: groupToken, sameKey: k })
+      calls++
+      const rows = visiblePosts(data)
+      if (groupEndedInKey && rows.some((p) => keyOf(p) === k)) throw tooLarge()
+      groupRows.push(...rows)
+      groupToken = data?.nextToken ?? undefined
+      if (!groupToken) break
+      const last = rows[rows.length - 1]
+      groupEndedInKey = last !== undefined && keyOf(last) === k
+    }
+    const members = groupRows.filter((p) => keyOf(p) === k && !anchor!.ids.includes(p.postId))
+    for (const p of members) {
+      if (items.length >= limit) return true
+      take(p)
+    }
+    collected = k
+    return items.length >= limit
+  }
+
+  const resumed = nextToken ? decodeCursor(nextToken) : undefined
+  let readStart: string | null
+  let readLimit: number
+  if (resumed) {
+    readStart = resumed.t
+    readLimit = resumed.c
+    anchor = resumed.k === null ? undefined : { k: resumed.k, ids: resumed.ids }
+    // The anchor group may continue past the cursor in another order.
+    if (anchor && (await readGroup(readStart))) {
+      return { items, nextToken: cursorAt(readStart) }
+    }
+  } else {
+    // Fast path: exactly `limit`, the caller's (raw) token.
+    readStart = nextToken ?? null
+    readLimit = limit
+  }
+
+  /** The previous read in this fill ended on a member of the anchor group. */
+  let endedInGroup = false
+  for (;;) {
+    if (emptyCalls >= MAX_EMPTY_FILL_CALLS) {
+      const err = new PostListScanLimitError(
+        operation,
+        items,
+        cursorAt(readStart),
+        calls,
+        emptyCalls,
+        limit
+      )
+      console.error(`[ampless] ${err.message}`, {
+        operation,
+        limit,
+        calls,
+        emptyCalls,
+        collected: items.length,
+      })
+      throw err
+    }
+    const before = items.length
+    const data = await fetchPage({ limit: readLimit, nextToken: readStart ?? undefined })
+    calls++
+    const rows = visiblePosts(data)
+    const token = data?.nextToken ?? null
+
+    // Observed straddle: the group continues after an internal boundary,
+    // so members may also have moved before it. Read the whole group.
+    if (endedInGroup && anchor && rows.some((p) => keyOf(p) === anchor!.k)) {
+      if (await readGroup(readStart)) return { items, nextToken: cursorAt(readStart) }
+    }
+
+    const candidates = rows.filter(isNew)
+    const needed = limit - items.length
+    if (candidates.length > needed) {
+      const taken = candidates.slice(0, needed)
+      if (taken.some((p) => keyOf(p) === undefined)) {
+        console.error(
+          `[ampless] ${operation}: a returned post has no publishedAt, so the page cannot be anchored mid-chunk; returning the whole chunk (${items.length + candidates.length} posts) with its end token`
+        )
+        items.push(...candidates)
+        return { items, nextToken: token }
+      }
+      for (const p of taken) take(p)
+      return { items, nextToken: cursorAt(readStart) }
+    }
+    for (const p of candidates) take(p)
+    if (items.length === before) emptyCalls++
+    if (!token) return { items, nextToken: null }
+    if (items.length >= limit) {
+      return { items, nextToken: cursorAt(token, Math.min(limit, FILL_CHUNK)) }
+    }
+
+    // Internal boundary at `token`.
+    const last = rows[rows.length - 1]
+    endedInGroup =
+      anchor !== undefined && last !== undefined && keyOf(last) === anchor.k && collected !== anchor.k
+    if (endedInGroup && anchor!.ids.length >= 2) {
+      // A known tie group straddles this boundary: read it whole now.
+      if (await readGroup(token)) {
+        return { items, nextToken: cursorAt(token, Math.min(limit, FILL_CHUNK)) }
+      }
+      endedInGroup = false
+    }
+    readStart = token
+    readLimit = chunkSize
+  }
+}
+
+/**
  * Build the post-fetching API from a user-provided amplify_outputs
  * blob. Uses a stateless Amplify server client: `generateServerClientUsingReqRes`
  * run with `nextServerContext: null` — Amplify's `sharedInMemoryStorage`
@@ -509,8 +828,8 @@ export function createPostsApi(outputs: AmplessOutputs): PostsApi {
           nextServerContext: null,
           operation: (contextSpec) =>
             client.queries.listPublishedPosts(contextSpec, {
-              from: opts.from,
-              to: opts.to,
+              from: args.sameKey ?? opts.from,
+              to: args.sameKey ?? opts.to,
               limit: args.limit,
               nextToken: args.nextToken,
             }),

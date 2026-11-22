@@ -77,7 +77,7 @@ export type {
   PublicPostShape,
   PublicPostConnectionShape,
 } from './posts.js'
-export { PostListScanLimitError } from './posts.js'
+export { PostListScanLimitError, PostListTieError } from './posts.js'
 export type {
   MediaApi,
   ResolvedMedia,
