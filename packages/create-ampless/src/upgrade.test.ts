@@ -6,21 +6,99 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { log } from '@clack/prompts'
-import { runUpgradeIn } from './upgrade.js'
+import semver from 'semver'
+import { runUpgradeIn, checkProjectOnlyPeers } from './upgrade.js'
+import type { PublishedVersion } from './upgrade.js'
+import { execa } from 'execa'
 
-// Mock execa so tests can intercept `npm view` calls (bumpUserAmplessPlugins)
-// without hitting the network. The mock is configured per-test via mockImplementation.
-// Existing tests that pass `noInstall: true` are unaffected: none of their project
-// deps are user-installed @ampless/* packages (the only @ampless/* entry is
-// @ampless/admin which is in the template deps and therefore skipped by
-// bumpUserAmplessPlugins).
-vi.mock('execa', () => ({
-  execa: vi.fn(async (cmd: string, args: string[]) => {
-    // Default: simulate `npm install` success (no stdout needed)
-    if (cmd === 'npm' || cmd === 'pnpm') return { stdout: '', stderr: '' }
-    throw new Error(`Unexpected execa call: ${cmd} ${args.join(' ')}`)
-  }),
-}))
+// Mock execa so tests can intercept `npm view` / `npm install` calls without
+// hitting the network. The default implementation (`fakeExeca`, installed in
+// the top-level beforeEach) answers from the fake registry / rehearsal state
+// below; individual tests may still override it with mockImplementation.
+// Existing tests that pass `noInstall: true` are unaffected: none of their
+// project deps are user-installed @ampless/* packages or project-only
+// @tiptap/* packages, so no registry call is made for them.
+vi.mock('execa', () => ({ execa: vi.fn() }))
+
+/** name → published releases, answered for `npm view name@range ... --json`. */
+let fakeRegistry: Record<string, PublishedVersion[]> = {}
+/** Package names whose `npm view` fails as if the registry were unreachable. */
+let failingViews = new Set<string>()
+/** stderr of a failing `npm install --package-lock-only`, or null for success. */
+let rehearsalFailure: string | null = null
+/** Whether the real `npm|pnpm install` fails. */
+let installFails = false
+interface RehearsalCall { cwd: string; packageJson: string; hadLock: boolean; hadNpmrc: boolean }
+let rehearsals: RehearsalCall[] = []
+
+function matching(name: string, range: string): PublishedVersion[] {
+  return (fakeRegistry[name] ?? []).filter((v) => semver.satisfies(v.version, range))
+}
+
+function npmViewStdout(list: PublishedVersion[]): string {
+  // npm prints a bare version string when no other requested field is present,
+  // an object for one match and an array for several.
+  const shaped = list.map((v) =>
+    v.peerDependencies || v.peerDependenciesMeta ? v : v.version,
+  )
+  return JSON.stringify(shaped.length === 1 ? shaped[0] : shaped, null, 2)
+}
+
+function commandError(message: string, extra: { stdout?: string; stderr?: string }): Error {
+  return Object.assign(new Error(message), { stdout: '', stderr: '', ...extra })
+}
+
+async function fakeExeca(cmd: string, args: string[], opts: { cwd?: string } = {}): Promise<unknown> {
+  if (cmd === 'npm' && args[0] === 'view' && args.includes('--json')) {
+    const spec = args[1]!
+    const at = spec.lastIndexOf('@')
+    const name = spec.slice(0, at)
+    const range = spec.slice(at + 1)
+    if (failingViews.has(name)) {
+      throw commandError(`Command failed with exit code 1: npm view ${spec}`, {
+        stderr: 'npm error code ENOTFOUND\nnpm error network request failed',
+      })
+    }
+    const list = matching(name, range)
+    if (list.length === 0) {
+      throw commandError(`Command failed with exit code 1: npm view ${spec}`, {
+        stdout: JSON.stringify({ error: { code: 'E404', summary: `No match found for version ${range}` } }),
+        stderr: 'npm error code E404',
+      })
+    }
+    return { stdout: npmViewStdout(list), stderr: '' }
+  }
+  if (cmd === 'npm' && args[0] === 'install' && args.includes('--package-lock-only')) {
+    const cwd = opts.cwd!
+    rehearsals.push({
+      cwd,
+      packageJson: readFileSync(join(cwd, 'package.json'), 'utf-8'),
+      hadLock: existsSync(join(cwd, 'package-lock.json')),
+      hadNpmrc: existsSync(join(cwd, '.npmrc')),
+    })
+    if (rehearsalFailure !== null) {
+      throw commandError(`Command failed with exit code 1: npm ${args.join(' ')}`, { stderr: rehearsalFailure })
+    }
+    return { stdout: '', stderr: '' }
+  }
+  if ((cmd === 'npm' || cmd === 'pnpm') && args[0] === 'install') {
+    if (installFails) throw new Error(`Command failed with exit code 1: ${cmd} install`)
+    return { stdout: '', stderr: '' }
+  }
+  // `npm view <pkg>@beta version` (bumpUserAmplessPlugins): nothing published.
+  if (cmd === 'npm' && args[0] === 'view') return { stdout: '', stderr: '' }
+  throw new Error(`Unexpected execa call: ${cmd} ${args.join(' ')}`)
+}
+
+beforeEach(() => {
+  fakeRegistry = {}
+  failingViews = new Set()
+  rehearsalFailure = null
+  installFails = false
+  rehearsals = []
+  vi.mocked(execa).mockReset()
+  vi.mocked(execa).mockImplementation(fakeExeca as any)
+})
 
 // Minimal valid ampless project package.json for test sites
 function makeProjectPkg(extra: Record<string, unknown> = {}): string {
@@ -506,12 +584,12 @@ describe('runUpgradeIn', () => {
     // not project → "must be in template".
     const projectPkgPath = join(projectDir, 'package.json')
     const pkg = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
-    pkg.dependencies['@tiptap/extension-foo'] = '^2.0.0'
+    pkg.dependencies['@tiptap/extension-foo'] = '^3.0.0'
     writeFileSync(projectPkgPath, JSON.stringify(pkg, null, 2))
 
     await runUpgradeIn(projectDir, templateDir, { noInstall: true })
     const merged = JSON.parse(readFileSync(projectPkgPath, 'utf-8'))
-    expect(merged.dependencies['@tiptap/extension-foo']).toBe('^2.0.0')  // unchanged
+    expect(merged.dependencies['@tiptap/extension-foo']).toBe('^3.0.0')  // unchanged
   })
 
   // 7d. exact-name managed Amplify deps: synced from template to project.
@@ -1455,5 +1533,466 @@ describe('runUpgradeIn — ESLint setup is left to the site', () => {
 
     expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(afterFirst)
     expect(existsSync(join(projectDir, 'eslint.config.mjs'))).toBe(false)
+  })
+})
+
+// Published metadata modelled on the real registry: Tiptap extensions peer on
+// the exact same @tiptap/core version, while @tiptap/y-tiptap has its own
+// version line and (since 2.0.0) no @tiptap/* peer at all.
+function exactCorePeer(version: string): PublishedVersion {
+  return { version, peerDependencies: { '@tiptap/core': version } }
+}
+
+const HIGHLIGHT_RELEASES: PublishedVersion[] = [
+  '3.20.0', '3.22.3', '3.23.6', '3.32.0', '3.34.0', '3.35.0',
+].map(exactCorePeer)
+
+const Y_TIPTAP_RELEASES: PublishedVersion[] = [
+  {
+    version: '1.0.0',
+    peerDependencies: { yjs: '^13.5.38', '@tiptap/pm': '^2.11.3', 'y-protocols': '^1.0.1' },
+  },
+  {
+    version: '3.3.1',
+    peerDependencies: {
+      yjs: '^13.6.13',
+      'y-protocols': '^1.0.1',
+      'prosemirror-view': '^1.9.10',
+      'prosemirror-model': '^1.7.1',
+      'prosemirror-state': '^1.2.3',
+    },
+  },
+]
+
+describe('runUpgradeIn — project-only @tiptap/* peers', () => {
+  let projectDir: string
+  let templateDir: string
+  let warn: ReturnType<typeof vi.spyOn>
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function editPkg(edit: (pkg: any) => void): void {
+    const pkg = readPkg()
+    edit(pkg)
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+  }
+
+  function warnings(): string {
+    return warn.mock.calls.map((c: unknown[]) => String(c[0])).join('\n')
+  }
+
+  function installCalls(): unknown[][] {
+    return vi.mocked(execa).mock.calls.filter(
+      (c) => (c[1] as string[])[0] === 'install' && !(c[1] as string[]).includes('--package-lock-only'),
+    )
+  }
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+    warn = vi.spyOn(log, 'warn')
+    fakeRegistry = {
+      '@tiptap/extension-highlight': HIGHLIGHT_RELEASES,
+      '@tiptap/y-tiptap': Y_TIPTAP_RELEASES,
+    }
+  })
+
+  afterEach(() => {
+    warn.mockRestore()
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  it('accepts @tiptap/y-tiptap pinned exactly, since it does not peer on @tiptap/core', async () => {
+    editPkg((pkg) => {
+      pkg.dependencies['@tiptap/y-tiptap'] = '3.3.1'
+      pkg.dependencies['yjs'] = '^13.6.27'
+      pkg.dependencies['y-protocols'] = '^1.0.6'
+    })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/y-tiptap']).toBe('3.3.1')
+    expect(readPkg().dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(warnings()).not.toContain('@tiptap/y-tiptap')
+  })
+
+  it('stops before writing anything when every matching release peers on an old @tiptap/core', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+    const backendBefore = readFileSync(join(projectDir, 'amplify', 'backend.ts'), 'utf-8')
+
+    const run = runUpgradeIn(projectDir, templateDir)
+    await expect(run).rejects.toThrow(/stopped before changing any files/)
+    await expect(run).rejects.toThrow(
+      'dependencies["@tiptap/extension-highlight"] is "3.20.0": ' +
+      '3.20.0 requires @tiptap/core 3.20.0, template uses ^3.23.6; change it to "^3.35.0"',
+    )
+    await expect(run).rejects.toThrow('do not run `npm install` first')
+    await expect(run).rejects.toThrow('"Updating ampless" in README.md')
+
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(false)
+    expect(readFileSync(join(projectDir, 'amplify', 'backend.ts'), 'utf-8')).toBe(backendBefore)
+    expect(rehearsals).toEqual([])
+    expect(installCalls()).toEqual([])
+  })
+
+  it('reports the devDependencies section for a conflicting devDependency', async () => {
+    editPkg((pkg) => { pkg.devDependencies['@tiptap/extension-highlight'] = '3.22.3' })
+
+    await expect(
+      runUpgradeIn(projectDir, templateDir, { noInstall: true }),
+    ).rejects.toThrow('devDependencies["@tiptap/extension-highlight"] is "3.22.3"')
+  })
+
+  it('keeps a caret range that includes a compatible release unchanged', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '^3.20.0' })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/extension-highlight']).toBe('^3.20.0')
+    expect(warnings()).not.toContain('@tiptap/extension-highlight')
+  })
+
+  it('ignores a peer marked optional in peerDependenciesMeta', async () => {
+    fakeRegistry['@tiptap/extension-optional-core'] = [{
+      version: '3.20.0',
+      peerDependencies: { '@tiptap/core': '3.20.0' },
+      peerDependenciesMeta: { '@tiptap/core': { optional: true } },
+    }]
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-optional-core'] = '3.20.0' })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/extension-optional-core']).toBe('3.20.0')
+    expect(warnings()).not.toContain('@tiptap/extension-optional-core')
+  })
+
+  it('says no release is compatible instead of suggesting a range that does not exist', async () => {
+    fakeRegistry['@tiptap/extension-legacy'] = [
+      { version: '2.10.0', peerDependencies: { '@tiptap/core': '^2.10.0', '@tiptap/pm': '^2.10.0' } },
+      { version: '2.11.0', peerDependencies: { '@tiptap/core': '^2.11.0', '@tiptap/pm': '^2.11.0' } },
+    ]
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-legacy'] = '^2.10.0' })
+
+    const run = runUpgradeIn(projectDir, templateDir, { noInstall: true })
+    await expect(run).rejects.toThrow(
+      'no published release of @tiptap/extension-legacy is compatible with @tiptap/core ^3.23.6, @tiptap/pm ^3.23.6 yet',
+    )
+    await expect(run).rejects.not.toThrow(/change it to/)
+  })
+
+  it('warns and proceeds when the registry lookup fails', async () => {
+    failingViews.add('@tiptap/extension-highlight')
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/extension-highlight']).toBe('3.20.0')
+    expect(readPkg().dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(warnings()).toContain('cannot check')
+    expect(warnings()).toContain('registry lookup failed')
+  })
+
+  it('warns and proceeds when no published release matches the spec', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-foo'] = '^3.0.0' })
+
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(readPkg().dependencies['@tiptap/extension-foo']).toBe('^3.0.0')
+    expect(warnings()).toContain('no published release matches it')
+  })
+
+  it.each(['github:someone/ext', 'latest'])(
+    'warns but proceeds for an unverifiable spec (%s) and leaves it unchanged',
+    async (spec) => {
+      editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = spec })
+
+      await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+      expect(readPkg().dependencies['@tiptap/extension-highlight']).toBe(spec)
+      expect(warnings()).toContain('@tiptap/extension-highlight')
+      expect(warnings()).toContain('cannot check')
+    },
+  )
+
+  it('dry-run: warns about a conflict without throwing or changing files', async () => {
+    editPkg((pkg) => { pkg.dependencies['@tiptap/extension-highlight'] = '3.20.0' })
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    const result = await runUpgradeIn(projectDir, templateDir, { dryRun: true })
+
+    expect(result.packageJsonMerged).toBe(false)
+    expect(warnings()).toContain('3.20.0 requires @tiptap/core 3.20.0, template uses ^3.23.6')
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(false)
+    expect(rehearsals).toEqual([])
+    expect(installCalls()).toEqual([])
+  })
+})
+
+describe('runUpgradeIn — duplicate declarations of managed packages', () => {
+  let projectDir: string
+  let templateDir: string
+  let warn: ReturnType<typeof vi.spyOn>
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function editPkg(edit: (pkg: any) => void): void {
+    const pkg = readPkg()
+    edit(pkg)
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+  }
+
+  function warnings(): string {
+    return warn.mock.calls.map((c: unknown[]) => String(c[0])).join('\n')
+  }
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+    warn = vi.spyOn(log, 'warn')
+  })
+
+  afterEach(() => {
+    warn.mockRestore()
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  it.each(['optionalDependencies', 'devDependencies'])(
+    'syncs a stale %s duplicate of @tiptap/core to the template spec and warns',
+    async (section) => {
+      editPkg((pkg) => { pkg[section] = { ...(pkg[section] ?? {}), '@tiptap/core': '3.20.0' } })
+
+      await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+      const after = readPkg()
+      expect(after.dependencies['@tiptap/core']).toBe('^3.23.6')
+      expect(after[section]['@tiptap/core']).toBe('^3.23.6')
+      const text = warnings()
+      expect(text).toContain(`"@tiptap/core" in both dependencies and ${section}`)
+      expect(text).toContain('it was "3.20.0"')
+      expect(text).toContain(`Remove the ${section} entry`)
+    },
+  )
+
+  it('dry-run: warns about the duplicate without writing', async () => {
+    editPkg((pkg) => { pkg.optionalDependencies = { '@tiptap/core': '3.20.0' } })
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    await runUpgradeIn(projectDir, templateDir, { dryRun: true })
+
+    expect(warnings()).toContain('in both dependencies and optionalDependencies')
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+  })
+})
+
+describe('runUpgradeIn — npm install rehearsal', () => {
+  let projectDir: string
+  let templateDir: string
+  let warn: ReturnType<typeof vi.spyOn>
+
+  function readPkg(): any {
+    return JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf-8'))
+  }
+
+  function installCalls(): unknown[][] {
+    return vi.mocked(execa).mock.calls.filter(
+      (c) => (c[1] as string[])[0] === 'install' && !(c[1] as string[]).includes('--package-lock-only'),
+    )
+  }
+
+  const ERESOLVE_OUTPUT = [
+    'npm error code ERESOLVE',
+    'npm error ERESOLVE unable to resolve dependency tree',
+    'npm error',
+    'npm error While resolving: my-test-site@0.1.0',
+    'npm error Found: @tiptap/core@3.35.0',
+    'npm error Could not resolve dependency:',
+    'npm error peer @tiptap/core@"3.32.0" from @tiptap/extension-highlight@3.32.0',
+    'npm error A complete log of this run can be found in: /tmp/npm.log',
+  ].join('\n')
+
+  beforeEach(() => {
+    projectDir = makeProjectDir()
+    templateDir = makeTemplateDir()
+    warn = vi.spyOn(log, 'warn')
+  })
+
+  afterEach(() => {
+    warn.mockRestore()
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(templateDir, { recursive: true, force: true })
+  })
+
+  it('stops before writing when npm reports ERESOLVE for the merged package.json', async () => {
+    writeFileSync(join(projectDir, 'package-lock.json'), '{"lockfileVersion":3}\n')
+    writeFileSync(join(projectDir, '.npmrc'), 'fund=false\n')
+    rehearsalFailure = ERESOLVE_OUTPUT
+    const pkgBefore = readFileSync(join(projectDir, 'package.json'), 'utf-8')
+
+    const run = runUpgradeIn(projectDir, templateDir)
+    await expect(run).rejects.toThrow(/merged package\.json would not install/)
+    await expect(run).rejects.toThrow('Nothing was changed')
+    await expect(run).rejects.toThrow('npm error peer @tiptap/core@"3.32.0" from @tiptap/extension-highlight@3.32.0')
+    await expect(run).rejects.not.toThrow(/A complete log/)
+
+    expect(readFileSync(join(projectDir, 'package.json'), 'utf-8')).toBe(pkgBefore)
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(false)
+    expect(installCalls()).toEqual([])
+    expect(rehearsals).toHaveLength(1)
+    const [rehearsal] = rehearsals
+    // The rehearsal resolved the merged package.json, with the project's
+    // lockfile and registry config, and cleaned up after itself.
+    expect(JSON.parse(rehearsal!.packageJson).dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(rehearsal!.hadLock).toBe(true)
+    expect(rehearsal!.hadNpmrc).toBe(true)
+    expect(existsSync(rehearsal!.cwd)).toBe(false)
+  })
+
+  it('stops with a "could not verify" error when the rehearsal fails for another reason', async () => {
+    rehearsalFailure = 'npm error code ENOTFOUND\nnpm error request to https://registry.npmjs.org failed'
+
+    const run = runUpgradeIn(projectDir, templateDir)
+    await expect(run).rejects.toThrow(/could not verify that the merged package\.json installs/)
+    await expect(run).rejects.toThrow('npm error code ENOTFOUND')
+    await expect(run).rejects.toThrow('--no-install')
+
+    expect(readPkg().dependencies['@tiptap/core']).toBe('^2.10.4')
+    expect(installCalls()).toEqual([])
+    expect(existsSync(rehearsals[0]!.cwd)).toBe(false)
+  })
+
+  it('runs the real install after a successful rehearsal', async () => {
+    await runUpgradeIn(projectDir, templateDir)
+
+    expect(rehearsals).toHaveLength(1)
+    expect(installCalls()).toHaveLength(1)
+    expect(installCalls()[0]![0]).toBe('npm')
+    expect(readPkg().dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(existsSync(rehearsals[0]!.cwd)).toBe(false)
+  })
+
+  it('does not rehearse a pnpm project', async () => {
+    writeFileSync(join(projectDir, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
+
+    await runUpgradeIn(projectDir, templateDir)
+
+    expect(rehearsals).toEqual([])
+    expect(installCalls()).toHaveLength(1)
+    expect(installCalls()[0]![0]).toBe('pnpm')
+  })
+
+  it('skips the rehearsal with a warning when a dependency resolves relative to the project', async () => {
+    const pkg = readPkg()
+    pkg.dependencies['my-lib'] = 'file:../my-lib'
+    writeFileSync(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+
+    await runUpgradeIn(projectDir, templateDir)
+
+    expect(rehearsals).toEqual([])
+    expect(installCalls()).toHaveLength(1)
+    expect(warn.mock.calls.map((c: unknown[]) => String(c[0])).join('\n')).toContain(
+      'Skipping the npm install rehearsal: package.json uses dependencies["my-lib"]',
+    )
+  })
+
+  it('does not rehearse with --no-install', async () => {
+    await runUpgradeIn(projectDir, templateDir, { noInstall: true })
+
+    expect(rehearsals).toEqual([])
+  })
+
+  it('says the files were already updated when the real install fails', async () => {
+    installFails = true
+
+    const run = runUpgradeIn(projectDir, templateDir)
+    await expect(run).rejects.toThrow('Command failed with exit code 1: npm install')
+    await expect(run).rejects.toThrow('already updated the template files and package.json')
+    await expect(run).rejects.toThrow('git status')
+
+    expect(readPkg().dependencies['@tiptap/core']).toBe('^3.23.6')
+    expect(existsSync(join(projectDir, 'app', '(admin)', 'admin', 'page.tsx'))).toBe(true)
+  })
+})
+
+describe('checkProjectOnlyPeers', () => {
+  const template = {
+    dependencies: { '@tiptap/core': '^3.35.0', '@tiptap/pm': '^3.35.0', '@tiptap/react': '^3.35.0' },
+  }
+
+  function lookupFrom(registry: Record<string, PublishedVersion[]>) {
+    return async (name: string, range: string): Promise<PublishedVersion[]> =>
+      (registry[name] ?? []).filter((v) => semver.satisfies(v.version, range))
+  }
+
+  const registry: Record<string, PublishedVersion[]> = {
+    '@tiptap/extension-highlight': ['3.32.0', '3.34.0', '3.35.0'].map(exactCorePeer),
+    '@tiptap/y-tiptap': Y_TIPTAP_RELEASES,
+  }
+
+  it('accepts @tiptap/y-tiptap 3.3.1, which has no @tiptap/* peer', async () => {
+    const project = { dependencies: { '@tiptap/y-tiptap': '3.3.1', yjs: '^13.6.27' } }
+    expect(await checkProjectOnlyPeers(project, template, lookupFrom(registry))).toEqual({
+      conflicts: [],
+      warnings: [],
+    })
+  })
+
+  it('flags an exact highlight pin and suggests the highest compatible caret range', async () => {
+    const project = { dependencies: { '@tiptap/extension-highlight': '3.32.0' } }
+    const report = await checkProjectOnlyPeers(project, template, lookupFrom(registry))
+    expect(report.warnings).toEqual([])
+    expect(report.conflicts).toEqual([
+      {
+        section: 'dependencies',
+        name: '@tiptap/extension-highlight',
+        current: '3.32.0',
+        reason: '3.32.0 requires @tiptap/core 3.32.0, template uses ^3.35.0',
+        managedPeers: ['@tiptap/core ^3.35.0'],
+        suggestion: '^3.35.0',
+      },
+    ])
+  })
+
+  it('suggests an exact version when the newest release in its caret range is incompatible', async () => {
+    const tildeTemplate = { dependencies: { '@tiptap/core': '~3.34.0' } }
+    const project = { optionalDependencies: { '@tiptap/extension-highlight': '3.32.0' } }
+    const report = await checkProjectOnlyPeers(project, tildeTemplate, lookupFrom(registry))
+    expect(report.conflicts[0]!.section).toBe('optionalDependencies')
+    expect(report.conflicts[0]!.suggestion).toBe('3.34.0')
+  })
+
+  it('ignores @tiptap/* packages the template declares, even if old', async () => {
+    const project = { dependencies: { '@tiptap/core': '2.0.0', '@tiptap/pm': '~2.1.0' } }
+    const lookup = vi.fn(lookupFrom(registry))
+    expect(await checkProjectOnlyPeers(project, template, lookup)).toEqual({ conflicts: [], warnings: [] })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('ignores peers on names ampless does not manage', async () => {
+    const project = { dependencies: { '@tiptap/extension-foo': '1.0.0' } }
+    const lookup = lookupFrom({
+      '@tiptap/extension-foo': [{ version: '1.0.0', peerDependencies: { react: '^17.0.0' } }],
+    })
+    expect(await checkProjectOnlyPeers(project, template, lookup)).toEqual({ conflicts: [], warnings: [] })
+  })
+
+  it('keeps the conflict but explains when the suggestion lookup fails', async () => {
+    const project = { dependencies: { '@tiptap/extension-highlight': '3.32.0' } }
+    const base = lookupFrom(registry)
+    const lookup = async (name: string, range: string) => {
+      if (range === '>=0.0.0') throw new Error('socket hang up')
+      return base(name, range)
+    }
+    const report = await checkProjectOnlyPeers(project, template, lookup)
+    expect(report.conflicts[0]!.suggestion).toBeNull()
+    expect(report.conflicts[0]!.suggestionError).toBe('socket hang up')
   })
 })

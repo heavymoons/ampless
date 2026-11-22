@@ -1,9 +1,11 @@
-import { cp, readFile, writeFile, readdir, mkdir, rm } from 'node:fs/promises'
+import { cp, readFile, writeFile, readdir, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative, extname, dirname } from 'node:path'
 import { log, outro } from '@clack/prompts'
 import pc from 'picocolors'
 import { execa } from 'execa'
+import semver from 'semver'
 import { validateMountableProject } from './mount.js'
 import { sharedTemplateDir } from './templates.js'
 import { buildRegistry, discoverInstalledThemes } from './themes-registry.js'
@@ -864,6 +866,385 @@ function detectIndent(jsonStr: string): number {
 }
 
 // ----------------------------------------------------------------------------
+// package.json merge (computed in memory before anything is written)
+// ----------------------------------------------------------------------------
+
+const ALL_DEP_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const
+type AnyDepSection = (typeof ALL_DEP_SECTIONS)[number]
+
+function depsOf(pkg: Record<string, unknown>, section: AnyDepSection): Record<string, unknown> {
+  return (pkg[section] ?? {}) as Record<string, unknown>
+}
+
+/**
+ * Apply the template's managed deps and managed scripts to `projectPkg` in
+ * place. Returns one warning per duplicate declaration it had to sync.
+ *
+ * A managed name the project also declares in a second section (e.g.
+ * `optionalDependencies["@tiptap/core"]` next to the template's
+ * `dependencies` entry) is set to the template spec there too, keeping its
+ * placement: ampless owns that version, and npm lets `optionalDependencies`
+ * override `dependencies`, so a stale duplicate would make the install fail
+ * with ERESOLVE even though the template's entry was updated.
+ */
+function mergeManagedPackageJson(
+  projectPkg: Record<string, unknown>,
+  templatePkg: Record<string, unknown>,
+  nextWarnings: string[],
+): string[] {
+  const warnings: string[] = []
+
+  for (const section of ALL_DEP_SECTIONS) {
+    const templateDeps = depsOf(templatePkg, section) as Record<string, string>
+    const projectDeps = depsOf(projectPkg, section) as Record<string, string>
+
+    for (const [name, version] of Object.entries(templateDeps)) {
+      if (!isManagedDep(name)) continue
+      if (name === 'next') continue // handled below, section-aware
+      projectDeps[name] = version
+
+      for (const other of ALL_DEP_SECTIONS) {
+        if (other === section || name in depsOf(templatePkg, other)) continue
+        const otherDeps = projectPkg[other] as Record<string, string> | undefined
+        if (!otherDeps || !(name in otherDeps)) continue
+        const previous = otherDeps[name]
+        otherDeps[name] = version
+        warnings.push(
+          `package.json declares "${name}" in both ${section} and ${other}. ampless manages its version, ` +
+          `so update-ampless sets ${other}["${name}"] to "${version}" as well` +
+          (previous !== version ? ` (it was "${String(previous)}")` : '') +
+          `. Remove the ${other} entry: a second declaration can override the managed version and break the install.`,
+        )
+      }
+    }
+
+    if (Object.keys(projectDeps).length > 0) {
+      projectPkg[section] = projectDeps
+    }
+  }
+
+  // `next` (security floor): section- and override-aware, see applyNextMerge.
+  applyNextMerge(projectPkg, templatePkg, nextWarnings)
+
+  // Merge ampless-managed scripts. The allowlist (AMPLESS_MANAGED_SCRIPTS)
+  // captures the scripts ampless owns end-to-end — the user is free to
+  // edit `dev` / `build` / `start` and they survive every upgrade.
+  //
+  // Iterate the allowlist itself (not the template) so a script that
+  // ampless once shipped but no longer does (e.g. `sandbox:dev`) gets
+  // cleaned out of the user's package.json on the next upgrade.
+  // Without this branch the obsolete key would linger forever.
+  const templateScripts = (templatePkg['scripts'] ?? {}) as Record<string, string>
+  const projectScripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
+  for (const name of AMPLESS_MANAGED_SCRIPTS) {
+    if (name in templateScripts) {
+      projectScripts[name] = templateScripts[name]!
+    } else {
+      delete projectScripts[name]
+    }
+  }
+  if (Object.keys(projectScripts).length > 0) {
+    projectPkg['scripts'] = projectScripts
+  }
+
+  return warnings
+}
+
+// ----------------------------------------------------------------------------
+// Project-only @tiptap/* peer check
+// ----------------------------------------------------------------------------
+
+/** One published release as reported by `npm view <name>@<range> ... --json`. */
+export interface PublishedVersion {
+  version: string
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+/**
+ * Resolve the published releases of `name` that satisfy `range`. Returns an
+ * empty array when nothing matches; throws when the registry cannot be asked.
+ */
+export type VersionLookup = (name: string, range: string) => Promise<PublishedVersion[]>
+
+/**
+ * Range used to list every stable release when looking for a suggestion.
+ * Not `*`: `npm view name@*` collapses to the `latest` dist-tag only.
+ */
+const ALL_STABLE_RANGE = '>=0.0.0'
+
+interface PeerConflict {
+  section: AnyDepSection
+  name: string
+  current: string
+  /** e.g. `3.32.0 requires @tiptap/core 3.32.0, template uses ^3.35.0` */
+  reason: string
+  /** Managed peers that conflict, rendered as `<name> <template spec>`. */
+  managedPeers: string[]
+  /** Spec to change to, or null when no published release is compatible. */
+  suggestion: string | null
+  /** Why `suggestion` could not be computed, when the lookup itself failed. */
+  suggestionError?: string
+}
+
+export interface PeerCheckReport {
+  conflicts: PeerConflict[]
+  /** Entries that could not be checked (non-semver spec, registry failure, no match). */
+  warnings: string[]
+}
+
+function normaliseNpmView(stdout: string): PublishedVersion[] {
+  const parsed: unknown = JSON.parse(stdout)
+  const list = Array.isArray(parsed) ? parsed : [parsed]
+  return list.map((entry) =>
+    typeof entry === 'string' ? { version: entry } : (entry as PublishedVersion),
+  )
+}
+
+/** Production {@link VersionLookup}: asks the registry configured for `destDir`. */
+function npmViewLookup(destDir: string): VersionLookup {
+  return async (name, range) => {
+    try {
+      const { stdout } = await execa(
+        'npm',
+        ['view', `${name}@${range}`, 'version', 'peerDependencies', 'peerDependenciesMeta', '--json'],
+        { cwd: destDir, stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      // npm prints nothing at all for some no-match cases.
+      return stdout.trim() ? normaliseNpmView(stdout) : []
+    } catch (e) {
+      // No match exits 1 with `{"error":{"code":"E404",...}}` on stdout.
+      const stdout = (e as { stdout?: unknown }).stdout
+      if (typeof stdout === 'string' && stdout.trim()) {
+        try {
+          const parsed = JSON.parse(stdout) as { error?: { code?: string } }
+          if (parsed?.error?.code === 'E404') return []
+        } catch {
+          // fall through to the original error
+        }
+      }
+      throw e
+    }
+  }
+}
+
+/**
+ * Peers of `candidate` that are ampless-managed names declared by the
+ * template and cannot share a version with the template's spec. Optional
+ * peers and peers on non-managed names are not ampless's concern.
+ */
+function conflictingManagedPeers(
+  candidate: PublishedVersion,
+  templateSpecs: Map<string, string>,
+): Array<{ peer: string; required: string; template: string }> {
+  const out: Array<{ peer: string; required: string; template: string }> = []
+  for (const [peer, required] of Object.entries(candidate.peerDependencies ?? {})) {
+    if (!isManagedDep(peer)) continue
+    const template = templateSpecs.get(peer)
+    if (template === undefined) continue
+    if (candidate.peerDependenciesMeta?.[peer]?.optional) continue
+    // A peer or template spec that is not a semver range cannot be judged here.
+    if (semver.validRange(required) === null || semver.validRange(template) === null) continue
+    if (!semver.intersects(required, template)) out.push({ peer, required, template })
+  }
+  return out
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message.split('\n')[0]! : String(e)
+}
+
+/**
+ * Check every `@tiptap/*` package the project declares but the template
+ * does not (in any section) against the peer requirements its published
+ * releases actually declare — no assumption that it is versioned in
+ * lockstep with `@tiptap/core` (`@tiptap/y-tiptap`, for example, has its own
+ * version line and no `@tiptap/core` peer). The upgrade never rewrites these
+ * specs, so a spec whose every matching release peers on a managed version
+ * the template no longer allows would fail the install after the template
+ * files had been written.
+ */
+export async function checkProjectOnlyPeers(
+  projectPkg: Record<string, unknown>,
+  templatePkg: Record<string, unknown>,
+  lookup: VersionLookup,
+): Promise<PeerCheckReport> {
+  const report: PeerCheckReport = { conflicts: [], warnings: [] }
+
+  const templateSpecs = new Map<string, string>()
+  for (const section of ALL_DEP_SECTIONS) {
+    for (const [name, spec] of Object.entries(depsOf(templatePkg, section))) {
+      if (typeof spec === 'string' && !templateSpecs.has(name)) templateSpecs.set(name, spec)
+    }
+  }
+  const coreHint = templateSpecs.has('@tiptap/core')
+    ? ` (this ampless release uses @tiptap/core ${templateSpecs.get('@tiptap/core')})`
+    : ''
+
+  for (const section of ALL_DEP_SECTIONS) {
+    for (const [name, spec] of Object.entries(depsOf(projectPkg, section))) {
+      if (!name.startsWith('@tiptap/') || templateSpecs.has(name)) continue
+      if (typeof spec !== 'string') continue
+      const label = `${section}["${name}"] is "${spec}"`
+
+      if (semver.validRange(spec) === null) {
+        report.warnings.push(
+          `${label}, which is not a semver range, so update-ampless cannot check its peer dependencies. ` +
+          `Make sure the release it installs supports the @tiptap/* versions ampless uses${coreHint}.`,
+        )
+        continue
+      }
+
+      let candidates: PublishedVersion[]
+      try {
+        candidates = (await lookup(name, spec)).filter((c) => semver.valid(c.version) !== null)
+      } catch (e) {
+        report.warnings.push(
+          `${label}; update-ampless cannot check its peer dependencies because the registry lookup failed ` +
+          `(${errorText(e)}). Make sure the release it installs supports the @tiptap/* versions ampless uses${coreHint}.`,
+        )
+        continue
+      }
+      if (candidates.length === 0) {
+        report.warnings.push(
+          `${label}, but no published release matches it, so update-ampless cannot check its peer dependencies. ` +
+          'npm install will report the problem.',
+        )
+        continue
+      }
+
+      if (candidates.some((c) => conflictingManagedPeers(c, templateSpecs).length === 0)) continue
+
+      // Every matching release conflicts. Describe the newest one.
+      const newest = [...candidates].sort((a, b) => semver.rcompare(a.version, b.version))[0]!
+      const peers = conflictingManagedPeers(newest, templateSpecs)
+      const conflict: PeerConflict = {
+        section,
+        name,
+        current: spec,
+        reason:
+          `${newest.version} requires ` +
+          peers.map((p) => `${p.peer} ${p.required}, template uses ${p.template}`).join('; '),
+        managedPeers: peers.map((p) => `${p.peer} ${p.template}`),
+        suggestion: null,
+      }
+
+      try {
+        const all = (await lookup(name, ALL_STABLE_RANGE))
+          .filter((c) => semver.valid(c.version) !== null)
+          .sort((a, b) => semver.rcompare(a.version, b.version))
+        const isCompatible = (c: PublishedVersion) => conflictingManagedPeers(c, templateSpecs).length === 0
+        const best = all.find(isCompatible)
+        if (best) {
+          // `^V` would let npm pick the newest release in that range, so only
+          // suggest it when that newest release is compatible too.
+          const caret = `^${best.version}`
+          const newestInCaret = all.find((c) => semver.satisfies(c.version, caret))
+          conflict.suggestion = newestInCaret && isCompatible(newestInCaret) ? caret : best.version
+        }
+      } catch (e) {
+        conflict.suggestionError = errorText(e)
+      }
+      report.conflicts.push(conflict)
+    }
+  }
+  return report
+}
+
+function buildPeerConflictMessage(conflicts: PeerConflict[]): string {
+  const lines = conflicts.map((c) => {
+    const head = `  - ${c.section}["${c.name}"] is "${c.current}": ${c.reason}`
+    if (c.suggestion) return `${head}; change it to "${c.suggestion}"`
+    if (c.suggestionError) {
+      return (
+        `${head}; update-ampless could not list other releases (${c.suggestionError}), ` +
+        `so pick one whose peerDependencies allow ${c.managedPeers.join(', ')}`
+      )
+    }
+    return (
+      `${head}; no published release of ${c.name} is compatible with ${c.managedPeers.join(', ')} yet — ` +
+      'remove it or stay on your current ampless version until one is released'
+    )
+  })
+  return (
+    'update-ampless stopped before changing any files: package.json has @tiptap/* packages that ampless ' +
+    'does not ship whose published releases peer-depend on versions this ampless release no longer uses, ' +
+    'so the install would fail with ERESOLVE (npm) or load mismatched copies of the editor (pnpm).\n' +
+    lines.join('\n') +
+    '\nupdate-ampless never rewrites @tiptap/* packages that ampless does not ship, so it leaves these for you. ' +
+    'Edit package.json (do not run `npm install` first), then run `npm run update-ampless` again. ' +
+    'See "Updating ampless" in README.md.'
+  )
+}
+
+// ----------------------------------------------------------------------------
+// npm install rehearsal
+// ----------------------------------------------------------------------------
+
+/**
+ * Specs that resolve relative to the project directory, which a rehearsal
+ * in a temporary directory cannot reproduce.
+ */
+const LOCAL_SPEC_PATTERN = /^(file:|link:|workspace:|portal:|\.{0,2}\/|~\/)/
+
+function localDependencySpec(pkg: Record<string, unknown>): string | null {
+  if (pkg['workspaces'] !== undefined) return 'workspaces'
+  for (const section of ALL_DEP_SECTIONS) {
+    for (const [name, spec] of Object.entries(depsOf(pkg, section))) {
+      if (typeof spec === 'string' && LOCAL_SPEC_PATTERN.test(spec)) return `${section}["${name}"]`
+    }
+  }
+  return null
+}
+
+/**
+ * Resolve the merged package.json with npm's own resolver in a temporary
+ * directory before anything in the project is written. Catches peer
+ * conflicts beyond the @tiptap/* check above (overrides, third-party peers)
+ * without update-ampless having to model npm's rules.
+ *
+ * npm only: pnpm warns about peer mismatches instead of failing, so a pnpm
+ * rehearsal would not catch the problems this guards against.
+ */
+async function rehearseNpmInstall(destDir: string, mergedPkgJson: string): Promise<void> {
+  const workDir = await mkdtemp(join(tmpdir(), 'ampless-upgrade-rehearsal-'))
+  try {
+    await writeFile(join(workDir, 'package.json'), mergedPkgJson, 'utf-8')
+    for (const name of ['package-lock.json', '.npmrc']) {
+      if (existsSync(join(destDir, name))) await cp(join(destDir, name), join(workDir, name))
+    }
+    await execa(
+      'npm',
+      ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'],
+      { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+  } catch (e) {
+    const err = e as { stdout?: unknown; stderr?: unknown }
+    const output = [err.stderr, err.stdout].filter((s): s is string => typeof s === 'string').join('\n')
+    const npmErrors = output
+      .split('\n')
+      .filter((l) => /^npm (error|ERR!)/.test(l) && !/A complete log of this run/.test(l))
+    if (/\bERESOLVE\b/.test(output)) {
+      const excerpt = npmErrors.slice(0, 15).map((l) => `  ${l}`).join('\n')
+      throw new Error(
+        'update-ampless stopped before changing any files: the merged package.json would not install ' +
+        '(npm reported ERESOLVE while resolving it in a temporary directory). Nothing was changed.\n' +
+        excerpt +
+        '\nFix the conflicting entries in package.json (do not run `npm install` first), then run ' +
+        '`npm run update-ampless` again. See "Updating ampless" in README.md.',
+      )
+    }
+    throw new Error(
+      'update-ampless stopped before changing any files: it could not verify that the merged package.json ' +
+      `installs (${npmErrors.slice(0, 3).join(' / ') || errorText(e)}). Nothing was changed. Fix registry access and run \`npm run update-ampless\` ` +
+      'again, or run it with `--no-install` to apply the files and run `npm install` yourself.',
+    )
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
+  }
+}
+
+// ----------------------------------------------------------------------------
 // User-installed @ampless/* plugin bump
 // ----------------------------------------------------------------------------
 
@@ -879,8 +1260,8 @@ interface BumpResult {
  * `@beta` dist-tag version via `npm view` and rewrite the project's pin
  * to `^<resolved>`.
  *
- * Caller is responsible for re-writing `package.json` when `bumped` is
- * non-empty, and for surfacing `warnings` via `log.warn`.
+ * Only mutates `projectPkg` in memory; the caller writes `package.json`
+ * once, after the preflight checks, and surfaces `warnings` via `log.warn`.
  * Network failures are non-fatal: warn + skip.
  */
 async function bumpUserAmplessPlugins(
@@ -1107,6 +1488,12 @@ export async function runUpgradeIn(
 
   const vars: Record<string, string> = { projectName }
 
+  // 2b. read the template package.json up front: the merged package.json and
+  // its preflight checks must be computed before anything is written.
+  const templatePkg = JSON.parse(
+    await readFile(join(sharedDir, 'package.json'), 'utf-8'),
+  ) as Record<string, unknown>
+
   // 3. collect files from shared template dir
   const allRelPaths: string[] = []
   await walkDir(sharedDir, sharedDir, allRelPaths)
@@ -1175,6 +1562,56 @@ export async function runUpgradeIn(
     log.warn(NEXT_LINT_WARNING)
   }
 
+  // 4c. compute the final package.json in memory. Nothing is written until
+  // the preflight checks below pass, so a dependency problem never leaves
+  // the site half-upgraded.
+  const indent = detectIndent(projectPkgRaw)
+  const nextWarnings: string[] = []
+  for (const w of mergeManagedPackageJson(projectPkg, templatePkg, nextWarnings)) {
+    log.warn(w)
+  }
+
+  // Bump user-installed @ampless/* plugins (not in template) to latest @beta,
+  // in memory, so the preflight below and the install see the new versions.
+  // Skipped in dry-run, which never resolved these.
+  const templatePkgForBump = templatePkg as { dependencies?: Record<string, string> }
+  const projectPkgForBump = projectPkg as { dependencies?: Record<string, string> }
+  const userPluginBump: BumpResult = opts.dryRun
+    ? { bumped: [], warnings: [] }
+    : await bumpUserAmplessPlugins(destDir, projectPkgForBump, templatePkgForBump)
+
+  const mergedPkgJson = JSON.stringify(projectPkg, null, indent) + '\n'
+
+  // 4d. project-only @tiptap/* packages whose published releases all peer on
+  // managed versions the template no longer allows. Real runs abort here,
+  // before any write; dry-run only warns.
+  const peerCheck = await checkProjectOnlyPeers(projectPkg, templatePkg, npmViewLookup(destDir))
+  for (const w of peerCheck.warnings) {
+    log.warn(w)
+  }
+  if (peerCheck.conflicts.length > 0) {
+    const message = buildPeerConflictMessage(peerCheck.conflicts)
+    if (!opts.dryRun) throw new Error(message)
+    log.warn(message)
+  }
+
+  // 4e. rehearse the npm install against the merged package.json when the
+  // install will actually run. pnpm projects are not rehearsed (see
+  // `rehearseNpmInstall`).
+  const usePnpm = existsSync(join(destDir, 'pnpm-lock.yaml'))
+  if (!opts.dryRun && !opts.noInstall && !usePnpm) {
+    const local = localDependencySpec(projectPkg)
+    if (local) {
+      log.warn(
+        `Skipping the npm install rehearsal: package.json uses ${local}, which resolves relative to the project ` +
+        'and cannot be reproduced in a temporary directory. A failing install will leave the updated files in place.',
+      )
+    } else {
+      log.info(`verify:  ${pc.cyan('resolving the merged package.json with npm (no files changed yet)')}`)
+      await rehearseNpmInstall(destDir, mergedPkgJson)
+    }
+  }
+
   // 5. dry-run exit
   if (opts.dryRun) {
     return {
@@ -1218,72 +1655,22 @@ export async function runUpgradeIn(
   // no longer ships.
   await removeObsoleteFiles(destDir, obsoleteFiles)
 
-  // 7. execute merge package.json
-  const templatePkgRaw = await readFile(join(sharedDir, 'package.json'), 'utf-8')
-  const templatePkg = JSON.parse(templatePkgRaw) as Record<string, unknown>
-
-  const indent = detectIndent(projectPkgRaw)
-
-  const nextWarnings: string[] = []
-
-  // Merge ampless deps from template into project
-  for (const section of ['dependencies', 'devDependencies'] as const) {
-    const templateDeps = (templatePkg[section] ?? {}) as Record<string, string>
-    const projectDeps = (projectPkg[section] ?? {}) as Record<string, string>
-
-    for (const [name, version] of Object.entries(templateDeps)) {
-      if (!isManagedDep(name)) continue
-      if (name === 'next') continue // handled below, section-aware
-      projectDeps[name] = version
-    }
-
-    if (Object.keys(projectDeps).length > 0) {
-      projectPkg[section] = projectDeps
-    }
-  }
-
-  // `next` (security floor): section- and override-aware, see applyNextMerge.
-  applyNextMerge(projectPkg, templatePkg, nextWarnings)
-
-  // Merge ampless-managed scripts. The allowlist (AMPLESS_MANAGED_SCRIPTS)
-  // captures the scripts ampless owns end-to-end — the user is free to
-  // edit `dev` / `build` / `start` and they survive every upgrade.
-  //
-  // Iterate the allowlist itself (not the template) so a script that
-  // ampless once shipped but no longer does (e.g. `sandbox:dev`) gets
-  // cleaned out of the user's package.json on the next upgrade.
-  // Without this branch the obsolete key would linger forever.
-  const templateScripts = (templatePkg['scripts'] ?? {}) as Record<string, string>
-  const projectScripts = (projectPkg['scripts'] ?? {}) as Record<string, string>
-  for (const name of AMPLESS_MANAGED_SCRIPTS) {
-    if (name in templateScripts) {
-      projectScripts[name] = templateScripts[name]!
-    } else {
-      delete projectScripts[name]
-    }
-  }
-  if (Object.keys(projectScripts).length > 0) {
-    projectPkg['scripts'] = projectScripts
-  }
-
-  await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
-
-  // 7b. Bump user-installed @ampless/* plugins (not in template) to latest @beta.
-  // Runs AFTER the template-managed sync write so we have the merged projectPkg in memory,
-  // and BEFORE install so the subsequent `npm install` picks up the new versions.
-  const templatePkgForBump = templatePkg as { dependencies?: Record<string, string> }
-  const projectPkgForBump = projectPkg as { dependencies?: Record<string, string> }
-  const userPluginBump = await bumpUserAmplessPlugins(destDir, projectPkgForBump, templatePkgForBump)
-  if (userPluginBump.bumped.length > 0) {
-    // Re-write package.json with the bumped versions
-    await writeFile(projectPkgPath, JSON.stringify(projectPkg, null, indent) + '\n', 'utf-8')
-  }
+  // 7. write the merged package.json computed in step 4c
+  await writeFile(projectPkgPath, mergedPkgJson, 'utf-8')
 
   // 8. npm/pnpm install
   if (!opts.noInstall) {
-    const usePnpm = existsSync(join(destDir, 'pnpm-lock.yaml'))
     const pm = usePnpm ? 'pnpm' : 'npm'
-    await execa(pm, ['install'], { cwd: destDir, stdio: 'inherit' })
+    try {
+      await execa(pm, ['install'], { cwd: destDir, stdio: 'inherit' })
+    } catch (e) {
+      throw new Error(
+        `${e instanceof Error ? e.message : String(e)}\n` +
+        `\`${pm} install\` failed after update-ampless had already updated the template files and package.json. ` +
+        'Review the changes with `git status` / `git diff`, fix the reported problem and run ' +
+        '`npm run update-ampless` again, or restore the previous versions with git.',
+      )
+    }
   }
 
   // 9. Regenerate _editor-bootstrap.tsx from installed plugin manifests.

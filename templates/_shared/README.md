@@ -230,8 +230,22 @@ This runs `npx create-ampless@beta upgrade`, which:
 - Re-syncs the shared template files (admin app shell, amplify backend, lib/, middleware, themes) — your customizations to `cms.config.ts`, `theme.*` admin settings, posts, and theme manifest values are preserved.
 - Updates `update-ampless` and `copy-theme` script entries if their commands change
 - Never touches your ESLint setup: the `lint` script, `eslint.config.*` / `.eslintrc*` / `.eslintignore`, and ESLint dependencies are left as they are. If `lint` still calls `next lint`, the upgrade prints a warning — see "Migrating from `next lint`" below.
+- Keeps the `@tiptap/*` packages the template ships in lockstep, and if your `package.json` also lists one of the packages ampless manages in a second section (for example `optionalDependencies`), sets that entry to the same version and warns so you can remove the duplicate. `@tiptap/*` packages you added yourself are never rewritten; if one of them cannot work with the new versions, or (npm projects) the merged `package.json` would not install, the upgrade stops before changing any files — see "Tiptap extensions you added yourself" below.
 
 You can review the diff before committing.
+
+### Tiptap extensions you added yourself
+
+`update-ampless` keeps the `@tiptap/*` packages that the template ships in lockstep, but it never rewrites `@tiptap/*` packages you added yourself (for example `@tiptap/extension-highlight`). Before changing any files it reads the peer dependencies that each of those packages declares on the npm registry, for every published release your range allows. Most Tiptap extensions require the exact same `@tiptap/core` version, so an exact pin like `"3.32.0"`, a `~` range or an old major can stop matching the new `@tiptap/core`. Packages that do not peer-depend on the `@tiptap/*` packages ampless ships, such as `@tiptap/y-tiptap`, are not affected, and a caret range such as `^3.x` that still includes a compatible release keeps working unchanged.
+
+If none of the releases your range allows is compatible, the upgrade stops before changing any files and lists each entry with the peer that conflicts (for example `requires @tiptap/core 3.32.0, template uses ^3.35.0`) and the range to change it to. If a package has no compatible release yet, the message says so; remove it or stay on your current ampless version until one is released. Entries that cannot be checked (git URLs, `file:`, dist-tags, or when the registry cannot be reached) produce a warning instead.
+
+In npm projects, the upgrade also rehearses `npm install --package-lock-only` against the merged `package.json` in a temporary directory before changing any files, so a conflict outside `@tiptap/*` (an override or another package's peer) stops the upgrade too. If npm cannot reach the registry for the rehearsal, fix the access and rerun, or pass `--no-install` to apply the files and install yourself. pnpm projects are not rehearsed, because pnpm warns about peer mismatches instead of failing.
+
+To fix a reported entry:
+
+1. Edit each listed range in `package.json` to the suggested one (for example `"^3.35.0"`). Do not run `npm install` first.
+2. Run `npm run update-ampless` again.
 
 ### Migrating from `next lint`
 
