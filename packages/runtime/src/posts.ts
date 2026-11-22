@@ -127,29 +127,119 @@ function toCorePost(p: PublicPostShape): Post {
   }
 }
 
+/** Page size used once a page has come back short (see `fillPage`). */
+const FILL_CHUNK = 100
+
 /**
- * Upper bound on resolver calls made to fill one page (see `fillPage`).
- * Reaching it only happens when many consecutive index rows are dropped by
- * the resolver; the caller still gets a valid `nextToken` to continue.
+ * Most resolver calls made to fill one page (see `fillPage`). With the
+ * first call plus 19 chunks of FILL_CHUNK this tolerates ~1,900 dropped
+ * index rows ahead of the page before failing explicitly.
  */
-const MAX_FILL_PAGES = 10
+const MAX_FILL_CALLS = 20
+
+const CURSOR_PREFIX = 'ampless-c1.'
+
+interface ChunkCursor {
+  /** AppSync nextToken the chunk starts at (null = start of the listing). */
+  t: string | null
+  /** Visible items of that chunk already returned to the caller. */
+  s: number
+  /** Chunk size the cursor was produced with. */
+  c: number
+}
+
+function encodeCursor(cursor: ChunkCursor): string {
+  return CURSOR_PREFIX + Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function decodeCursor(token: string): ChunkCursor | undefined {
+  if (!token.startsWith(CURSOR_PREFIX)) return undefined
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(token.slice(CURSOR_PREFIX.length), 'base64url').toString('utf8')
+    ) as Partial<ChunkCursor>
+    if (
+      (parsed.t === null || typeof parsed.t === 'string') &&
+      Number.isInteger(parsed.s) &&
+      (parsed.s as number) >= 0 &&
+      Number.isInteger(parsed.c) &&
+      (parsed.c as number) > 0 &&
+      // Cursors reach public callers (e.g. the public MCP `nextCursor`), so
+      // never let one ask the resolver for more than a normal chunk.
+      (parsed.c as number) <= FILL_CHUNK
+    ) {
+      return { t: parsed.t, s: parsed.s as number, c: parsed.c as number }
+    }
+  } catch {
+    // fall through: not one of ours
+  }
+  return undefined
+}
+
+/**
+ * Thrown when a list page could not be filled within MAX_FILL_CALLS
+ * resolver calls while the listing still continues. Rather than return a
+ * short (possibly empty) page that first-page-only views (home, tag pages)
+ * would render as "no posts", the failure is explicit. `items` holds what
+ * was collected and `nextToken` resumes the scan right after it.
+ */
+export class PostListScanLimitError extends Error {
+  readonly operation: 'listPublishedPosts' | 'listPostsByTag'
+  readonly items: Post[]
+  readonly nextToken: string
+  readonly calls: number
+
+  constructor(
+    operation: 'listPublishedPosts' | 'listPostsByTag',
+    items: Post[],
+    nextToken: string,
+    calls: number,
+    limit: number
+  ) {
+    super(
+      `${operation}: page has ${items.length}/${limit} posts after ${calls} resolver calls and the listing continues; too many index rows were dropped (non-canonical publishedAt, see #406)`
+    )
+    this.name = 'PostListScanLimitError'
+    this.operation = operation
+    this.items = items
+    this.nextToken = nextToken
+    this.calls = calls
+  }
+}
 
 /**
  * Collect up to `limit` posts from a list resolver, following `nextToken`.
  *
- * The public list resolvers re-check each row's publishedAt by instant
- * AFTER DynamoDB has applied `limit` (non-canonical rows such as a future
- * `-05:00` value can sort before now as strings), so a single response can
- * be short — even empty — while `nextToken` is still set. Callers such as
- * the home page only read the first page, so keep requesting the remaining
- * count until the page is full, the listing ends, or MAX_FILL_PAGES calls
- * were made. Each call asks for exactly the remaining count, so the
- * returned `nextToken` (from the last call) resumes right after the last
- * returned item and nothing is skipped or repeated. For canonical data the
- * first call already fills the page, so this is one call as before.
+ * Why: the public list resolvers re-check each row's publishedAt by instant
+ * AFTER DynamoDB has applied `limit` — DynamoDB compares the sort key as a
+ * string, and non-canonical values (e.g. a future `-05:00` publishedAt,
+ * which sorts before now) are dropped by the re-check (#406). One response
+ * can therefore be short, even empty, while `nextToken` is still set, and
+ * the home / tag views only read the first page.
+ *
+ * Cost: the first call asks for exactly `limit` with the caller's token.
+ * For canonical data it fills the page (or ends the listing), so this is one
+ * call and the returned `nextToken` is the raw AppSync token, as before.
+ *
+ * Chunk mode: once a response is short while the listing continues, later
+ * calls read FILL_CHUNK rows at a time. When a chunk holds more visible
+ * posts than the page needs, the returned `nextToken` is a runtime cursor
+ * (`ampless-c1.…`: the chunk's start token plus how many of its visible
+ * posts were already returned), so the next page re-reads that chunk and
+ * skips them. Like offset pagination, a change between two page requests
+ * (a post published, unpublished or becoming live) can duplicate or skip
+ * one post at such a boundary. Any token without the prefix is treated as
+ * a raw AppSync token, so tokens from older runtimes keep working.
+ *
+ * Bound: at most MAX_FILL_CALLS resolver calls per page. If the page is
+ * still short and the listing continues, this throws PostListScanLimitError
+ * (after logging) instead of returning an incomplete page: a misleading
+ * empty / short listing would hide published posts, whereas the error is
+ * visible (on force-dynamic pages it surfaces as an error response) and
+ * logged. A short page is only ever returned with `nextToken: null`.
  */
 async function fillPage(
-  label: string,
+  operation: 'listPublishedPosts' | 'listPostsByTag',
   limit: number,
   nextToken: string | undefined,
   fetchPage: (args: {
@@ -158,22 +248,53 @@ async function fillPage(
   }) => Promise<PublicPostConnectionShape | null>
 ): Promise<ListPostsResult> {
   const items: Post[] = []
-  let token: string | null | undefined = nextToken
   let calls = 0
-  do {
-    const data = await fetchPage({ limit: limit - items.length, nextToken: token ?? undefined })
+  const visible = (data: PublicPostConnectionShape | null) =>
+    (data?.items ?? []).filter((p): p is PublicPostShape => p !== null).map(toCorePost)
+
+  const resumed = nextToken ? decodeCursor(nextToken) : undefined
+  let chunkStart: string | null
+  let skip = 0
+  let chunkSize = FILL_CHUNK
+  if (resumed) {
+    chunkStart = resumed.t
+    skip = resumed.s
+    chunkSize = resumed.c
+  } else {
+    // Fast path: exactly `limit`, caller's token.
+    const data = await fetchPage({ limit, nextToken })
     calls++
-    for (const p of data?.items ?? []) {
-      if (p !== null) items.push(toCorePost(p))
-    }
-    token = data?.nextToken ?? null
-  } while (items.length < limit && token && calls < MAX_FILL_PAGES)
-  if (items.length < limit && token) {
-    console.warn(
-      `[ampless] ${label}: page still has ${items.length}/${limit} items after ${calls} resolver calls; returning it with nextToken so the caller can continue`
-    )
+    items.push(...visible(data))
+    const token = data?.nextToken ?? null
+    if (items.length >= limit || !token) return { items, nextToken: token }
+    chunkStart = token
   }
-  return { items, nextToken: token ?? null }
+
+  // Chunk mode.
+  for (;;) {
+    if (calls >= MAX_FILL_CALLS) {
+      const cursor = encodeCursor({ t: chunkStart, s: skip, c: chunkSize })
+      const err = new PostListScanLimitError(operation, items, cursor, calls, limit)
+      console.error(`[ampless] ${err.message}`, { operation, limit, calls, collected: items.length })
+      throw err
+    }
+    const data = await fetchPage({ limit: chunkSize, nextToken: chunkStart ?? undefined })
+    calls++
+    const chunk = visible(data).slice(skip)
+    const token = data?.nextToken ?? null
+    const needed = limit - items.length
+    if (chunk.length >= needed) {
+      items.push(...chunk.slice(0, needed))
+      if (chunk.length > needed) {
+        return { items, nextToken: encodeCursor({ t: chunkStart, s: skip + needed, c: chunkSize }) }
+      }
+      return { items, nextToken: token }
+    }
+    items.push(...chunk)
+    if (!token) return { items, nextToken: null }
+    chunkStart = token
+    skip = 0
+  }
 }
 
 /**

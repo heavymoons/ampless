@@ -55,7 +55,10 @@ import { util, runtime } from '@aws-appsync/utils'
 // when rows are dropped a page can hold fewer than `limit` items (even none)
 // while `nextToken` is still set — the same contract as any filtered
 // AppSync connection. Callers must keep following `nextToken`; the official
-// runtime (`@ampless/runtime` createPostsApi) fills each page that way.
+// runtime (`@ampless/runtime` createPostsApi) fills each page that way,
+// reading 100-row chunks after a short page, and throws
+// PostListScanLimitError rather than return a short page if it cannot
+// fill one within its call budget.
 // Canonical data is unaffected: only non-canonical rows and rows within a
 // minute outside [from, to] are ever dropped.
 

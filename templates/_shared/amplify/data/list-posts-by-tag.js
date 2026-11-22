@@ -34,7 +34,9 @@ import { util } from '@aws-appsync/utils'
 // when legacy rows are dropped a page can hold fewer than `limit` items
 // (even none) while `nextToken` is still set. Callers must keep following
 // `nextToken`; the official runtime (`@ampless/runtime` createPostsApi)
-// fills each page that way. Canonical rows are never dropped here.
+// fills each page that way (100-row chunks after a short page;
+// PostListScanLimitError instead of a short page past its call budget).
+// Canonical rows are never dropped here.
 export function request(ctx) {
   const { tag, limit, nextToken } = ctx.args
   const nowMs = util.time.nowEpochMilliSeconds()

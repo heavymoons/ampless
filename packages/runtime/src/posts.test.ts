@@ -34,7 +34,7 @@ vi.mock('@aws-amplify/adapter-nextjs/api', () => ({
   }),
 }))
 
-import { createPostsApi } from './posts.js'
+import { createPostsApi, PostListScanLimitError } from './posts.js'
 import type { AmplessOutputs } from './outputs.js'
 
 const FAKE_OUTPUTS = {} as unknown as AmplessOutputs
@@ -155,7 +155,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       }
     }
 
-    it('follows nextToken with the remaining limit until the page is full', async () => {
+    it('follows nextToken in chunks of 100 until the page is full', async () => {
       mockListPublishedPosts
         .mockResolvedValueOnce({ data: { items: [row('a')], nextToken: 't1' }, errors: null })
         .mockResolvedValueOnce({
@@ -178,7 +178,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(mockListPublishedPosts).toHaveBeenNthCalledWith(2, FAKE_CTX, {
         from: 'F',
         to: 'T',
-        limit: 2,
+        limit: 100,
         nextToken: 't1',
       })
     })
@@ -195,7 +195,7 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(res.nextToken).toBeNull()
       expect(mockListPostsByTag).toHaveBeenNthCalledWith(2, FAKE_CTX, {
         tag: 'news',
-        limit: 2,
+        limit: 100,
         nextToken: 't1',
       })
     })
@@ -214,23 +214,112 @@ describe('createPostsApi — stateless apiKey reads', () => {
       expect(mockListPublishedPosts).toHaveBeenCalledTimes(1)
     })
 
-    it('stops after 10 calls and returns the partial page with its nextToken', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    it('returns a resumable cursor when a chunk holds more posts than the page needs', async () => {
+      mockListPublishedPosts
+        .mockResolvedValueOnce({ data: { items: [], nextToken: 't1' }, errors: null })
+        .mockResolvedValue({
+          data: { items: [row('a'), row('b'), row('c')], nextToken: 't2' },
+          errors: null,
+        })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      const first = await api.listPublishedPosts({ limit: 2 })
+      expect(first.items.map((p) => p.postId)).toEqual(['a', 'b'])
+      expect(first.nextToken).toMatch(/^ampless-c1\./)
+
+      // The cursor re-reads the same chunk (start token t1, size 100) and
+      // skips the two posts already returned.
+      mockListPublishedPosts.mockResolvedValueOnce({
+        data: { items: [row('a'), row('b'), row('c')], nextToken: null },
+        errors: null,
+      })
+      const second = await api.listPublishedPosts({ limit: 2, nextToken: first.nextToken! })
+      expect(mockListPublishedPosts).toHaveBeenLastCalledWith(FAKE_CTX, {
+        from: undefined,
+        to: undefined,
+        limit: 100,
+        nextToken: 't1',
+      })
+      expect(second).toEqual({ items: [expect.objectContaining({ postId: 'c' })], nextToken: null })
+    })
+
+    it('treats a token without the runtime prefix (or a malformed one) as a raw AppSync token', async () => {
+      mockListPublishedPosts.mockResolvedValue({
+        data: { items: [row('a')], nextToken: null },
+        errors: null,
+      })
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      await api.listPublishedPosts({ limit: 1, nextToken: 'ampless-c1.not-json' })
+
+      expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
+        from: undefined,
+        to: undefined,
+        limit: 1,
+        nextToken: 'ampless-c1.not-json',
+      })
+    })
+
+    it('does not honour a client-supplied cursor that asks for an oversized chunk', async () => {
+      mockListPublishedPosts.mockResolvedValue({
+        data: { items: [row('a')], nextToken: null },
+        errors: null,
+      })
+      const forged =
+        'ampless-c1.' +
+        Buffer.from(JSON.stringify({ t: 'tok', s: 0, c: 100000 }), 'utf8').toString('base64url')
+
+      const api = createPostsApi(FAKE_OUTPUTS)
+      await api.listPublishedPosts({ limit: 1, nextToken: forged })
+
+      // Treated as a raw (invalid-to-AppSync) token, not as a 100000-row read.
+      expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
+        from: undefined,
+        to: undefined,
+        limit: 1,
+        nextToken: forged,
+      })
+    })
+
+    it('throws PostListScanLimitError after 20 calls instead of returning a short page', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
       let n = 0
       mockListPublishedPosts.mockImplementation(async () => ({
-        data: { items: [], nextToken: `t${++n}` },
+        data: { items: n === 3 ? [row('x')] : [], nextToken: `t${++n}` },
         errors: null,
       }))
 
       const api = createPostsApi(FAKE_OUTPUTS)
-      const res = await api.listPublishedPosts({ limit: 5 })
+      const err = await api.listPublishedPosts({ limit: 5 }).catch((e: unknown) => e)
 
-      expect(mockListPublishedPosts).toHaveBeenCalledTimes(10)
-      expect(res.items).toEqual([])
-      expect(res.nextToken).toBe('t10')
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('listPublishedPosts'))
-      warn.mockRestore()
+      expect(err).toBeInstanceOf(PostListScanLimitError)
+      const e = err as PostListScanLimitError
+      expect(e.name).toBe('PostListScanLimitError')
+      expect(e.operation).toBe('listPublishedPosts')
+      expect(e.calls).toBe(20)
+      expect(e.items.map((p) => p.postId)).toEqual(['x'])
+      expect(e.nextToken).toMatch(/^ampless-c1\./)
+      expect(mockListPublishedPosts).toHaveBeenCalledTimes(20)
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('listPublishedPosts'),
+        expect.objectContaining({ calls: 20 })
+      )
+
+      // Resuming from the error continues right after the 20th call.
+      mockListPublishedPosts.mockReset()
+      mockListPublishedPosts.mockResolvedValueOnce({
+        data: { items: [row('y')], nextToken: null },
+        errors: null,
+      })
+      const resumed = await api.listPublishedPosts({ limit: 5, nextToken: e.nextToken })
+      expect(mockListPublishedPosts).toHaveBeenCalledWith(FAKE_CTX, {
+        from: undefined,
+        to: undefined,
+        limit: 100,
+        nextToken: 't20',
+      })
+      expect(resumed).toEqual({ items: [expect.objectContaining({ postId: 'y' })], nextToken: null })
+      error.mockRestore()
     })
 
     it('throws when a follow-up page returns errors', async () => {
