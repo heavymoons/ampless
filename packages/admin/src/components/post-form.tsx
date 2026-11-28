@@ -7,7 +7,17 @@ import {
   createPost,
   updatePost,
   deletePost,
+  getPostById,
   formatDate,
+  PostUpdateConflictError,
+  ConditionalPostUpdateUnsupportedError,
+  POST_CLASSES_METADATA_KEY,
+  POST_CLASSES_METADATA_KIND,
+  readPostClasses,
+  hasForeignPostClassesValue,
+  withPostClasses,
+  isValidCustomClassId,
+  type PostClassesMetadata,
   type Post,
   type PostMetadata,
   type PostRevision,
@@ -34,6 +44,7 @@ import {
   clearDraft,
   reconcileDraft,
   NEW_POST_DRAFT_ID,
+  deepEqual,
   type PostDraft,
   type LoadedPostState,
   type DraftDecision,
@@ -49,8 +60,26 @@ import type { AnyExtension } from '@tiptap/core'
 
 type PostFormView = 'edit' | 'preview'
 
+/**
+ * A post custom class the active theme declares (ThemeManifest.customClasses
+ * with target 'post'), with its label already resolved for the admin locale.
+ * Serializable so the server page factory can pass it to the client form
+ * (see `loadEditorPostClasses`).
+ */
+export interface EditorPostClass {
+  id: string
+  label: string
+  description?: string
+}
+
 interface PostFormProps {
   post?: Post
+  /**
+   * The active theme's post classes, offered as the "Post classes"
+   * checkboxes. Ids stored on the post but missing here are still shown
+   * (marked "not in current theme") so they can be kept or unchecked.
+   */
+  postClasses?: ReadonlyArray<EditorPostClass>
   /**
    * Phase 7: endpoint that the form POSTs the in-flight draft to for
    * server-rendered preview HTML (body + page-level scripts). Defaults
@@ -108,6 +137,43 @@ function defaultBodyForFormat(format: ContentFormat): unknown {
   return ''
 }
 
+// Order-insensitive id list comparison: re-checking a box the user just
+// unchecked must count as "unchanged" so the stored value stays verbatim.
+function sameIdSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every((id) => set.has(id))
+}
+
+// Legacy (non-conditional) save: true when `next` equals `loaded` except
+// that `no_layout` was dropped because the post is saved in a non-html
+// format (buildMetadata always drops it there). Every runtime consumer of
+// no_layout gates on `format === 'html'` (runtime middleware /raw rewrite,
+// routes/raw.ts, ampless `bypassesPostBodyWrapper`), so the stale flag is
+// inert while the post is not html — leaving it stored by omitting
+// `metadata` from the save changes nothing anyone renders. When the post is
+// opened again, `loadedNoLayout` treats that stored flag as off (it is not
+// html), so switching back to html shows it unchecked. Saving it as html
+// must then remove the stored flag: the conditional save writes metadata
+// without it, and the legacy save refuses (this function returns false for
+// html) rather than leave it to take effect.
+function onlyDropsInertNoLayout(
+  next: PostMetadata,
+  loaded: PostMetadata,
+  format: ContentFormat | undefined,
+): boolean {
+  if (format === 'html') return false
+  if (!Object.prototype.hasOwnProperty.call(loaded, 'no_layout')) return false
+  if (Object.prototype.hasOwnProperty.call(next, 'no_layout')) return false
+  const { no_layout: _dropped, ...rest } = loaded
+  return deepEqual(next, rest)
+}
+
+// The no_layout state a post is opened with: only an html post's flag is live.
+function loadedNoLayout(post: Post | undefined): boolean {
+  return post?.metadata?.no_layout === true && post?.format === 'html'
+}
+
 function isStaticBody(value: unknown): value is StaticPostBody {
   return (
     !!value &&
@@ -138,7 +204,7 @@ function formatDraftTime(epochMs: number, timezone: string, locale: string): str
   }
 }
 
-export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormProps) {
+export function PostForm({ post, previewEndpoint = '/admin/preview', postClasses = [] }: PostFormProps) {
   const router = useRouter()
   const t = useT()
   const isEdit = !!post
@@ -151,7 +217,18 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   const [body, setBody] = useState<unknown>(post?.body ?? EMPTY_TIPTAP_DOC)
   const [status, setStatus] = useState<Post['status']>(post?.status ?? 'draft')
   const [tagsInput, setTagsInput] = useState((post?.tags ?? []).join(', '))
-  const [noLayout, setNoLayout] = useState(post?.metadata?.no_layout === true)
+  // A stored `no_layout` on a non-html post is inert (every consumer gates
+  // on format === 'html'; see `onlyDropsInertNoLayout`), so it is treated as
+  // off: switching the format back to html must not silently reactivate it.
+  const [noLayout, setNoLayout] = useState(loadedNoLayout(post))
+  // Theme post classes. `loadedPostClassIds` is what the post was opened
+  // with (the tagged `metadata['ampless:postClasses']` value); the save
+  // only rewrites that key when the selection differs from it. A value
+  // under the key that ampless did not write (`foreignPostClasses`) makes
+  // the selection read-only and is never touched.
+  const loadedPostClassIds = readPostClasses(post?.metadata)
+  const foreignPostClasses = hasForeignPostClassesValue(post?.metadata)
+  const [postClassIds, setPostClassIds] = useState<string[]>(loadedPostClassIds)
   const [publishedAtInput, setPublishedAtInput] = useState(isoToLocalInput(post?.publishedAt))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -195,6 +272,32 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   // Static posts can't be autosaved (their bytes live in pendingBundle,
   // not in localStorage). Surfaces a short note instead of a draft.
   const isStaticFormat = format === 'static'
+  // Post classes only render where the theme wraps the body: not static
+  // bundles, not no_layout HTML (`bypassesPostBodyWrapper`). For those
+  // formats the group is hidden and the stored key is left as loaded.
+  const postClassesApply = format !== 'static' && !(format === 'html' && noLayout)
+  // Checkbox options: the theme's declared classes, then any id the post
+  // carries (loaded or restored from a revision) that the theme does not
+  // declare, so it stays visible after being unchecked.
+  const declaredPostClassIds = new Set(postClasses.map((c) => c.id))
+  const postClassOptions: Array<EditorPostClass & { undeclared: boolean }> = [
+    ...postClasses.map((c) => ({ ...c, undeclared: false })),
+  ]
+  for (const id of [...loadedPostClassIds, ...postClassIds]) {
+    if (declaredPostClassIds.has(id) || postClassOptions.some((o) => o.id === id)) continue
+    postClassOptions.push({ id, label: id, undeclared: true })
+  }
+  const postClassesChanged =
+    postClassesApply && !foreignPostClasses && !sameIdSet(postClassIds, loadedPostClassIds)
+
+  function togglePostClass(id: string, checked: boolean) {
+    const next = new Set(postClassIds)
+    if (checked) next.add(id)
+    else next.delete(id)
+    // Keep the option order so the stored list is stable.
+    setPostClassIds(postClassOptions.map((o) => o.id).filter((o) => next.has(o)))
+    markDirty()
+  }
   // Timezone / locale for rendering the draft timestamp in the recovery
   // banner, matching how the revision-history panel formats times.
   const cmsConfig = getAdminCmsConfig()
@@ -291,7 +394,8 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     status: post?.status ?? 'draft',
     tags: (post?.tags ?? []).join(', '),
     publishedAtInput: isoToLocalInput(post?.publishedAt),
-    noLayout: post?.metadata?.no_layout === true,
+    noLayout: loadedNoLayout(post),
+    postClasses: loadedPostClassIds,
     updatedAt: post?.updatedAt ?? null,
   }
 
@@ -306,6 +410,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       tags: tagsInput,
       publishedAtInput,
       noLayout,
+      postClasses: postClassIds,
       baseUpdatedAt: post?.updatedAt ?? null,
       savedAt: Date.now(),
     }
@@ -325,6 +430,11 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     setTagsInput(draft.tags)
     setPublishedAtInput(draft.publishedAtInput)
     setNoLayout(draft.noLayout && draft.format === 'html')
+    // Drafts from before post classes existed lack the field: keep the
+    // loaded selection. A foreign value stays read-only either way.
+    if (!foreignPostClasses && Array.isArray(draft.postClasses)) {
+      setPostClassIds(draft.postClasses.filter(isValidCustomClassId))
+    }
     setPendingBundle(null)
     // Force the tiptap editor to remount with the restored body.
     setEditorEpoch((e) => e + 1)
@@ -389,7 +499,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     // Re-arm on every tracked field change; the dirty gate decides whether
     // a write actually happens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout])
+  }, [title, slug, excerpt, format, body, status, tagsInput, publishedAtInput, noLayout, postClassIds])
 
   function insertMediaSnippet(url: string) {
     if (format === 'tiptap') return // tiptap handles images via its own MediaPicker
@@ -482,9 +592,12 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
   // (buildMetadata rebuilds from the live post.metadata and has no
   // metadata state, so restoring the blob wouldn't apply and could
   // clobber plugin / SEO data). The snapshot still STORES metadata; we
-  // just don't apply it on restore in v1. The one metadata key we honour
-  // is `no_layout`, and only for html revisions (matches buildMetadata's
-  // gating).
+  // just don't apply it on restore in v1. The metadata keys we honour are
+  // `no_layout`, only for html revisions (matches buildMetadata's gating),
+  // and the revision's post classes, which only set the checkbox
+  // selection — the save then rewrites just that one key on top of the
+  // live metadata. A live foreign value under the key keeps the selection
+  // read-only, so it is not restored.
   function restoreRevision(rev: PostRevision) {
     const fmt = rev.format ?? 'markdown'
     setTitle(rev.title ?? '')
@@ -496,6 +609,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     setTagsInput((rev.tags ?? []).join(', '))
     setPublishedAtInput(isoToLocalInput(rev.publishedAt))
     setNoLayout(rev.metadata?.no_layout === true && fmt === 'html')
+    if (!foreignPostClasses) setPostClassIds(readPostClasses(rev.metadata))
     // A new bundle pick (for static) is irrelevant to a restore — clear
     // any pending upload so it can't leak into the next save.
     setPendingBundle(null)
@@ -515,9 +629,19 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     setSaving(true)
     setError(null)
 
+    const expectedUpdatedAt = isEdit ? post!.updatedAt : undefined
+
     try {
       const tags = parseTags(tagsInput)
       let metadata = buildMetadata()
+      // Rewrite the post-classes key only when the selection changed;
+      // otherwise it stays exactly as loaded (buildMetadata spreads the
+      // live post.metadata, which keeps it verbatim). `withPostClasses`
+      // replaces just that key and drops it for an empty selection.
+      if (postClassesChanged) {
+        const next = withPostClasses(metadata, postClassIds)
+        metadata = Object.keys(next).length > 0 ? next : undefined
+      }
       const finalSlug = slug || slugify(title)
 
       // Resolve publishedAt at SUBMIT time, not render time: a first
@@ -538,8 +662,30 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       // bundle was picked, we re-use the existing manifest (edit-only
       // metadata changes shouldn't re-upload).
       let nextBody: unknown = body
+      // Set when a new static bundle is uploaded below: that save keeps the
+      // unconditional write (see the comment on the pre-check).
+      let uploadedBundle = false
       if (format === 'static') {
         if (pendingBundle) {
+          // NOT PROTECTED against concurrent edits, deletes or uploads.
+          // `uploadBundle` wipes and re-uploads the slug's S3 prefix, and the
+          // DB write after it is the legacy unconditional one (it must write
+          // `metadata.files`; failing it after S3 was replaced would leave
+          // the old row pointing at new files). The re-read below is only a
+          // best-effort, read-only early abort: it stops a save whose post
+          // already changed (S3 untouched), but anything that lands between
+          // this check and the final write -- an edit, a delete (the write
+          // then recreates nothing but overwrites whatever is there), another
+          // bundle upload to the same prefix -- is overwritten or mixed.
+          // A safe static bundle replace needs its own design (separate
+          // issue); this path deliberately keeps the pre-existing behaviour.
+          if (expectedUpdatedAt) {
+            const fresh = await getPostById(post!.postId)
+            if (!fresh || fresh.updatedAt !== expectedUpdatedAt) {
+              throw new PostUpdateConflictError(post!.postId, expectedUpdatedAt)
+            }
+          }
+          uploadedBundle = true
           const result = await uploadBundle({
             slug: finalSlug,
             files: pendingBundle.files,
@@ -573,7 +719,7 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
         // must send an explicit value or the stored value would survive.
         // Send `excerpt` verbatim ('' clears it) and `metadata ?? {}` ('{}'
         // clears stale keys like a leftover `no_layout`).
-        await updatePost(post!.postId, {
+        const doc: Partial<Post> = {
           title,
           slug: finalSlug,
           excerpt,
@@ -583,7 +729,13 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
           publishedAt,
           tags,
           metadata: metadata ?? {},
-        })
+        }
+        if (uploadedBundle) {
+          // Unprotected static bundle save -- see the comment above.
+          await updatePost(post!.postId, doc)
+        } else {
+          await saveEditConditionally(post!, doc)
+        }
       } else {
         await createPost({
           slug: finalSlug,
@@ -606,10 +758,61 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
       router.push('/admin/posts')
       router.refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (err instanceof PostUpdateConflictError) {
+        // Nothing was saved. Keep the user's work: flush the local draft
+        // now (the debounced autosave may not have fired yet) so a reload
+        // offers it back as a stale draft. Static posts have no draft.
+        if (!isStaticFormat && dirtyRef.current) writeDraft(draftId, buildCurrentDraft())
+        setError(t(isStaticFormat ? 'posts.form.saveConflictStatic' : 'posts.form.saveConflict'))
+      } else {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setSaving(false)
     }
+  }
+
+  // Edit save conditioned on the post exactly as this form loaded it: the
+  // backend writes only if every field still matches (and updatedAt), so a
+  // concurrent save elsewhere -- another tab, another editor, MCP, even in
+  // the same millisecond -- is reported (PostUpdateConflictError) instead
+  // of overwritten.
+  //
+  // When no conditional write is possible (provider without it, a backend
+  // that was not upgraded, or a post with no known updatedAt) nothing was
+  // executed, and the legacy save below runs instead:
+  //   - metadata unchanged from what was loaded: the update is sent
+  //     WITHOUT `metadata`, so the stored attribute -- including post
+  //     classes or plugin keys another writer added meanwhile -- is not
+  //     touched;
+  //   - the only metadata change is `no_layout` dropped because the post
+  //     is saved in a non-html format (e.g. html -> markdown): treated as
+  //     unchanged and sent WITHOUT `metadata` too. The stale flag stays
+  //     stored but is inert (see `onlyDropsInertNoLayout`);
+  //   - any other metadata change (post classes, the no_layout toggle on
+  //     an html post): refused, nothing saved, because there is no way to
+  //     write a single metadata key without a whole-object replace, which
+  //     could erase a concurrent metadata change.
+  // The content fields of the legacy save stay last-write-wins, exactly as
+  // before conditional saves existed.
+  async function saveEditConditionally(loaded: Post, doc: Partial<Post>) {
+    try {
+      await updatePost(loaded.postId, doc, { expected: loaded })
+      return
+    } catch (err) {
+      if (!(err instanceof ConditionalPostUpdateUnsupportedError)) throw err
+      console.warn('[ampless admin] conditional save unavailable, using the legacy save:', err.message)
+    }
+    const nextMetadata = doc.metadata ?? {}
+    const loadedMetadata = loaded.metadata ?? {}
+    if (
+      !deepEqual(nextMetadata, loadedMetadata) &&
+      !onlyDropsInertNoLayout(nextMetadata, loadedMetadata, doc.format)
+    ) {
+      throw new Error(t('posts.form.metadataUnsafe'))
+    }
+    // The provider omits `undefined` fields from the update input.
+    await updatePost(loaded.postId, { ...doc, metadata: undefined })
   }
 
   async function handleDelete() {
@@ -645,6 +848,22 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     status,
     publishedAt: resolvedPublishedAt,
     tags: parseTags(tagsInput),
+    // Only the post-classes key, from the current selection, so the
+    // preview's <main> gets the same `ampless-post--<id>` classes the
+    // theme would add. Omitted when there are none (or the format never
+    // gets classes, or a foreign value makes them read-only): the preview
+    // request is then exactly what it was before post classes existed.
+    ...(postClassesApply &&
+      !foreignPostClasses &&
+      postClassIds.length > 0 && {
+        metadata: {
+          [POST_CLASSES_METADATA_KEY]: {
+            kind: POST_CLASSES_METADATA_KIND,
+            version: 1,
+            ids: postClassIds,
+          } satisfies PostClassesMetadata,
+        },
+      }),
   }
 
   // Phase 7: when the preview tab is active, debounce-POST the draft
@@ -697,6 +916,8 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
     status,
     resolvedPublishedAt,
     tagsInput,
+    noLayout,
+    postClassIds,
   ])
 
   return (
@@ -1051,6 +1272,47 @@ export function PostForm({ post, previewEndpoint = '/admin/preview' }: PostFormP
               </span>
             </span>
           </label>
+        </div>
+      )}
+
+      {postClassesApply && (postClassOptions.length > 0 || foreignPostClasses) && (
+        <div className="space-y-2">
+          <Label>{t('posts.form.postClasses')}</Label>
+          {foreignPostClasses ? (
+            <p
+              role="note"
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-950"
+            >
+              {t('posts.form.postClassesForeign')}
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {postClassOptions.map((c) => (
+                <label key={c.id} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="postClass"
+                    value={c.id}
+                    checked={postClassIds.includes(c.id)}
+                    onChange={(e) => togglePostClass(c.id, e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">{c.label}</span>
+                    {c.undeclared && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        ({t('posts.form.postClassesNotInTheme')})
+                      </span>
+                    )}
+                    {c.description && (
+                      <span className="block text-xs text-muted-foreground">{c.description}</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{t('posts.form.postClassesHint')}</p>
         </div>
       )}
 

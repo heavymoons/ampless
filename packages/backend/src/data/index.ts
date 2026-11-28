@@ -18,6 +18,20 @@ export interface AmplessResolverPaths {
   getPublishedPost: string
   listPostsByTag: string
   getMediaBySrc: string
+  /**
+   * Opt-in: path to `update-post-if-unchanged.js`. The
+   * `amplessUpdatePostIfUnchanged` mutation — the atomic conditional post
+   * update the admin editor and MCP `set_post_classes` / `update_post
+   * (expectedVersion)` use — is added to the schema ONLY when this is
+   * set explicitly. It has no default on purpose: a project that bumps
+   * `@ampless/backend` without running `create-ampless upgrade` keeps its
+   * old `amplify/data/resource.ts` (which does not pass it) and has no
+   * resolver file to point at, so the op is simply absent and the project
+   * still synths. Clients detect the missing op and refuse (or fall back
+   * to saves that leave metadata untouched) instead of writing
+   * unconditionally.
+   */
+  updatePostIfUnchanged?: string
 }
 
 /**
@@ -592,6 +606,38 @@ export function amplessSchemaModels(a: any, opts: AmplessSchemaModelsOpts = {}) 
         allow.publicApiKey(),
         allow.groups(['ampless-admin', 'ampless-editor']),
       ]),
+
+    // Atomic conditional post update (see update-post-if-unchanged.js):
+    // one UpdateItem whose condition compares updatedAt AND every field
+    // the caller read, so a write in the same millisecond (equal
+    // updatedAt) still fails the condition. `patch` / `expected` are JSON
+    // strings (plain `String`, not AWSJSON) parsed by the resolver.
+    // Opt-in via `resolverPaths.updatePostIfUnchanged` — see
+    // `AmplessResolverPaths`. Same group auth as the Post model; the MCP
+    // Lambda reaches it through the schema-level resource grant
+    // (`amplessSchemaAuthorization`).
+    ...(opts.resolverPaths?.updatePostIfUnchanged
+      ? {
+          amplessUpdatePostIfUnchanged: a
+            .mutation()
+            .arguments({
+              postId: a.id().required(),
+              patch: a.string().required(),
+              expected: a.string().required(),
+            })
+            .returns(a.ref('Post'))
+            .handler(
+              a.handler.custom({
+                dataSource: a.ref('Post'),
+                entry: opts.resolverPaths.updatePostIfUnchanged,
+              })
+            )
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .authorization((allow: any) => [
+              allow.groups(['ampless-admin', 'ampless-editor']),
+            ]),
+        }
+      : {}),
 
     // Plugin secret mutation ops, only wired when the caller supplies a
     // Lambda function ref. Conditionally spread because

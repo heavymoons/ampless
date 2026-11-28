@@ -1,4 +1,4 @@
-import type { Post } from 'ampless'
+import { postBodyClassName, type Post } from 'ampless'
 import { renderThemeCss } from '@ampless/runtime'
 import type { Admin } from '../index.js'
 
@@ -193,6 +193,14 @@ em { font-style: italic; }
 }
 `.trim()
 
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
 /**
  * Build the `POST /admin/preview` Route Handler.
  *
@@ -293,6 +301,16 @@ export function createPreviewRouteHandler(
     } catch {
       return new Response('Bad Request', { status: 400 })
     }
+    // The draft's theme post classes (`ampless-post--<id>`, from the tagged
+    // `metadata['ampless:postClasses']` the form sends) go on `<main>`, the
+    // same way themes put them on their post body wrapper. Without classes
+    // `postBodyClassName` returns `bodyClassName` unchanged, and it is then
+    // emitted verbatim (not escaped) so the document stays byte-identical
+    // to what this handler produced before post classes existed. With
+    // classes the whole value is attribute-escaped; the added ids are
+    // already restricted to `[a-z0-9-]`.
+    const postClassName = postBodyClassName(draft, bodyClassName)
+    const mainClassAttr = postClassName === bodyClassName ? bodyClassName : escapeHtmlAttr(postClassName)
     const ampless = await admin.getAmpless()
     // IMPORTANT: include BOTH the body and the page-level scripts so
     // widgets like x.com's `widgets.js` get a chance to hydrate in the
@@ -342,7 +360,7 @@ export function createPreviewRouteHandler(
       headMarkup +
       `</head>` +
       `<body class="ampless-preview">` +
-      `<main class="${bodyClassName}">${fragment}</main>` +
+      `<main class="${mainClassAttr}">${fragment}</main>` +
       `</body>` +
       `</html>`
 

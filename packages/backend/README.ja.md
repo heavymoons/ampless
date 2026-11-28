@@ -82,7 +82,7 @@ export type Schema = ClientSchema<typeof schema>
 export const data = defineData({ schema, authorizationModes: defaultAuthorizationModes })
 ```
 
-3 つの AppSync JS リゾルバーファイル（`list-published-posts.js`、`get-published-post.js`、`list-posts-by-tag.js`）はテンプレート内に残ります — AppSync がリゾルバーの `entry` パスを CDK synth 時に `defineData` を呼び出すファイルからの相対パスで解決するため、pnpm でシンボリックリンクされた `node_modules` パスは解決を通過できません。`amplify/data/` 以外の場所に移動する場合は、`amplessSchemaModels(a, { resolverPaths })` で新しいパスを渡してください。
+3 つの AppSync JS リゾルバーファイル（`list-published-posts.js`、`get-published-post.js`、`list-posts-by-tag.js`）はテンプレート内に残ります — AppSync がリゾルバーの `entry` パスを CDK synth 時に `defineData` を呼び出すファイルからの相対パスで解決するため、pnpm でシンボリックリンクされた `node_modules` パスは解決を通過できません。`amplify/data/` 以外の場所に移動する場合は、`amplessSchemaModels(a, { resolverPaths })` で新しいパスを渡してください。条件付きの記事更新リゾルバー（`update-post-if-unchanged.js`、`amplessUpdatePostIfUnchanged` ミューテーション用）はオプトインです。ミューテーションは `resolverPaths.updatePostIfUnchanged` を渡したときだけ追加され、テンプレートの `amplify/data/resource.ts` は `create-ampless upgrade` の後にこれを渡します。
 
 ### `amplify/storage/resource.ts`
 

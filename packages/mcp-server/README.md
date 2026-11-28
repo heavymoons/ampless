@@ -113,9 +113,10 @@ import type { PublicToolContext } from '@ampless/mcp-server/public'
 | Tool | Role | Description |
 |---|---|---|
 | `list_posts` | reader | Lightweight post summaries (no body — use `get_post`) with search / sort / filters. Returns `{ posts, total, offset, limit }` |
-| `get_post` | reader | Fetch a single post by slug or postId |
+| `get_post` | reader | Fetch a single post by slug or postId; includes a content `version` token |
 | `create_post` | editor | Create a new post (draft or published) |
-| `update_post` | editor | Patch fields on an existing post |
+| `update_post` | editor | Patch fields on an existing post; pass `expectedVersion` (from `get_post`) to fail instead of overwriting a concurrent change |
+| `set_post_classes` | editor | Change only the theme post classes: `add` / `remove`, or `ids` (full replacement, requires `expectedVersion`) |
 | `delete_post` | editor | Delete a post and clean up its tag index |
 | `upload_media` | editor | Upload base64-encoded bytes to S3 and create a Media record |
 | `list_media` | reader | List media with optional `mimeType` (prefix) / `prefix` / `createdAfter` / `createdBefore` filters + pagination |

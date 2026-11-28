@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from 'react'
 import { notFound } from 'next/navigation'
 import { getPostById, type Post } from 'ampless'
-import { PostForm } from './post-form.js'
+import { PostForm, type EditorPostClass } from './post-form.js'
 import { useT } from './i18n-provider.js'
 import { TableClassesProvider, type EditorTableClass } from '../editor/table-classes-context.js'
 
@@ -15,6 +15,11 @@ interface EditPostPageProps {
    */
   tableClasses?: ReadonlyArray<EditorTableClass>
   /**
+   * Post custom classes declared by the active theme, resolved by
+   * `createEditPostPage`. Offered as the form's "Post classes" checkboxes.
+   */
+  postClasses?: ReadonlyArray<EditorPostClass>
+  /**
    * Endpoint that `<PostForm>` / `<PostHistoryPanel>` POST the draft to
    * for preview HTML. Threaded down from `createEditPostPage`. Defaults
    * to `/admin/preview` inside `<PostForm>` when omitted.
@@ -22,7 +27,7 @@ interface EditPostPageProps {
   previewEndpoint?: string
 }
 
-export function EditPostPage({ params, previewEndpoint, tableClasses }: EditPostPageProps) {
+export function EditPostPage({ params, previewEndpoint, tableClasses, postClasses }: EditPostPageProps) {
   const t = useT()
   const { postId } = use(params)
   const [post, setPost] = useState<Post | null>(null)
@@ -57,7 +62,7 @@ export function EditPostPage({ params, previewEndpoint, tableClasses }: EditPost
       <h1 className="mb-6 text-2xl font-bold md:mb-8 md:text-3xl">{t('posts.form.editTitle')}</h1>
       {post && (
         <TableClassesProvider classes={tableClasses}>
-          <PostForm post={post} previewEndpoint={previewEndpoint} />
+          <PostForm post={post} previewEndpoint={previewEndpoint} postClasses={postClasses} />
         </TableClassesProvider>
       )}
     </div>

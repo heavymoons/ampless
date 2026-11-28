@@ -80,12 +80,74 @@ export interface SummaryListOptions {
   status?: 'draft' | 'published' | 'all'
 }
 
+/**
+ * Options for a conditional `updatePost`: `expected` is the post exactly as
+ * the caller read it (e.g. the `post` an editor was opened with). The
+ * provider builds the store-side condition from it — at minimum its
+ * `updatedAt`, and for the admin provider every content field as well, so
+ * a concurrent write is detected even when it landed in the same
+ * millisecond (equal `updatedAt`).
+ */
+export interface ConditionalPostUpdateOptions {
+  expected: Post
+}
+
+/**
+ * Thrown by a conditional `updatePost` when the stored post changed since
+ * the caller read it (or is gone). Nothing was written.
+ */
+export class PostUpdateConflictError extends Error {
+  readonly postId: string
+  readonly expectedUpdatedAt: string
+
+  constructor(postId: string, expectedUpdatedAt: string, options?: { cause?: unknown }) {
+    super(
+      `Post ${postId} was changed since it was read (expected updatedAt ${expectedUpdatedAt}); nothing was saved`,
+      options,
+    )
+    this.name = 'PostUpdateConflictError'
+    this.postId = postId
+    this.expectedUpdatedAt = expectedUpdatedAt
+  }
+}
+
+/**
+ * Thrown by `updatePost(..., { expected })` when no conditional write is
+ * possible: the configured provider has no `updateIfUnchanged`, the backend
+ * lacks the conditional mutation (an un-upgraded deployment), or `expected`
+ * carries no `updatedAt` to condition on. In every case NOTHING was
+ * executed — a conditional update never falls back to an unconditional
+ * write on its own; the caller decides what (if anything) is safe to do.
+ */
+export class ConditionalPostUpdateUnsupportedError extends Error {
+  constructor(reason = 'The configured posts provider does not support conditional updates (updateIfUnchanged)') {
+    super(reason)
+    this.name = 'ConditionalPostUpdateUnsupportedError'
+  }
+}
+
 export interface PostsProvider {
   list(opts?: ListOptions): Promise<Post[]>
   get(slug: string): Promise<Post | null>
   getById(postId: string): Promise<Post | null>
   create(data: CreatePostInput): Promise<Post>
   update(postId: string, data: Partial<Post>): Promise<Post>
+  /**
+   * Like `update`, but only writes when the stored post still matches
+   * `options.expected` (checked atomically by the store in the same write,
+   * not read-then-write). MUST throw `PostUpdateConflictError` when that
+   * condition fails and `ConditionalPostUpdateUnsupportedError` when it
+   * cannot condition the write at all, and must never write in either case.
+   *
+   * Optional: providers without it make conditional `updatePost` calls
+   * throw `ConditionalPostUpdateUnsupportedError` (see
+   * `supportsConditionalPostUpdate`). The admin provider implements it.
+   */
+  updateIfUnchanged?(
+    postId: string,
+    data: Partial<Post>,
+    options: ConditionalPostUpdateOptions
+  ): Promise<Post>
   remove(postId: string): Promise<void>
   listPostHistory(
     postId: string,
@@ -142,9 +204,32 @@ export async function createPost(data: CreatePostInput): Promise<Post> {
   return provider.create(data)
 }
 
-export async function updatePost(postId: string, data: Partial<Post>): Promise<Post> {
+/**
+ * Update a post. Without `options` this is the plain last-write-wins
+ * `provider.update`. With `options.expected` the write is conditional
+ * (`provider.updateIfUnchanged`): it throws `PostUpdateConflictError` when
+ * the post changed since it was read, and
+ * `ConditionalPostUpdateUnsupportedError` when no conditional write is
+ * possible — it never degrades to an unconditional one.
+ */
+export async function updatePost(
+  postId: string,
+  data: Partial<Post>,
+  options?: ConditionalPostUpdateOptions
+): Promise<Post> {
   if (!provider) throw new Error('No posts provider configured. Call setPostsProvider() first.')
-  return provider.update(postId, data)
+  if (!options) return provider.update(postId, data)
+  if (!provider.updateIfUnchanged) throw new ConditionalPostUpdateUnsupportedError()
+  return provider.updateIfUnchanged(postId, data, options)
+}
+
+/**
+ * True when the provider implements `updateIfUnchanged`. A `true` does not
+ * guarantee the backend supports it — `updatePost(..., { expected })` can
+ * still throw `ConditionalPostUpdateUnsupportedError`.
+ */
+export function supportsConditionalPostUpdate(): boolean {
+  return typeof provider?.updateIfUnchanged === 'function'
 }
 
 export async function deletePost(postId: string): Promise<void> {

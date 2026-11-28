@@ -23,7 +23,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // Ampless's built-in models (Post / Page / Media / Taxonomy / PostTag /
 // KvStore) plus the public-read custom queries
 // (listPublishedPosts / getPublishedPost / listPostsByTag /
-// getMediaBySrc).
+// getMediaBySrc), and the conditional post update mutation
+// (amplessUpdatePostIfUnchanged), which is only added because
+// `updatePostIfUnchanged` is passed here.
 //
 // Add project-specific models in `amplify/data/resource.custom.ts` —
 // that file is never overwritten by `create-ampless upgrade`.
@@ -32,6 +34,7 @@ const resolverPaths = {
   getPublishedPost: resolve(__dirname, 'get-published-post.js'),
   listPostsByTag: resolve(__dirname, 'list-posts-by-tag.js'),
   getMediaBySrc: resolve(__dirname, 'get-media-by-src.js'),
+  updatePostIfUnchanged: resolve(__dirname, 'update-post-if-unchanged.js'),
 }
 
 const schema = a

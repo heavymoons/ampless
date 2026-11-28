@@ -1,6 +1,5 @@
 import {
   encodeAwsJson,
-  type Post,
   type PostMetadata,
   type StaticPostBody,
 } from 'ampless'
@@ -8,6 +7,7 @@ import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { getPost } from './get-post.js'
 import { normalizePublishedAt } from './published-at.js'
+import { withVersion, type VersionedPost } from './post-version.js'
 
 // PostTag denormalized index is rebuilt by the trusted-processor
 // Lambda directly off the Post DynamoDB stream — see
@@ -57,7 +57,7 @@ export interface UpsertStaticPostFields {
 }
 
 export interface UpsertStaticPostResult {
-  post: Post
+  post: VersionedPost
   /** True when a new Post row was created, false on update. */
   created: boolean
 }
@@ -101,7 +101,7 @@ export async function upsertStaticPost(
       updatePost: Parameters<typeof toCorePost>[0]
     }>(UPDATE_MUTATION, { input })
 
-    const updated = toCorePost(data.updatePost)
+    const updated = withVersion(toCorePost(data.updatePost))
     return { post: updated, created: false }
   }
 
@@ -139,6 +139,6 @@ export async function upsertStaticPost(
     createPost: Parameters<typeof toCorePost>[0]
   }>(CREATE_MUTATION, { input })
 
-  const created = toCorePost(data.createPost)
+  const created = withVersion(toCorePost(data.createPost))
   return { post: created, created: true }
 }

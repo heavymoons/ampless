@@ -11,7 +11,7 @@
 // and propagated to the public site through the normal site-settings
 // S3 cache. See https://github.com/heavymoons/ampless/wiki/THEMES for authoring details.
 
-import type { Post } from './types.js'
+import type { Post, PostMetadata } from './types.js'
 
 export type ThemeFieldType =
   | 'color'
@@ -270,6 +270,90 @@ export function readPostClasses(metadata: unknown): string[] {
     if (isValidCustomClassId(id)) out.add(id)
   }
   return [...out]
+}
+
+function isTaggedPostClassesValue(value: unknown): value is PostClassesMetadata {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const { kind, version, ids } = value as Partial<Record<keyof PostClassesMetadata, unknown>>
+  return kind === POST_CLASSES_METADATA_KIND && version === 1 && Array.isArray(ids)
+}
+
+/**
+ * True when `metadata[POST_CLASSES_METADATA_KEY]` holds something that is
+ * not a tagged `PostClassesMetadata` — a value some theme, plugin or
+ * direct GraphQL write put there. Writers must leave such a value alone
+ * (`withPostClasses` refuses to replace it); readers already ignore it.
+ */
+export function hasForeignPostClassesValue(metadata: unknown): boolean {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return false
+  const record = metadata as Record<string, unknown>
+  if (!Object.prototype.hasOwnProperty.call(record, POST_CLASSES_METADATA_KEY)) return false
+  const value = record[POST_CLASSES_METADATA_KEY]
+  // A present-but-undefined key carries no data (JSON drops it), so there
+  // is nothing to protect.
+  if (value === undefined) return false
+  return !isTaggedPostClassesValue(value)
+}
+
+/**
+ * Return a copy of `metadata` with the post classes set to `ids`, for
+ * write paths (admin editor, MCP). Every other key — including a plain
+ * legacy `postClasses` key — is preserved as-is; `metadata` itself is not
+ * mutated. `ids` are de-duplicated (first occurrence keeps its position);
+ * an empty list removes `POST_CLASSES_METADATA_KEY` entirely, so a post
+ * that drops its last class carries no trace of the feature.
+ *
+ * Throws instead of silently dropping when an id is invalid (a write path
+ * should surface the typo), and when the key already holds a value that
+ * is not a tagged `PostClassesMetadata` (see `hasForeignPostClassesValue`)
+ * — that value belongs to someone else and must not be clobbered.
+ */
+export function withPostClasses(metadata: PostMetadata | null | undefined, ids: readonly string[]): PostMetadata {
+  if (hasForeignPostClassesValue(metadata)) {
+    throw new Error(
+      `metadata["${POST_CLASSES_METADATA_KEY}"] holds a value that is not a tagged post-classes value ` +
+        `(kind "${POST_CLASSES_METADATA_KIND}", version 1); refusing to overwrite it`,
+    )
+  }
+  const unique = new Set<string>()
+  for (const id of ids) {
+    if (!isValidCustomClassId(id)) {
+      throw new Error(
+        `Invalid post class id ${JSON.stringify(id)}: use 1-${CUSTOM_CLASS_ID_MAX_LENGTH} lowercase letters, digits or hyphens`,
+      )
+    }
+    unique.add(id)
+  }
+  const next: PostMetadata = { ...(metadata ?? {}) }
+  if (unique.size === 0) {
+    delete next[POST_CLASSES_METADATA_KEY]
+  } else {
+    const value: PostClassesMetadata = { kind: POST_CLASSES_METADATA_KIND, version: 1, ids: [...unique] }
+    next[POST_CLASSES_METADATA_KEY] = value
+  }
+  return next
+}
+
+/**
+ * Validate a tagged post-classes value a caller supplies inside a whole
+ * `metadata` object (e.g. MCP `update_post`). Returns an error message when
+ * the key holds a tagged value whose `ids` are not all valid, unique-able
+ * class ids; `null` otherwise (no key, a valid tagged value, or a foreign
+ * value — which readers ignore and this does not judge).
+ */
+export function postClassesMetadataError(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>)[POST_CLASSES_METADATA_KEY]
+  if (!isTaggedPostClassesValue(value)) return null
+  for (const id of value.ids) {
+    if (!isValidCustomClassId(id)) {
+      return (
+        `metadata["${POST_CLASSES_METADATA_KEY}"].ids contains an invalid post class id ${JSON.stringify(id)} ` +
+        `(use 1-${CUSTOM_CLASS_ID_MAX_LENGTH} lowercase letters, digits or hyphens)`
+      )
+    }
+  }
+  return null
 }
 
 /**

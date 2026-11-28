@@ -113,9 +113,10 @@ import type { PublicToolContext } from '@ampless/mcp-server/public'
 | ツール | role | 説明 |
 |---|---|---|
 | `list_posts` | reader | 投稿の軽量サマリー（body なし — 本文は `get_post`）。検索/ソート/フィルター対応。`{ posts, total, offset, limit }` を返す |
-| `get_post` | reader | slug または postId で単一の投稿を取得 |
+| `get_post` | reader | slug または postId で単一の投稿を取得。内容のバージョン `version` を含む |
 | `create_post` | editor | 新しい投稿を作成（下書きまたは公開済み） |
-| `update_post` | editor | 既存の投稿のフィールドをパッチ更新 |
+| `update_post` | editor | 既存の投稿のフィールドをパッチ更新。`expectedVersion`（`get_post` の値）を渡すと、同時に行われた変更を上書きせずに失敗する |
+| `set_post_classes` | editor | テーマの記事クラスだけを変更。`add` / `remove`、または `ids`（丸ごと置き換え。`expectedVersion` が必要） |
 | `delete_post` | editor | 投稿を削除しタグインデックスをクリーンアップ |
 | `upload_media` | editor | Base64 バイト列を S3 にアップロードし Media レコードを作成 |
 | `list_media` | reader | メディア一覧。`mimeType`（前方一致）/ `prefix` / `createdAfter` / `createdBefore` フィルターとページネーション対応 |

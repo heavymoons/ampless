@@ -3,6 +3,10 @@ import {
   listPostSummaries,
   listPostHistory,
   setPostsProvider,
+  supportsConditionalPostUpdate,
+  updatePost,
+  ConditionalPostUpdateUnsupportedError,
+  PostUpdateConflictError,
   type PostsProvider,
   type PostSummary,
   type PostRevision,
@@ -142,5 +146,65 @@ describe('listPostSummaries', () => {
     ])
     expect(summaries[0]).not.toHaveProperty('body')
     expect(summaries[0]).not.toHaveProperty('metadata')
+  })
+})
+
+describe('updatePost', () => {
+  afterEach(() => {
+    // @ts-expect-error — intentionally clearing for isolation.
+    setPostsProvider(null)
+  })
+
+  it('without options calls provider.update exactly as before', async () => {
+    const update = vi.fn().mockResolvedValue(SAMPLE_POST)
+    const updateIfUnchanged = vi.fn()
+    setPostsProvider(makeProvider({ update, updateIfUnchanged }))
+
+    const out = await updatePost('post-1', { title: 'New' })
+
+    expect(out).toBe(SAMPLE_POST)
+    expect(update).toHaveBeenCalledWith('post-1', { title: 'New' })
+    expect(updateIfUnchanged).not.toHaveBeenCalled()
+  })
+
+  it('with expected calls provider.updateIfUnchanged with it, never update', async () => {
+    const update = vi.fn()
+    const updateIfUnchanged = vi.fn().mockResolvedValue(SAMPLE_POST)
+    setPostsProvider(makeProvider({ update, updateIfUnchanged }))
+
+    const expected = { ...SAMPLE_POST, updatedAt: 't1' }
+    const out = await updatePost('post-1', { title: 'New' }, { expected })
+
+    expect(out).toBe(SAMPLE_POST)
+    expect(updateIfUnchanged).toHaveBeenCalledWith('post-1', { title: 'New' }, { expected })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('propagates PostUpdateConflictError from the provider', async () => {
+    const updateIfUnchanged = vi.fn().mockRejectedValue(new PostUpdateConflictError('post-1', 't1'))
+    setPostsProvider(makeProvider({ updateIfUnchanged }))
+
+    const err = await updatePost('post-1', {}, { expected: { ...SAMPLE_POST, updatedAt: 't1' } }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(PostUpdateConflictError)
+    expect(err).toMatchObject({ name: 'PostUpdateConflictError', postId: 'post-1', expectedUpdatedAt: 't1' })
+  })
+
+  it('throws ConditionalPostUpdateUnsupportedError (and does not write) when the provider lacks updateIfUnchanged', async () => {
+    const update = vi.fn().mockResolvedValue(SAMPLE_POST)
+    setPostsProvider(makeProvider({ update }))
+
+    expect(supportsConditionalPostUpdate()).toBe(false)
+    await expect(updatePost('post-1', { title: 'x' }, { expected: SAMPLE_POST })).rejects.toBeInstanceOf(
+      ConditionalPostUpdateUnsupportedError
+    )
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('supportsConditionalPostUpdate reflects the provider', () => {
+    // @ts-expect-error — explicitly clear.
+    setPostsProvider(null)
+    expect(supportsConditionalPostUpdate()).toBe(false)
+    setPostsProvider(makeProvider({ updateIfUnchanged: vi.fn() }))
+    expect(supportsConditionalPostUpdate()).toBe(true)
   })
 })

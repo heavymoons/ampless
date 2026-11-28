@@ -11,6 +11,9 @@ import {
   themeCustomClasses,
   themePostClasses,
   themeTableClasses,
+  hasForeignPostClassesValue,
+  postClassesMetadataError,
+  withPostClasses,
   type PostClassesMetadata,
   type ThemeManifest,
 } from './theme.js'
@@ -181,6 +184,75 @@ describe('theme custom classes', () => {
         readPostClasses(metadata)
         expect(metadata).toEqual(before)
       }
+    })
+  })
+
+  describe('withPostClasses (write helper)', () => {
+    const value = (ids: string[]): PostClassesMetadata => ({ kind: POST_CLASSES_METADATA_KIND, version: 1, ids })
+
+    it('sets a tagged value and preserves every other key, legacy postClasses included', () => {
+      const before: PostMetadata = {
+        cache: 'deep',
+        no_layout: false,
+        postClasses: ['legacy'],
+        seo: { title: 'T' },
+        files: { 'a.css': { size: 1, mimeType: 'text/css' } },
+      }
+      const snapshot = structuredClone(before)
+      const next = withPostClasses(before, ['wide', 'serif'])
+      expect(next).toEqual({ ...snapshot, [POST_CLASSES_METADATA_KEY]: value(['wide', 'serif']) })
+      // A new object; the input is not mutated.
+      expect(next).not.toBe(before)
+      expect(before).toEqual(snapshot)
+      expect(readPostClasses(next)).toEqual(['wide', 'serif'])
+    })
+
+    it('de-duplicates ids keeping first-occurrence order', () => {
+      expect(withPostClasses({}, ['b', 'a', 'b'])[POST_CLASSES_METADATA_KEY]).toEqual(value(['b', 'a']))
+    })
+
+    it('replaces an existing tagged value', () => {
+      const next = withPostClasses({ x: 1, [POST_CLASSES_METADATA_KEY]: value(['old']) }, ['new'])
+      expect(next).toEqual({ x: 1, [POST_CLASSES_METADATA_KEY]: value(['new']) })
+    })
+
+    it('removes the key entirely on an empty list', () => {
+      const next = withPostClasses({ postClasses: 'legacy', [POST_CLASSES_METADATA_KEY]: value(['wide']) }, [])
+      expect(next).toEqual({ postClasses: 'legacy' })
+      expect(Object.prototype.hasOwnProperty.call(next, POST_CLASSES_METADATA_KEY)).toBe(false)
+      expect(withPostClasses(undefined, [])).toEqual({})
+    })
+
+    it('throws on an invalid id instead of dropping it', () => {
+      for (const bad of ['Wide', 'a b', 'x"y', '', 'a'.repeat(65)]) {
+        expect(() => withPostClasses({}, ['ok', bad])).toThrow(/Invalid post class id/)
+      }
+    })
+
+    it('refuses to overwrite a foreign value under the namespaced key', () => {
+      for (const foreign of ['wide', ['wide'], { ids: ['wide'] }, { ...value(['a']), version: 2 }, null, 0]) {
+        const metadata: PostMetadata = { [POST_CLASSES_METADATA_KEY]: foreign }
+        expect(hasForeignPostClassesValue(metadata)).toBe(true)
+        expect(() => withPostClasses(metadata, ['wide'])).toThrow(/refusing to overwrite/)
+        expect(() => withPostClasses(metadata, [])).toThrow(/refusing to overwrite/)
+      }
+    })
+
+    it('hasForeignPostClassesValue is false for no key, undefined, and tagged values', () => {
+      expect(hasForeignPostClassesValue(undefined)).toBe(false)
+      expect(hasForeignPostClassesValue({ postClasses: 'legacy' })).toBe(false)
+      expect(hasForeignPostClassesValue({ [POST_CLASSES_METADATA_KEY]: undefined })).toBe(false)
+      expect(hasForeignPostClassesValue({ [POST_CLASSES_METADATA_KEY]: value(['a']) })).toBe(false)
+    })
+
+    it('postClassesMetadataError flags invalid ids in a tagged value only', () => {
+      expect(postClassesMetadataError({ [POST_CLASSES_METADATA_KEY]: value(['ok']) })).toBeNull()
+      expect(postClassesMetadataError({ postClasses: ['Bad Id'] })).toBeNull()
+      expect(postClassesMetadataError({ [POST_CLASSES_METADATA_KEY]: 'foreign' })).toBeNull()
+      expect(postClassesMetadataError(undefined)).toBeNull()
+      expect(postClassesMetadataError({ [POST_CLASSES_METADATA_KEY]: value(['ok', 'Bad Id']) })).toMatch(
+        /invalid post class id "Bad Id"/,
+      )
     })
   })
 })

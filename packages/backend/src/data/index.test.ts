@@ -126,6 +126,34 @@ describe('amplessSchemaModels', () => {
     expect(entries).toContain(DEFAULT_RESOLVER_PATHS.getPublishedPost)
   })
 
+  it('adds amplessUpdatePostIfUnchanged only when its resolver path is passed explicitly', () => {
+    // Default / partial overrides (e.g. an old amplify/data/resource.ts):
+    // the op is absent, so the project still synths without the file.
+    expect(amplessSchemaModels(makeFakeBuilder().a)).not.toHaveProperty('amplessUpdatePostIfUnchanged')
+    expect(
+      amplessSchemaModels(makeFakeBuilder().a, { resolverPaths: { listPublishedPosts: './lp.js' } })
+    ).not.toHaveProperty('amplessUpdatePostIfUnchanged')
+    expect(DEFAULT_RESOLVER_PATHS).not.toHaveProperty('updatePostIfUnchanged')
+
+    const { a, calls } = makeFakeBuilder()
+    const models = amplessSchemaModels(a, {
+      resolverPaths: { updatePostIfUnchanged: '/abs/update-post-if-unchanged.js' },
+    })
+    expect(models).toHaveProperty('amplessUpdatePostIfUnchanged')
+    const custom = calls.find(
+      (c) => c.method === 'custom' && (c.args[0] as { entry?: string }).entry === '/abs/update-post-if-unchanged.js'
+    )
+    expect(custom).toBeDefined()
+    // String (not AWSJSON) arguments: the resolver JSON.parses them.
+    const argsCall = calls.find(
+      (c) =>
+        c.method === 'arguments' &&
+        Object.keys(c.args[0] as object).sort().join(',') === 'expected,patch,postId'
+    )
+    expect(argsCall).toBeDefined()
+    expect(calls.some((c) => c.method === 'mutation')).toBe(true)
+  })
+
   it('never calls allow.resource at the model level (resource auth lives at schema scope)', () => {
     const { a, calls } = makeFakeBuilder()
     amplessSchemaModels(a)
