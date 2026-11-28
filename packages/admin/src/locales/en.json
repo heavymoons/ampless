@@ -123,7 +123,14 @@
       "saveChanges": "Save changes",
       "createPost": "Create post",
       "delete": "Delete",
-      "deleteConfirm": "Delete \"{title}\"?"
+      "deleteConfirm": "Delete \"{title}\"?",
+      "postClasses": "Post classes",
+      "postClassesHint": "Styles the active theme defines for a whole post. They apply to this post's body on the public site.",
+      "postClassesNotInTheme": "not in current theme",
+      "postClassesForeign": "This post's metadata already holds a value under \"ampless:postClasses\" that ampless did not write. It is kept unchanged, and post classes can't be edited for this post.",
+      "metadataUnsafe": "Nothing was saved. This backend can't save changes to post classes or the bare-HTML (no layout) setting without risking overwriting someone else's concurrent change. Run `create-ampless upgrade` and redeploy to enable safe saves, or undo those changes to save your other edits.",
+      "saveConflict": "This post was changed elsewhere since you opened it. Nothing was saved. Your edits are kept in this browser's local draft: reload the page and choose \"Restore anyway\" to review them on top of the latest version.",
+      "saveConflictStatic": "This post was changed elsewhere since you opened it. Nothing was saved and no bundle was uploaded. Static posts have no local draft, so reload the page and redo your changes on the latest version."
     },
     "history": {
       "title": "Revision history",

@@ -493,6 +493,149 @@ What to look for:
 - Empty link / tag / nav / footer configurations don't leave dead
   chrome behind.
 
+## Custom classes for posts and tables
+
+A theme can declare named styles for a whole post or a table.
+
+1. Declare them in `manifest.ts`. The id uses lowercase letters, digits
+   and hyphens:
+
+   ```ts
+   customClasses: [
+     { id: 'wide', label: { en: 'Wide', ja: 'ワイド' }, target: 'post' },
+     { id: 'compact', label: { en: 'Compact', ja: 'コンパクト' }, target: 'table' },
+   ],
+   ```
+
+2. Style them in `tokens.css`. A post class renders as
+   `ampless-post--<id>` on the post body wrapper; a table class renders
+   as `tiptap-table--<id>` on the table. Scope the rules under
+   `[data-theme='my-blog']` if they should apply only while this theme
+   is active:
+
+   ```css
+   [data-theme='my-blog'] .ampless-post--wide { max-width: none; }
+   [data-theme='my-blog'] .tiptap-table--compact td { padding: 0.25rem 0.5rem; }
+   ```
+
+3. Build the post body wrapper's class with `ampless.postBodyClassName`
+   in `pages/post.tsx` (the bundled themes already do):
+
+   ```tsx
+   <div id="post-body" className={ampless.postBodyClassName(post, 'prose max-w-none')}>
+     {await ampless.renderBody(post)}
+   </div>
+   ```
+
+Post classes are read from the post's metadata key
+`ampless:postClasses`, and only when its value has this exact shape:
+
+```json
+{ "ampless:postClasses": { "kind": "ampless.post-classes", "version": 1, "ids": ["wide"] } }
+```
+
+Posts without it render the base classes unchanged. A plain
+`postClasses` key, or any other value under `ampless:postClasses`, is
+never read, so data that themes or plugins stored there earlier does not
+change how existing posts render. Invalid ids are dropped when the page
+renders.
+
+Static posts (`format: 'static'`) and no_layout HTML posts
+(`format: 'html'` with `metadata.no_layout: true`) never get post
+classes. Their own URLs don't use the theme's post body wrapper, and
+`postBodyClassName` returns the base classes for them everywhere else
+too, for example when the home page shows one as its featured post. Ids that a post stores but the active theme does
+not declare (for example after a theme switch) still render, unstyled.
+
+### Setting post classes
+
+- **Admin editor**: the post form shows a "Post classes" checkbox group
+  with the active theme's `target: 'post'` classes (hidden for static
+  and no_layout HTML posts, and when the theme declares none and the
+  post has none). Ids a post already has but the theme does not declare
+  are listed as "not in current theme" and can be unchecked. Saving
+  rewrites only `ampless:postClasses` (other metadata keys are kept
+  as-is); when the selection did not change, the stored value is left
+  exactly as it was. If `ampless:postClasses` holds a value ampless did
+  not write, the form shows a notice, does not let you edit post
+  classes, and leaves that value untouched. Restoring a revision brings
+  back its post classes but no other revision metadata. The admin
+  preview applies the selected classes to its `<main>` wrapper.
+- **MCP**: `set_post_classes` changes only the post classes and keeps
+  every other metadata key. Use `{ postId, add?, remove? }` to add or
+  remove ids, or `{ postId, ids, expectedVersion }` to replace the whole
+  list (`ids` requires the `version` from `get_post`). It refuses static
+  and no_layout HTML posts and values ampless did not write. MCP cannot
+  see the active theme, so it only checks the id syntax. `update_post`
+  still replaces `metadata` as a whole and rejects a tagged value with
+  invalid ids.
+
+### Concurrent edits
+
+A post's `updatedAt` is stamped with millisecond precision, so two saves
+in the same millisecond can leave it unchanged; it is not a safe version
+number on its own. The admin editor, `set_post_classes` and `update_post`
+with `expectedVersion` therefore save through the
+`amplessUpdatePostIfUnchanged` mutation: one database write that only
+happens if `updatedAt` **and** the post fields the writer read are all
+still the same, and that always sets a strictly newer `updatedAt`.
+
+- **Admin editor**: saving an existing post fails with a conflict message
+  if anything about the post changed since the editor opened it (another
+  tab, another editor, an MCP client, a direct GraphQL write), even
+  within the same millisecond. Nothing is written. Your edits stay in the
+  browser's local draft; reload the page and choose "Restore anyway".
+  Static posts have no local draft, and a static post saved with a new
+  bundle is not protected this way (see below).
+- **MCP**: `get_post` (and every tool that returns a whole post) returns
+  a `version`: `v1:` plus a SHA-256 hash of the post's content (every
+  returned field, `updatedAt` included). Any change to the post changes
+  it, even one that leaves `updatedAt` unchanged. Pass it as
+  `expectedVersion` to `update_post` or `set_post_classes`: the tool
+  reads the post again, fails with a conflict unless that read still has
+  your version, and then writes conditioned on every field of that read.
+  So a write with `expectedVersion` never overwrites a change made after
+  the read you took the version from, including a same-millisecond write
+  by a stock or older writer. On a conflict nothing is saved; call
+  `get_post` again, redo your change and retry. `set_post_classes` with
+  `add` / `remove` and no `expectedVersion` writes conditioned on the
+  metadata, format and `updatedAt` it read, and on a conflict reads the
+  post again and re-applies the same additions and removals (3 attempts
+  in total). This is safe because adding and removing ids gives the same
+  result on top of whatever the other writer changed. `ids` (a full
+  replacement) is refused without `expectedVersion`, because a list
+  computed from an earlier read would undo a concurrent change.
+  `list_posts` summaries have no `version`; call `get_post` for it.
+
+What is **not** protected:
+
+- Unconditional writers can still overwrite anything, including changes
+  the guarded writers made: `update_post` without `expectedVersion`, the
+  static bundle tools, older admin builds, and any other direct GraphQL
+  `updatePost` call.
+- Concurrent static bundle saves are **not** made safe (the static
+  concurrency requirement of heavymoons/ampless#411 is not addressed; it needs a
+  separately reviewed design). Saving a static post with a new bundle,
+  from the admin editor or the MCP static tools, overwrites the slug's
+  bundle files in place and then writes the post unconditionally. The
+  editor only checks for a conflict before uploading; an edit, delete or
+  other upload landing during the upload is overwritten or mixed.
+- The revision history keys snapshots by `updatedAt`. A guarded write
+  always gets a new one, so a snapshot can only be lost when an
+  unconditional writer saves in the same millisecond as another write.
+
+The mutation needs `create-ampless upgrade` (it ships
+`amplify/data/update-post-if-unchanged.js` and wires it in
+`amplify/data/resource.ts`) and a redeploy. Until then: the MCP tools
+above fail with nothing saved, and the admin editor falls back to the
+previous unconditional save, sent **without** the metadata field so the
+stored metadata (post classes included) is not touched. Switching an
+HTML post with the no-layout setting to another format is saved the same
+way: the setting stays stored but has no effect, because it only applies
+to HTML posts (the editor shows it again if the post is switched back to
+HTML). A save that changes post classes, or turns the no-layout setting
+on or off for an HTML post, is refused instead, with nothing saved.
+
 ## Theme-local components
 
 Theme-specific shared UI belongs in the theme, e.g.

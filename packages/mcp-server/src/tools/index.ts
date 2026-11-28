@@ -4,6 +4,7 @@ import { listPosts, listPostsSchema } from './list-posts.js'
 import { getPost, getPostSchema } from './get-post.js'
 import { createPost, createPostSchema } from './create-post.js'
 import { updatePost, updatePostSchema } from './update-post.js'
+import { setPostClasses, setPostClassesSchema } from './set-post-classes.js'
 import { deletePost, deletePostSchema } from './delete-post.js'
 import { uploadMedia, uploadMediaSchema } from './upload-media.js'
 import { listMedia, listMediaSchema } from './list-media.js'
@@ -17,10 +18,12 @@ import { commitStaticPost, commitStaticPostSchema } from './commit-static-post.j
 
 export type {
   GraphqlClient,
+  GraphqlErrorEntry,
   StorageClient,
   StorageObject,
   ToolContext,
 } from './types.js'
+export { isConditionalCheckFailed, isConditionalMutationMissing, graphqlErrorsOf } from './graphql-errors.js'
 export {
   extractZipFromBuffer,
   decodeUtf8,
@@ -60,7 +63,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'get_post',
     description:
-      'Fetch a single post by slug or postId. Returns null if not found.',
+      'Fetch a single post by slug or postId. Returns null if not found. The result includes `version`, a content version token (hash of every returned field, including updatedAt) — pass it as `expectedVersion` to update_post / set_post_classes so the write fails instead of overwriting a change made after this read. See get_schema.notes.concurrency.',
     inputSchema: getPostSchema,
     handler: (args, ctx) => getPost(ctx.graphql, args),
     readOnly: true,
@@ -69,7 +72,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'create_post',
     description:
-      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details.',
+      'Create a new post. Title and slug are required. Body shape depends on format: tiptap=JSON node tree, markdown=source string, html=raw HTML string. Defaults to status=draft. Pass `metadata: { no_layout: true }` alongside format=html to publish the body as a bare HTML page with no theme chrome (middleware rewrites the /<slug> request to the internal bare-HTML handler). Pass `metadata: { cache: "deep" | "hot" }` to override the default cooldown-based cache strategy — see get_schema.notes.cacheStrategy for details. Theme post classes go under `metadata["ampless:postClasses"]` as a tagged value — see get_schema.notes.postClasses.',
     inputSchema: createPostSchema,
     handler: (args, ctx) =>
       createPost(ctx.graphql, args as unknown as Parameters<typeof createPost>[1]),
@@ -79,12 +82,23 @@ export const tools: ToolDefinition[] = [
   {
     name: 'update_post',
     description:
-      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key.',
+      'Update an existing post by postId. Only the fields you pass are changed. Tag list / publishedAt changes also update the PostTag denormalized index. Passing `metadata` REPLACES the existing object — call get_post first if you only want to add or change one key, and pass its `version` as `expectedVersion`: the update then fails with a conflict (nothing written) instead of overwriting if the post changed in any way since that read, even within the same millisecond. Without `expectedVersion` the update is unguarded last-write-wins and can overwrite concurrent edits. The returned post includes its new `version`. To change only theme post classes, use set_post_classes.',
     inputSchema: updatePostSchema,
     handler: (args, ctx) =>
       updatePost(ctx.graphql, args as unknown as Parameters<typeof updatePost>[1]),
     readOnly: false,
     // Overwrites an existing post's fields — not a pure additive write.
+    destructive: true,
+  },
+  {
+    name: 'set_post_classes',
+    description:
+      'Set the theme post classes of a post (`metadata["ampless:postClasses"]`, rendered as `ampless-post--<id>` on the theme\'s post body wrapper). Every other metadata key is preserved. Two modes: `add` / `remove` (set operations on the current list; may omit `expectedVersion` — the tool reads the post, applies them, and writes atomically conditioned on the metadata, format and updatedAt it read; on a concurrent change, even in the same millisecond, it re-reads and re-applies, 3 attempts in total, then fails with a conflict), or `ids` (full replacement, [] removes all; REQUIRES `expectedVersion` from get_post). With `expectedVersion` the call fails with a conflict (no retry, nothing written) if the post changed in any way since that read. Requires a backend with the amplessUpdatePostIfUnchanged mutation (`create-ampless upgrade`); otherwise nothing is saved. Refused for static and no_layout HTML posts (post classes never apply there) and when the key holds a value ampless did not write. Ids are only syntax-checked: this server cannot see the active theme, so take ids from the theme\'s customClasses (target "post"). Returns `{ post }` (with its new `version`).',
+    inputSchema: setPostClassesSchema,
+    handler: (args, ctx) =>
+      setPostClasses(ctx.graphql, args as unknown as Parameters<typeof setPostClasses>[1]),
+    readOnly: false,
+    // Replaces the post's post-class list (other metadata is preserved).
     destructive: true,
   },
   {

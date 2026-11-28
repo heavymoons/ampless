@@ -21,6 +21,7 @@ const EXPECTED_ADMIN: Record<string, { readOnly: boolean; destructive: boolean }
   upload_media: { readOnly: false, destructive: false },
   // Overwriting write.
   update_post: { readOnly: false, destructive: true },
+  set_post_classes: { readOnly: false, destructive: true },
   upload_static_file: { readOnly: false, destructive: true },
   commit_static_post: { readOnly: false, destructive: true },
   // Destructive.
@@ -31,7 +32,7 @@ const EXPECTED_ADMIN: Record<string, { readOnly: boolean; destructive: boolean }
 }
 
 describe('tool registry classification', () => {
-  it('the admin registry has exactly the 14 expected tools', () => {
+  it('the admin registry has exactly the 15 expected tools', () => {
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(EXPECTED_ADMIN).sort())
   })
 
@@ -55,9 +56,9 @@ describe('tool registry classification', () => {
     }
   })
 
-  it('all 18 tools (14 admin + 4 public) carry explicit boolean readOnly + destructive', () => {
+  it('all 19 tools (15 admin + 4 public) carry explicit boolean readOnly + destructive', () => {
     const all = [...tools, ...publicTools]
-    expect(all.length).toBe(18)
+    expect(all.length).toBe(19)
     for (const tool of all) {
       expect(typeof tool.readOnly, `${tool.name}.readOnly`).toBe('boolean')
       expect(typeof tool.destructive, `${tool.name}.destructive`).toBe('boolean')

@@ -22,7 +22,22 @@ export interface ResolvedSite {
  * `ToolContext` into `dispatchToolCall`.
  */
 export interface GraphqlClient {
+  /**
+   * Run a GraphQL operation and resolve its `data`. When the response
+   * carries GraphQL errors, implementations throw an `Error` and SHOULD
+   * attach the response's `errors` array to it as `error.errors`
+   * (`GraphqlErrorEntry[]`), so tools can tell a failed mutation condition
+   * (`isConditionalCheckFailed`) from other failures.
+   */
   query<T>(operation: string, variables?: Record<string, unknown>): Promise<T>
+}
+
+/** One entry of a GraphQL response's `errors` array, as AppSync returns it. */
+export interface GraphqlErrorEntry {
+  message?: string
+  /** e.g. `'DynamoDB:ConditionalCheckFailedException'`, `'Unauthorized'`. */
+  errorType?: string | null
+  path?: (string | number)[]
 }
 
 export interface StorageObject {

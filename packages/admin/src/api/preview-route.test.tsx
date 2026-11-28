@@ -184,6 +184,52 @@ describe('createPreviewRouteHandler', () => {
     expect(text).not.toContain('prose prose-neutral')
   })
 
+  describe('post classes', () => {
+    const tagged = (ids: unknown) => ({
+      'ampless:postClasses': { kind: 'ampless.post-classes', version: 1, ids },
+    })
+    async function render(post: Post, options?: Parameters<typeof createPreviewRouteHandler>[1]) {
+      const handler = createPreviewRouteHandler(makeAdmin(), options)
+      const res = await handler(makeRequest(post))
+      return res.text()
+    }
+
+    it('adds ampless-post--<id> to <main> for a tagged value', async () => {
+      const text = await render(makePost({ format: 'tiptap', metadata: tagged(['wide', 'serif']) }))
+      expect(text).toContain(
+        '<main class="prose prose-neutral dark:prose-invert max-w-none ampless-post--wide ampless-post--serif">',
+      )
+    })
+
+    it('is byte-identical without the tagged value (none, legacy postClasses, foreign value, invalid ids)', async () => {
+      const baseline = await render(makePost({ metadata: undefined }))
+      expect(baseline).toContain('<main class="prose prose-neutral dark:prose-invert max-w-none">')
+      for (const metadata of [
+        {},
+        { postClasses: ['wide'] },
+        { 'ampless:postClasses': ['wide'] },
+        tagged(['Bad Id', '"><x']),
+      ]) {
+        expect(await render(makePost({ metadata }))).toBe(baseline)
+      }
+    })
+
+    it('keeps a custom bodyClassName verbatim without classes and escapes it with classes', async () => {
+      const base = 'a&b'
+      expect(await render(makePost(), { bodyClassName: base })).toContain('<main class="a&b">')
+      expect(
+        await render(makePost({ format: 'markdown', metadata: tagged(['wide']) }), { bodyClassName: base }),
+      ).toContain('<main class="a&amp;b ampless-post--wide">')
+    })
+
+    it('never applies classes to no_layout HTML or static drafts', async () => {
+      const noLayout = await render(makePost({ format: 'html', metadata: { no_layout: true, ...tagged(['wide']) } }))
+      expect(noLayout).not.toContain('ampless-post--')
+      const staticPost = await render(makePost({ format: 'static', metadata: tagged(['wide']) }))
+      expect(staticPost).not.toContain('ampless-post--')
+    })
+  })
+
   it('plugin publicHead scripts are injected into <head> of the preview document', async () => {
     // This is the core regression guard for the mermaid/highlight fix:
     // publicHeadForPreview returns a React element (a <script> tag) and

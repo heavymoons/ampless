@@ -40,6 +40,12 @@ export interface PostDraft {
   publishedAtInput: string
   noLayout: boolean
   /**
+   * Selected theme post class ids (`readPostClasses` form). Optional:
+   * drafts written before post classes existed lack it, and recovery then
+   * keeps the loaded selection.
+   */
+  postClasses?: string[]
+  /**
    * The server post's `updatedAt` at the moment the draft was taken (or
    * null for a brand-new post). The base-version anchor: on recovery we
    * compare this against the freshly-loaded post's `updatedAt` to detect
@@ -128,6 +134,8 @@ export interface LoadedPostState {
   tags: string
   publishedAtInput: string
   noLayout: boolean
+  /** `readPostClasses(post.metadata)` — the loaded post class ids. */
+  postClasses?: string[]
   /** `post?.updatedAt ?? null` — the current server base version. */
   updatedAt: string | null
 }
@@ -151,7 +159,17 @@ export function draftDiffersFromLoaded(draft: PostDraft, loaded: LoadedPostState
   if (draft.status !== loaded.status) return true
   if (draft.tags !== loaded.tags) return true
   if (draft.publishedAtInput !== loaded.publishedAtInput) return true
-  if (draft.noLayout !== loaded.noLayout) return true
+  // no_layout is only live for html (the form restores it the same way), so
+  // an old draft's inert flag on a non-html format is not a difference.
+  if ((draft.noLayout && draft.format === 'html') !== loaded.noLayout) return true
+  // Only a draft that recorded post classes can differ on them. Compared
+  // as sets, matching how the form decides whether they changed.
+  if (
+    Array.isArray(draft.postClasses) &&
+    !deepEqual([...draft.postClasses].sort(), [...(loaded.postClasses ?? [])].sort())
+  ) {
+    return true
+  }
   return !deepEqual(draft.body, loaded.body)
 }
 
@@ -185,7 +203,9 @@ export function reconcileDraft(draft: PostDraft, loaded: LoadedPostState): Draft
 // Small structural deep-equality for draft `body` comparison. Handles the
 // JSON-shaped values tiptap / markdown / html bodies take (objects,
 // arrays, primitives). Not a general-purpose deepEqual — no Maps/Sets/etc.
-function deepEqual(a: unknown, b: unknown): boolean {
+// Also used by PostForm to tell whether the metadata to save equals the
+// loaded one (key order is ignored).
+export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (typeof a !== typeof b) return false
   if (a === null || b === null) return a === b

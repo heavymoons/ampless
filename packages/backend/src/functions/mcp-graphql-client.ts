@@ -83,7 +83,10 @@ export function createMcpGraphqlClient(opts: McpGraphqlClientOpts): GraphqlClien
       if (json.errors && json.errors.length > 0) {
         const msg = json.errors.map((e) => e.message).join('; ')
         console.error('[mcp-graphql-client] AppSync GraphQL errors', { errors: json.errors })
-        throw new Error(`AppSync GraphQL error: ${msg}`)
+        // Attach the raw errors (`errorType` included) so tools can tell a
+        // failed mutation condition from other failures
+        // (`isConditionalCheckFailed` in @ampless/mcp-server/tools).
+        throw Object.assign(new Error(`AppSync GraphQL error: ${msg}`), { errors: json.errors })
       }
       if (!json.data) {
         throw new Error('AppSync returned an empty response')

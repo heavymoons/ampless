@@ -1,11 +1,11 @@
 import {
   encodeAwsJson,
-  type Post,
   type PostMetadata,
 } from 'ampless'
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
 import { normalizePublishedAt } from './published-at.js'
+import { withVersion, type VersionedPost } from './post-version.js'
 
 const MUTATION = /* GraphQL */ `
   ${POST_FIELDS}
@@ -77,7 +77,7 @@ export const createPostSchema = {
 export async function createPost(
   client: GraphqlClient,
   args: CreatePostArgs
-): Promise<Post> {
+): Promise<VersionedPost> {
   const postId =
     args.postId ?? `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const status = args.status ?? 'draft'
@@ -109,5 +109,5 @@ export async function createPost(
   // Lambda from the Post DynamoDB stream (see
   // packages/backend/src/events/processor-trusted.ts `rebuildPostTagsForPost`).
   // No client-side sync needed — the write completing here is enough.
-  return toCorePost(data.createPost)
+  return withVersion(toCorePost(data.createPost))
 }

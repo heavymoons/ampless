@@ -82,7 +82,7 @@ export type Schema = ClientSchema<typeof schema>
 export const data = defineData({ schema, authorizationModes: defaultAuthorizationModes })
 ```
 
-The three AppSync JS resolver files (`list-published-posts.js`, `get-published-post.js`, `list-posts-by-tag.js`) stay in the template — AppSync resolves resolver `entry` paths at CDK synth time relative to the file that calls `defineData`, and pnpm-symlinked `node_modules` paths don't survive that resolution. If you move them out of `amplify/data/`, pass new paths through `amplessSchemaModels(a, { resolverPaths })`.
+The three AppSync JS resolver files (`list-published-posts.js`, `get-published-post.js`, `list-posts-by-tag.js`) stay in the template — AppSync resolves resolver `entry` paths at CDK synth time relative to the file that calls `defineData`, and pnpm-symlinked `node_modules` paths don't survive that resolution. If you move them out of `amplify/data/`, pass new paths through `amplessSchemaModels(a, { resolverPaths })`. The conditional post update resolver (`update-post-if-unchanged.js`, backing the `amplessUpdatePostIfUnchanged` mutation) is opt-in: the mutation is only added when `resolverPaths.updatePostIfUnchanged` is passed, which the template's `amplify/data/resource.ts` does after `create-ampless upgrade`.
 
 ### `amplify/storage/resource.ts`
 

@@ -1,5 +1,6 @@
 import type { GraphqlClient } from './types.js'
 import { POST_FIELDS, toCorePost } from './post-mapping.js'
+import { withVersion, type VersionedPost } from './post-version.js'
 
 const GET_BY_ID = /* GraphQL */ `
   ${POST_FIELDS}
@@ -34,7 +35,12 @@ export const getPostSchema = {
   },
 } as const
 
-export async function getPost(client: GraphqlClient, args: GetPostArgs) {
+/**
+ * The post as `toCorePost` maps it, plus its content `version` (see
+ * post-version.ts) — pass that to update_post / set_post_classes as
+ * `expectedVersion`.
+ */
+export async function getPost(client: GraphqlClient, args: GetPostArgs): Promise<VersionedPost | null> {
   if (!args.slug && !args.postId) {
     throw new Error('get_post requires either `slug` or `postId`')
   }
@@ -43,7 +49,7 @@ export async function getPost(client: GraphqlClient, args: GetPostArgs) {
     const data = await client.query<{
       getPost: Parameters<typeof toCorePost>[0] | null
     }>(GET_BY_ID, { postId: args.postId })
-    return data.getPost ? toCorePost(data.getPost) : null
+    return data.getPost ? withVersion(toCorePost(data.getPost)) : null
   }
 
   const data = await client.query<{
@@ -52,5 +58,5 @@ export async function getPost(client: GraphqlClient, args: GetPostArgs) {
     filter: { slug: { eq: args.slug } },
   })
   const item = data.listPosts.items[0]
-  return item ? toCorePost(item) : null
+  return item ? withVersion(toCorePost(item)) : null
 }

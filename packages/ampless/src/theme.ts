@@ -11,6 +11,8 @@
 // and propagated to the public site through the normal site-settings
 // S3 cache. See https://github.com/heavymoons/ampless/wiki/THEMES for authoring details.
 
+import type { Post, PostMetadata } from './types.js'
+
 export type ThemeFieldType =
   | 'color'
   | 'text'
@@ -118,16 +120,22 @@ export type ThemeField =
   | ThemeLinkListField
 
 /**
- * Where a theme-declared custom class can be applied. Only `table` is
- * supported today: the class goes on the tiptap `table` node and renders
- * as `tiptap-table--<id>` next to the base `tiptap-table` class.
+ * Where a theme-declared custom class can be applied:
+ *   - `table`: the class goes on the tiptap `table` node and renders as
+ *     `tiptap-table--<id>` next to the base `tiptap-table` class.
+ *   - `post`: the class is read from the post's tagged
+ *     `metadata[POST_CLASSES_METADATA_KEY]` (`PostClassesMetadata`) and renders
+ *     as `ampless-post--<id>` on the theme's post body wrapper (the theme
+ *     calls `ampless.postBodyClassName(post, base)`).
  */
-export type ThemeCustomClassTarget = 'table'
+export type ThemeCustomClassTarget = 'table' | 'post'
 
 /**
- * A class the theme styles and that editors can opt a block into, e.g.
- * `{ id: 'compact', label: 'Compact', target: 'table' }` with theme CSS for
- * `.tiptap-table--compact`. The id must match `CUSTOM_CLASS_ID_PATTERN`.
+ * A class the theme styles and that editors can opt a block (or a whole
+ * post) into, e.g. `{ id: 'compact', label: 'Compact', target: 'table' }`
+ * with theme CSS for `.tiptap-table--compact`, or
+ * `{ id: 'wide', label: 'Wide', target: 'post' }` with CSS for
+ * `.ampless-post--wide`. The id must match `CUSTOM_CLASS_ID_PATTERN`.
  */
 export interface ThemeCustomClass {
   id: string
@@ -143,9 +151,10 @@ export interface ThemeManifest {
   description?: LocalizedString
   fields: ReadonlyArray<ThemeField>
   /**
-   * Optional classes this theme styles and lets editors apply to blocks
-   * (see `ThemeCustomClass`). The admin editor offers the active theme's
-   * entries; ids stored in posts keep rendering after a theme switch.
+   * Optional classes this theme styles and lets editors apply to blocks or
+   * whole posts (see `ThemeCustomClass`). The admin editor offers the active
+   * theme's table entries; ids stored in posts keep rendering after a theme
+   * switch.
    */
   customClasses?: ReadonlyArray<ThemeCustomClass>
 }
@@ -176,16 +185,24 @@ export function tableCustomClassName(id: string): string {
   return `tiptap-table--${id}`
 }
 
+/** Class name emitted for a post custom class id (`ampless-post--<id>`). */
+export function postCustomClassName(id: string): string {
+  return `ampless-post--${id}`
+}
+
 /**
- * Valid `target: 'table'` entries of a manifest, de-duplicated by id
+ * Valid entries of a manifest for one `target`, de-duplicated by id
  * (first wins). Invalid ids are dropped with a console warning so a typo
  * in a theme never reaches the editor or the markup.
  */
-export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+export function themeCustomClasses(
+  manifest: Pick<ThemeManifest, 'customClasses' | 'name'>,
+  target: ThemeCustomClassTarget,
+): ThemeCustomClass[] {
   const out: ThemeCustomClass[] = []
   const seen = new Set<string>()
   for (const c of manifest.customClasses ?? []) {
-    if (c?.target !== 'table') continue
+    if (c?.target !== target) continue
     if (!isValidCustomClassId(c.id)) {
       console.warn(`[ampless] theme "${manifest.name}": ignoring custom class with invalid id ${JSON.stringify(c?.id)}`)
       continue
@@ -195,6 +212,181 @@ export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' 
     out.push(c)
   }
   return out
+}
+
+/** Valid `target: 'table'` entries of a manifest (see `themeCustomClasses`). */
+export function themeTableClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+  return themeCustomClasses(manifest, 'table')
+}
+
+/** Valid `target: 'post'` entries of a manifest (see `themeCustomClasses`). */
+export function themePostClasses(manifest: Pick<ThemeManifest, 'customClasses' | 'name'>): ThemeCustomClass[] {
+  return themeCustomClasses(manifest, 'post')
+}
+
+/**
+ * Metadata key holding a post's theme-defined post classes. Namespaced so
+ * it cannot be confused with keys themes and plugins already store in the
+ * free-form `PostMetadata` (a plain `postClasses` key, for instance, is
+ * never read).
+ */
+export const POST_CLASSES_METADATA_KEY = 'ampless:postClasses'
+
+/** `kind` tag identifying a `PostClassesMetadata` value. */
+export const POST_CLASSES_METADATA_KIND = 'ampless.post-classes'
+
+/**
+ * Value stored under `metadata[POST_CLASSES_METADATA_KEY]`, e.g.
+ * `{ kind: 'ampless.post-classes', version: 1, ids: ['wide'] }`. Only a
+ * value with exactly this `kind` and `version` is interpreted; anything
+ * else under the key is left alone and renders nothing.
+ *
+ * Deliberately not a typed field on `PostMetadata`: that would narrow the
+ * type of a key existing posts may already use for something else.
+ */
+export interface PostClassesMetadata {
+  kind: typeof POST_CLASSES_METADATA_KIND
+  version: 1
+  ids: string[]
+}
+
+/**
+ * Post class ids of a post's metadata (see `PostClassesMetadata`).
+ * Metadata is free-form JSON that MCP / GraphQL can write directly, so
+ * anything that is not a tagged `PostClassesMetadata` yields `[]`; inside
+ * `ids`, non-strings and invalid ids are dropped and duplicates removed
+ * (first occurrence keeps its position). Read-only: never touches the
+ * metadata.
+ */
+export function readPostClasses(metadata: unknown): string[] {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return []
+  const value: unknown = (metadata as Record<string, unknown>)[POST_CLASSES_METADATA_KEY]
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return []
+  const { kind, version, ids } = value as Partial<Record<keyof PostClassesMetadata, unknown>>
+  if (kind !== POST_CLASSES_METADATA_KIND || version !== 1 || !Array.isArray(ids)) return []
+  // Set keeps first-occurrence order, so this de-dupes in linear time.
+  const out = new Set<string>()
+  for (const id of ids) {
+    if (isValidCustomClassId(id)) out.add(id)
+  }
+  return [...out]
+}
+
+function isTaggedPostClassesValue(value: unknown): value is PostClassesMetadata {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const { kind, version, ids } = value as Partial<Record<keyof PostClassesMetadata, unknown>>
+  return kind === POST_CLASSES_METADATA_KIND && version === 1 && Array.isArray(ids)
+}
+
+/**
+ * True when `metadata[POST_CLASSES_METADATA_KEY]` holds something that is
+ * not a tagged `PostClassesMetadata` — a value some theme, plugin or
+ * direct GraphQL write put there. Writers must leave such a value alone
+ * (`withPostClasses` refuses to replace it); readers already ignore it.
+ */
+export function hasForeignPostClassesValue(metadata: unknown): boolean {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return false
+  const record = metadata as Record<string, unknown>
+  if (!Object.prototype.hasOwnProperty.call(record, POST_CLASSES_METADATA_KEY)) return false
+  const value = record[POST_CLASSES_METADATA_KEY]
+  // A present-but-undefined key carries no data (JSON drops it), so there
+  // is nothing to protect.
+  if (value === undefined) return false
+  return !isTaggedPostClassesValue(value)
+}
+
+/**
+ * Return a copy of `metadata` with the post classes set to `ids`, for
+ * write paths (admin editor, MCP). Every other key — including a plain
+ * legacy `postClasses` key — is preserved as-is; `metadata` itself is not
+ * mutated. `ids` are de-duplicated (first occurrence keeps its position);
+ * an empty list removes `POST_CLASSES_METADATA_KEY` entirely, so a post
+ * that drops its last class carries no trace of the feature.
+ *
+ * Throws instead of silently dropping when an id is invalid (a write path
+ * should surface the typo), and when the key already holds a value that
+ * is not a tagged `PostClassesMetadata` (see `hasForeignPostClassesValue`)
+ * — that value belongs to someone else and must not be clobbered.
+ */
+export function withPostClasses(metadata: PostMetadata | null | undefined, ids: readonly string[]): PostMetadata {
+  if (hasForeignPostClassesValue(metadata)) {
+    throw new Error(
+      `metadata["${POST_CLASSES_METADATA_KEY}"] holds a value that is not a tagged post-classes value ` +
+        `(kind "${POST_CLASSES_METADATA_KIND}", version 1); refusing to overwrite it`,
+    )
+  }
+  const unique = new Set<string>()
+  for (const id of ids) {
+    if (!isValidCustomClassId(id)) {
+      throw new Error(
+        `Invalid post class id ${JSON.stringify(id)}: use 1-${CUSTOM_CLASS_ID_MAX_LENGTH} lowercase letters, digits or hyphens`,
+      )
+    }
+    unique.add(id)
+  }
+  const next: PostMetadata = { ...(metadata ?? {}) }
+  if (unique.size === 0) {
+    delete next[POST_CLASSES_METADATA_KEY]
+  } else {
+    const value: PostClassesMetadata = { kind: POST_CLASSES_METADATA_KIND, version: 1, ids: [...unique] }
+    next[POST_CLASSES_METADATA_KEY] = value
+  }
+  return next
+}
+
+/**
+ * Validate a tagged post-classes value a caller supplies inside a whole
+ * `metadata` object (e.g. MCP `update_post`). Returns an error message when
+ * the key holds a tagged value whose `ids` are not all valid, unique-able
+ * class ids; `null` otherwise (no key, a valid tagged value, or a foreign
+ * value — which readers ignore and this does not judge).
+ */
+export function postClassesMetadataError(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>)[POST_CLASSES_METADATA_KEY]
+  if (!isTaggedPostClassesValue(value)) return null
+  for (const id of value.ids) {
+    if (!isValidCustomClassId(id)) {
+      return (
+        `metadata["${POST_CLASSES_METADATA_KEY}"].ids contains an invalid post class id ${JSON.stringify(id)} ` +
+        `(use 1-${CUSTOM_CLASS_ID_MAX_LENGTH} lowercase letters, digits or hyphens)`
+      )
+    }
+  }
+  return null
+}
+
+/**
+ * True for posts whose own URL never goes through a theme's post body
+ * wrapper: `format: 'static'` bundles (`/static/<slug>/`) and no_layout
+ * HTML (`format: 'html'` + `metadata.no_layout === true`, `/raw/<slug>`) —
+ * the same rule the middleware routes by. Post classes are not applied to
+ * them anywhere (a theme's home page may still render them in a featured
+ * slot), so they render exactly as they did before post classes existed.
+ */
+export function bypassesPostBodyWrapper(post: Pick<Post, 'format' | 'metadata'>): boolean {
+  if (post.format === 'static') return true
+  return post.format === 'html' && post.metadata?.no_layout === true
+}
+
+/**
+ * Class attribute for a theme's post body wrapper: `base` followed by
+ * `ampless-post--<id>` for each id `readPostClasses` finds in
+ * `post.metadata`. Returns `base` unchanged when there are none, so posts
+ * without the tagged value (every post written before this feature)
+ * render byte-identical markup, and always for posts that
+ * `bypassesPostBodyWrapper` (static, no_layout HTML), whatever their
+ * metadata holds. Ids are re-validated here (not only on write), so the
+ * result is always safe inside a `class` attribute as long as `base` is.
+ * Ids the active theme does not declare still render — they are just
+ * unstyled until a theme declares them again.
+ */
+export function postBodyClassName(post: Pick<Post, 'format' | 'metadata'> | null | undefined, base = ''): string {
+  if (!post || bypassesPostBodyWrapper(post)) return base
+  const ids = readPostClasses(post.metadata)
+  if (ids.length === 0) return base
+  const extra = ids.map(postCustomClassName).join(' ')
+  return base ? `${base} ${extra}` : extra
 }
 
 export function defineTheme(m: ThemeManifest): ThemeManifest {

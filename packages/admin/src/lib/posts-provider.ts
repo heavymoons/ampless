@@ -5,6 +5,8 @@ import {
   setPostsProvider,
   decodeAwsJson,
   encodeAwsJson,
+  PostUpdateConflictError,
+  ConditionalPostUpdateUnsupportedError,
   type Post,
   type PostMetadata,
   type PostsProvider,
@@ -111,10 +113,142 @@ interface PostHistoryModel {
   ): Promise<ConnectionResult<DataPostHistoryRow>>
 }
 
+// GraphQL error as AppSync returns it. `errorType` carries the DynamoDB
+// exception name for failed mutation conditions
+// (`DynamoDB:ConditionalCheckFailedException`).
+interface GraphqlError {
+  message?: string
+  errorType?: string | null
+}
+
+interface GraphqlResult<T> {
+  data?: T | null
+  errors?: GraphqlError[] | null
+}
+
 interface DataClient {
   models: {
     Post: PostModel
     PostHistory: PostHistoryModel
+  }
+  // Raw GraphQL, used only for the conditional update: the
+  // `amplessUpdatePostIfUnchanged` custom mutation is not part of the
+  // generated `client.models` surface. Amplify's `client.graphql` rejects
+  // with the `{ data, errors }` result object when the response carries
+  // errors.
+  graphql(args: {
+    query: string
+    variables?: Record<string, unknown>
+  }): Promise<GraphqlResult<{ amplessUpdatePostIfUnchanged?: DataPostRow | null }>>
+}
+
+const CONDITIONAL_MUTATION_FIELD = 'amplessUpdatePostIfUnchanged'
+
+// The atomic conditional update (templates/_shared/amplify/data/
+// update-post-if-unchanged.js). Explicit selection set matching every
+// `DataPostRow` field, so the returned row maps through `toCorePost`
+// exactly like the one `client.models.Post.update` returns.
+const UPDATE_POST_IF_UNCHANGED_MUTATION = /* GraphQL */ `
+  mutation AmplessUpdatePostIfUnchanged($postId: ID!, $patch: String!, $expected: String!) {
+    amplessUpdatePostIfUnchanged(postId: $postId, patch: $patch, expected: $expected) {
+      postId
+      slug
+      title
+      excerpt
+      format
+      body
+      status
+      publishedAt
+      tags
+      metadata
+      updatedAt
+    }
+  }
+`
+
+// Every field the resolver can patch and condition on.
+const CONDITIONED_FIELDS = [
+  'title',
+  'slug',
+  'excerpt',
+  'format',
+  'body',
+  'status',
+  'publishedAt',
+  'tags',
+  'metadata',
+] as const
+
+function isConditionalCheckFailed(errors: readonly GraphqlError[]): boolean {
+  return errors.some(
+    (e) =>
+      (typeof e?.errorType === 'string' && e.errorType.includes('ConditionalCheckFailedException')) ||
+      (typeof e?.message === 'string' && e.message.includes('ConditionalCheckFailedException'))
+  )
+}
+
+// The deployed schema has no `amplessUpdatePostIfUnchanged` (a backend
+// that was not upgraded): AppSync rejects the document at validation,
+// before any resolver runs, with e.g. "Validation error of type
+// FieldUndefined: Field 'amplessUpdatePostIfUnchanged' in type 'Mutation'
+// is undefined". Only errors naming the field count, so an unrelated
+// validation error is never mistaken for "unsupported".
+function isConditionalMutationMissing(errors: readonly GraphqlError[]): boolean {
+  return errors.some((e) => {
+    const text = `${e?.errorType ?? ''} ${e?.message ?? ''}`
+    return (
+      text.includes(CONDITIONAL_MUTATION_FIELD) &&
+      (text.includes('FieldUndefined') || /\b(?:is undefined|not defined|unknown field|cannot query field)\b/i.test(text))
+    )
+  })
+}
+
+// Pull the GraphQL `errors` array out of whatever `client.graphql`
+// rejected with: the `{ data, errors }` result object, or (network /
+// config failures) a plain Error, which yields `null`.
+function graphqlErrorsOf(err: unknown): GraphqlError[] | null {
+  if (err && typeof err === 'object' && Array.isArray((err as GraphqlResult<unknown>).errors)) {
+    return (err as GraphqlResult<unknown>).errors as GraphqlError[]
+  }
+  return null
+}
+
+// `patch` for the conditional mutation: the fields the caller sets, as
+// native values (the resolver marshals them the way the stock resolver
+// stores AWSJSON). `undefined` = untouched, same as `update`.
+function conditionalPatch(patch: Partial<Post>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const field of CONDITIONED_FIELDS) {
+    if (patch[field] !== undefined) out[field] = patch[field]
+  }
+  return out
+}
+
+// `expected` for the conditional mutation: every conditionable field of
+// the post as `toCorePost` produced it (absent -> null, which JSON keeps),
+// plus its `updatedAt`. Conditioning on all of them -- not only the fields
+// being patched -- means a full-document save never overwrites a field
+// another writer changed, even within the same millisecond.
+function conditionalExpected(expected: Post): Record<string, unknown> {
+  const out: Record<string, unknown> = { updatedAt: expected.updatedAt }
+  for (const field of CONDITIONED_FIELDS) out[field] = expected[field] ?? null
+  return out
+}
+
+// The `update` input: only the fields the patch sets, with body /
+// metadata AWSJSON-encoded.
+function toUpdateInput(postId: string, patch: Partial<Post>): Record<string, unknown> {
+  return {
+    postId,
+    ...(patch.slug !== undefined && { slug: patch.slug }),
+    ...(patch.title !== undefined && { title: patch.title }),
+    ...(patch.excerpt !== undefined && { excerpt: patch.excerpt }),
+    ...(patch.format !== undefined && { format: patch.format }),
+    ...(patch.body !== undefined && { body: encodeAwsJson(patch.body) }),
+    ...(patch.status !== undefined && { status: patch.status }),
+    ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
+    ...(patch.tags !== undefined && { tags: patch.tags }),
+    ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
   }
 }
 
@@ -192,6 +326,37 @@ export function installAdminPostsProvider(): void {
   installed = true
 
   const client = generateClient() as unknown as DataClient
+
+  // Set once the backend has answered that it has no conditional mutation
+  // (not upgraded): later saves skip the doomed round-trip. Lives as long
+  // as this provider, i.e. until the admin page reloads.
+  let conditionalMutationMissing = false
+
+  function missingConditionalMutation(): ConditionalPostUpdateUnsupportedError {
+    return new ConditionalPostUpdateUnsupportedError(
+      'The backend has no amplessUpdatePostIfUnchanged mutation (run `create-ampless upgrade` and redeploy); nothing was saved'
+    )
+  }
+
+  // Map GraphQL errors of a conditional update to the core error types.
+  // Always throws.
+  function handleConditionalErrors(
+    postId: string,
+    expectedUpdatedAt: string,
+    errors: readonly GraphqlError[],
+    cause?: unknown
+  ): never {
+    if (isConditionalCheckFailed(errors)) {
+      throw new PostUpdateConflictError(postId, expectedUpdatedAt, { cause: cause ?? errors })
+    }
+    if (isConditionalMutationMissing(errors)) {
+      conditionalMutationMissing = true
+      console.error('[ampless admin] backend lacks amplessUpdatePostIfUnchanged:', errors)
+      throw missingConditionalMutation()
+    }
+    console.error('[ampless admin] conditional Post update failed:', errors)
+    throw new Error(errors[0]?.message ?? 'Failed to update post')
+  }
 
   const provider: PostsProvider = {
     async list(opts: ListOptions = {}) {
@@ -284,19 +449,47 @@ export function installAdminPostsProvider(): void {
     },
 
     async update(postId, patch) {
-      const { data, errors } = await client.models.Post.update({
-        postId,
-        ...(patch.slug !== undefined && { slug: patch.slug }),
-        ...(patch.title !== undefined && { title: patch.title }),
-        ...(patch.excerpt !== undefined && { excerpt: patch.excerpt }),
-        ...(patch.format !== undefined && { format: patch.format }),
-        ...(patch.body !== undefined && { body: encodeAwsJson(patch.body) }),
-        ...(patch.status !== undefined && { status: patch.status }),
-        ...(patch.publishedAt !== undefined && { publishedAt: patch.publishedAt }),
-        ...(patch.tags !== undefined && { tags: patch.tags }),
-        ...(patch.metadata !== undefined && { metadata: encodeAwsJson(patch.metadata) }),
-      })
+      const { data, errors } = await client.models.Post.update(toUpdateInput(postId, patch))
       if (errors || !data) throw new Error(errors?.[0]?.message ?? 'Failed to update post')
+      return toCorePost(data)
+    },
+
+    // Atomic conditional update through `amplessUpdatePostIfUnchanged`:
+    // DynamoDB applies the patch only if the row still holds `updatedAt`
+    // AND every field of `expected` (see conditionalExpected), so even a
+    // write in the same millisecond -- which leaves updatedAt unchanged --
+    // fails the condition. A deleted post fails it too.
+    async updateIfUnchanged(postId, patch, { expected }) {
+      const expectedUpdatedAt = expected.updatedAt
+      if (!expectedUpdatedAt) {
+        throw new ConditionalPostUpdateUnsupportedError(
+          `Post ${postId} has no updatedAt to condition on; nothing was saved`
+        )
+      }
+      if (conditionalMutationMissing) throw missingConditionalMutation()
+      let result: GraphqlResult<{ amplessUpdatePostIfUnchanged?: DataPostRow | null }>
+      try {
+        result = await client.graphql({
+          query: UPDATE_POST_IF_UNCHANGED_MUTATION,
+          variables: {
+            postId,
+            patch: JSON.stringify(conditionalPatch(patch)),
+            expected: JSON.stringify(conditionalExpected(expected)),
+          },
+        })
+      } catch (err) {
+        const errors = graphqlErrorsOf(err)
+        if (errors) handleConditionalErrors(postId, expectedUpdatedAt, errors, err)
+        console.error('[ampless admin] conditional Post update failed:', err)
+        throw err
+      }
+      const errors = result.errors ?? []
+      if (errors.length > 0) handleConditionalErrors(postId, expectedUpdatedAt, errors)
+      const data = result.data?.amplessUpdatePostIfUnchanged
+      if (!data) {
+        console.error('[ampless admin] conditional Post update returned no row:', result)
+        throw new Error('Failed to update post')
+      }
       return toCorePost(data)
     },
 

@@ -110,4 +110,12 @@ describe('draftDiffersFromLoaded', () => {
   it('detects a tags-input change', () => {
     expect(draftDiffersFromLoaded(draftFrom({ tags: 'a, b, c' }), LOADED)).toBe(true)
   })
+
+  it('compares post classes as a set, and ignores them for drafts that predate the field', () => {
+    const loaded: LoadedPostState = { ...LOADED, postClasses: ['wide', 'serif'] }
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['serif', 'wide'] }), loaded)).toBe(false)
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), loaded)).toBe(true)
+    expect(draftDiffersFromLoaded(draftFrom({ postClasses: ['wide'] }), LOADED)).toBe(true)
+    expect(draftDiffersFromLoaded(draftFrom(), loaded)).toBe(false)
+  })
 })

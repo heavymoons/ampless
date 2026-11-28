@@ -11,8 +11,12 @@ export {
   listPostSummaries,
   setPostsProvider,
   hasPostsProvider,
+  supportsConditionalPostUpdate,
+  PostUpdateConflictError,
+  ConditionalPostUpdateUnsupportedError,
 } from './core.js'
 export type {
+  ConditionalPostUpdateOptions,
   ListOptions,
   SummaryListOptions,
   CreatePostInput,
@@ -178,8 +182,20 @@ export {
   isValidCustomClassId,
   tableCustomClassName,
   themeTableClasses,
+  postCustomClassName,
+  themeCustomClasses,
+  themePostClasses,
+  POST_CLASSES_METADATA_KEY,
+  POST_CLASSES_METADATA_KIND,
+  readPostClasses,
+  hasForeignPostClassesValue,
+  withPostClasses,
+  postClassesMetadataError,
+  bypassesPostBodyWrapper,
+  postBodyClassName,
 } from './theme.js'
 export type {
+  PostClassesMetadata,
   ThemeManifest,
   ThemeCustomClass,
   ThemeCustomClassTarget,

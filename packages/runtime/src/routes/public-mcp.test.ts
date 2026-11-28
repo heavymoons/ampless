@@ -190,6 +190,7 @@ describe('createPublicMcpRouteHandler', () => {
       for (const adminOnlyName of [
         'create_post',
         'update_post',
+        'set_post_classes',
         'delete_post',
         'upload_media',
         'delete_media',

@@ -58,6 +58,10 @@ export type CacheStrategy = 'auto' | 'deep' | 'hot'
  *   - `cache`: see `CacheStrategy`. Overrides the default 'auto'
  *     cache strategy for this post. Independent of `no_layout` —
  *     applies uniformly to themed, no_layout, and static posts.
+ *   - `ampless:postClasses` (`POST_CLASSES_METADATA_KEY`): theme-defined
+ *     post-level classes, read only when the value is a tagged
+ *     `PostClassesMetadata` (see theme.ts). Not a typed field here, so
+ *     the key's type stays `unknown` like any other free-form key.
  *
  * Additional keys are passed through unchanged — themes and plugins
  * are free to store their own per-post state here (e.g. SEO overrides,
